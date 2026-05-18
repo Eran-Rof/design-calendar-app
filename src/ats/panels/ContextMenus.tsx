@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { fmtDateDisplay } from "../helpers";
 import type { CtxMenu, SummaryCtxMenu } from "../types";
 import { getSkuSalesAggregates, type SkuSalesAggregates } from "../exportSalesFetch";
+import { askAI, buildRowAskPrompt } from "../../ai/askAIBridge";
 
 // Shared store pill — used by both summary and cell menus
 const storeTag = (store: string) => (
@@ -71,7 +72,43 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
       <div data-popup-body style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 10, overflow: "hidden", maxHeight: "70vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px 6px", borderBottom: "1px solid #1a2030", position: "sticky", top: 0, background: "#1E293B", zIndex: 1 }}>
           <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{row.sku}</span>
-          <button style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }} onClick={() => setSummaryCtx(null)}>✕</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {/* PR 4/4: "Ask Claude about this row" — dispatches a
+                CustomEvent picked up by NavBar, which opens AskAIPanel
+                with a generated prompt about this SKU. */}
+            <button
+              title="Ask Claude about this row"
+              onClick={() => {
+                const prompt = buildRowAskPrompt({
+                  sku: row.sku,
+                  style: row.styleCode,
+                  description: row.description,
+                  category: row.category,
+                  store: row.store ?? undefined,
+                  onHand: row.onHand,
+                  onOrder: row.onOrder,
+                  onPO: row.onPO,
+                  extras: {
+                    "Avg cost": typeof row.avgCost === "number" && row.avgCost > 0 ? `$${row.avgCost.toFixed(2)}` : null,
+                    "Pack size": (row.ppkMult ?? 1) > 1 ? row.ppkMult : null,
+                    "Right-click context": type,
+                  },
+                });
+                askAI({ prompt, source: `ats-summary-${type}` });
+                setSummaryCtx(null);
+              }}
+              style={{
+                background: "linear-gradient(135deg, #6D28D9, #7C3AED)",
+                color: "#fff", border: "1px solid #5B21B6",
+                borderRadius: 4, padding: "2px 8px",
+                fontSize: 10, fontWeight: 700, cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              ✨ Ask Claude
+            </button>
+            <button style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }} onClick={() => setSummaryCtx(null)}>✕</button>
+          </div>
         </div>
 
         {type === "onHand" && (
