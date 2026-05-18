@@ -202,15 +202,23 @@ async function tool_query_shipments(db, input) {
     return { groups: [], note: "No SKUs matched the supplied style_code/sku_code." };
   }
 
+  // Customer narrowing accepts either customer_ids (array, preferred —
+  // catches Xoro spelling drift where one logical customer maps to
+  // many master rows) OR customer_id (singular, legacy). Coerced to a
+  // unified list so .in() always fires when narrowing.
+  const customerIds = Array.isArray(input?.customer_ids) && input.customer_ids.length > 0
+    ? input.customer_ids.filter(id => typeof id === "string" && id.length > 0)
+    : (input?.customer_id ? [input.customer_id] : null);
+
   let q = db
     .from("ip_sales_history_wholesale")
     .select("sku_id, customer_id, txn_date, txn_type, qty, net_amount")
     .gte("txn_date", date_from)
     .lte("txn_date", date_to)
     .limit(QUERY_ROW_LIMIT);
-  if (input?.customer_id) q = q.eq("customer_id", input.customer_id);
-  if (input?.txn_type)    q = q.eq("txn_type",    input.txn_type);
-  if (skuIds)             q = q.in("sku_id", skuIds);
+  if (customerIds && customerIds.length > 0) q = q.in("customer_id", customerIds);
+  if (input?.txn_type)                       q = q.eq("txn_type",    input.txn_type);
+  if (skuIds)                                q = q.in("sku_id", skuIds);
 
   const { data, error } = await q;
   if (error) return { error: error.message };
@@ -267,12 +275,18 @@ async function tool_query_open_sos(db, input) {
     return { groups: [], note: "No SKUs matched the supplied style_code/sku_code." };
   }
 
+  // Same customer narrowing pattern as tool_query_shipments — prefer
+  // customer_ids array (Xoro spelling drift), fall back to singular.
+  const customerIds = Array.isArray(input?.customer_ids) && input.customer_ids.length > 0
+    ? input.customer_ids.filter(id => typeof id === "string" && id.length > 0)
+    : (input?.customer_id ? [input.customer_id] : null);
+
   let q = db
     .from("ip_open_sales_orders")
     .select("sku_id, customer_id, customer_name, ship_date, qty_ordered, qty_shipped, qty_open, unit_price")
     .limit(QUERY_ROW_LIMIT);
-  if (input?.customer_id) q = q.eq("customer_id", input.customer_id);
-  if (skuIds)             q = q.in("sku_id", skuIds);
+  if (customerIds && customerIds.length > 0) q = q.in("customer_id", customerIds);
+  if (skuIds)                                q = q.in("sku_id", skuIds);
   if (input?.date_from) {
     const d = clampDate(input.date_from);
     if (!d) return { error: "date_from must be YYYY-MM-DD" };
