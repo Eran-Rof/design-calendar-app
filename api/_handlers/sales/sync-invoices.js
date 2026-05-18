@@ -22,6 +22,7 @@ import { createClient } from "@supabase/supabase-js";
 import { canonSku, canonStyleColor } from "../../_lib/sku-canon.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import { deriveSalesGrainFields } from "../../_lib/sales-grain.js";
+import { detectSoStore } from "../../_lib/ats-parse.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
@@ -346,6 +347,25 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── Resolve channel ids for the store column ────────────────────────────
+  // Sale Store from Xoro ("ROF", "ROF ECOM", "PT", plus Xoro variants
+  // like "Psycho Tuna") is funnelled through detectSoStore so we get
+  // the canonical ATS code. Each row's channel_id is then looked up
+  // from ip_channel_master. Missing channel rows or unknown stores
+  // fall through as NULL so the row still upserts cleanly.
+  const channelCodeToId = new Map();
+  {
+    const { data, error } = await admin
+      .from("ip_channel_master")
+      .select("id, channel_code")
+      .in("channel_code", ["ROF", "ROF ECOM", "PT"]);
+    if (error) {
+      counts.errors.push(`channel lookup: ${error.message}`);
+    } else {
+      for (const row of data ?? []) channelCodeToId.set(row.channel_code, row.id);
+    }
+  }
+
   // ── Pass 2: build sales rows ─────────────────────────────────────────────
   const out = [];
   for (const c of candidates) {
@@ -373,7 +393,7 @@ export default async function handler(req, res) {
       sku_id: skuId,
       customer_id: customerId,
       category_id: null,
-      channel_id: null,
+      channel_id: channelCodeToId.get(detectSoStore("", c.saleStore || "", "")) ?? null,
       order_number: null,
       invoice_number: c.invoiceNumber,
       txn_type: c.invoiceNumber ? "invoice" : "ship",

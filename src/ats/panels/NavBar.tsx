@@ -727,6 +727,11 @@ export const NavBar: React.FC<NavBarProps> = ({
           needT3: opts.trailing3,
           needLY: opts.spLY,
           customer: opts.customer,
+          // Honour the grid's store filter so T3/LY revenue matches
+          // the visible-row scope. Without this, ROF wholesale sales
+          // would bleed into a ROF ECOM-only export's totals (see
+          // migration 20260518030000 for context).
+          storeFilter: exportFilterOpts.storeFilter,
           // Custom window for the T3 block (and LY = same window -12mo).
           // Modal only persists non-empty strings when the operator has
           // both enabled the toggle AND picked dates — empty strings
