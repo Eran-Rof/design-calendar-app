@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import { buildCacheKey } from "../answer-cache.js";
 import { applyFilter } from "../executors.js";
 import { defaultCardWindows, growthShare } from "../executors-cards.js";
-import { clampDate, canonName, formatCacheAge, sanitizeHistory } from "../utils.js";
+import { clampDate, canonName, formatCacheAge, sanitizeHistory, sanitizeFollowups } from "../utils.js";
 
 // ────────────────────────────────────────────────────────────────────────
 // Cache key
@@ -259,5 +259,68 @@ describe("sanitizeHistory", () => {
   it("returns [] for non-array input", () => {
     expect(sanitizeHistory(null)).toEqual([]);
     expect(sanitizeHistory("nope")).toEqual([]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// sanitizeFollowups — drives the follow-up chip strip in AskAIPanel.
+// The model is instructed to keep each ≤ 70 chars; the server enforces.
+// ────────────────────────────────────────────────────────────────────────
+
+describe("sanitizeFollowups", () => {
+  it("returns the cleaned array for valid input", () => {
+    const out = sanitizeFollowups([
+      "Show monthly breakdown",
+      "Same numbers for last year",
+      "Which other customers buy this style?",
+    ]);
+    expect(out).toEqual([
+      "Show monthly breakdown",
+      "Same numbers for last year",
+      "Which other customers buy this style?",
+    ]);
+  });
+
+  it("trims whitespace and drops empty entries", () => {
+    const out = sanitizeFollowups(["  trim me  ", "", "   ", "ok"]);
+    expect(out).toEqual(["trim me", "ok"]);
+  });
+
+  it("drops entries over 70 chars", () => {
+    const tooLong = "x".repeat(71);
+    const out = sanitizeFollowups(["short one", tooLong, "another short"]);
+    expect(out).toEqual(["short one", "another short"]);
+  });
+
+  it("keeps entries exactly 70 chars (boundary)", () => {
+    const exactly70 = "y".repeat(70);
+    const out = sanitizeFollowups([exactly70]);
+    expect(out).toEqual([exactly70]);
+  });
+
+  it("caps at 3 even when the model emits more", () => {
+    const out = sanitizeFollowups(["a", "b", "c", "d", "e"]);
+    expect(out).toEqual(["a", "b", "c"]);
+  });
+
+  it("returns null when nothing survives sanitization", () => {
+    expect(sanitizeFollowups([])).toBeNull();
+    expect(sanitizeFollowups(["   ", ""])).toBeNull();
+    expect(sanitizeFollowups([null, undefined])).toBeNull();
+    // All over 70 → all dropped → null
+    expect(sanitizeFollowups(["x".repeat(80), "y".repeat(90)])).toBeNull();
+  });
+
+  it("returns null for non-array input", () => {
+    expect(sanitizeFollowups(null)).toBeNull();
+    expect(sanitizeFollowups(undefined)).toBeNull();
+    expect(sanitizeFollowups("a single string")).toBeNull();
+    expect(sanitizeFollowups({ questions: ["a"] })).toBeNull();
+  });
+
+  it("coerces non-string entries via String()", () => {
+    const out = sanitizeFollowups([42, "ok", true]);
+    // 42 → "42", true → "true" (both ≤ 70 chars)
+    expect(out).toEqual(["42", "ok", "true"]);
   });
 });

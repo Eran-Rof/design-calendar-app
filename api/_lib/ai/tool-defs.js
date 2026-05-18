@@ -190,6 +190,24 @@ export const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "suggest_followups",
+    description: "After answering, propose 2-3 short follow-up questions the operator is likely to want next. Each should be a self-contained question (not a fragment), grounded in the same entities just discussed (style, customer, period). Examples: 'Show monthly breakdown for that period', 'Same numbers for last year', 'Which other customers buy this style?'. Keep each ≤ 70 chars so it fits in a chip. Do NOT call when the answer is itself a clarifying question or when you're not confident any of the suggestions are useful.",
+    input_schema: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          items: { type: "string" },
+          description: "Array of 1-3 follow-up question strings, ≤ 70 chars each.",
+        },
+      },
+      required: ["questions"],
+      additionalProperties: false,
+    },
+  },
 
   // ── Cross-app discovery + generic query (looped) ─────────────────────
   {

@@ -49,6 +49,7 @@ import {
   buildGridContextBlock,
   summarizeToolResult,
   formatCacheAge,
+  sanitizeFollowups,
 } from "../../_lib/ai/utils.js";
 import {
   buildCacheKey,
@@ -246,6 +247,7 @@ export default async function handler(req, res) {
   let text = "";
   const actions   = [];
   let suggestion  = null;
+  let followups   = null;
   for (const block of (finalMessage?.content || [])) {
     if (block.type === "tool_use") {
       if (block.name === "answer_text") {
@@ -255,6 +257,8 @@ export default async function handler(req, res) {
           label: String(block.input?.label || "Apply to grid"),
           filters: block.input?.filters || {},
         };
+      } else if (block.name === "suggest_followups") {
+        followups = sanitizeFollowups(block.input?.questions);
       } else if (TERMINAL_TOOLS.has(block.name)) {
         actions.push({ type: block.name, params: block.input || {} });
       }
@@ -287,6 +291,7 @@ export default async function handler(req, res) {
     text,
     actions,
     suggestion,
+    followups,
     trace,
     token_usage: {
       input_tokens:  totalIn,
