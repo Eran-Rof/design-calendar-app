@@ -73,6 +73,9 @@ interface ChatMessage {
   /** Set true after a successful save so the bubble shows the
    *  download affordance + a "captured" badge. */
   factCaptured?: boolean;
+  /** Transient state used by the Copy button to flash "Copied" for
+   *  ~1.4s after a successful clipboard write. */
+  justCopied?: boolean;
   pending?: boolean;
   error?: boolean;
   // Cache hit metadata — surfaced as a small "cached Xm ago · Ask fresh ↻"
@@ -102,6 +105,15 @@ const DEFAULT_SAMPLES = [
 function genId() {
   return Math.random().toString(36).slice(2, 10);
 }
+
+// Shared style for the per-bubble action links (Copy / Regenerate /
+// "Why?"). Subtle by default, lights up on hover.
+const bubbleActionStyle: React.CSSProperties = {
+  background: "none", border: "none", padding: 0,
+  color: "#64748B", fontStyle: "italic",
+  fontSize: 10, fontFamily: "inherit",
+  cursor: "pointer", transition: "color 0.1s",
+};
 
 // Minimal markdown-to-React renderer. The system prompt restricts Claude
 // to plain prose + **bold**, so we only need to handle that one inline
@@ -146,6 +158,22 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  // Pop-out mode (PR: bubble-actions). When true the panel renders as
+  // a near-full-screen overlay so tables / charts / long answers stop
+  // feeling cramped. Persisted per-operator in localStorage so the
+  // preference survives reloads.
+  const [poppedOut, setPoppedOut] = useState<boolean>(() => {
+    try { return localStorage.getItem("ai_panel_popped_out") === "1"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ai_panel_popped_out", poppedOut ? "1" : "0"); }
+    catch { /* ignore */ }
+  }, [poppedOut]);
+  // Tier-3L+: per-user-message edit mode. When set to a message id, that
+  // bubble renders an inline textarea instead of static text.
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
   // Operator-asked popular prompts loaded once per panel session.
   // Empty array = "not loaded / nothing to show", in which case we
   // fall back to the static samplePrompts prop.
@@ -317,20 +345,38 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     }
   }, [messages]);
 
-  async function send(text: string) {
+  /**
+   * send(text) — operator-facing: append a user message + stream a reply.
+   *
+   * `opts.baseMessages` lets regenerate / edit-and-resend pass an
+   * explicitly-truncated message list (the React state closure for
+   * `messages` is the wrong source after we've just truncated). When
+   * provided, `text` is treated as the question for an EXISTING user
+   * message already at the tail of `baseMessages` — we do NOT append a
+   * new one.
+   */
+  async function send(text: string, opts?: { baseMessages?: ChatMessage[] }) {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
 
-    const userMsg: ChatMessage = { id: genId(), role: "user", text: trimmed };
+    let baseMessages: ChatMessage[];
+    if (opts?.baseMessages) {
+      baseMessages = opts.baseMessages;
+    } else {
+      const userMsg: ChatMessage = { id: genId(), role: "user", text: trimmed };
+      baseMessages = [...messages, userMsg];
+    }
     const pendingMsg: ChatMessage = { id: genId(), role: "assistant", text: "Thinking…", pending: true };
-    setMessages(prev => [...prev, userMsg, pendingMsg]);
-    setInput("");
+    setMessages([...baseMessages, pendingMsg]);
+    if (!opts?.baseMessages) setInput("");
     setBusy(true);
 
     // History sent to the server: every prior user/assistant pair, no
-    // pending/system entries. Cap is enforced server-side too.
-    const history: AskAIHistoryTurn[] = messages
-      .filter(m => (m.role === "user" || m.role === "assistant") && !m.pending && !m.error)
+    // pending/system entries, AND excluding the trigger user message
+    // (we send that as the current question). Cap is enforced server-side too.
+    const triggerUserId = baseMessages[baseMessages.length - 1]?.id;
+    const history: AskAIHistoryTurn[] = baseMessages
+      .filter(m => (m.role === "user" || m.role === "assistant") && !m.pending && !m.error && m.id !== triggerUserId)
       .map(m => ({ role: m.role as "user" | "assistant", text: m.text }));
 
     let context: GridContextSnapshot;
@@ -502,6 +548,70 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     }
   }
 
+  /**
+   * regenerate(assistantId) — re-fire the user prompt that produced
+   * `assistantId`. Drops the assistant message + everything after, then
+   * re-asks. Vanilla-Claude muscle memory: "didn't like that answer."
+   */
+  function regenerate(assistantId: string) {
+    if (busy) return;
+    const idx = messages.findIndex(m => m.id === assistantId);
+    if (idx <= 0) return;
+    const trigger = messages[idx - 1];
+    if (!trigger || trigger.role !== "user") return;
+    // Keep up to and INCLUDING the triggering user message.
+    const baseMessages = messages.slice(0, idx);
+    send(trigger.text, { baseMessages });
+  }
+
+  /**
+   * editAndResend(userId, newText) — replace the text of an existing
+   * user message, drop everything after it, and re-ask. Lets the
+   * operator refine a question without re-typing the whole thread.
+   */
+  function editAndResend(userId: string, newText: string) {
+    if (busy) return;
+    const trimmed = newText.trim();
+    if (!trimmed) return;
+    const idx = messages.findIndex(m => m.id === userId);
+    if (idx < 0) return;
+    const updatedUser: ChatMessage = { ...messages[idx], text: trimmed };
+    const baseMessages = [...messages.slice(0, idx), updatedUser];
+    setEditingUserId(null);
+    setEditingDraft("");
+    send(trimmed, { baseMessages });
+  }
+
+  /**
+   * copyMessage(text) — write to clipboard with a graceful fallback for
+   * older browsers / Safari quirks. No toast UI; the button label
+   * briefly flips to "Copied" via the bubble's transient state.
+   */
+  async function copyMessage(messageId: string, text: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for old browsers / non-https origins.
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      // Flash the bubble's local "copied" flag for 1.4s.
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, justCopied: true } : m));
+      setTimeout(() => {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, justCopied: false } : m));
+      }, 1400);
+    } catch {
+      /* swallow — the user can select+copy manually */
+    }
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -531,7 +641,21 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         }}
       />
       <div
-        style={{
+        style={poppedOut ? {
+          // Pop-out: near-full-screen overlay with margin breathing room
+          // so tables / multi-paragraph answers / future image/chart
+          // attachments stop feeling cramped.
+          position: "fixed",
+          top: 24, right: 24, bottom: 24, left: 24,
+          background: "#0F172A",
+          border: "1px solid #1E293B",
+          borderRadius: 12,
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+          zIndex: 501,
+          display: "flex", flexDirection: "column",
+          color: "#F1F5F9",
+          fontFamily: "inherit",
+        } : {
           position: "fixed",
           top: 0, right: 0, bottom: 0,
           width: 440, maxWidth: "92vw",
@@ -642,6 +766,17 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             >
               Facts
             </a>
+            {/* Pop-out toggle. Switches the panel between right-anchored
+                slim mode and near-full-screen overlay. Preference is
+                persisted in localStorage so it survives reload. */}
+            <button
+              onClick={() => setPoppedOut(v => !v)}
+              title={poppedOut ? "Collapse to side panel" : "Expand to full screen"}
+              style={{
+                background: "transparent", border: "none", color: "#94A3B8",
+                cursor: "pointer", fontSize: 14, padding: "0 6px",
+              }}
+            >{poppedOut ? "⇲" : "⇱"}</button>
             <button
               onClick={onClose}
               title="Close"
@@ -762,7 +897,61 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             >
               {m.role === "assistant" && !m.pending && !m.error
                 ? <RenderedMessage text={m.text} />
-                : <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>}
+                : m.role === "user" && editingUserId === m.id
+                  ? (
+                    /* Inline edit form for an existing user message.
+                       On save, send() runs with a truncated baseMessages —
+                       everything after this message is dropped + replaced
+                       with the new question + a fresh streamed reply. */
+                    <div>
+                      <textarea
+                        value={editingDraft}
+                        onChange={e => setEditingDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            editAndResend(m.id, editingDraft);
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            setEditingUserId(null);
+                            setEditingDraft("");
+                          }
+                        }}
+                        rows={Math.min(8, Math.max(2, editingDraft.split("\n").length + 1))}
+                        autoFocus
+                        style={{
+                          width: "100%", boxSizing: "border-box",
+                          background: "rgba(15,23,42,0.5)",
+                          border: "1px solid rgba(255,255,255,0.4)",
+                          borderRadius: 6, padding: "6px 8px",
+                          color: "#fff", fontSize: 13, fontFamily: "inherit", resize: "vertical",
+                        }}
+                      />
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        <button
+                          onClick={() => editAndResend(m.id, editingDraft)}
+                          disabled={busy || !editingDraft.trim()}
+                          style={{
+                            background: "rgba(255,255,255,0.2)", color: "#fff",
+                            border: "1px solid rgba(255,255,255,0.4)",
+                            borderRadius: 4, padding: "3px 10px",
+                            fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >Save & resend</button>
+                        <button
+                          onClick={() => { setEditingUserId(null); setEditingDraft(""); }}
+                          disabled={busy}
+                          style={{
+                            background: "transparent", color: "rgba(255,255,255,0.85)",
+                            border: "1px solid rgba(255,255,255,0.3)",
+                            borderRadius: 4, padding: "3px 10px",
+                            fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >Cancel</button>
+                      </div>
+                    </div>
+                  )
+                  : <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>}
               {m.actionLabel && (
                 <div style={{
                   marginTop: 6,
@@ -839,6 +1028,54 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                       {q}
                     </button>
                   ))}
+                </div>
+              )}
+              {/* Per-bubble vanilla-Claude-style actions: Copy +
+                  Regenerate on assistant bubbles, Edit on user bubbles.
+                  Hidden during pending/error states + while busy. */}
+              {m.role === "assistant" && !m.pending && !m.error && (
+                <div style={{
+                  display: "flex", gap: 10, marginTop: 6, alignItems: "center",
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => copyMessage(m.id, m.text)}
+                    title="Copy this answer"
+                    style={bubbleActionStyle}
+                    onMouseEnter={e => (e.currentTarget.style.color = "#94A3B8")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "#64748B")}
+                  >
+                    {m.justCopied ? "✓ Copied" : "Copy"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => regenerate(m.id)}
+                    disabled={busy}
+                    title="Re-ask the previous question — useful if the AI answered the wrong thing"
+                    style={{ ...bubbleActionStyle, opacity: busy ? 0.4 : 1, cursor: busy ? "not-allowed" : "pointer" }}
+                    onMouseEnter={e => { if (!busy) e.currentTarget.style.color = "#94A3B8"; }}
+                    onMouseLeave={e => (e.currentTarget.style.color = "#64748B")}
+                  >
+                    ↻ Regenerate
+                  </button>
+                </div>
+              )}
+              {m.role === "user" && editingUserId !== m.id && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setEditingUserId(m.id); setEditingDraft(m.text); }}
+                    disabled={busy}
+                    title="Edit this message — replies after it will be dropped + replaced"
+                    style={{
+                      background: "none", border: "none", padding: 0,
+                      color: "rgba(255,255,255,0.75)", fontStyle: "italic",
+                      fontSize: 10, fontFamily: "inherit",
+                      cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1,
+                    }}
+                  >
+                    ✎ Edit
+                  </button>
                 </div>
               )}
               {/* "Why?" trace — collapsible list of the server-side
