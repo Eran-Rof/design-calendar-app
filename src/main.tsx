@@ -160,6 +160,12 @@ async function mount() {
     const { default: DocumentsApp } = await import("./ai/documents/DocumentsApp");
     root.render(<StrictMode><ErrorBoundary appName="Ask AI Documents"><DocumentsApp /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/ai-ops")) {
+    // Operator observability dashboard for Ask AI (cost, errors,
+    // cache hits, slow tools). Reads ip_ai_call_log + ip_ai_answer_cache.
+    const { default: OpsApp } = await import("./ai/ops/OpsApp");
+    root.render(<StrictMode><ErrorBoundary appName="Ask AI Ops"><OpsApp /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/notifications")) {
     const [{ default: NotificationsPage }, { supabaseClient }] = await Promise.all([
       import("./components/notifications/NotificationsPage"),
