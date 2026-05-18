@@ -35,6 +35,7 @@ import {
 import { tool_style_card, tool_customer_card } from "./executors-cards.js";
 import { tool_query_margin } from "./executors-margin.js";
 import { tool_lookup_user_facts } from "./executors-user-facts.js";
+import { tool_start_workflow } from "./workflows.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Schema merging — curated registry + live introspection
@@ -666,4 +667,5 @@ export const TOOL_EXECUTORS = {
   customer_card:    tool_customer_card,
   query_margin:     tool_query_margin,
   lookup_user_facts: tool_lookup_user_facts,
+  start_workflow:    tool_start_workflow,
 };

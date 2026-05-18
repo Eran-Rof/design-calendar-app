@@ -53,4 +53,5 @@ export const TOOL_LABELS = {
   customer_card:   "Building customer snapshot…",
   lookup_user_facts: "Checking operator notes…",
   query_margin:    "Computing margin…",
+  start_workflow:  "Running multi-step workflow…",
 };

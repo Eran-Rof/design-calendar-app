@@ -79,11 +79,11 @@ const DEFAULT_SAMPLES = [
   "Show me only Mens",
   "Sort by on-order descending",
   "How many Edge did Ross order June 2026 vs ship same period last year?",
+  "Run the Monday briefing",
+  "Show me the underperformer review for this quarter",
+  "Which customers look like churn risks right now?",
   "What compliance docs expire in the next 30 days?",
   "Open AR by status — sum total per status",
-  "Which vendors had the most disputes this quarter?",
-  "Forecast accuracy MAPE by method last quarter",
-  "Clear all filters",
 ];
 
 function genId() {
