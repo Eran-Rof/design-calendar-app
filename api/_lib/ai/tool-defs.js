@@ -157,6 +157,19 @@ export const TOOLS = [
     },
   },
   {
+    name: "start_workflow",
+    description: "Run a named multi-step cross-app workflow server-side and get back a single rich payload. Use this when the operator asks for one of these pre-built reports by name (or by intent). Available workflows: 'underperformer_review' (top-N styles whose T3 revenue dropped vs LY, with their open-PO exposure for cancellation review); 'customer_churn_check' (customers whose T3 revenue dropped ≥ 25% vs LY, with their open-SO exposure); 'monday_briefing' (one-call dashboard: T3 totals, top 5 customers, top 5 styles, open SO + open PO snapshot). Each runs 4-8 sub-queries server-side — faster + cheaper than orchestrating the same chain with one-off tools. After the tool returns, summarise the result in answer_text using the numbers it provides; do NOT re-derive or fabricate.",
+    input_schema: {
+      type: "object",
+      properties: {
+        workflow_name: { type: "string", enum: ["underperformer_review", "customer_churn_check", "monday_briefing"], description: "Which workflow to run." },
+        params: { type: "object", description: "Workflow-specific parameters. underperformer_review: { top_n? }. customer_churn_check: { drop_threshold_pct?, top_n? }. monday_briefing: none.", additionalProperties: true },
+      },
+      required: ["workflow_name"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "lookup_user_facts",
     description: "Look up operator-authored facts on a topic — call this BEFORE answering any question that mentions a specific style code, customer name, or named process (e.g. 'discount calc', 'forecast accuracy'). Operators leave free-text notes here that refine or contradict what the schema/data alone would suggest. Returns up to 5 facts ranked operator's-own > global. If no facts match, returns count:0 — proceed with the normal flow. Topic is a substring match (case-insensitive), so 'RYB0412' matches a fact tagged 'RYB0412PPK24' and 'burlington' matches 'Burlington Coat Factory'.",
     input_schema: {
