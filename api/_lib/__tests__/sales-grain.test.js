@@ -151,6 +151,32 @@ describe("resolvePerUnitCost", () => {
     expect(resolvePerUnitCost({ masterUnitCost: undefined, packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
     expect(resolvePerUnitCost({ masterUnitCost: "not a number", packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
   });
+
+  it("returns null when master cost is zero (data quality gap, not a free-cost good)", () => {
+    expect(resolvePerUnitCost({ masterUnitCost: 0, packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
+    expect(resolvePerUnitCost({ masterUnitCost: 0, packSize: 60, grain: "pack", netAmount: 4800, qtyUnits: 1200 })).toBe(null);
+  });
+
+  it("returns null when master cost is negative (impossible — treat as missing)", () => {
+    expect(resolvePerUnitCost({ masterUnitCost: -1, packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
+  });
+});
+
+describe("deriveSalesGrainFields — zero-cost suppression", () => {
+  it("suppresses cogs/margin when master.unit_cost is 0 (the RCB0975N-* 100% margin pollution)", () => {
+    const r = deriveSalesGrainFields({
+      rawItemNumber: "RCB0975N-GREY",
+      qty: 736,
+      netAmount: 4674,
+      master: { pack_size: 60, unit_cost: 0 },
+    });
+    expect(r.qty_grain).toBe("unit");
+    expect(r.qty_units).toBe(736);
+    expect(r.unit_cost_at_sale).toBe(null);
+    expect(r.cogs_amount).toBe(null);
+    expect(r.margin_amount).toBe(null);
+    expect(r.margin_pct).toBe(null);
+  });
 });
 
 describe("deriveSalesGrainFields", () => {
