@@ -44,6 +44,16 @@ interface AskAIPanelProps {
    *  the panel still works exactly the same, conversations just don't
    *  survive close/reopen. */
   appId?: string;
+  /** PR 4/4: pre-fill the input from outside (e.g. from a "Ask AI
+   *  about this row" right-click). Whenever this prop changes to a
+   *  non-empty string, the panel sets its internal input to that
+   *  value (operator can edit before sending). Host should null it
+   *  out after consumption to allow the same prompt to be sent again. */
+  draftInput?: string | null;
+  /** Called after the panel adopts `draftInput`, so the host can
+   *  reset its state to null. Optional — without it the panel will
+   *  ignore a repeated identical draft. */
+  onDraftInputConsumed?: () => void;
 }
 
 interface ChatMessage {
@@ -154,7 +164,7 @@ function RenderedMessage({ text }: { text: string }) {
 }
 
 export const AskAIPanel: React.FC<AskAIPanelProps> = ({
-  open, onClose, buildContext, setters, samplePrompts, appId,
+  open, onClose, buildContext, setters, samplePrompts, appId, draftInput, onDraftInputConsumed,
 }) => {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -217,6 +227,18 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
+
+  // PR 4/4: when the host pushes a `draftInput`, adopt it into the
+  // textarea and notify the host to clear its state so the same draft
+  // can be sent again later. Operator can still edit before sending.
+  useEffect(() => {
+    if (typeof draftInput === "string" && draftInput.length > 0) {
+      setInput(draftInput);
+      onDraftInputConsumed?.();
+      setTimeout(() => inputRef.current?.focus(), 30);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftInput]);
 
   // Tier 2E: hydrate prior conversation on first open. Only runs once
   // per panel mount — re-opening the panel during the same mount

@@ -15,6 +15,7 @@ import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCanon";
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
+import { onAskAIRequest } from "../../ai/askAIBridge";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -512,6 +513,17 @@ export const NavBar: React.FC<NavBarProps> = ({
   aiBuildContext, aiSetters,
 }) => {
   const [aiOpen, setAiOpen] = useState(false);
+  // PR 4/4: draft input pushed in from outside (e.g. right-click on a
+  // grid row dispatching an "ask AI" event). Consumed by AskAIPanel
+  // on next render then cleared by the onDraftInputConsumed callback.
+  const [aiDraftInput, setAiDraftInput] = useState<string | null>(null);
+  useEffect(() => {
+    const off = onAskAIRequest(req => {
+      setAiDraftInput(req.prompt);
+      setAiOpen(true);
+    });
+    return off;
+  }, []);
   // Export-options modal — opens when the user picks "Export Excel"
   // from the Reports menu. Confirm callback fires exportToExcel with
   // the chosen options.
@@ -1180,6 +1192,8 @@ export const NavBar: React.FC<NavBarProps> = ({
         buildContext={aiBuildContext}
         setters={aiSetters}
         appId="ats"
+        draftInput={aiDraftInput}
+        onDraftInputConsumed={() => setAiDraftInput(null)}
       />
     )}
 
