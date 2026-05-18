@@ -49,4 +49,6 @@ export const TOOL_LABELS = {
   list_tables:     "Listing tables…",
   describe_table:  "Reading schema…",
   query_table:     "Running database query…",
+  style_card:      "Building style snapshot…",
+  customer_card:   "Building customer snapshot…",
 };
