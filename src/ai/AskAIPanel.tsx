@@ -36,6 +36,11 @@ interface ChatMessage {
   // Pending suggestion the user can opt into. Cleared once they push.
   suggestion?: GridSuggestion | null;
   suggestionPushed?: boolean;
+  // 1-3 follow-up question strings the model proposed. Rendered as
+  // clickable chips below the bubble; clicking one fires send().
+  // Cleared once a chip is clicked OR the next assistant turn lands
+  // (we only want chips on the LAST assistant message).
+  followups?: string[];
   // Dim trace of server-side DB tool calls (find_customer / query_*),
   // shown under the reply so operators can see what was looked up.
   trace?: ToolTraceEntry[];
@@ -270,13 +275,28 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         ? actions.map(describeAction).join(" · ")
         : undefined;
       const finalText = (finalPayload?.text || streamedText || "").trim() || (actionLabel ? "Done." : "(no response)");
-      setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
-        ...m, pending: false, text: finalText, actionLabel,
-        suggestion: finalPayload?.suggestion ?? null,
-        trace: Array.isArray(finalPayload?.trace) ? finalPayload!.trace : undefined,
-        cached: !!finalPayload?.cached,
-        cachedAgeSeconds: typeof finalPayload?.cached_age_seconds === "number" ? finalPayload!.cached_age_seconds : undefined,
-      } : m));
+      const followups = Array.isArray(finalPayload?.followups)
+        ? (finalPayload!.followups as string[]).filter(q => typeof q === "string" && q.trim().length > 0).slice(0, 3)
+        : undefined;
+      setMessages(prev => prev.map(m => {
+        if (m.id !== pendingMsg.id) {
+          // Strip followups from any prior assistant message — chips
+          // only belong on the LATEST reply, otherwise the operator
+          // accumulates dead chips up the scroll.
+          if (m.role === "assistant" && m.followups) {
+            return { ...m, followups: undefined };
+          }
+          return m;
+        }
+        return {
+          ...m, pending: false, text: finalText, actionLabel,
+          suggestion: finalPayload?.suggestion ?? null,
+          followups: followups && followups.length > 0 ? followups : undefined,
+          trace: Array.isArray(finalPayload?.trace) ? finalPayload!.trace : undefined,
+          cached: !!finalPayload?.cached,
+          cachedAgeSeconds: typeof finalPayload?.cached_age_seconds === "number" ? finalPayload!.cached_age_seconds : undefined,
+        };
+      }));
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
         ...m, pending: false, error: true, text: `Network error: ${String((err as Error).message || err)}`,
@@ -440,6 +460,46 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               {m.suggestionPushed && (
                 <div style={{ marginTop: 6, fontSize: 11, color: "#6EE7B7", fontStyle: "italic" }}>
                   ✓ Applied to grid
+                </div>
+              )}
+              {/* Follow-up question chips — only on the latest assistant
+                  reply (older bubbles get followups stripped on the next
+                  turn). Clicking sends the chip text as a new question. */}
+              {m.role === "assistant" && m.followups && m.followups.length > 0 && !busy && (
+                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
+                  {m.followups.map((q, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        // Strip chips from this bubble immediately so a
+                        // double-click can't fire twice.
+                        setMessages(prev => prev.map(x => x.id === m.id ? { ...x, followups: undefined } : x));
+                        send(q);
+                      }}
+                      style={{
+                        background: "#1E293B",
+                        border: "1px solid #334155",
+                        color: "#93C5FD",
+                        borderRadius: 14,
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        transition: "background 0.1s, border-color 0.1s",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = "#334155";
+                        e.currentTarget.style.borderColor = "#475569";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = "#1E293B";
+                        e.currentTarget.style.borderColor = "#334155";
+                      }}
+                    >
+                      {q}
+                    </button>
+                  ))}
                 </div>
               )}
               {m.cached && (

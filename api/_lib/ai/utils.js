@@ -39,6 +39,19 @@ export function sanitizeHistory(history) {
     .map(h => ({ role: h.role, content: h.text.slice(0, 2000) }));
 }
 
+// Sanitise the array of follow-up questions Claude emits via
+// suggest_followups. Trims whitespace, drops empty + over-long
+// (> 70 chars) entries, caps at 3. Returns null when nothing
+// useful survives so the caller can fall through cleanly.
+export function sanitizeFollowups(arr) {
+  if (!Array.isArray(arr)) return null;
+  const cleaned = arr
+    .map(q => String(q ?? "").trim())
+    .filter(q => q.length > 0 && q.length <= 70)
+    .slice(0, 3);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 export function clampDistinct(arr) {
   if (!Array.isArray(arr)) return [];
   const filtered = arr.filter(v => typeof v === "string" && v.length > 0);

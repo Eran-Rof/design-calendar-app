@@ -25,7 +25,7 @@ import {
 import { estimateClaudeCost, logAICall } from "./budget.js";
 import { TOOL_EXECUTORS } from "./executors.js";
 import { writeAnswerCache } from "./answer-cache.js";
-import { sseWrite, summarizeToolResult } from "./utils.js";
+import { sseWrite, summarizeToolResult, sanitizeFollowups } from "./utils.js";
 
 // Pull the `text` field out of partial JSON as it grows. Anthropic
 // emits the tool's input as input_json_delta events; we accumulate
@@ -160,6 +160,7 @@ export async function runStreaming(req, res, opts) {
     let text = "";
     const actions   = [];
     let suggestion  = null;
+    let followups   = null;
     for (const block of finalContent) {
       if (block.type === "tool_use") {
         if (block.name === "answer_text") {
@@ -169,6 +170,8 @@ export async function runStreaming(req, res, opts) {
             label: String(block.input?.label || "Apply to grid"),
             filters: block.input?.filters || {},
           };
+        } else if (block.name === "suggest_followups") {
+          followups = sanitizeFollowups(block.input?.questions);
         } else if (TERMINAL_TOOLS.has(block.name)) {
           actions.push({ type: block.name, params: block.input || {} });
         }
@@ -192,12 +195,13 @@ export async function runStreaming(req, res, opts) {
         answer_text: text,
         actions,
         suggestion,
+        followups,
         token_usage: { input_tokens: totalIn, output_tokens: totalOut, cost_usd: totalCost },
       }).catch(() => { /* warn already logged inside the helper */ });
     }
 
     sseWrite(res, "complete", {
-      text, actions, suggestion, trace,
+      text, actions, suggestion, followups, trace,
       token_usage: { input_tokens: totalIn, output_tokens: totalOut, cost_usd: totalCost },
     });
     res.end();
