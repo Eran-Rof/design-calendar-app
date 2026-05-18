@@ -160,6 +160,7 @@ export default function PlanningShell({ title, children }: Props) {
           "How many execution batches are pending approval?",
           "Average lead time by vendor for active SKUs",
         ]}
+        appId="planning"
       />
     </div>
   );

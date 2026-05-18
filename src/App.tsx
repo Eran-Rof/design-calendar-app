@@ -1347,6 +1347,7 @@ function App() {
           "List trend briefs from the last 6 months",
           "How many published briefs do we have this year?",
         ]}
+        appId="dc"
       />
     </div>
   );
