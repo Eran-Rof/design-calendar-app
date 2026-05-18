@@ -22,6 +22,7 @@ import {
   generateMemoryFile,
   downloadMemoryFile,
 } from "./memoryFile";
+import { MentionAutocomplete, expandMentionsForServer } from "./MentionAutocomplete";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -174,7 +175,17 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   // bubble renders an inline textarea instead of static text.
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
-  // Operator-asked popular prompts loaded once per panel session.
+  // @mention dropdown state. caret position is tracked separately —
+  // React's onChange doesn't fire on caret-only moves (arrow keys),
+  // so we refresh on every interaction the textarea handles.
+  const [caret, setCaret] = useState(0);
+  const mentionKeyHandlerRef = useRef<((e: React.KeyboardEvent) => boolean) | null>(null);
+  // Token → resolved entity map. Keys are the underscore-flattened
+  // labels the dropdown inserts (e.g. "Burlington_Coat_Factory");
+  // values let `expandMentionsForServer` substitute the id parenthetical
+  // before the question hits Claude. Survives across edits but
+  // tokens not present in the final text are pruned at send time.
+  const mentionMapRef = useRef<Map<string, { id: string; type: "customer" | "style"; label: string }>>(new Map());
   // Empty array = "not loaded / nothing to show", in which case we
   // fall back to the static samplePrompts prop.
   const [popularPrompts, setPopularPrompts] = useState<string[]>([]);
@@ -394,12 +405,20 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       // SSE stream — opt in via Accept header. Server emits stage labels,
       // text deltas, and a terminal complete event. No bearer needed (the
       // server gates on same-origin + budget cap).
+      // Expand @ / # mentions to id parentheticals for the server only —
+      // the displayed user bubble keeps the clean `@Burlington` token.
+      // The AI sees "@Burlington (customer_id=abc123)" and uses the
+      // resolved id directly instead of round-tripping through find_customer.
+      const expandedQuestion = expandMentionsForServer(trimmed, mentionMapRef.current);
+      const expandedHistory = history.map(h =>
+        h.role === "user" ? { ...h, text: expandMentionsForServer(h.text, mentionMapRef.current) } : h,
+      );
       const resp = await fetch("/api/ai/ask-grid", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
         body: JSON.stringify({
-          question: trimmed,
-          history,
+          question: expandedQuestion,
+          history: expandedHistory,
           grid_context: context,
           // Forwarded so the server can scope lookup_user_facts (Tier 2H)
           // to this operator + app. Server intentionally does NOT trust
@@ -1253,27 +1272,63 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           background: "#0F172A",
         }}>
           <div style={{ display: "flex", gap: 8 }}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="Ask anything ROF related…"
-              rows={2}
-              disabled={busy}
-              style={{
-                flex: 1,
-                background: "#1E293B",
-                border: "1px solid #334155",
-                borderRadius: 8,
-                padding: "8px 10px",
-                color: "#F1F5F9",
-                fontSize: 13,
-                fontFamily: "inherit",
-                resize: "none",
-                outline: "none",
-              }}
-            />
+            <div style={{ flex: 1, position: "relative" }}>
+              {/* @mention autocomplete: parses @ / # tokens around the
+                  caret, fetches matches from /api/internal/ai/mention-suggest,
+                  and rewrites the input with an embedded id marker
+                  (e.g. "@Burlington«cust:abc123»") that the panel strips
+                  before sending. The system prompt is told to skip
+                  find_customer/find_style for pre-resolved entities. */}
+              <MentionAutocomplete
+                value={input}
+                caret={caret}
+                onCommit={({ value, caret: newCaret, item }) => {
+                  setInput(value);
+                  setCaret(newCaret);
+                  // Register the resolution so send() can expand the
+                  // token to an id parenthetical before hitting Claude.
+                  mentionMapRef.current.set(item.label.replace(/\s+/g, "_"), {
+                    id: item.id, type: item.type, label: item.label,
+                  });
+                  setTimeout(() => {
+                    const ta = inputRef.current;
+                    if (ta) { ta.focus(); ta.setSelectionRange(newCaret, newCaret); }
+                  }, 0);
+                }}
+                onCancel={() => { mentionKeyHandlerRef.current = null; }}
+                registerKeyHandler={(h) => { mentionKeyHandlerRef.current = h; }}
+              />
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={e => { setInput(e.target.value); setCaret(e.target.selectionStart); }}
+                onKeyDown={e => {
+                  // Defer to the mention dropdown's handler when open.
+                  // It only intercepts ↑/↓/Enter/Tab/Esc — anything
+                  // else falls through to our regular onKeyDown.
+                  const h = mentionKeyHandlerRef.current;
+                  if (h && h(e)) return;
+                  onKeyDown(e);
+                }}
+                onKeyUp={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
+                onClick={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
+                placeholder="Ask anything ROF related… (@ for customer, # for style)"
+                rows={2}
+                disabled={busy}
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  background: "#1E293B",
+                  border: "1px solid #334155",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  color: "#F1F5F9",
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  resize: "none",
+                  outline: "none",
+                }}
+              />
+            </div>
             <button
               onClick={() => send(input)}
               disabled={busy || !input.trim()}
