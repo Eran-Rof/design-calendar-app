@@ -1,0 +1,107 @@
+[
+  {
+    "name": "monday_briefing_direct",
+    "question": "Run the Monday briefing",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["start_workflow"],
+      "must_not_call_tools": ["find_customer", "find_style"],
+      "answer_must_contain_any": ["briefing", "T3", "top", "open"],
+      "answer_must_not_contain": ["I don't have", "cannot find", "unable to"],
+      "max_cost_usd": 0.10
+    }
+  },
+  {
+    "name": "underperformer_review_workflow",
+    "question": "Show me the underperformer review for this quarter",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["start_workflow"],
+      "answer_must_contain_any": ["underperform", "drop", "decline", "T3"],
+      "max_cost_usd": 0.10
+    }
+  },
+  {
+    "name": "customer_churn_workflow",
+    "question": "Which customers look like churn risks right now?",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["start_workflow"],
+      "answer_must_contain_any": ["churn", "drop", "risk", "T3"],
+      "max_cost_usd": 0.10
+    }
+  },
+  {
+    "name": "margin_question_uses_query_margin",
+    "question": "What was the gross margin on T3 sales for Ross?",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["query_margin"],
+      "must_not_call_tools": ["query_table"],
+      "answer_must_not_contain": ["estimated margin", "representative", "midpoint", "approximately ~"],
+      "max_cost_usd": 0.15
+    }
+  },
+  {
+    "name": "customer_snapshot_uses_customer_card",
+    "question": "Give me a quick snapshot of Burlington",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["customer_card"],
+      "must_not_call_tools": ["query_table"],
+      "answer_must_contain_any": ["Burlington", "T3", "LY", "customers"],
+      "max_cost_usd": 0.10
+    }
+  },
+  {
+    "name": "operator_fact_lookup_for_named_entity",
+    "question": "How is Burlington doing on the RYB0412 family?",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["lookup_user_facts"],
+      "max_cost_usd": 0.15
+    }
+  },
+  {
+    "name": "pre_resolved_mention_skips_find_customer",
+    "question": "Margin on T3 for Burlington Coat Factory (customer_id=test-fixture-id-001)?",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_not_call_tools": ["find_customer"],
+      "answer_must_not_contain": ["I couldn't find", "no customer matching"],
+      "max_cost_usd": 0.15
+    }
+  },
+  {
+    "name": "compliance_query_uses_query_table",
+    "question": "Which compliance docs expire in the next 30 days?",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools":     ["query_table"],
+      "answer_must_contain_any": ["compliance", "expir", "days"],
+      "max_cost_usd": 0.10
+    }
+  },
+  {
+    "name": "short_reply_does_not_complain_about_context",
+    "question": "yes",
+    "history": [
+      { "role": "user",      "text": "Do you want me to show the top underperformers?" },
+      { "role": "assistant", "text": "Sure — I can pull the top 10 underperformers for T3 vs LY. Want me to run that?" }
+    ],
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "answer_must_not_contain": ["I need more context", "could you clarify", "what do you mean"],
+      "max_cost_usd": 0.10
+    }
+  },
+  {
+    "name": "followups_get_emitted",
+    "question": "How many Edge did Ross order in June 2026?",
+    "grid_context_fingerprint": "default",
+    "assertions": {
+      "must_call_tools": ["suggest_followups"],
+      "max_cost_usd": 0.20
+    }
+  }
+]
