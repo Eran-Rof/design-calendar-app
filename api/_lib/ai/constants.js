@@ -29,6 +29,15 @@ export const FIND_STYLE_LIMIT    = 50;
 export const QUERY_ROW_LIMIT     = 5000;     // hard ceiling on raw row scans
 export const QUERY_RESULT_LIMIT  = 50;       // groups returned to Claude
 
+// Vision attachments — keep in sync with src/ai/imageAttachments.ts.
+// 5 MB / image, 3 images / turn is enough for a few row screenshots
+// + a vendor email screenshot without runaway token cost.
+export const MAX_ATTACHMENT_BYTES        = 5 * 1024 * 1024;
+export const MAX_ATTACHMENTS_PER_TURN    = 3;
+export const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp",
+]);
+
 // Tools that don't require a follow-up Claude turn. When the only
 // tool calls in a response are terminal, the loop breaks and the
 // client receives the result without another round trip.
