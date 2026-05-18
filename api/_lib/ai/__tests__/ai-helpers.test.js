@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import { buildCacheKey } from "../answer-cache.js";
 import { applyFilter } from "../executors.js";
 import { defaultCardWindows, growthShare } from "../executors-cards.js";
-import { clampDate, canonName, formatCacheAge, sanitizeHistory } from "../utils.js";
+import { clampDate, canonName, formatCacheAge, sanitizeHistory, sanitizeFollowups } from "../utils.js";
 
 // ────────────────────────────────────────────────────────────────────────
 // Cache key
@@ -259,5 +259,66 @@ describe("sanitizeHistory", () => {
   it("returns [] for non-array input", () => {
     expect(sanitizeHistory(null)).toEqual([]);
     expect(sanitizeHistory("nope")).toEqual([]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// sanitizeFollowups — validator for suggest_followups tool input
+// ────────────────────────────────────────────────────────────────────────
+
+describe("sanitizeFollowups", () => {
+  it("accepts a clean 2-string array", () => {
+    expect(sanitizeFollowups([
+      "How did that compare to Q1?",
+      "Which colors drove the growth?",
+    ])).toEqual([
+      "How did that compare to Q1?",
+      "Which colors drove the growth?",
+    ]);
+  });
+
+  it("accepts 3 strings — the upper bound", () => {
+    const r = sanitizeFollowups(["q1", "q2", "q3"]);
+    expect(r).toEqual(["q1", "q2", "q3"]);
+  });
+
+  it("caps at 3, dropping the extras", () => {
+    const r = sanitizeFollowups(["q1", "q2", "q3", "q4", "q5"]);
+    expect(r).toEqual(["q1", "q2", "q3"]);
+  });
+
+  it("trims whitespace", () => {
+    const r = sanitizeFollowups(["  spaced  ", "\tindented", "plain"]);
+    expect(r).toEqual(["spaced", "indented", "plain"]);
+  });
+
+  it("filters out empty / whitespace-only entries", () => {
+    const r = sanitizeFollowups(["valid", "", "   ", "also valid"]);
+    expect(r).toEqual(["valid", "also valid"]);
+  });
+
+  it("filters out entries > 200 chars", () => {
+    const long = "x".repeat(201);
+    const r = sanitizeFollowups(["short", long, "another short"]);
+    expect(r).toEqual(["short", "another short"]);
+  });
+
+  it("returns null when fewer than 2 valid entries remain", () => {
+    expect(sanitizeFollowups(["only one"])).toBeNull();
+    expect(sanitizeFollowups([])).toBeNull();
+    expect(sanitizeFollowups(["", "   "])).toBeNull();
+  });
+
+  it("returns null for non-array input", () => {
+    expect(sanitizeFollowups(null)).toBeNull();
+    expect(sanitizeFollowups(undefined)).toBeNull();
+    expect(sanitizeFollowups("not an array")).toBeNull();
+    expect(sanitizeFollowups({ questions: ["q1", "q2"] })).toBeNull();
+  });
+
+  it("coerces non-string entries to empty + drops them", () => {
+    expect(sanitizeFollowups([123, "valid", null, undefined, "also valid"])).toEqual([
+      "valid", "also valid",
+    ]);
   });
 });

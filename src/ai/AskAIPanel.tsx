@@ -36,6 +36,11 @@ interface ChatMessage {
   // Pending suggestion the user can opt into. Cleared once they push.
   suggestion?: GridSuggestion | null;
   suggestionPushed?: boolean;
+  // 2-3 follow-up question chips Claude proposed alongside the answer.
+  // Rendered as clickable buttons under the bubble; clicking re-sends
+  // the chip text as the operator's next question.
+  followups?: string[] | null;
+  followupsUsed?: boolean;
   // Dim trace of server-side DB tool calls (find_customer / query_*),
   // shown under the reply so operators can see what was looked up.
   trace?: ToolTraceEntry[];
@@ -270,9 +275,20 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         ? actions.map(describeAction).join(" · ")
         : undefined;
       const finalText = (finalPayload?.text || streamedText || "").trim() || (actionLabel ? "Done." : "(no response)");
+      // Followups arrive as a 2-3 string array under the `followups`
+      // key on the complete payload. Validate defensively because the
+      // server tolerates a malformed Claude response and zeros it out.
+      const rawFollowups = finalPayload?.followups;
+      const followups: string[] | null = Array.isArray(rawFollowups)
+        ? rawFollowups
+            .map(q => (typeof q === "string" ? q.trim() : ""))
+            .filter(q => q.length > 0 && q.length <= 200)
+            .slice(0, 3)
+        : null;
       setMessages(prev => prev.map(m => m.id === pendingMsg.id ? {
         ...m, pending: false, text: finalText, actionLabel,
         suggestion: finalPayload?.suggestion ?? null,
+        followups: followups && followups.length >= 2 ? followups : null,
         trace: Array.isArray(finalPayload?.trace) ? finalPayload!.trace : undefined,
         cached: !!finalPayload?.cached,
         cachedAgeSeconds: typeof finalPayload?.cached_age_seconds === "number" ? finalPayload!.cached_age_seconds : undefined,
@@ -440,6 +456,45 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               {m.suggestionPushed && (
                 <div style={{ marginTop: 6, fontSize: 11, color: "#6EE7B7", fontStyle: "italic" }}>
                   ✓ Applied to grid
+                </div>
+              )}
+              {m.followups && m.followups.length > 0 && !m.followupsUsed && !m.pending && !m.error && (
+                <div style={{
+                  marginTop: 10,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                }}>
+                  {m.followups.map((q, qi) => (
+                    <button
+                      key={qi}
+                      onClick={() => {
+                        setMessages(prev => prev.map(x => x.id === m.id ? { ...x, followupsUsed: true } : x));
+                        // Re-send through the same send() pipeline so the
+                        // follow-up runs as a fresh turn with full history.
+                        send(q);
+                      }}
+                      disabled={busy}
+                      title={q}
+                      style={{
+                        background: "#0F172A",
+                        border: "1px solid #334155",
+                        color: "#94A3B8",
+                        borderRadius: 14,
+                        padding: "5px 10px",
+                        fontSize: 11,
+                        fontStyle: "italic",
+                        cursor: busy ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                        maxWidth: "100%",
+                        textAlign: "left",
+                        whiteSpace: "normal",
+                        opacity: busy ? 0.5 : 1,
+                      }}
+                    >
+                      → {q}
+                    </button>
+                  ))}
                 </div>
               )}
               {m.cached && (

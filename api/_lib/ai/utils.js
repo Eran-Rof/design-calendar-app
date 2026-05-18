@@ -118,3 +118,24 @@ export function sseWrite(res, event, data) {
   if (event) res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
+
+// Sanitize the suggest_followups tool input. Pure helper so the
+// handler + streaming paths share validation and unit tests can pin
+// the contract. Returns a clean string array of 2-3 short follow-up
+// questions, or null when the input is malformed / too short.
+//
+// Rules:
+//   • input must be an array (anything else → null)
+//   • each entry must be a non-empty string ≤ 200 chars
+//   • trim whitespace
+//   • cap at 3 entries (Claude is told to return 2-3)
+//   • require at least 2 valid entries (a single chip looks weird and
+//     usually means Claude only had one idea — better to render none)
+export function sanitizeFollowups(raw) {
+  if (!Array.isArray(raw)) return null;
+  const clean = raw
+    .map(q => (typeof q === "string" ? q.trim() : ""))
+    .filter(q => q.length > 0 && q.length <= 200)
+    .slice(0, 3);
+  return clean.length >= 2 ? clean : null;
+}

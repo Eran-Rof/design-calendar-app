@@ -34,7 +34,7 @@ export const QUERY_RESULT_LIMIT  = 50;       // groups returned to Claude
 // client receives the result without another round trip.
 export const TERMINAL_TOOLS = new Set([
   "apply_filters", "set_sort", "clear_filters",
-  "answer_text", "suggest_grid_view",
+  "answer_text", "suggest_grid_view", "suggest_followups",
 ]);
 
 // Friendly stage labels for the SSE `stage` event. Mapped from tool

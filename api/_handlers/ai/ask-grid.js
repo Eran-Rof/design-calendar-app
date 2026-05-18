@@ -49,6 +49,7 @@ import {
   buildGridContextBlock,
   summarizeToolResult,
   formatCacheAge,
+  sanitizeFollowups,
 } from "../../_lib/ai/utils.js";
 import {
   buildCacheKey,
@@ -139,6 +140,7 @@ export default async function handler(req, res) {
           text: hit.answer_text,
           actions: hit.actions,
           suggestion: hit.suggestion,
+          followups: null,
           trace: [{ tool: "cache", summary: `served from cache (${formatCacheAge(hit.cached_age_seconds)} ago)` }],
           token_usage: hit.token_usage || { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
           cached: true,
@@ -151,6 +153,7 @@ export default async function handler(req, res) {
         text: hit.answer_text,
         actions: hit.actions,
         suggestion: hit.suggestion,
+        followups: null,
         trace: [{ tool: "cache", summary: `served from cache (${formatCacheAge(hit.cached_age_seconds)} ago)` }],
         token_usage: hit.token_usage || { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
         cached: true,
@@ -246,6 +249,7 @@ export default async function handler(req, res) {
   let text = "";
   const actions   = [];
   let suggestion  = null;
+  let followups   = null;
   for (const block of (finalMessage?.content || [])) {
     if (block.type === "tool_use") {
       if (block.name === "answer_text") {
@@ -255,6 +259,8 @@ export default async function handler(req, res) {
           label: String(block.input?.label || "Apply to grid"),
           filters: block.input?.filters || {},
         };
+      } else if (block.name === "suggest_followups") {
+        followups = sanitizeFollowups(block.input?.questions);
       } else if (TERMINAL_TOOLS.has(block.name)) {
         actions.push({ type: block.name, params: block.input || {} });
       }
@@ -272,6 +278,10 @@ export default async function handler(req, res) {
     cost_usd: totalCost,
   });
 
+  // followups are intentionally NOT persisted to the answer cache —
+  // the ip_ai_answer_cache table doesn't have a column for them yet,
+  // and they're cheap to regenerate. Cache hits will simply skip the
+  // chips; fresh calls always include them.
   if (cacheKey && text) {
     await writeAnswerCache(db, {
       hash: cacheKey,
@@ -287,6 +297,7 @@ export default async function handler(req, res) {
     text,
     actions,
     suggestion,
+    followups,
     trace,
     token_usage: {
       input_tokens:  totalIn,

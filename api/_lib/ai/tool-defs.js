@@ -188,6 +188,24 @@ export const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "suggest_followups",
+    description: "Propose 2-3 short, plausible follow-up questions tied to the answer you just gave. Surfaced in the UI as clickable chips so the operator can drill in without retyping. Use this for almost every answer EXCEPT pure grid mutations (apply_filters / set_sort / clear_filters) — those don't have natural drill-down questions. Each question should be one short sentence (≤80 chars), self-contained (no 'them' / 'it' that needs context), and target a different angle than the question just asked.",
+    input_schema: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 2,
+          maxItems: 3,
+          description: "2-3 follow-up question strings. Plain prose, no preamble, no numbering, no quotation marks.",
+        },
+      },
+      required: ["questions"],
+      additionalProperties: false,
+    },
+  },
 
   // ── Cross-app discovery + generic query (looped) ─────────────────────
   {
