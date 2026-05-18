@@ -3,6 +3,7 @@ import {
   applyAction,
   applySuggestion,
   describeAction,
+  fetchPopularPrompts,
   type AIAction,
   type AIGridSetters,
   type AskAIHistoryTurn,
@@ -117,6 +118,10 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  // Operator-asked popular prompts loaded once per panel session.
+  // Empty array = "not loaded / nothing to show", in which case we
+  // fall back to the static samplePrompts prop.
+  const [popularPrompts, setPopularPrompts] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -125,6 +130,19 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
+
+  // Tier 1C: fetch the top N most-hit questions from the answer cache
+  // when the panel first opens. We don't refetch on every open — the
+  // popularity list barely moves between opens, and a stale list is
+  // strictly better than the static defaults. Fires once per mount.
+  useEffect(() => {
+    if (!open || popularPrompts.length > 0) return;
+    let cancelled = false;
+    fetchPopularPrompts({ limit: 8 })
+      .then(rows => { if (!cancelled) setPopularPrompts(rows); })
+      .catch(() => { /* swallow — falls back to static prompts */ });
+    return () => { cancelled = true; };
+  }, [open, popularPrompts.length]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -318,7 +336,14 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
 
   if (!open) return null;
 
-  const samples = samplePrompts && samplePrompts.length > 0 ? samplePrompts : DEFAULT_SAMPLES;
+  // Prefer real operator-asked popular questions when we have at least 3
+  // (below 3 the list looks thin/empty); fall back to the host-provided
+  // per-app prompts (App.tsx, TandA.tsx, PlanningShell.tsx), then to
+  // DEFAULT_SAMPLES if no host prompts wired.
+  const samples = popularPrompts.length >= 3
+    ? popularPrompts
+    : (samplePrompts && samplePrompts.length > 0 ? samplePrompts : DEFAULT_SAMPLES);
+  const samplesAreFromPopular = popularPrompts.length >= 3;
 
   return (
     <>
@@ -374,7 +399,9 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         >
           {messages.length === 0 && (
             <div style={{ color: "#94A3B8", fontSize: 13 }}>
-              <div style={{ marginBottom: 10 }}>Try one of these:</div>
+              <div style={{ marginBottom: 10 }}>
+                {samplesAreFromPopular ? "Most-asked questions:" : "Try one of these:"}
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {samples.map(s => (
                   <button
