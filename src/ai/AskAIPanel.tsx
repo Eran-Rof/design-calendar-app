@@ -44,7 +44,10 @@ interface ChatMessage {
   followups?: string[];
   // Dim trace of server-side DB tool calls (find_customer / query_*),
   // shown under the reply so operators can see what was looked up.
+  // Toggle visibility with the ⓘ "Why?" affordance below the bubble.
   trace?: ToolTraceEntry[];
+  /** Per-message expansion state for the "Why?" trace panel. */
+  traceExpanded?: boolean;
   pending?: boolean;
   error?: boolean;
   // Cache hit metadata — surfaced as a small "cached Xm ago · Ask fresh ↻"
@@ -527,6 +530,60 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                       {q}
                     </button>
                   ))}
+                </div>
+              )}
+              {/* "Why?" trace — collapsible list of the server-side
+                  tool calls behind this answer. Hidden by default so the
+                  bubble stays clean; click to expand. Lets the operator
+                  audit which tables were touched + spot when the AI
+                  answered the wrong question (e.g. queried wrong
+                  customer_id). Tier 2G of the Ask AI improvement plan. */}
+              {m.role === "assistant" && m.trace && m.trace.length > 0 && !m.pending && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setMessages(prev => prev.map(x =>
+                      x.id === m.id ? { ...x, traceExpanded: !x.traceExpanded } : x,
+                    ))}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#64748B",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: 10,
+                      fontFamily: "inherit",
+                      fontStyle: "italic",
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "#94A3B8")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "#64748B")}
+                  >
+                    {m.traceExpanded ? "▾" : "▸"} Why? {m.trace.length} tool call{m.trace.length === 1 ? "" : "s"}
+                  </button>
+                  {m.traceExpanded && (
+                    <div style={{
+                      marginTop: 4,
+                      paddingLeft: 12,
+                      borderLeft: "2px solid #334155",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}>
+                      {m.trace.map((t, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            fontSize: 10,
+                            color: "#94A3B8",
+                            fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          <span style={{ color: "#64748B" }}>{i + 1}.</span> {t.summary || t.tool}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {m.cached && (
