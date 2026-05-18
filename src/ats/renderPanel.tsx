@@ -247,13 +247,23 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
       },
       sort: sortCol ? { col: sortCol, dir: sortDir } : null,
       row_count: rowsForSnapshot.length,
+      // These totals describe the CURRENT VISIBLE GRID ONLY — the sum across
+      // every row the operator is looking at, NOT scoped by customer or by
+      // date. They are useful for grid-state questions ("how many SKUs are
+      // low stock right now") but MUST NOT be used as a substitute for a
+      // real DB query when answering customer-scoped or date-scoped
+      // questions (those need query_shipments / customer_card / style_card).
+      // The grid_fallback_margin_pct is an operator-set assumption used by
+      // the ATS export when per-SKU costs are missing — it is NOT a measured
+      // margin and NEVER reflects actual historical margin for any customer.
       totals: {
-        total_on_hand:  totalOnHand,
-        total_on_po:    totalOnPO,
-        total_on_order: totalOnOrder,
-        total_so_value: totalSoValue,
-        total_po_value: totalPoValue,
-        margin_pct:     marginPct,
+        _caveat: "Grid-wide visible totals only. Sum across all currently-filtered rows, NOT scoped by customer or date. For 'how much did X buy', run query_shipments. NEVER multiply grid_visible_so_value by grid_fallback_margin_pct — that does not produce a real margin.",
+        grid_visible_on_hand:  totalOnHand,
+        grid_visible_on_po:    totalOnPO,
+        grid_visible_on_order: totalOnOrder,
+        grid_visible_so_value: totalSoValue,
+        grid_visible_po_value: totalPoValue,
+        grid_fallback_margin_pct: marginPct,
       },
       distinct: {
         categories:     distinctSet(rows.map(r => r.master_category ?? r.category)),

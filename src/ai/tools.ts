@@ -47,6 +47,9 @@ export interface AskAIResponse {
   text: string;
   actions: AIAction[];
   suggestion?: GridSuggestion | null;
+  /** 1-3 short follow-up questions the panel can render as clickable
+   *  chips below the AI reply. Each ≤ 70 chars, server-trimmed. */
+  followups?: string[] | null;
   trace?: ToolTraceEntry[];
   token_usage?: {
     input_tokens: number | null;
@@ -82,13 +85,19 @@ export interface GridContextSnapshot {
   };
   sort?: { col: string; dir: "asc" | "desc" } | null;
   row_count: number;
+  // Grid-wide visible totals — sum across all currently-filtered rows,
+  // NOT scoped by customer or by date. Renamed with the grid_visible_ /
+  // grid_fallback_ prefixes so the AI cannot mistake them for query
+  // results in a customer-scoped or date-scoped answer. See the rule in
+  // api/_lib/ai/rof-glossary.js (anti-fabrication rule 7).
   totals?: {
-    total_on_hand?: number;
-    total_on_po?: number;
-    total_on_order?: number;
-    total_so_value?: number;
-    total_po_value?: number;
-    margin_pct?: number;
+    _caveat?: string;
+    grid_visible_on_hand?: number;
+    grid_visible_on_po?: number;
+    grid_visible_on_order?: number;
+    grid_visible_so_value?: number;
+    grid_visible_po_value?: number;
+    grid_fallback_margin_pct?: number;
   };
   distinct: {
     categories: string[];
