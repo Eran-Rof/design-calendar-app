@@ -33,6 +33,7 @@ import {
   QUERY_RESULT_LIMIT,
 } from "./constants.js";
 import { tool_style_card, tool_customer_card } from "./executors-cards.js";
+import { tool_query_margin } from "./executors-margin.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Schema merging — curated registry + live introspection
@@ -662,4 +663,5 @@ export const TOOL_EXECUTORS = {
   query_table:      tool_query_table,
   style_card:       tool_style_card,
   customer_card:    tool_customer_card,
+  query_margin:     tool_query_margin,
 };
