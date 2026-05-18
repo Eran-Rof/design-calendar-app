@@ -247,7 +247,17 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       const resp = await fetch("/api/ai/ask-grid", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
-        body: JSON.stringify({ question: trimmed, history, grid_context: context }),
+        body: JSON.stringify({
+          question: trimmed,
+          history,
+          grid_context: context,
+          // Forwarded so the server can scope lookup_user_facts (Tier 2H)
+          // to this operator + app. Server intentionally does NOT trust
+          // the AI with user_id — it's a request body field, not a tool
+          // parameter.
+          user_id: userId,
+          app_id: appId || null,
+        }),
       });
       if (!resp.ok || !resp.body) {
         let errMsg = `HTTP ${resp.status}`;
@@ -476,6 +486,23 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                 Clear
               </button>
             )}
+            {/* Discoverable link to the operator-facts admin (Tier 2H).
+                Opens in a new tab so the operator doesn't lose their
+                in-flight Ask AI conversation. */}
+            <a
+              href="/ai-facts"
+              target="_blank"
+              rel="noreferrer"
+              title="Manage operator facts the AI consults"
+              style={{
+                color: "#64748B", textDecoration: "none",
+                fontSize: 11, padding: "0 8px", fontWeight: 500,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = "#94A3B8"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "#64748B"; }}
+            >
+              Facts
+            </a>
             <button
               onClick={onClose}
               title="Close"

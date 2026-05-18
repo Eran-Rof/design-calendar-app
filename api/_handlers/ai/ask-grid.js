@@ -98,6 +98,16 @@ export default async function handler(req, res) {
   const gridContext = body.grid_context && typeof body.grid_context === "object" ? body.grid_context : {};
   const history     = sanitizeHistory(body.history);
 
+  // Per-request execution context — threaded into tool executors as the
+  // 3rd argument. Only `lookup_user_facts` reads it today; future
+  // executors that need to know the operator/app can opt in the same
+  // way. user_id intentionally NOT exposed as a tool parameter so the
+  // AI can't be coerced into reading another operator's facts.
+  const execCtx = {
+    user_id: typeof body.user_id === "string" ? body.user_id.trim().slice(0, 80) || null : null,
+    app:     typeof body.app_id  === "string" ? body.app_id.trim().slice(0, 40)  || null : null,
+  };
+
   try {
     await assertWithinBudget(db);
   } catch (err) {
@@ -181,7 +191,7 @@ export default async function handler(req, res) {
   if (accept.includes("text/event-stream")) {
     return runStreaming(req, res, {
       client, db, messages, SYSTEM_CACHED, TOOLS_CACHED, trace,
-      cacheKey, question,
+      cacheKey, question, execCtx,
     });
   }
 
@@ -226,7 +236,7 @@ export default async function handler(req, res) {
       let result;
       try {
         result = exec
-          ? await exec(db, tu.input || {})
+          ? await exec(db, tu.input || {}, execCtx)
           : { error: `Unknown tool: ${tu.name}` };
       } catch (err) {
         result = { error: String(err?.message || err) };
