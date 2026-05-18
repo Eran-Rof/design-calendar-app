@@ -8,7 +8,7 @@ import type { SalesFetchResult, SalesAggregate } from "./exportSalesFetch";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
-const EMPTY_AGG: SalesAggregate = { qty: 0, totalPrice: 0 };
+const EMPTY_AGG: SalesAggregate = { qty: 0, totalPrice: 0, marginAmount: 0 };
 // Autofit non-spacer cols: max(len(value)) + 2, capped at 80.
 // No frozen panes, no autofilter, no merged cells.
 export function exportToExcel(
@@ -654,45 +654,42 @@ export function buildExportPayload(
       if (COL_SLS_PRC)  r2[COL_SLS_PRC  - 1] = subCurr(slsPrcW);
     }
 
-    // Subtotal T3 / LY: respect each row's Explode-PPK grain so the
-    // sum tracks what the body rows display. qty is divided by the
-    // row's ppkMult when packs are showing; totalPrice + totalCost
-    // are grain-invariant (avgCost is per-unit, sales qty is unit-
-    // grain, so their product cancels).
+    // Subtotal T3 / LY: sales qty is now at unit grain in the DB
+    // (qty_units, populated by the nightly sync), so we display it
+    // directly — no /qtyDiv. Explode-PPK toggle only affects ATS columns
+    // (on-hand / on-PO / on-SO) where compute.ts still applies the
+    // per-row ppkMult. Margin % = aggregated margin_amount / totalPrice,
+    // also from the DB; no per-export cost-cascade recomputation.
     //
     // Hoist subT3MrgnPct + subLYMrgnPct so the downstream diff-mrgn
     // cell can read both percentages even when only one toggle is on.
     let subT3MrgnPct = 0;
     let subLYMrgnPct = 0;
     if (opts.trailing3) {
-      let qtyDisp = 0, totalPrice = 0, totalCost = 0;
+      let qtyDisp = 0, totalPrice = 0, totalMargin = 0;
       for (const x of group) {
-        const mult = x.ppkMult ?? 1;
-        const qtyDiv = explodePpk ? 1 : mult;
         const xT3 = t3Of(x.sku);
-        qtyDisp += xT3.qty / qtyDiv;
+        qtyDisp += xT3.qty;
         totalPrice += xT3.totalPrice;
-        totalCost += (x.avgCost ?? 0) * xT3.qty;
+        totalMargin += xT3.marginAmount;
       }
       const price = qtyDisp > 0 ? totalPrice / qtyDisp : 0;
-      subT3MrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
+      subT3MrgnPct = totalPrice > 0 ? (totalMargin / totalPrice) * 100 : 0;
       if (COL_T3_QTY)     r2[COL_T3_QTY     - 1] = subCell(qtyDisp);
       if (COL_T3_PRICE)   r2[COL_T3_PRICE   - 1] = subCurr(price);
       if (COL_T3_TTL_SLS) r2[COL_T3_TTL_SLS - 1] = subCurr(totalPrice);
       if (COL_T3_MRGN)    r2[COL_T3_MRGN    - 1] = subPct(subT3MrgnPct / 100);
     }
     if (opts.spLY) {
-      let qtyDisp = 0, totalPrice = 0, totalCost = 0;
+      let qtyDisp = 0, totalPrice = 0, totalMargin = 0;
       for (const x of group) {
-        const mult = x.ppkMult ?? 1;
-        const qtyDiv = explodePpk ? 1 : mult;
         const xLY = lyOf(x.sku);
-        qtyDisp += xLY.qty / qtyDiv;
+        qtyDisp += xLY.qty;
         totalPrice += xLY.totalPrice;
-        totalCost += (x.avgCost ?? 0) * xLY.qty;
+        totalMargin += xLY.marginAmount;
       }
       const price = qtyDisp > 0 ? totalPrice / qtyDisp : 0;
-      subLYMrgnPct = totalPrice > 0 && totalCost > 0 ? ((totalPrice - totalCost) / totalPrice) * 100 : 0;
+      subLYMrgnPct = totalPrice > 0 ? (totalMargin / totalPrice) * 100 : 0;
       if (COL_LY_QTY)     r2[COL_LY_QTY     - 1] = subCell(qtyDisp);
       if (COL_LY_PRICE)   r2[COL_LY_PRICE   - 1] = subCurr(price);
       if (COL_LY_TTL_SLS) r2[COL_LY_TTL_SLS - 1] = subCurr(totalPrice);
@@ -860,38 +857,27 @@ export function buildExportPayload(
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
     // Trailing 3 — sales over the last 3 months from today, optionally
-    // narrowed to one customer. ip_sales_history_wholesale.qty is at
-    // UNIT grain. Convert to PACK grain for display when the grid is
-    // in pack mode so the report matches the on-screen rendering.
-    // Margin % is grain-invariant; price + qty both scale.
+    // narrowed to one customer. Sales qty is now at unit grain in the
+    // DB (qty_units, populated by the nightly sync). Display as-is —
+    // the Explode-PPK toggle only affects ATS columns above (on-hand /
+    // on-PO / on-SO), not sales. Margin % is the aggregated
+    // margin_amount / totalPrice from the DB, eliminating the old
+    // per-export master-cost recomputation that was producing
+    // grain-confused margins.
     //
     // Hoist t3MrgnPct + lyMrgnPct out of the if blocks so the
     // downstream "T3 vs LY Mrgn %" diff cell can read both even when
-    // only one block runs (defensive — both should run together since
-    // the diff column requires both toggles, but we don't rely on
-    // toggle order).
+    // only one block runs.
     let t3MrgnPct = 0;
     let lyMrgnPct = 0;
     if (opts.trailing3) {
       const t3 = t3Of(r.sku);
-      const t3QtyDisp = t3.qty / qtyDiv;
-      const t3Price   = t3QtyDisp > 0 ? t3.totalPrice / t3QtyDisp : 0;
-      // Sanity gate: if cost > 2× sale price, the cost basis is almost
-      // certainly wrong (typically a pack cost stored as unit cost in
-      // ip_item_master.unit_cost — Xoro doesn't carry an "avg cost"
-      // field so the column relies on operator-uploaded data, which
-      // occasionally has master-case math baked in). Suppress the
-      // margin cell rather than show a misleading -1700%.
-      const costImplausible = avgCostV > 0 && t3Price > 0 && avgCostV > t3Price * 2;
-      t3MrgnPct = (avgCostV > 0 && t3Price > 0 && !costImplausible)
-        ? ((t3Price - avgCostV) / t3Price) * 100
-        : 0;
-      if (costImplausible) {
-        console.warn(`[ATS export] T3 margin suppressed for sku="${r.sku}" — avgCost=$${r.avgCost} > 2× t3Price=$${t3Price.toFixed(2)} (ppkMult=${mult}). Cost basis likely stale or wrong-grain.`);
-      }
-      if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3QtyDisp === 0
+      const t3Qty   = t3.qty;
+      const t3Price = t3Qty > 0 ? t3.totalPrice / t3Qty : 0;
+      t3MrgnPct = t3.totalPrice > 0 ? (t3.marginAmount / t3.totalPrice) * 100 : 0;
+      if (COL_T3_QTY)     qtyRow[COL_T3_QTY     - 1] = t3Qty === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
-        : { v: t3QtyDisp, t: "n", s: bodyNumStyle(fill) };
+        : { v: t3Qty, t: "n", s: bodyNumStyle(fill) };
       if (COL_T3_PRICE)   qtyRow[COL_T3_PRICE   - 1] = t3Price === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
         : { v: t3Price, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
@@ -903,21 +889,15 @@ export function buildExportPayload(
         : { v: t3MrgnPct / 100, t: "n", s: { ...bodyNumStyle(fill), numFmt: "0.0%" } };
     }
 
-    // Same-Period Last Year — same grain rules as T3.
+    // Same-Period Last Year — same rules as T3.
     if (opts.spLY) {
       const ly = lyOf(r.sku);
-      const lyQtyDisp = ly.qty / qtyDiv;
-      const lyPrice   = lyQtyDisp > 0 ? ly.totalPrice / lyQtyDisp : 0;
-      // Same cost-implausibility gate as T3 — suppress margin when
-      // avgCost is > 2× lyPrice. Prevents a stale / wrong-grain cost
-      // basis from producing a misleading negative margin.
-      const lyCostImplausible = avgCostV > 0 && lyPrice > 0 && avgCostV > lyPrice * 2;
-      lyMrgnPct = (avgCostV > 0 && lyPrice > 0 && !lyCostImplausible)
-        ? ((lyPrice - avgCostV) / lyPrice) * 100
-        : 0;
-      if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = lyQtyDisp === 0
+      const lyQty   = ly.qty;
+      const lyPrice = lyQty > 0 ? ly.totalPrice / lyQty : 0;
+      lyMrgnPct = ly.totalPrice > 0 ? (ly.marginAmount / ly.totalPrice) * 100 : 0;
+      if (COL_LY_QTY)     qtyRow[COL_LY_QTY     - 1] = lyQty === 0
         ? { v: "", t: "s", s: bodyNumStyle(fill) }
-        : { v: lyQtyDisp, t: "n", s: bodyNumStyle(fill) };
+        : { v: lyQty, t: "n", s: bodyNumStyle(fill) };
       if (COL_LY_PRICE)   qtyRow[COL_LY_PRICE   - 1] = lyPrice === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
         : { v: lyPrice, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
@@ -1094,40 +1074,34 @@ export function buildExportPayload(
     const avgCostW = qtyForCost > 0 ? costSum / qtyForCost : 0;
     const slsPrcW = (avgCostW > 0 && slsMargin < 1) ? avgCostW / (1 - slsMargin) : 0;
 
-    // T3 / LY totals: same Explode-PPK grain convention as the body
-    // rows. qty cell shows the sum of per-row displayed qty (raw qty
-    // divided by ppkMult in pack mode). totalPrice + cost basis are
-    // grain-invariant since avgCost is per-unit and sales qty is
-    // unit-grain — their product stays unit dollars regardless.
-    // RawQty sums are kept separately (no qtyDiv) for the T3 vs LY
-    // ratio cell, which is itself grain-invariant.
-    let t3QtyDisp = 0, t3RawQty = 0, t3Tot = 0, t3CostBasis = 0;
-    let lyQtyDisp = 0, lyRawQty = 0, lyTot = 0, lyCostBasis = 0;
+    // T3 / LY totals. Sales qty is at unit grain in the DB
+    // (qty_units, populated by the nightly sync). Margin % comes from
+    // aggregated margin_amount (also DB-populated) / totalPrice — no
+    // per-export cost recomputation. RawQty sums kept for the
+    // grain-invariant T3 vs LY ratio cell (same value as the qty sums
+    // since both are at unit grain now).
+    let t3Qty = 0, t3Tot = 0, t3Marg = 0;
+    let lyQty = 0, lyTot = 0, lyMarg = 0;
     for (const r of rows) {
-      const a = r.avgCost ?? 0;
-      const mult = r.ppkMult ?? 1;
-      const qtyDiv = explodePpk ? 1 : mult;
       if (opts.trailing3) {
         const t = t3Of(r.sku);
-        t3QtyDisp += t.qty / qtyDiv;
-        t3RawQty += t.qty;
+        t3Qty += t.qty;
         t3Tot += t.totalPrice;
-        t3CostBasis += a * t.qty;
+        t3Marg += t.marginAmount;
       }
       if (opts.spLY) {
         const l = lyOf(r.sku);
-        lyQtyDisp += l.qty / qtyDiv;
-        lyRawQty += l.qty;
+        lyQty += l.qty;
         lyTot += l.totalPrice;
-        lyCostBasis += a * l.qty;
+        lyMarg += l.marginAmount;
       }
     }
-    const t3Price = t3QtyDisp > 0 ? t3Tot / t3QtyDisp : 0;
-    const lyPrice = lyQtyDisp > 0 ? lyTot / lyQtyDisp : 0;
-    const t3Mrgn  = t3Tot > 0 && t3CostBasis > 0 ? (t3Tot - t3CostBasis) / t3Tot : 0;
-    const lyMrgn  = lyTot > 0 && lyCostBasis > 0 ? (lyTot - lyCostBasis) / lyTot : 0;
+    const t3Price = t3Qty > 0 ? t3Tot / t3Qty : 0;
+    const lyPrice = lyQty > 0 ? lyTot / lyQty : 0;
+    const t3Mrgn  = t3Tot > 0 ? t3Marg / t3Tot : 0;
+    const lyMrgn  = lyTot > 0 ? lyMarg / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty: t3QtyDisp, t3RawQty, t3Price, t3Tot, t3Mrgn, lyQty: lyQtyDisp, lyRawQty, lyPrice, lyTot, lyMrgn };
+    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used

@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonSku, canonStyleColor } from "../../_lib/sku-canon.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
+import { deriveSalesGrainFields } from "../../_lib/sales-grain.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
@@ -201,23 +202,34 @@ export default async function handler(req, res) {
     }
 
     candidates.push({
-      sku, txnDate, qty, unitPrice, invoiceNumber,
+      sku,
+      // Original Xoro Item Number — preserved so we can classify pack
+      // vs unit grain in Pass 2 before canonStyleColor strips the PPK
+      // token. Without this we can't tell which grain Xoro recorded.
+      rawItemNumber: itemNumber,
+      txnDate, qty, unitPrice, invoiceNumber,
       customerName, customerKey: customerName ? canonName(customerName) : null,
       saleStore: saleStore || null,
     });
   }
 
   // ── Resolve existing items (chunked select by sku_code) ──────────────────
+  // Also pull pack_size + unit_cost so Pass 2 can classify grain and
+  // snapshot the per-unit cost for margin computation.
   const skuToId = new Map();
+  const skuToMaster = new Map();
   const allSkus = Array.from(missingSkus.keys());
   for (let i = 0; i < allSkus.length; i += CHUNK) {
     const chunk = allSkus.slice(i, i + CHUNK);
     const { data, error } = await admin
       .from("ip_item_master")
-      .select("id, sku_code")
+      .select("id, sku_code, pack_size, unit_cost")
       .in("sku_code", chunk);
     if (error) { counts.errors.push(`item lookup chunk ${i}: ${error.message}`); continue; }
-    for (const row of data ?? []) skuToId.set(row.sku_code, row.id);
+    for (const row of data ?? []) {
+      skuToId.set(row.sku_code, row.id);
+      skuToMaster.set(row.sku_code, { pack_size: row.pack_size, unit_cost: row.unit_cost });
+    }
   }
 
   // Bulk-create items missing from master. canonStyleColor strips size, so
@@ -258,7 +270,12 @@ export default async function handler(req, res) {
           counts.errors.push(`item upsert chunk ${i}: ${error.message}`);
           continue;
         }
-        for (const row of data ?? []) skuToId.set(row.sku_code, row.id);
+        for (const row of data ?? []) {
+          skuToId.set(row.sku_code, row.id);
+          // New items default to pack_size=1, unit_cost=null. inferQtyGrain
+          // will return 'unit' (no PPK conversion), margin will be NULL.
+          skuToMaster.set(row.sku_code, { pack_size: 1, unit_cost: null });
+        }
         counts.new_items_created += chunk.length;
       }
     }
@@ -344,6 +361,14 @@ export default async function handler(req, res) {
       ? `excel:inv:${c.invoiceNumber}:${c.sku}:${c.txnDate}`
       : `excel:${c.sku}:${c.txnDate}:${c.qty}`;
 
+    const netAmount = c.unitPrice != null ? c.unitPrice * c.qty : null;
+    const grainFields = deriveSalesGrainFields({
+      rawItemNumber: c.rawItemNumber,
+      qty: c.qty,
+      netAmount,
+      master: skuToMaster.get(c.sku),
+    });
+
     out.push({
       sku_id: skuId,
       customer_id: customerId,
@@ -355,13 +380,14 @@ export default async function handler(req, res) {
       txn_date: c.txnDate,
       qty: c.qty,
       unit_price: c.unitPrice,
-      gross_amount: c.unitPrice != null ? c.unitPrice * c.qty : null,
+      gross_amount: netAmount,
       discount_amount: null,
-      net_amount: c.unitPrice != null ? c.unitPrice * c.qty : null,
+      net_amount: netAmount,
       currency: "USD",
       source: SOURCE,
       raw_payload_id: null,
       source_line_key: lineKey,
+      ...grainFields,
     });
   }
 
@@ -383,8 +409,29 @@ export default async function handler(req, res) {
     else if (rUp != null) mergedUp = rUp;
     existing.qty = totalQty;
     existing.unit_price = mergedUp;
-    existing.gross_amount = mergedUp != null ? mergedUp * totalQty : null;
-    existing.net_amount = mergedUp != null ? mergedUp * totalQty : null;
+    const mergedNet = mergedUp != null ? mergedUp * totalQty : null;
+    existing.gross_amount = mergedNet;
+    existing.net_amount = mergedNet;
+    // Re-derive qty_units + margin from the merged qty + net. Grain
+    // stays the same (both rows share source_line_key → same sku →
+    // same rawItemNumber classification). unit_cost_at_sale is also
+    // unchanged. Rescale qty_units + recompute margin from the merged
+    // totals. Recovers pack_size from the pre-merge qty_units:qty ratio
+    // (preserves whatever precision the master had).
+    const inferredPackSize = existing.qty_grain === "pack" && eQty > 0
+      ? existing.qty_units / eQty
+      : 1;
+    existing.qty_units = existing.qty_grain === "pack"
+      ? totalQty * inferredPackSize
+      : totalQty;
+    if (mergedNet != null && existing.unit_cost_at_sale != null && mergedNet > 0) {
+      const newMarginAmount = mergedNet - existing.qty_units * existing.unit_cost_at_sale;
+      existing.margin_amount = newMarginAmount;
+      existing.margin_pct = newMarginAmount / mergedNet;
+    } else {
+      existing.margin_amount = null;
+      existing.margin_pct = null;
+    }
   }
   const aggregated = Array.from(merged.values());
 
