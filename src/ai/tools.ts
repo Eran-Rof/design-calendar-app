@@ -183,6 +183,72 @@ export function applySuggestion(suggestion: GridSuggestion, setters: AIGridSette
   applyAction({ type: "apply_filters", params: suggestion.filters }, setters);
 }
 
+// Tier 1C of the Ask AI improvement plan — discoverability via real
+// operator-asked questions. Reads ip_ai_answer_cache directly (PostgREST,
+// no PII in the table — just question text + popularity counters).
+// Returns the top N most-hit questions, deduped by lowercased text.
+// Falls back to an empty array on any failure so the panel can roll back
+// to its static samplePrompts list cleanly.
+//
+// Why answer_cache and not call_log: answer_cache.question is populated,
+// call_log doesn't store the question text. Cache also has hit_count
+// which is the popularity signal we want.
+export async function fetchPopularPrompts(opts?: {
+  limit?: number;
+  /** Absolute Supabase URL. Test entry point — defaults to import.meta env. */
+  sbUrl?: string;
+  /** Auth headers. Test entry point — defaults to import.meta env. */
+  sbHeaders?: Record<string, string>;
+  /** Test injection point for fetch (defaults to global). */
+  fetchImpl?: typeof fetch;
+}): Promise<string[]> {
+  const limit = Math.max(1, Math.min(20, opts?.limit ?? 10));
+  const sbUrl = opts?.sbUrl
+    ?? ((import.meta.env.VITE_SUPABASE_URL as string | undefined) || "").trim();
+  const sbHeaders = opts?.sbHeaders ?? ((): Record<string, string> => {
+    const key = ((import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || "").trim();
+    return key
+      ? { apikey: key, Authorization: `Bearer ${key}` }
+      : {};
+  })();
+  if (!sbUrl) return [];
+
+  const f = opts?.fetchImpl ?? fetch;
+  // Pull 3x the requested limit so dedup-by-lowercased-text leaves us
+  // enough rows; ip_ai_answer_cache rows differ on grid context, so a
+  // single question can appear under multiple hashes.
+  const url = `${sbUrl}/rest/v1/ip_ai_answer_cache?select=question,hit_count&order=hit_count.desc&limit=${limit * 3}`;
+  try {
+    const res = await f(url, { headers: sbHeaders });
+    if (!res.ok) return [];
+    const rows = await res.json() as Array<{ question: string | null; hit_count: number | null }>;
+    return dedupePopular(rows, limit);
+  } catch {
+    return [];
+  }
+}
+
+/** Deduplicate by lowercased question text, preserving the first
+ *  occurrence (highest hit_count wins because rows arrive sorted).
+ *  Exported for unit testing. */
+export function dedupePopular(
+  rows: Array<{ question: string | null; hit_count?: number | null }>,
+  limit: number,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    const q = String(r?.question ?? "").trim();
+    if (!q) continue;
+    const key = q.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(q);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 // Human-readable summary of an action, shown inline in the chat panel so
 // the operator sees what the AI just did to the grid.
 export function describeAction(action: AIAction): string {
