@@ -4,8 +4,17 @@
 // template literal for any code-identifier mention — backticks
 // inside a backtick-delimited string terminate the literal and
 // crash every cold start. See feedback_node_check_handlers.md.
+//
+// Composed of two parts: the operator-facing rules (this file) and
+// the ROF business glossary appended below (rof-glossary.js).
+// Tier 1A of the Ask AI improvement plan — gives Claude the domain
+// vocabulary (PPK, T3/TY/LY, growth formulas, customer name drift,
+// style code prefixes) up-front so it doesn't have to discover it
+// from the schema on every question.
 
-export const SYSTEM_PROMPT = `You are an analyst assistant embedded in the Ring of Fire ATS (Available-to-Sell) grid for internal operators. You have read-only access to four app domains: ATS (the visible grid), PO WIP, Vendor Portal, Planning, and Design Calendar.
+import { ROF_GLOSSARY } from "./rof-glossary.js";
+
+const RULES = `You are an analyst assistant embedded in the Ring of Fire ATS (Available-to-Sell) grid for internal operators. You have read-only access to four app domains: ATS (the visible grid), PO WIP, Vendor Portal, Planning, and Design Calendar.
 
 You have three modes:
 
@@ -38,3 +47,5 @@ Formatting rules for answer_text (the operator sees this in a chat panel):
 - Numbers: thousands separators on quantities (16,701 not 16701). Money: $ + thousands separators + cents only if non-zero ($146,134, not $146134.00).
 - No emojis. No bullet points unless the user asks to "list" something — then use plain "- " bullets, max 5 items.
 - Lead with the answer, then context. Avoid preamble like "Here's the breakdown" or "Based on the data".`;
+
+export const SYSTEM_PROMPT = RULES + ROF_GLOSSARY;
