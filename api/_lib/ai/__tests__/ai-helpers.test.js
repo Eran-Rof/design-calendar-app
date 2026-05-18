@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { buildCacheKey } from "../answer-cache.js";
 import { applyFilter } from "../executors.js";
+import { defaultCardWindows, growthShare } from "../executors-cards.js";
 import { clampDate, canonName, formatCacheAge, sanitizeHistory } from "../utils.js";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -170,6 +171,65 @@ describe("formatCacheAge", () => {
     expect(formatCacheAge(3599)).toBe("59m");
     expect(formatCacheAge(3600)).toBe("1h");
     expect(formatCacheAge(7200)).toBe("2h");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Entity-card helpers (executors-cards.js)
+// ────────────────────────────────────────────────────────────────────────
+
+describe("defaultCardWindows", () => {
+  it("returns YYYY-MM-DD strings for all four bounds", () => {
+    const w = defaultCardWindows(new Date("2026-05-17T10:30:00Z"));
+    for (const v of [w.t3Start, w.t3End, w.lyStart, w.lyEnd]) {
+      expect(v).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  it("t3End is today, t3Start is exactly 3 months earlier", () => {
+    const w = defaultCardWindows(new Date(2026, 4, 17));
+    expect(w.t3End).toBe("2026-05-17");
+    expect(w.t3Start).toBe("2026-02-17");
+  });
+
+  it("lyEnd is exactly 1 year before t3End", () => {
+    const w = defaultCardWindows(new Date(2026, 4, 17));
+    expect(w.lyEnd).toBe("2025-05-17");
+  });
+
+  it("lyStart is 15 months before t3End (3mo window shifted back 12mo)", () => {
+    const w = defaultCardWindows(new Date(2026, 4, 17));
+    expect(w.lyStart).toBe("2025-02-17");
+  });
+
+  it("handles month rollover correctly (Jan -> Oct of prior year)", () => {
+    const w = defaultCardWindows(new Date(2026, 0, 15));
+    expect(w.t3End).toBe("2026-01-15");
+    expect(w.t3Start).toBe("2025-10-15");
+    expect(w.lyEnd).toBe("2025-01-15");
+    expect(w.lyStart).toBe("2024-10-15");
+  });
+});
+
+describe("growthShare", () => {
+  it("returns the ROF (current - prior) / current fraction", () => {
+    expect(growthShare(100, 80)).toBeCloseTo(0.2, 5);
+    expect(growthShare(50, 100)).toBeCloseTo(-1.0, 5);
+  });
+
+  it("returns 1 when prior is 0 (everything is incremental)", () => {
+    expect(growthShare(100, 0)).toBe(1);
+    expect(growthShare(1, 0)).toBe(1);
+  });
+
+  it("returns 1 when prior is negative (treat as no baseline)", () => {
+    expect(growthShare(100, -5)).toBe(1);
+  });
+
+  it("returns null when current is 0 or negative (formula breaks)", () => {
+    expect(growthShare(0, 50)).toBe(null);
+    expect(growthShare(-5, 50)).toBe(null);
+    expect(growthShare(0, 0)).toBe(null);
   });
 });
 
