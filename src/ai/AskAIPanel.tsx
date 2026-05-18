@@ -489,6 +489,22 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             {/* Discoverable link to the operator-facts admin (Tier 2H).
                 Opens in a new tab so the operator doesn't lose their
                 in-flight Ask AI conversation. */}
+            {/* Discoverable link to saved workflow documents (Tier 3J).
+                New tab so an in-flight conversation isn't lost. */}
+            <a
+              href="/ai-documents"
+              target="_blank"
+              rel="noreferrer"
+              title="Saved workflow documents (re-render against live data)"
+              style={{
+                color: "#64748B", textDecoration: "none",
+                fontSize: 11, padding: "0 8px", fontWeight: 500,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = "#94A3B8"; }}
+              onMouseLeave={e => { e.currentTarget.style.color = "#64748B"; }}
+            >
+              Docs
+            </a>
             <a
               href="/ai-facts"
               target="_blank"
