@@ -22,6 +22,13 @@ import {
   generateMemoryFile,
   downloadMemoryFile,
 } from "./memoryFile";
+import {
+  fileToAttachment,
+  imagesFromDataTransferItems,
+  revokeAttachmentPreviews,
+  MAX_ATTACHMENTS_PER_TURN,
+  type ImageAttachment,
+} from "./imageAttachments";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -76,6 +83,10 @@ interface ChatMessage {
   /** Transient state used by the Copy button to flash "Copied" for
    *  ~1.4s after a successful clipboard write. */
   justCopied?: boolean;
+  /** PR 3/4: object URLs of any image attachments sent with this user
+   *  message. Shown as thumbnails inside the bubble. Stored on the
+   *  message so re-renders + scroll-back keep them visible. */
+  attachmentPreviews?: string[];
   pending?: boolean;
   error?: boolean;
   // Cache hit metadata — surfaced as a small "cached Xm ago · Ask fresh ↻"
@@ -174,6 +185,14 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   // bubble renders an inline textarea instead of static text.
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
+  // Vision attachments staged for the NEXT send. Cleared after submit
+  // OR when the operator removes them individually. Object URLs are
+  // revoked on unmount + when sent. Capped at MAX_ATTACHMENTS_PER_TURN.
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  // Drag-over visual: lights up the panel body when a file is being
+  // dragged over (any drop target inside the panel).
+  const [dragActive, setDragActive] = useState(false);
   // Operator-asked popular prompts loaded once per panel session.
   // Empty array = "not loaded / nothing to show", in which case we
   // fall back to the static samplePrompts prop.
@@ -281,6 +300,38 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     } catch { /* keep showing — operator can retry */ }
   }
 
+  // ── Image attachments (PR 3/4) ───────────────────────────────────────
+  // Add one or more files to the next-send queue. Validation errors
+  // bubble up to a transient inline message under the thumbnail strip.
+  async function addAttachments(files: File[]) {
+    if (files.length === 0) return;
+    if (attachments.length >= MAX_ATTACHMENTS_PER_TURN) {
+      setAttachmentError(`At most ${MAX_ATTACHMENTS_PER_TURN} images per turn.`);
+      return;
+    }
+    const remainingSlots = MAX_ATTACHMENTS_PER_TURN - attachments.length;
+    const toProcess = files.slice(0, remainingSlots);
+    setAttachmentError(null);
+    try {
+      const built = await Promise.all(toProcess.map(f => fileToAttachment(f)));
+      setAttachments(prev => [...prev, ...built]);
+    } catch (e) {
+      setAttachmentError(String((e as Error).message || e));
+    }
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments(prev => {
+      const out = prev.slice();
+      const removed = out.splice(idx, 1);
+      revokeAttachmentPreviews(removed);
+      return out;
+    });
+  }
+
+  // Free any in-flight object URLs on unmount so we don't leak.
+  useEffect(() => () => { revokeAttachmentPreviews(attachments); /* eslint-disable-next-line */ }, []);
+
   // Tier 3L: capture an assistant message as an operator-authored fact.
   // POSTs to /api/internal/ai/user-facts (Tier 2H endpoint) so the same
   // body the operator just read is reusable by future AI sessions; on
@@ -357,13 +408,33 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
    */
   async function send(text: string, opts?: { baseMessages?: ChatMessage[] }) {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    // Permit empty text when attachments are present — e.g. "operator
+    // pastes a screenshot and hits Enter" should still send.
+    const hasAttachments = !opts?.baseMessages && attachments.length > 0;
+    if (busy) return;
+    if (!trimmed && !hasAttachments) return;
+    // For attachment-only sends (no text), fall back to a generic
+    // prompt so the AI has something to respond to. Operator can still
+    // type their own question — this is just the empty-text default.
+    const effectiveText = trimmed || (hasAttachments ? "What's in this image?" : "");
+
+    // Snapshot attachments for this send + clear the staging area so
+    // the UI updates immediately. Object URLs are freed AFTER the send
+    // completes (the user bubble may still want to show the thumbnail).
+    const sendAttachments = hasAttachments ? attachments : [];
+    if (hasAttachments) {
+      setAttachments([]);
+      setAttachmentError(null);
+    }
 
     let baseMessages: ChatMessage[];
     if (opts?.baseMessages) {
       baseMessages = opts.baseMessages;
     } else {
-      const userMsg: ChatMessage = { id: genId(), role: "user", text: trimmed };
+      const userMsg: ChatMessage = {
+        id: genId(), role: "user", text: effectiveText,
+        ...(sendAttachments.length > 0 ? { attachmentPreviews: sendAttachments.map(a => a.previewUrl) } : {}),
+      };
       baseMessages = [...messages, userMsg];
     }
     const pendingMsg: ChatMessage = { id: genId(), role: "assistant", text: "Thinking…", pending: true };
@@ -398,7 +469,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
         body: JSON.stringify({
-          question: trimmed,
+          question: effectiveText,
           history,
           grid_context: context,
           // Forwarded so the server can scope lookup_user_facts (Tier 2H)
@@ -407,6 +478,12 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           // parameter.
           user_id: userId,
           app_id: appId || null,
+          // PR 3/4: image attachments for the current turn only. The
+          // server cap (MAX_ATTACHMENTS_PER_TURN) is the authoritative
+          // limit; we just don't bother sending an empty array.
+          ...(sendAttachments.length > 0
+            ? { attachments: sendAttachments.map(a => ({ media_type: a.media_type, data: a.data })) }
+            : {}),
         }),
       });
       if (!resp.ok || !resp.body) {
@@ -895,6 +972,24 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                 opacity: m.pending ? 0.7 : 1,
               }}
             >
+              {/* User-bubble attachment thumbnails (PR 3/4). Shown
+                  ABOVE the text since the operator typically pastes
+                  the image first then types the question. */}
+              {m.role === "user" && m.attachmentPreviews && m.attachmentPreviews.length > 0 && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                  {m.attachmentPreviews.map((url, i) => (
+                    <img
+                      key={i}
+                      src={url}
+                      alt=""
+                      style={{
+                        width: 64, height: 64, objectFit: "cover",
+                        borderRadius: 4, border: "1px solid rgba(255,255,255,0.25)",
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
               {m.role === "assistant" && !m.pending && !m.error
                 ? <RenderedMessage text={m.text} />
                 : m.role === "user" && editingUserId === m.id
@@ -1247,18 +1342,84 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           ))}
         </div>
 
-        <div style={{
-          padding: 12,
-          borderTop: "1px solid #1E293B",
-          background: "#0F172A",
-        }}>
+        <div
+          style={{
+            padding: 12,
+            borderTop: "1px solid #1E293B",
+            background: dragActive ? "#1E40AF22" : "#0F172A",
+            transition: "background 0.1s",
+          }}
+          onDragOver={e => {
+            // Show the drop-target highlight only when files (vs HTML)
+            // are being dragged. Avoids flashing on stray UI drags.
+            if (e.dataTransfer?.types?.includes("Files")) {
+              e.preventDefault();
+              setDragActive(true);
+            }
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={e => {
+            e.preventDefault();
+            setDragActive(false);
+            const files = imagesFromDataTransferItems(e.dataTransfer?.items);
+            if (files.length > 0) addAttachments(files);
+          }}
+        >
+          {/* Attachment thumbnail strip (PR 3/4). Only shown when at
+              least one image is staged. Each chip has a remove (✕)
+              that revokes its preview URL. */}
+          {attachments.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              {attachments.map((a, i) => (
+                <div key={`${a.name}-${i}`} style={{
+                  position: "relative",
+                  width: 56, height: 56,
+                  background: "#1E293B",
+                  border: "1px solid #334155",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                }}>
+                  <img
+                    src={a.previewUrl}
+                    alt={a.name}
+                    title={`${a.name} · ${(a.size / 1024).toFixed(0)} KB`}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(i)}
+                    title="Remove attachment"
+                    style={{
+                      position: "absolute", top: 2, right: 2,
+                      width: 16, height: 16, lineHeight: "14px",
+                      background: "rgba(0,0,0,0.7)", color: "#fff",
+                      border: "none", borderRadius: 999,
+                      cursor: "pointer", fontSize: 11, padding: 0,
+                    }}
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachmentError && (
+            <div style={{ color: "#FCA5A5", fontSize: 11, marginBottom: 6 }}>{attachmentError}</div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <textarea
               ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Ask anything ROF related…"
+              onPaste={e => {
+                const files = imagesFromDataTransferItems(e.clipboardData?.items);
+                if (files.length > 0) {
+                  e.preventDefault();
+                  addAttachments(files);
+                }
+              }}
+              placeholder={attachments.length > 0
+                ? "Ask about this image, or hit Enter…"
+                : "Ask anything ROF related… (paste a screenshot to attach)"}
               rows={2}
               disabled={busy}
               style={{
@@ -1276,16 +1437,16 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             />
             <button
               onClick={() => send(input)}
-              disabled={busy || !input.trim()}
+              disabled={busy || (!input.trim() && attachments.length === 0)}
               style={{
-                background: busy || !input.trim() ? "#1E293B" : "#3B82F6",
-                color: busy || !input.trim() ? "#64748B" : "#fff",
+                background: busy || (!input.trim() && attachments.length === 0) ? "#1E293B" : "#3B82F6",
+                color:      busy || (!input.trim() && attachments.length === 0) ? "#64748B" : "#fff",
                 border: "none",
                 borderRadius: 8,
                 padding: "0 14px",
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: busy || !input.trim() ? "not-allowed" : "pointer",
+                cursor:     busy || (!input.trim() && attachments.length === 0) ? "not-allowed" : "pointer",
                 fontFamily: "inherit",
               }}
             >
