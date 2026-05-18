@@ -14,6 +14,12 @@ import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds } from ".
 interface SalesRow {
   sku_id: string;
   customer_id: string | null;
+  // channel_id: ip_channel_master row. Populated by the nightly sync
+  // for rows ingested after migration 20260518030000; NULL for older
+  // historical rows. Export's store filter respects this — NULL rows
+  // are excluded when a specific store is selected (operator must
+  // re-run nightly to backfill channel_id on rolling window).
+  channel_id: string | null;
   txn_date: string;        // YYYY-MM-DD
   qty: number | string;
   // qty_units: authoritative unit-grain qty. Populated by the nightly
@@ -136,7 +142,7 @@ function sliceBoundaries(start: string, end: string, slices: number): string[] {
 // the boundary day; the caller's final slice covers through `end`
 // inclusive by passing endExclusive = end + 1 day.
 async function fetchSalesSlice(startInclusive: string, endExclusive: string, pageSize = 1000): Promise<SalesRow[]> {
-  const cols = "sku_id,customer_id,txn_date,qty,qty_units,net_amount,unit_price,margin_amount";
+  const cols = "sku_id,customer_id,channel_id,txn_date,qty,qty_units,net_amount,unit_price,margin_amount";
   const path = `ip_sales_history_wholesale?select=${cols}&txn_date=gte.${startInclusive}&txn_date=lt.${endExclusive}&order=txn_date.asc`;
   return sbGetAll<SalesRow>(path, pageSize);
 }
@@ -202,6 +208,41 @@ async function resolveCustomerIds(name: string): Promise<string[]> {
   return out;
 }
 
+// Module-level cache of channel_code -> channel_id, so the store
+// filter resolves with one Supabase round-trip per app session.
+// Channels are static — refreshing on demand isn't worth the cost.
+let channelCacheMap: Map<string, string> | null = null;
+let channelCachePromise: Promise<Map<string, string>> | null = null;
+
+async function loadChannelMap(): Promise<Map<string, string>> {
+  if (channelCacheMap) return channelCacheMap;
+  if (channelCachePromise) return channelCachePromise;
+  channelCachePromise = (async () => {
+    const rows = await sbGet<{ id: string; channel_code: string }>(
+      `ip_channel_master?select=id,channel_code`,
+    );
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      if (r.id && r.channel_code) m.set(r.channel_code, r.id);
+    }
+    channelCacheMap = m;
+    return m;
+  })();
+  return channelCachePromise;
+}
+
+async function resolveChannelIds(codes: string[]): Promise<Set<string>> {
+  const map = await loadChannelMap();
+  const out = new Set<string>();
+  for (const code of codes) {
+    if (code === "All") continue;
+    const id = map.get(code);
+    if (id) out.add(id);
+  }
+  return out;
+}
+
+
 // Build the variant-id → ATS-sku reverse map. Walks each ATS row,
 // resolves it to one or more ip_item_master.id values via the existing
 // item-master cache (which handles canonicalization, PPK suffix
@@ -240,6 +281,12 @@ export interface FetchSalesArgs {
   needT3: boolean;
   needLY: boolean;
   customer: string;
+  // Store filter — array of channel_code strings ("ROF", "ROF ECOM",
+  // "PT"). When provided and not ["All"], the sales fetch narrows to
+  // rows whose channel_id matches one of the resolved channels. Rows
+  // with NULL channel_id (legacy / pre-migration data) are excluded
+  // from any store-specific filter.
+  storeFilter?: string[];
   // Optional custom window for the T3 block. When provided, T3
   // aggregates use [customStart, customEnd] instead of the default
   // "last 3 months from today", and SP LY uses the same window shifted
@@ -326,7 +373,7 @@ function cacheCovers(start: string, end: string): boolean {
   return start >= salesCacheStart && end <= salesCacheEnd;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd }: FetchSalesArgs): Promise<SalesFetchResult> {
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter }: FetchSalesArgs): Promise<SalesFetchResult> {
   // Window resolution. Default: T3 = trailing 3 months from today;
   // LY = same window shifted back 12 months (== [today-15m, today-12m]).
   // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
@@ -415,6 +462,29 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     const before = salesRows.length;
     salesRows = salesRows.filter(r => r.customer_id != null && customerIdSet!.has(r.customer_id));
     console.info(`[ATS export] customer filter: ${salesRows.length}/${before} sales rows match`);
+  }
+
+  // In-memory store filter. Resolves store codes ("ROF", "ROF ECOM",
+  // "PT") to channel_ids on the fly. Rows with NULL channel_id
+  // (historical, pre-migration-20260518030000) are excluded from any
+  // specific-store filter — operator re-runs the nightly invoice sync
+  // to backfill those.
+  const wantStoreFilter = Array.isArray(storeFilter) && storeFilter.length > 0
+    && !storeFilter.includes("All");
+  if (wantStoreFilter) {
+    try {
+      const channelIds = await resolveChannelIds(storeFilter as string[]);
+      if (channelIds.size === 0) {
+        console.warn(`[ATS export] store filter "${storeFilter!.join(",")}" matched no channels — T3/LY will be empty.`);
+        return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
+      }
+      const before = salesRows.length;
+      salesRows = salesRows.filter(r => r.channel_id != null && channelIds.has(r.channel_id));
+      console.info(`[ATS export] store filter (${storeFilter!.join(",")}): ${salesRows.length}/${before} sales rows match`);
+    } catch (e) {
+      console.error(`[ATS export] store filter failed:`, e);
+      // Continue without store filter rather than break the export.
+    }
   }
 
   const t3: SalesAggMap = new Map();
