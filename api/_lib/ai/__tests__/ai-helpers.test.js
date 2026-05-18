@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { buildCacheKey } from "../answer-cache.js";
 import { applyFilter } from "../executors.js";
 import { defaultCardWindows, growthShare } from "../executors-cards.js";
+import { computeMargin } from "../executors-margin.js";
 import { clampDate, canonName, formatCacheAge, sanitizeHistory, sanitizeFollowups } from "../utils.js";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -322,5 +323,92 @@ describe("sanitizeFollowups", () => {
     const out = sanitizeFollowups([42, "ok", true]);
     // 42 → "42", true → "true" (both ≤ 70 chars)
     expect(out).toEqual(["42", "ok", "true"]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// computeMargin (executors-margin.js) — the math the AI must NEVER do
+// itself. Wraps per-SKU revenue + qty + avg_cost into a single margin
+// figure and honest coverage stats.
+// ────────────────────────────────────────────────────────────────────────
+
+describe("computeMargin", () => {
+  it("computes margin over a full-coverage set", () => {
+    const perSku = new Map([
+      ["s1", { qty: 100, revenue: 1000 }],
+      ["s2", { qty: 50,  revenue: 500 }],
+    ]);
+    const skuIdToCode = new Map([["s1", "SKU-1"], ["s2", "SKU-2"]]);
+    const cost = new Map([["SKU-1", 6], ["SKU-2", 4]]);
+    const pack = new Map([["s1", 1], ["s2", 1]]);
+    const r = computeMargin(perSku, skuIdToCode, cost, pack);
+    expect(r.revenue).toBe(1500);
+    expect(r.cogs).toBe(100 * 6 + 50 * 4); // 800
+    expect(r.margin_dollars).toBe(700);
+    expect(r.margin_pct).toBeCloseTo(700 / 1500, 6);
+    expect(r.cost_coverage_pct).toBe(1);
+    expect(r.uncovered_revenue).toBe(0);
+    expect(r.sku_count).toBe(2);
+    expect(r.sku_count_with_cost).toBe(2);
+  });
+
+  it("reports partial coverage when some skus lack avg_cost", () => {
+    const perSku = new Map([
+      ["s1", { qty: 100, revenue: 1000 }],
+      ["s2", { qty: 50,  revenue: 500 }],   // no cost
+    ]);
+    const skuIdToCode = new Map([["s1", "SKU-1"], ["s2", "SKU-2"]]);
+    const cost = new Map([["SKU-1", 6]]); // SKU-2 missing
+    const pack = new Map([["s1", 1], ["s2", 1]]);
+    const r = computeMargin(perSku, skuIdToCode, cost, pack);
+    expect(r.revenue).toBe(1500);
+    expect(r.cogs).toBe(600);
+    // Margin only over covered portion: 1000 - 600 = 400
+    expect(r.margin_dollars).toBe(400);
+    expect(r.margin_pct).toBeCloseTo(400 / 1000, 6);
+    expect(r.cost_coverage_pct).toBeCloseTo(1000 / 1500, 6);
+    expect(r.uncovered_revenue).toBe(500);
+    expect(r.sku_count).toBe(2);
+    expect(r.sku_count_with_cost).toBe(1);
+    const missing = r.per_sku.find(s => s.sku_id === "s2");
+    expect(missing.has_cost).toBe(false);
+    expect(missing.cogs).toBeNull();
+    expect(missing.margin_dollars).toBeNull();
+  });
+
+  it("returns null margin_pct when no covered revenue", () => {
+    const perSku = new Map([
+      ["s1", { qty: 100, revenue: 1000 }],
+    ]);
+    const skuIdToCode = new Map([["s1", "SKU-1"]]);
+    const cost = new Map(); // nothing covered
+    const pack = new Map([["s1", 1]]);
+    const r = computeMargin(perSku, skuIdToCode, cost, pack);
+    expect(r.margin_pct).toBeNull();
+    expect(r.cost_coverage_pct).toBe(0);
+    expect(r.sku_count_with_cost).toBe(0);
+  });
+
+  it("sorts per_sku descending by revenue", () => {
+    const perSku = new Map([
+      ["small", { qty: 1,  revenue: 10 }],
+      ["big",   { qty: 10, revenue: 1000 }],
+      ["mid",   { qty: 5,  revenue: 100 }],
+    ]);
+    const codes = new Map([["small", "A"], ["big", "B"], ["mid", "C"]]);
+    const cost = new Map([["A", 1], ["B", 1], ["C", 1]]);
+    const pack = new Map([["small", 1], ["big", 1], ["mid", 1]]);
+    const r = computeMargin(perSku, codes, cost, pack);
+    expect(r.per_sku.map(s => s.sku_id)).toEqual(["big", "mid", "small"]);
+  });
+
+  it("flags prepacks via pack_size > 1", () => {
+    const perSku = new Map([["s1", { qty: 10, revenue: 100 }]]);
+    const codes = new Map([["s1", "SKU-PPK"]]);
+    const cost = new Map([["SKU-PPK", 5]]);
+    const pack = new Map([["s1", 24]]);
+    const r = computeMargin(perSku, codes, cost, pack);
+    expect(r.per_sku[0].is_prepack).toBe(true);
+    expect(r.per_sku[0].pack_size).toBe(24);
   });
 });

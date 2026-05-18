@@ -124,6 +124,25 @@ export const TOOLS = [
     },
   },
 
+  // ── Margin (single-call, no fabrication possible) ────────────────────
+  {
+    name: "query_margin",
+    description: "ONE-CALL MARGIN COMPUTATION. Use this for ANY margin question ('what was Ross's margin LY', 'margin % on Edge T3', 'margin $ for slim denim in 2025'). Fetches revenue from ip_sales_history_wholesale + per-SKU avg_cost from ip_item_avg_cost + computes COGS = Σ(qty × avg_cost), margin_$ = revenue − COGS, margin_% = margin_$ / revenue server-side. Returns coverage stats — if some SKUs lack avg_cost, the tool tells you exactly which $ and % of revenue is covered. DO NOT fabricate a margin rate, sample average, or 'representative midpoint' — call this tool and report what it returns. Same customer_ids array rule as query_shipments (always pass the full array find_customer returned, never just one).",
+    input_schema: {
+      type: "object",
+      properties: {
+        customer_id:  { type: "string", description: "DEPRECATED — pass customer_ids array instead." },
+        customer_ids: { type: "array", items: { type: "string" }, description: "ip_customer_master.id list. Use ALL ids find_customer returned for the requested customer name." },
+        style_code:   { type: "string", description: "ip_item_master.style_code; filters all SKU variants in the family." },
+        sku_code:     { type: "string", description: "ip_item_master.sku_code; exact SKU filter." },
+        date_from:    { type: "string", description: "ISO date YYYY-MM-DD; inclusive lower bound on txn_date." },
+        date_to:      { type: "string", description: "ISO date YYYY-MM-DD; inclusive upper bound on txn_date." },
+      },
+      required: ["date_from", "date_to"],
+      additionalProperties: false,
+    },
+  },
+
   // ── Entity cards (single-call snapshots) ──────────────────────────────
   {
     name: "style_card",
