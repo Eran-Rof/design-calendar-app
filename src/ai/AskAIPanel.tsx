@@ -18,6 +18,10 @@ import {
   clearConversation,
   type StoredChatMessage,
 } from "./conversationStore";
+import {
+  generateMemoryFile,
+  downloadMemoryFile,
+} from "./memoryFile";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -60,6 +64,15 @@ interface ChatMessage {
   trace?: ToolTraceEntry[];
   /** Per-message expansion state for the "Why?" trace panel. */
   traceExpanded?: boolean;
+  /** Tier 3L: capture-as-fact form state on this assistant bubble. */
+  captureOpen?: boolean;
+  captureTopic?: string;
+  captureScope?: "self" | "global";
+  captureBusy?: boolean;
+  captureError?: string;
+  /** Set true after a successful save so the bubble shows the
+   *  download affordance + a "captured" badge. */
+  factCaptured?: boolean;
   pending?: boolean;
   error?: boolean;
   // Cache hit metadata — surfaced as a small "cached Xm ago · Ask fresh ↻"
@@ -238,6 +251,64 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       });
       setInsights(prev => prev.filter(i => i.id !== id));
     } catch { /* keep showing — operator can retry */ }
+  }
+
+  // Tier 3L: capture an assistant message as an operator-authored fact.
+  // POSTs to /api/internal/ai/user-facts (Tier 2H endpoint) so the same
+  // body the operator just read is reusable by future AI sessions; on
+  // success offers a memory-tree .md download so the same fact also
+  // lives client-side for Claude Code.
+  async function captureMessageAsFact(messageId: string) {
+    const m = messages.find(x => x.id === messageId);
+    if (!m) return;
+    const topic = (m.captureTopic || "").trim();
+    if (!topic) {
+      setMessages(prev => prev.map(x => x.id === messageId ? { ...x, captureError: "Topic is required." } : x));
+      return;
+    }
+    setMessages(prev => prev.map(x => x.id === messageId ? { ...x, captureBusy: true, captureError: undefined } : x));
+    try {
+      const body = {
+        topic,
+        fact: m.text,
+        scope: m.captureScope || "self",
+        app: appId || null,
+        user_id: userId,
+      };
+      const r = await fetch("/api/internal/ai/user-facts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setMessages(prev => prev.map(x => x.id === messageId ? {
+        ...x, captureBusy: false, captureOpen: false, factCaptured: true,
+      } : x));
+    } catch (e) {
+      setMessages(prev => prev.map(x => x.id === messageId ? {
+        ...x, captureBusy: false, captureError: String((e as Error).message || e),
+      } : x));
+    }
+  }
+
+  function downloadMessageAsMemoryFile(messageId: string) {
+    const m = messages.find(x => x.id === messageId);
+    if (!m) return;
+    const topic = (m.captureTopic || "").trim() || "ask_ai_fact";
+    try {
+      const file = generateMemoryFile({
+        topic,
+        fact: m.text,
+        scope: m.captureScope || "self",
+        app: appId || null,
+        createdBy: userId,
+      });
+      downloadMemoryFile(file);
+    } catch (e) {
+      setMessages(prev => prev.map(x => x.id === messageId ? {
+        ...x, captureError: String((e as Error).message || e),
+      } : x));
+    }
   }
 
   useEffect(() => {
@@ -820,6 +891,112 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                           <span style={{ color: "#64748B" }}>{i + 1}.</span> {t.summary || t.tool}
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Tier 3L: capture-as-fact affordance. Visible under any
+                  non-pending, non-error assistant message. Click toggles
+                  an inline form; saving POSTs to /api/internal/ai/user-facts
+                  AND offers a memory-tree .md download so the same fact
+                  lives in both surfaces. */}
+              {m.role === "assistant" && !m.pending && !m.error && (
+                <div style={{ marginTop: 6 }}>
+                  {!m.factCaptured && !m.captureOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setMessages(prev => prev.map(x => x.id === m.id ? {
+                        ...x, captureOpen: true, captureTopic: x.captureTopic || "", captureScope: x.captureScope || "self",
+                      } : x))}
+                      style={{
+                        background: "none", border: "none", color: "#64748B",
+                        cursor: "pointer", padding: 0, fontSize: 10, fontFamily: "inherit", fontStyle: "italic",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.color = "#94A3B8")}
+                      onMouseLeave={e => (e.currentTarget.style.color = "#64748B")}
+                    >
+                      + Save as fact
+                    </button>
+                  )}
+                  {m.factCaptured && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: "#10B981" }}>
+                      <span>✓ Captured as fact</span>
+                      <button
+                        type="button"
+                        onClick={() => downloadMessageAsMemoryFile(m.id)}
+                        style={{
+                          background: "none", border: "none", color: "#60A5FA",
+                          cursor: "pointer", padding: 0, fontSize: 10, fontFamily: "inherit", textDecoration: "underline",
+                        }}
+                      >
+                        Download .md for memory tree
+                      </button>
+                    </div>
+                  )}
+                  {m.captureOpen && (
+                    <div style={{
+                      marginTop: 4, padding: 8, background: "#162033",
+                      border: "1px solid #334155", borderRadius: 6,
+                      display: "flex", flexDirection: "column", gap: 6,
+                    }}>
+                      <input
+                        placeholder='Topic (e.g. "RYB0412" or "Burlington")'
+                        value={m.captureTopic || ""}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setMessages(prev => prev.map(x => x.id === m.id ? { ...x, captureTopic: v } : x));
+                        }}
+                        maxLength={80}
+                        style={{
+                          background: "#0F172A", color: "#F1F5F9",
+                          border: "1px solid #334155", borderRadius: 4,
+                          padding: "4px 8px", fontSize: 11, fontFamily: "inherit",
+                        }}
+                      />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <select
+                          value={m.captureScope || "self"}
+                          onChange={e => {
+                            const v = e.target.value as "self" | "global";
+                            setMessages(prev => prev.map(x => x.id === m.id ? { ...x, captureScope: v } : x));
+                          }}
+                          style={{
+                            background: "#0F172A", color: "#F1F5F9",
+                            border: "1px solid #334155", borderRadius: 4,
+                            padding: "4px 8px", fontSize: 11, fontFamily: "inherit",
+                          }}
+                        >
+                          <option value="self">Just me</option>
+                          <option value="global">Everyone</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => captureMessageAsFact(m.id)}
+                          disabled={m.captureBusy}
+                          style={{
+                            background: "#3B82F6", color: "#fff", border: "1px solid #3B82F6",
+                            borderRadius: 4, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                          }}
+                        >
+                          {m.captureBusy ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMessages(prev => prev.map(x => x.id === m.id ? {
+                            ...x, captureOpen: false, captureError: undefined,
+                          } : x))}
+                          disabled={m.captureBusy}
+                          style={{
+                            background: "transparent", color: "#94A3B8", border: "1px solid #334155",
+                            borderRadius: 4, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      {m.captureError && (
+                        <div style={{ color: "#FCA5A5", fontSize: 10 }}>{m.captureError}</div>
+                      )}
                     </div>
                   )}
                 </div>
