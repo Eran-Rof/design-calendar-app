@@ -549,7 +549,15 @@ export function buildExportPayload(
   //   • T3 > 0, LY = 0   → positive (full T3 margin shows as the gain)
   //   • T3 = 0, LY > 0   → negative (loss of the prior margin)
   function marginDiffCell(t3Mrgn: number, lyMrgn: number, baseStyle: any): any {
-    if (t3Mrgn === 0 && lyMrgn === 0) {
+    // Blank when EITHER side is 0/unknown. The export uses 0 as a
+    // sentinel for "no margin computable" (either no sales in window,
+    // or all contributing rows had suppressed cost from the $0
+    // master.unit_cost rule). Subtracting a real margin from a 0
+    // sentinel produces a misleading negative diff (e.g. TY="GONE"
+    // qty showing -20.6% diff against LY 20.6%) — not a real decline.
+    // Rare cost: a legitimate 0% margin sale (price === cost) will
+    // also blank — far less harm than the misleading subtraction.
+    if (t3Mrgn === 0 || lyMrgn === 0) {
       return { v: "", t: "s", s: { ...baseStyle, numFmt: "0.0%" } };
     }
     const diff = t3Mrgn - lyMrgn;
