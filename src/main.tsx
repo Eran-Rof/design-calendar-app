@@ -155,6 +155,11 @@ async function mount() {
     const { default: UserFactsAdmin } = await import("./ai/admin/UserFactsAdmin");
     root.render(<StrictMode><ErrorBoundary appName="Ask AI Facts"><UserFactsAdmin /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/ai-documents")) {
+    // Tier 3J — saved Ask AI workflow documents.
+    const { default: DocumentsApp } = await import("./ai/documents/DocumentsApp");
+    root.render(<StrictMode><ErrorBoundary appName="Ask AI Documents"><DocumentsApp /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/notifications")) {
     const [{ default: NotificationsPage }, { supabaseClient }] = await Promise.all([
       import("./components/notifications/NotificationsPage"),
