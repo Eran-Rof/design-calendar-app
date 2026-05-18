@@ -68,6 +68,11 @@ export function resolvePerUnitCost({ masterUnitCost, packSize, grain, netAmount,
   if (masterUnitCost == null) return null;
   const cost = Number(masterUnitCost);
   if (!Number.isFinite(cost)) return null;
+  // Reject zero/negative master cost — those are data-quality gaps in
+  // ip_item_master, not real free-cost goods. Returning null suppresses
+  // the cogs/margin downstream so the export renders blank cells
+  // instead of misleading "100.0%" rows.
+  if (cost <= 0) return null;
   const ps = Math.max(1, Number(packSize) || 1);
   if (grain === "pack") return cost / ps;
   if (netAmount != null && qtyUnits > 0) {
