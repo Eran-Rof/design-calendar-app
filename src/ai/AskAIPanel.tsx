@@ -152,6 +152,11 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   // first open doesn't trigger a save before we've loaded — that
   // would overwrite the prior conversation with an empty array.
   const hydratedRef = useRef(false);
+  // Tier 3K: proactive insights surfaced by api/cron/ai-proactive-insights.
+  // Loaded once on first open. Inline panel below the header when expanded.
+  const [insights, setInsights] = useState<Array<{ id: string; rule: string; severity: string; headline: string; detail: string | null; subject_label: string | null }>>([]);
+  const [insightsLoaded, setInsightsLoaded] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -206,6 +211,34 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       .catch(() => { /* swallow — falls back to static prompts */ });
     return () => { cancelled = true; };
   }, [open, popularPrompts.length]);
+
+  // Tier 3K: fetch open proactive insights on first panel open. Same
+  // fire-once-per-mount pattern as popularPrompts so we don't hammer
+  // the API on every reopen.
+  useEffect(() => {
+    if (!open || insightsLoaded) return;
+    let cancelled = false;
+    fetch("/api/internal/ai/insights")
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (cancelled || !j) return;
+        setInsights(Array.isArray(j.insights) ? j.insights : []);
+        setInsightsLoaded(true);
+      })
+      .catch(() => { setInsightsLoaded(true); /* swallow — pill hides */ });
+    return () => { cancelled = true; };
+  }, [open, insightsLoaded]);
+
+  async function dismissInsight(id: string) {
+    try {
+      await fetch(`/api/internal/ai/insights?id=${encodeURIComponent(id)}&action=dismiss`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      setInsights(prev => prev.filter(i => i.id !== id));
+    } catch { /* keep showing — operator can retry */ }
+  }
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -486,6 +519,25 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                 Clear
               </button>
             )}
+            {/* Tier 3K: proactive insights pill. Hidden when there are
+                none open or the fetch hasn't completed. Click toggles
+                the inline list. */}
+            {insights.length > 0 && (
+              <button
+                onClick={() => setShowInsights(v => !v)}
+                title={`${insights.length} proactive insight${insights.length === 1 ? "" : "s"} from the nightly scan`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  background: showInsights ? "#F59E0B" : "transparent",
+                  border: `1px solid #F59E0B`, borderRadius: 12,
+                  color: showInsights ? "#0F172A" : "#F59E0B",
+                  cursor: "pointer", fontSize: 11, fontWeight: 700,
+                  padding: "2px 8px", marginRight: 4, fontFamily: "inherit",
+                }}
+              >
+                💡 {insights.length}
+              </button>
+            )}
             {/* Discoverable link to the operator-facts admin (Tier 2H).
                 Opens in a new tab so the operator doesn't lose their
                 in-flight Ask AI conversation. */}
@@ -529,6 +581,55 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             >×</button>
           </div>
         </div>
+
+        {/* Tier 3K: inline proactive-insights panel, shown when the 💡
+            pill in the header is toggled on. Each insight gets a one-
+            click "Ask about this" (drops into the input) plus a "Dismiss". */}
+        {showInsights && insights.length > 0 && (
+          <div style={{
+            borderBottom: "1px solid #1E293B", background: "#0B1426",
+            padding: "10px 14px", maxHeight: 240, overflowY: "auto",
+            display: "flex", flexDirection: "column", gap: 8,
+          }}>
+            {insights.map(i => (
+              <div key={i.id} style={{
+                background: "#162033", border: `1px solid ${i.severity === "urgent" ? "#EF4444" : i.severity === "warn" ? "#F59E0B" : "#334155"}`,
+                borderRadius: 6, padding: "8px 10px",
+              }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, color: "#fff",
+                    background: i.severity === "urgent" ? "#EF4444" : i.severity === "warn" ? "#F59E0B" : "#3B82F6",
+                    borderRadius: 4, padding: "1px 6px", textTransform: "uppercase", letterSpacing: 0.5,
+                  }}>{i.severity}</span>
+                  <span style={{ color: "#F1F5F9", fontSize: 12, fontWeight: 600, flex: 1 }}>{i.headline}</span>
+                </div>
+                {i.detail && <div style={{ color: "#94A3B8", fontSize: 11, marginBottom: 6 }}>{i.detail}</div>}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => {
+                      const subject = i.subject_label || "this";
+                      setInput(`Tell me more about ${subject} — ${i.headline}`);
+                      setShowInsights(false);
+                      setTimeout(() => inputRef.current?.focus(), 30);
+                    }}
+                    style={{
+                      background: "transparent", border: "1px solid #3B82F6", color: "#60A5FA",
+                      borderRadius: 4, padding: "2px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >Ask about this</button>
+                  <button
+                    onClick={() => dismissInsight(i.id)}
+                    style={{
+                      background: "transparent", border: "1px solid #334155", color: "#94A3B8",
+                      borderRadius: 4, padding: "2px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >Dismiss</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div
           ref={scrollRef}
