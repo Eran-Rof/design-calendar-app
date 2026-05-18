@@ -51,4 +51,6 @@ export const TOOL_LABELS = {
   query_table:     "Running database query…",
   style_card:      "Building style snapshot…",
   customer_card:   "Building customer snapshot…",
+  lookup_user_facts: "Checking operator notes…",
+  query_margin:    "Computing margin…",
 };

@@ -157,6 +157,18 @@ export const TOOLS = [
     },
   },
   {
+    name: "lookup_user_facts",
+    description: "Look up operator-authored facts on a topic — call this BEFORE answering any question that mentions a specific style code, customer name, or named process (e.g. 'discount calc', 'forecast accuracy'). Operators leave free-text notes here that refine or contradict what the schema/data alone would suggest. Returns up to 5 facts ranked operator's-own > global. If no facts match, returns count:0 — proceed with the normal flow. Topic is a substring match (case-insensitive), so 'RYB0412' matches a fact tagged 'RYB0412PPK24' and 'burlington' matches 'Burlington Coat Factory'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "Keyword to search for in fact topics. Usually a style code, customer name, or short topic like 'discount calc'." },
+      },
+      required: ["topic"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "customer_card",
     description: "One-call snapshot of a customer: resolved IDs (Xoro spellings drift), T3 vs LY sales (qty + revenue + growth share), top 5 T3 styles by revenue, open SO commitments in $. Use this whenever the operator names a single customer and wants orientation ('how is Burlington doing', 'snapshot Ross'). Pass either customer_id (exact uuid) or customer_name (substring — same resolution as find_customer).",
     input_schema: {

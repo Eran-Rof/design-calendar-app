@@ -47,7 +47,7 @@ function extractAnswerTextFromPartialJson(json) {
 export async function runStreaming(req, res, opts) {
   const {
     client, db, messages, SYSTEM_CACHED, TOOLS_CACHED, trace,
-    cacheKey, question,
+    cacheKey, question, execCtx,
   } = opts;
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -139,7 +139,7 @@ export async function runStreaming(req, res, opts) {
         let result;
         try {
           result = exec
-            ? await exec(db, tu.input || {})
+            ? await exec(db, tu.input || {}, execCtx)
             : { error: `Unknown tool: ${tu.name}` };
         } catch (err) {
           result = { error: String(err?.message || err) };

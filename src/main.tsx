@@ -150,6 +150,11 @@ async function mount() {
       root.render(<StrictMode><ErrorBoundary appName="Wholesale Planning"><PlanningShell title="Wholesale Planning"><WholesalePlanningWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
     }
 
+  } else if (path.startsWith("/ai-facts")) {
+    // Tier 2H — operator-authored Ask AI facts admin.
+    const { default: UserFactsAdmin } = await import("./ai/admin/UserFactsAdmin");
+    root.render(<StrictMode><ErrorBoundary appName="Ask AI Facts"><UserFactsAdmin /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/notifications")) {
     const [{ default: NotificationsPage }, { supabaseClient }] = await Promise.all([
       import("./components/notifications/NotificationsPage"),

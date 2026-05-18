@@ -246,6 +246,7 @@ import h240 from "./vendor-invite.js";
 import h241 from "./xoro-ap-sync.js";
 import h242 from "./parse-excel.js";
 import h243 from "./xoro-proxy.js";
+import h244 from "./internal/ai/user-facts.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -473,6 +474,7 @@ export const ROUTES = [
   { pattern: "/api/xoro/open-sos", handler: h222 },
   { pattern: "/api/xoro/receipts", handler: h223 },
   { pattern: "/api/ai/ask-grid", handler: h224 },
+  { pattern: "/api/internal/ai/user-facts", handler: h244 },
   { pattern: "/api/edi/inbound", handler: h225 },
   { pattern: "/api/master/sync", handler: h226 },
   { pattern: "/api/vendor/bulk", handler: h227 },
