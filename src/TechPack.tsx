@@ -118,6 +118,10 @@ import { LibrariesView } from "./techpack/views/LibrariesView";
 import { SpecSheetsView } from "./techpack/views/SpecSheetsView";
 import { SpecSheetDetail } from "./techpack/views/SpecSheetDetail";
 import { SamplesOverview } from "./techpack/views/SamplesOverview";
+import { CreateModal } from "./techpack/modals/CreateModal";
+import { MaterialModal } from "./techpack/modals/MaterialModal";
+import { SpecSheetModal } from "./techpack/modals/SpecSheetModal";
+import { TemplatesModal } from "./techpack/modals/TemplatesModal";
 
 // sb helper moved to ./techpack/supabase
 
@@ -1872,305 +1876,8 @@ export default function TechPackApp() {
   ) : null;
 
   // ── Spec Sheet Create Modal ───────────────────────────────────────────────
-  function renderSpecSheetModal() {
-    const selectStyle = { ...S.input, appearance: "none" as const };
-    const sizePresets = SIZE_PRESETS;
-    const subCats = subCategoriesFor(dcCategories, ssForm.category);
-    return (
-      <div style={S.modalOverlay} onClick={() => setShowSpecSheetModal(false)}>
-        <div style={{ ...S.modal, width: 560 }} onClick={e => e.stopPropagation()}>
-          <div style={S.modalHeader}>
-            <div>
-              <h2 style={{ ...S.modalTitle, margin: 0 }}>New Spec Sheet</h2>
-              {activeTemplate && (
-                <div style={{ fontSize: 12, color: "#60A5FA", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/></svg>
-                  Using template: <strong>{activeTemplate.name}</strong>
-                  <button style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 11, padding: "0 2px" }} onClick={() => setActiveTemplate(null)}>✕ Clear</button>
-                </div>
-              )}
-            </div>
-            <button style={S.closeBtn} onClick={() => { setShowSpecSheetModal(false); setActiveTemplate(null); }}>✕</button>
-          </div>
-          <div style={S.modalBody}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Style Name *</label>
-                <input style={S.input} value={ssForm.styleName} onChange={e => setSsForm(f => ({ ...f, styleName: e.target.value }))} placeholder="e.g. Classic Oxford" autoFocus />
-              </div>
-              <div>
-                <label style={S.label}>Style Number</label>
-                <input style={S.input} value={ssForm.styleNumber} onChange={e => setSsForm(f => ({ ...f, styleNumber: e.target.value }))} placeholder="e.g. OXF-001" />
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Brand</label>
-                {dcBrands.length > 0 ? (
-                  <select style={selectStyle} value={ssForm.brand} onChange={e => setSsForm(f => ({ ...f, brand: e.target.value }))}>
-                    <option value="">— select brand —</option>
-                    {dcBrands.map((b: any) => <option key={b.name} value={b.name}>{b.name}</option>)}
-                  </select>
-                ) : (
-                  <input style={S.input} value={ssForm.brand} onChange={e => setSsForm(f => ({ ...f, brand: e.target.value }))} />
-                )}
-              </div>
-              <div>
-                <label style={S.label}>Season</label>
-                {dcSeasons.length > 0 ? (
-                  <select style={selectStyle} value={ssForm.season} onChange={e => setSsForm(f => ({ ...f, season: e.target.value }))}>
-                    <option value="">— select season —</option>
-                    {dcSeasons.map((s: string) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                ) : (
-                  <input style={S.input} value={ssForm.season} onChange={e => setSsForm(f => ({ ...f, season: e.target.value }))} />
-                )}
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Category</label>
-                {dcCategories.length > 0 ? (
-                  <select style={selectStyle} value={ssForm.category} onChange={e => setSsForm(f => ({ ...f, category: e.target.value, subCategory: "" }))}>
-                    <option value="">— select category —</option>
-                    {dcCategories.map((c: any) => <option key={c.name} value={c.name}>{c.name}</option>)}
-                  </select>
-                ) : (
-                  <input style={S.input} value={ssForm.category} onChange={e => setSsForm(f => ({ ...f, category: e.target.value }))} />
-                )}
-              </div>
-              {subCats.length > 0 && (
-                <div>
-                  <label style={S.label}>Sub-Category</label>
-                  <select style={selectStyle} value={ssForm.subCategory} onChange={e => setSsForm(f => ({ ...f, subCategory: e.target.value }))}>
-                    <option value="">— select sub-category —</option>
-                    {subCats.map((sc: string) => <option key={sc} value={sc}>{sc}</option>)}
-                  </select>
-                </div>
-              )}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Gender</label>
-                {dcGenders.length > 0 ? (
-                  <select style={selectStyle} value={ssForm.gender} onChange={e => setSsForm(f => ({ ...f, gender: e.target.value }))}>
-                    <option value="">— select gender —</option>
-                    {dcGenders.map((g: string) => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                ) : (
-                  <input style={S.input} value={ssForm.gender} onChange={e => setSsForm(f => ({ ...f, gender: e.target.value }))} />
-                )}
-              </div>
-              <div>
-                <label style={S.label}>Vendor</label>
-                {dcVendors.length > 0 ? (
-                  <select style={selectStyle} value={ssForm.vendor} onChange={e => setSsForm(f => ({ ...f, vendor: e.target.value }))}>
-                    <option value="">— select vendor —</option>
-                    {dcVendors.map((v: any) => <option key={v.name} value={v.name}>{v.name}</option>)}
-                  </select>
-                ) : (
-                  <input style={S.input} value={ssForm.vendor} onChange={e => setSsForm(f => ({ ...f, vendor: e.target.value }))} />
-                )}
-              </div>
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={S.label}>Description</label>
-              <input style={S.input} value={ssForm.description} onChange={e => setSsForm(f => ({ ...f, description: e.target.value }))} />
-            </div>
-            <div style={{ marginBottom: 8 }}>
-              <label style={S.label}>Sizes</label>
-              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6, marginBottom: 8 }}>
-                {sizePresets.map(p => (
-                  <button key={p.label} style={{ ...S.btnSmall, fontSize: 11 }} onClick={() => setSsForm(f => ({ ...f, sizes: p.sizes.join(", ") }))}>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <input style={S.input} value={ssForm.sizes} onChange={e => setSsForm(f => ({ ...f, sizes: e.target.value }))} placeholder="XS, S, M, L, XL, XXL" />
-            </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-              <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => setShowSpecSheetModal(false)}>Cancel</button>
-              <button style={{ ...S.btnPrimary, flex: 2, opacity: !ssForm.styleName ? 0.5 : 1 }}
-                disabled={!ssForm.styleName}
-                onClick={() => {
-                  const sizes = ssForm.sizes.split(",").map(s => s.trim()).filter(Boolean);
-                  let rows: SpecSheetRow[] = [];
-                  if (activeTemplate) {
-                    rows = activeTemplate.rows.map(r => ({
-                      ...r,
-                      id: uid(),
-                      values: r.isSection ? {} : Object.fromEntries(sizes.map(s => [s, r.values[s] || ""])),
-                    }));
-                  }
-                  const newSS: SpecSheet = {
-                    id: uid(),
-                    styleName: ssForm.styleName,
-                    styleNumber: ssForm.styleNumber,
-                    brand: ssForm.brand,
-                    season: ssForm.season,
-                    category: ssForm.category,
-                    subCategory: ssForm.subCategory,
-                    gender: ssForm.gender,
-                    vendor: ssForm.vendor,
-                    description: ssForm.description,
-                    sizes,
-                    rows,
-                    createdAt: today(),
-                    updatedAt: today(),
-                  };
-                  saveSpecSheets([...specSheets, newSS]);
-                  setShowSpecSheetModal(false);
-                  setActiveTemplate(null);
-                  setSsForm(EMPTY_SPEC_SHEET_FORM);
-                  setSelectedSpecSheet(newSS);
-                }}>
-                {activeTemplate ? `Create from "${activeTemplate.name}"` : "Create Spec Sheet"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ── Templates Modal ───────────────────────────────────────────────────────
-  function renderTemplatesModal() {
-    const allTemplates = [...BUILTIN_TEMPLATES, ...specTemplates];
-    const pomCount = (t: SpecTemplate) => t.rows.filter(r => !r.isSection).length;
-    const sizeSummary = (t: SpecTemplate) => t.sizes.length <= 6 ? t.sizes.join(", ") : `${t.sizes[0]}–${t.sizes[t.sizes.length - 1]} (${t.sizes.length} sizes)`;
-
-    const handleUseTemplate = (t: SpecTemplate) => {
-      setActiveTemplate(t);
-      setSsForm(f => ({ ...f, sizes: t.sizes.join(", "), category: t.category || f.category }));
-      setShowTemplatesModal(false);
-      setShowSpecSheetModal(true);
-    };
-
-    const handleDownloadTemplate = (t: SpecTemplate) => {
-      const dummy: SpecSheet = { id: "", styleName: "", styleNumber: "", brand: "", season: "", category: t.category, description: t.description, sizes: t.sizes, rows: t.rows, createdAt: today(), updatedAt: today() };
-      const wb = buildSpecSheetWb(dummy, true);
-      if (wb) xlsxDownload(wb, `Template_${t.name.replace(/\s+/g, "_")}.xlsx`);
-    };
-
-    const handleUploadTemplate = async (file: File) => {
-      try {
-        showToast("Parsing template...");
-        const XLSX = (window as any).XLSX;
-        if (!XLSX) { showToast("Excel library loading — try again"); return; }
-        const reader = new FileReader();
-        reader.onload = ev => {
-          try {
-            const wb = XLSX.read(ev.target?.result, { type: "binary" });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-            const hdr = detectSpecSheetHeader(aoa);
-            if (!hdr) { showToast("Could not find spec sheet header row"); return; }
-            const { headerRowIdx, sizes, newFmt } = hdr;
-            const rows: SpecSheetRow[] = [];
-            for (let i = headerRowIdx + 1; i < aoa.length; i++) {
-              const row = aoa[i];
-              const desc = newFmt ? String(row[1] || "").trim() : String(row[0] || "").trim();
-              if (!desc) continue;
-              const tol = newFmt ? String(row[5] || "").trim() : String(row[1] || "").trim();
-              const values: Record<string, string> = {};
-              sizes.forEach(s => { values[s] = ""; }); // blank values for templates
-              rows.push({ id: uid(), pointOfMeasure: desc, tolerance: tol, values });
-            }
-            const newTemplate: SpecTemplate = {
-              id: uid(),
-              name: file.name.replace(/\.[^.]+$/, "").replace(/_/g, " "),
-              category: "",
-              description: `Uploaded from ${file.name}`,
-              sizes,
-              rows,
-              createdAt: today(),
-            };
-            saveSpecTemplates([...specTemplates, newTemplate]);
-            showToast(`Template "${newTemplate.name}" added (${rows.length} POMs)`);
-          } catch (err) { showToast("Parse failed — check file format"); console.error(err); }
-        };
-        reader.readAsBinaryString(file);
-      } catch (err) { showToast("Upload failed"); console.error(err); }
-    };
-
-    return (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 450, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }} onClick={() => setShowTemplatesModal(false)}>
-        <div style={{ background: "#1E293B", borderRadius: 16, width: "100%", maxWidth: 900, border: "1px solid #334155", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
-          {/* Header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", borderBottom: "1px solid #334155" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#60A5FA" strokeWidth="2"/></svg>
-              <h2 style={{ margin: 0, color: "#F1F5F9", fontSize: 20, fontWeight: 700 }}>Spec Sheet Templates</h2>
-              <span style={{ fontSize: 12, color: "#6B7280" }}>{allTemplates.length} template{allTemplates.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <label style={{ background: "#334155", border: "1px solid #475569", borderRadius: 6, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#F1F5F9", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#475569"}
-                onMouseLeave={e => e.currentTarget.style.background = "#334155"}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4v12M8 12l4 4 4-4" stroke="#F1F5F9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 20h16" stroke="#F1F5F9" strokeWidth="2" strokeLinecap="round"/></svg>
-                Upload Template
-                <input type="file" accept=".xlsx" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadTemplate(f); e.target.value = ""; }} />
-              </label>
-              <button style={S.closeBtn} onClick={() => setShowTemplatesModal(false)}>✕</button>
-            </div>
-          </div>
-          {/* Template Grid */}
-          <div style={{ padding: 24, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
-            {allTemplates.map(t => (
-              <div key={t.id} style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "#F1F5F9", fontWeight: 700, fontSize: 15 }}>{t.name}</div>
-                    {t.isBuiltin && (
-                      <span style={{ fontSize: 10, background: "#3B82F622", color: "#60A5FA", border: "1px solid #3B82F644", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>Built-in</span>
-                    )}
-                  </div>
-                  {!t.isBuiltin && (
-                    <button style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 14, padding: 2 }}
-                      title="Delete template"
-                      onMouseEnter={e => e.currentTarget.style.color = "#EF4444"}
-                      onMouseLeave={e => e.currentTarget.style.color = "#6B7280"}
-                      onClick={() => setConfirmDialog({ title: "Delete Template", message: `Delete "${t.name}"? This cannot be undone.`, onConfirm: () => saveSpecTemplates(specTemplates.filter(x => x.id !== t.id)) })}>
-                      🗑️
-                    </button>
-                  )}
-                </div>
-                <div style={{ color: "#94A3B8", fontSize: 12, lineHeight: 1.5 }}>{t.description}</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
-                  {t.category && <span style={{ fontSize: 11, background: "#1E293B", color: "#94A3B8", border: "1px solid #334155", borderRadius: 4, padding: "2px 8px" }}>{t.category}</span>}
-                  <span style={{ fontSize: 11, background: "#1E293B", color: "#94A3B8", border: "1px solid #334155", borderRadius: 4, padding: "2px 8px" }}>{pomCount(t)} POMs</span>
-                  <span style={{ fontSize: 11, background: "#1E293B", color: "#94A3B8", border: "1px solid #334155", borderRadius: 4, padding: "2px 8px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{sizeSummary(t)}</span>
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <button style={{ flex: 1, background: "linear-gradient(135deg,#3B82F6,#2563EB)", border: "none", borderRadius: 6, padding: "7px 0", cursor: "pointer", color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
-                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}
-                    onClick={() => handleUseTemplate(t)}>
-                    Use Template
-                  </button>
-                  <button title="Download blank Excel" onClick={() => handleDownloadTemplate(t)}
-                    style={{ background: "#1D6F42", border: "none", borderRadius: 6, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#155734"}
-                    onMouseLeave={e => e.currentTarget.style.background = "#1D6F42"}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </button>
-                </div>
-              </div>
-            ))}
-            {allTemplates.length === 0 && (
-              <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "#6B7280" }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
-                <p>No templates yet. Upload an Excel file to create one.</p>
-              </div>
-            )}
-          </div>
-          <div style={{ padding: "0 24px 24px", color: "#6B7280", fontSize: 12 }}>
-            Click <strong style={{ color: "#60A5FA" }}>Use Template</strong> to create a new spec sheet pre-filled with the template's measurements. Click the Excel button to download a blank template.
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ── Samples Overview ──────────────────────────────────────────────────────
   const renderSamplesOverview = () => <SamplesOverview allSamples={allSamples} />;
@@ -2256,282 +1963,120 @@ export default function TechPackApp() {
   const renderApprovalsTab    = (tp: TechPack) => <ApprovalsTab    tp={tp} updateSelected={updateSelected} />;
   const renderSamplesTab      = (tp: TechPack) => <SamplesTab      tp={tp} updateSelected={updateSelected} uploadImage={uploadImage} setLightboxImg={setLightboxImg} showToast={showToast} />;
   const renderImagesTab       = (tp: TechPack) => <ImagesTab       tp={tp} updateSelected={updateSelected} uploadImage={uploadImage} setLightboxImg={setLightboxImg} />;
+
+  // ── Modal aliases — all 4 modals now live in ./techpack/modals/.
+  //    Local handlers (addBrand, addSeason, create-spec-sheet,
+  //    template up/download/delete) stay in the parent because they
+  //    close over dcSave + setters that don't make sense to push
+  //    down to a presentational modal.
+  const handleAddBrand = async () => {
+    const name = prompt("New brand name:");
+    if (!name?.trim()) return;
+    const nb = { id: Math.random().toString(36).slice(2), name: name.trim(), short: name.trim().slice(0, 5).toUpperCase(), color: "#3498DB", isPrivateLabel: false };
+    const updated = [...dcBrands, nb];
+    setDcBrands(updated);
+    await dcSave("brands", updated);
+    setCreateForm(f => ({ ...f, brand: nb.name }));
+    showToast(`Brand "${nb.name}" added`);
+  };
+  const handleAddSeason = async () => {
+    const name = prompt("New season name (e.g. Fall 2026):");
+    if (!name?.trim()) return;
+    const updated = [...dcSeasons, name.trim()];
+    setDcSeasons(updated);
+    await dcSave("seasons", updated);
+    setCreateForm(f => ({ ...f, season: name.trim() }));
+    showToast(`Season "${name.trim()}" added`);
+  };
+  const handleCreateSpecSheet = (): SpecSheet => {
+    const sizes = ssForm.sizes.split(",").map(s => s.trim()).filter(Boolean);
+    let rows: SpecSheetRow[] = [];
+    if (activeTemplate) {
+      rows = activeTemplate.rows.map(r => ({
+        ...r,
+        id: uid(),
+        values: r.isSection ? {} : Object.fromEntries(sizes.map(s => [s, r.values[s] || ""])),
+      }));
+    }
+    const newSS: SpecSheet = {
+      id: uid(),
+      styleName:   ssForm.styleName,
+      styleNumber: ssForm.styleNumber,
+      brand:       ssForm.brand,
+      season:      ssForm.season,
+      category:    ssForm.category,
+      subCategory: ssForm.subCategory,
+      gender:      ssForm.gender,
+      vendor:      ssForm.vendor,
+      description: ssForm.description,
+      sizes,
+      rows,
+      createdAt: today(),
+      updatedAt: today(),
+    };
+    saveSpecSheets([...specSheets, newSS]);
+    setShowSpecSheetModal(false);
+    setActiveTemplate(null);
+    setSsForm(EMPTY_SPEC_SHEET_FORM);
+    setSelectedSpecSheet(newSS);
+    return newSS;
+  };
+  const handleUseTemplate = (t: SpecTemplate) => {
+    setActiveTemplate(t);
+    setSsForm(f => ({ ...f, sizes: t.sizes.join(", "), category: t.category || f.category }));
+    setShowTemplatesModal(false);
+    setShowSpecSheetModal(true);
+  };
+  const handleDownloadTemplate = (t: SpecTemplate) => {
+    const dummy: SpecSheet = { id: "", styleName: "", styleNumber: "", brand: "", season: "", category: t.category, description: t.description, sizes: t.sizes, rows: t.rows, createdAt: today(), updatedAt: today() };
+    const wb = buildSpecSheetWb(dummy, true);
+    if (wb) xlsxDownload(wb, `Template_${t.name.replace(/\s+/g, "_")}.xlsx`);
+  };
+  const handleUploadTemplate = async (file: File) => {
+    try {
+      showToast("Parsing template...");
+      const XLSX = (window as any).XLSX;
+      if (!XLSX) { showToast("Excel library loading — try again"); return; }
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const wb = XLSX.read(ev.target?.result, { type: "binary" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+          const hdr = detectSpecSheetHeader(aoa);
+          if (!hdr) { showToast("Could not find spec sheet header row"); return; }
+          const { headerRowIdx, sizes, newFmt } = hdr;
+          const rows: SpecSheetRow[] = [];
+          for (let i = headerRowIdx + 1; i < aoa.length; i++) {
+            const row = aoa[i];
+            const desc = newFmt ? String(row[1] || "").trim() : String(row[0] || "").trim();
+            if (!desc) continue;
+            const tol = newFmt ? String(row[5] || "").trim() : String(row[1] || "").trim();
+            const values: Record<string, string> = {};
+            sizes.forEach(s => { values[s] = ""; });
+            rows.push({ id: uid(), pointOfMeasure: desc, tolerance: tol, values });
+          }
+          const newTemplate: SpecTemplate = {
+            id: uid(),
+            name: file.name.replace(/\.[^.]+$/, "").replace(/_/g, " "),
+            category: "",
+            description: `Uploaded from ${file.name}`,
+            sizes,
+            rows,
+            createdAt: today(),
+          };
+          saveSpecTemplates([...specTemplates, newTemplate]);
+          showToast(`Template "${newTemplate.name}" added (${rows.length} POMs)`);
+        } catch (err) { showToast("Parse failed — check file format"); console.error(err); }
+      };
+      reader.readAsBinaryString(file);
+    } catch (err) { showToast("Upload failed"); console.error(err); }
+  };
+  const renderCreateModal     = () => <CreateModal      createForm={createForm} setCreateForm={setCreateForm} dcBrands={dcBrands} dcSeasons={dcSeasons} dcGenders={dcGenders} dcVendors={dcVendors} dcCategories={dcCategories} dcTeam={dcTeam} onAddBrand={handleAddBrand} onAddSeason={handleAddSeason} onClose={() => setShowCreateModal(false)} onCreate={handleCreate} />;
+  const renderMaterialModal   = () => <MaterialModal    matForm={matForm} setMatForm={setMatForm} editingMaterial={editingMaterial} onClose={() => { setShowMaterialModal(false); setEditingMaterial(null); }} onSave={handleSaveMaterial} />;
+  const renderSpecSheetModal  = () => <SpecSheetModal   ssForm={ssForm} setSsForm={setSsForm} activeTemplate={activeTemplate} setActiveTemplate={setActiveTemplate} dcBrands={dcBrands} dcSeasons={dcSeasons} dcCategories={dcCategories} dcGenders={dcGenders} dcVendors={dcVendors} onClose={() => setShowSpecSheetModal(false)} onCreate={handleCreateSpecSheet} />;
+  const renderTemplatesModal  = () => <TemplatesModal   allTemplates={[...BUILTIN_TEMPLATES, ...specTemplates]} onClose={() => setShowTemplatesModal(false)} onUse={handleUseTemplate} onDownload={handleDownloadTemplate} onUpload={handleUploadTemplate} onDelete={(t) => setConfirmDialog({ title: "Delete Template", message: `Delete "${t.name}"? This cannot be undone.`, onConfirm: () => saveSpecTemplates(specTemplates.filter(x => x.id !== t.id)) })} />;
   // ── Create Modal ──────────────────────────────────────────────────────────
-  function renderCreateModal() {
-    const subCats = subCategoriesFor(dcCategories, createForm.category);
-
-    // Inline quick-add for brand
-    const addBrand = async () => {
-      const name = prompt("New brand name:");
-      if (!name?.trim()) return;
-      const nb = { id: Math.random().toString(36).slice(2), name: name.trim(), short: name.trim().slice(0, 5).toUpperCase(), color: "#3498DB", isPrivateLabel: false };
-      const updated = [...dcBrands, nb];
-      setDcBrands(updated);
-      await dcSave("brands", updated);
-      setCreateForm(f => ({ ...f, brand: nb.name }));
-      showToast(`Brand "${nb.name}" added`);
-    };
-
-    // Inline quick-add for season
-    const addSeason = async () => {
-      const name = prompt("New season name (e.g. Fall 2026):");
-      if (!name?.trim()) return;
-      const updated = [...dcSeasons, name.trim()];
-      setDcSeasons(updated);
-      await dcSave("seasons", updated);
-      setCreateForm(f => ({ ...f, season: name.trim() }));
-      showToast(`Season "${name.trim()}" added`);
-    };
-
-    // Team member picker dropdown
-    const TeamMemberSelect = ({ field, label }: { field: "techDesigner" | "graphicArtist" | "productDeveloper" | "designer"; label: string }) => {
-      const val = createForm[field];
-      const member = dcTeam.find(m => m.name === val);
-      const isOpen = openTeamDrop === field;
-      return (
-        <div style={{ position: "relative" }}>
-          <label style={S.label}>{label}</label>
-          <button type="button" style={{ ...S.input, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textAlign: "left" as any }}
-            onClick={() => setOpenTeamDrop(isOpen ? null : field)}>
-            {member ? (
-              <>
-                {member.avatar
-                  ? <img src={member.avatar} style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                  : <div style={{ width: 22, height: 22, borderRadius: "50%", background: member.color || "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{member.initials || member.name?.[0] || "?"}</div>
-                }
-                <span style={{ fontSize: 13, color: "#F1F5F9" }}>{member.name}</span>
-                <span style={{ fontSize: 11, color: "#6B7280", marginLeft: "auto" }}>{member.role}</span>
-              </>
-            ) : (
-              <span style={{ color: "#4B5563", fontSize: 13 }}>Select {label}...</span>
-            )}
-            <span style={{ marginLeft: "auto", color: "#6B7280", fontSize: 10 }}>▾</span>
-          </button>
-          {isOpen && (
-            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#1E293B", border: "1px solid #334155", borderRadius: 10, zIndex: 300, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
-              <div style={{ padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#6B7280", fontSize: 12, borderBottom: "1px solid #334155" }}
-                onClick={() => { setCreateForm(f => ({ ...f, [field]: "" })); setOpenTeamDrop(null); }}>
-                — None —
-              </div>
-              {dcTeam.map(m => (
-                <div key={m.id} style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, transition: "background .1s" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "#334155")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                  onClick={() => { setCreateForm(f => ({ ...f, [field]: m.name })); setOpenTeamDrop(null); }}>
-                  {m.avatar
-                    ? <img src={m.avatar} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                    : <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.color || "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{m.initials || m.name?.[0] || "?"}</div>
-                  }
-                  <div>
-                    <div style={{ color: "#F1F5F9", fontSize: 13, fontWeight: 600 }}>{m.name}</div>
-                    <div style={{ color: "#6B7280", fontSize: 11 }}>{m.role}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    };
-
-    return (
-      <div style={S.modalOverlay} onClick={() => { setShowCreateModal(false); setOpenTeamDrop(null); }}>
-        <div style={{ ...S.modal, width: 620, maxWidth: "95vw" }} onClick={e => e.stopPropagation()}>
-          <div style={S.modalHeader}>
-            <h2 style={S.modalTitle}>Create Tech Pack</h2>
-            <button style={S.closeBtn} onClick={() => setShowCreateModal(false)}>✕</button>
-          </div>
-          <div style={S.modalBody}>
-
-            {/* Row 1: Style Number + Style Name */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Style Number *</label>
-                <input style={S.input} value={createForm.styleNumber} onChange={e => setCreateForm(f => ({ ...f, styleNumber: e.target.value }))} placeholder="e.g. OXF-001" autoFocus />
-              </div>
-              <div>
-                <label style={S.label}>Style Name *</label>
-                <input style={S.input} value={createForm.styleName} onChange={e => setCreateForm(f => ({ ...f, styleName: e.target.value }))} placeholder="e.g. Classic Oxford Shirt" />
-              </div>
-            </div>
-
-            {/* Row 2: Brand + Season */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Brand</label>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <select style={{ ...S.select, flex: 1 }} value={createForm.brand} onChange={e => setCreateForm(f => ({ ...f, brand: e.target.value }))}>
-                    <option value="">Select brand...</option>
-                    {dcBrands.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-                  </select>
-                  <button style={S.btnSmall} title="Add new brand" onClick={addBrand}>+</button>
-                </div>
-              </div>
-              <div>
-                <label style={S.label}>Season</label>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <select style={{ ...S.select, flex: 1 }} value={createForm.season} onChange={e => setCreateForm(f => ({ ...f, season: e.target.value }))}>
-                    <option value="">Select season...</option>
-                    {dcSeasons.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <button style={S.btnSmall} title="Add new season" onClick={addSeason}>+</button>
-                </div>
-              </div>
-            </div>
-
-            {/* Row 3: Gender + Vendor */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Gender</label>
-                <select style={{ ...S.select, width: "100%" }} value={createForm.gender} onChange={e => setCreateForm(f => ({ ...f, gender: e.target.value }))}>
-                  <option value="">Select gender...</option>
-                  {dcGenders.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={S.label}>Vendor</label>
-                <select style={{ ...S.select, width: "100%" }} value={createForm.vendor} onChange={e => setCreateForm(f => ({ ...f, vendor: e.target.value }))}>
-                  <option value="">Select vendor...</option>
-                  {dcVendors.map(v => <option key={v.id} value={v.name}>{v.name}{v.country ? ` (${v.country})` : ""}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Row 4: Category + Sub Category */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Category</label>
-                <select style={{ ...S.select, width: "100%" }} value={createForm.category} onChange={e => setCreateForm(f => ({ ...f, category: e.target.value, subCategory: "" }))}>
-                  <option value="">Select category...</option>
-                  {dcCategories.length > 0
-                    ? dcCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)
-                    : CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)
-                  }
-                </select>
-              </div>
-              <div>
-                <label style={S.label}>Sub Category</label>
-                <select style={{ ...S.select, width: "100%", opacity: subCats.length === 0 ? 0.5 : 1 }} value={createForm.subCategory} onChange={e => setCreateForm(f => ({ ...f, subCategory: e.target.value }))} disabled={subCats.length === 0}>
-                  <option value="">{subCats.length === 0 ? "Select category first" : "Select sub category..."}</option>
-                  {subCats.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Row 5: Tech Designer + Graphic Artist */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <TeamMemberSelect field="techDesigner" label="Tech Designer" />
-              <TeamMemberSelect field="graphicArtist" label="Graphic Artist" />
-            </div>
-
-            {/* Row 6: Product Developer + Designer */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <TeamMemberSelect field="productDeveloper" label="Product Developer" />
-              <TeamMemberSelect field="designer" label="Designer" />
-            </div>
-
-            {/* Description */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={S.label}>Description</label>
-              <textarea style={{ ...S.textarea, minHeight: 56 }} value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} placeholder="Style description..." />
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => setShowCreateModal(false)}>Cancel</button>
-              <button style={{ ...S.btnPrimary, flex: 2, opacity: (!createForm.styleName || !createForm.styleNumber) ? 0.5 : 1 }}
-                disabled={!createForm.styleName || !createForm.styleNumber}
-                onClick={handleCreate}>Create Tech Pack</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ── Material Modal ────────────────────────────────────────────────────────
-  function renderMaterialModal() {
-    return (
-      <div style={S.modalOverlay} onClick={() => { setShowMaterialModal(false); setEditingMaterial(null); }}>
-        <div style={{ ...S.modal, width: 520 }} onClick={e => e.stopPropagation()}>
-          <div style={S.modalHeader}>
-            <h2 style={S.modalTitle}>{editingMaterial ? "Edit Material" : "Add Material"}</h2>
-            <button style={S.closeBtn} onClick={() => { setShowMaterialModal(false); setEditingMaterial(null); }}>✕</button>
-          </div>
-          <div style={S.modalBody}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Name *</label>
-                <input style={S.input} value={matForm.name} onChange={e => setMatForm(f => ({ ...f, name: e.target.value }))} placeholder="Material name" />
-              </div>
-              <div>
-                <label style={S.label}>Type</label>
-                <select style={{ ...S.select, width: "100%" }} value={matForm.type} onChange={e => setMatForm(f => ({ ...f, type: e.target.value }))}>
-                  {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={S.label}>Composition</label>
-              <input style={S.input} value={matForm.composition} onChange={e => setMatForm(f => ({ ...f, composition: e.target.value }))} placeholder="e.g. 100% Cotton" />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Weight</label>
-                <input style={S.input} value={matForm.weight} onChange={e => setMatForm(f => ({ ...f, weight: e.target.value }))} placeholder="e.g. 180 GSM" />
-              </div>
-              <div>
-                <label style={S.label}>Width</label>
-                <input style={S.input} value={matForm.width} onChange={e => setMatForm(f => ({ ...f, width: e.target.value }))} placeholder='e.g. 58"' />
-              </div>
-              <div>
-                <label style={S.label}>Color</label>
-                <input style={S.input} value={matForm.color} onChange={e => setMatForm(f => ({ ...f, color: e.target.value }))} placeholder="Color" />
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>Supplier</label>
-                <input style={S.input} value={matForm.supplier} onChange={e => setMatForm(f => ({ ...f, supplier: e.target.value }))} placeholder="Supplier name" />
-              </div>
-              <div>
-                <label style={S.label}>Unit Price ($)</label>
-                <input style={S.input} type="number" step="0.01" value={matForm.unitPrice || ""} onChange={e => setMatForm(f => ({ ...f, unitPrice: parseFloat(e.target.value) || 0 }))} />
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={S.label}>MOQ</label>
-                <input style={S.input} value={matForm.moq} onChange={e => setMatForm(f => ({ ...f, moq: e.target.value }))} placeholder="Min order qty" />
-              </div>
-              <div>
-                <label style={S.label}>Lead Time</label>
-                <input style={S.input} value={matForm.leadTime} onChange={e => setMatForm(f => ({ ...f, leadTime: e.target.value }))} placeholder="e.g. 4 weeks" />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={S.label}>Certifications (comma separated)</label>
-              <input style={S.input} value={matForm.certifications} onChange={e => setMatForm(f => ({ ...f, certifications: e.target.value }))} placeholder="e.g. OEKO-TEX, GOTS, BCI" />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={S.label}>Notes</label>
-              <textarea style={{ ...S.textarea, minHeight: 50 }} value={matForm.notes} onChange={e => setMatForm(f => ({ ...f, notes: e.target.value }))} />
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => { setShowMaterialModal(false); setEditingMaterial(null); }}>Cancel</button>
-              <button style={{ ...S.btnPrimary, flex: 2, opacity: !matForm.name ? 0.5 : 1 }} disabled={!matForm.name} onClick={handleSaveMaterial}>
-                {editingMaterial ? "Update Material" : "Add Material"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 }
