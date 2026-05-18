@@ -4,48 +4,33 @@
 // the InvoiceDetail report to disambiguate after the fact. We infer
 // grain from PPK tokens in the raw Item Number BEFORE
 // canonStyleColor strips them, then store the inferred grain + the
-// derived unit-grain qty + margin on every row.
+// derived unit-grain qty + cogs + margin on every row.
 //
-// Migration 20260517230000_sales_history_grain_and_margin.sql adds the
-// schema. This module owns the inference + math. Keep the regex + the
-// margin formula in lockstep with the SQL backfill in that migration.
+// Migrations:
+//   20260517230000_sales_history_grain_and_margin.sql — adds qty_grain,
+//     qty_units, unit_cost_at_sale, margin_amount, margin_pct columns +
+//     backfill.
+//   20260518000000_sales_history_cogs_and_smart_cost.sql — adds
+//     cogs_amount + re-derives cost/margin via the smart-cost rule
+//     below (mirror).
+//
+// This module owns the inference + math. Keep the regex + the cost +
+// margin formulas in lockstep with the SQL backfill in those migrations.
 
-// Match any `PPK<digits>` token in an Item Number, regardless of which
-// segment it sits in. ROF historically wrote PPK in the size suffix
-// (e.g. 'RYG0123-Black-PPK24') and modernly writes it in the style code
-// (e.g. 'RYG1768PPK' — PPK directly follows the style digits, no dash).
-// Either marks the line as pack-grain. The boundary check is "not a
-// letter" (digits + separators OK) so a style ending in digits-then-PPK
-// matches, while a longer word like 'APPKEEPER' does not.
 const PPK_TOKEN_RE = /(?:^|[^A-Z])PPK\d*(?:[^A-Z0-9]|$)/i;
 
-// Returns 'pack' when the raw Item Number contains a PPK token AND the
-// master record is actually a prepack (pack_size > 1). 'unit' otherwise.
-// The pack_size guard prevents false-positive when an item carries a
-// PPK token in its description but isn't a real prepack.
 export function inferQtyGrain(rawItemNumber, packSize) {
   if (!rawItemNumber) return "unit";
   if (!packSize || packSize <= 1) return "unit";
   return PPK_TOKEN_RE.test(String(rawItemNumber)) ? "pack" : "unit";
 }
 
-// Normalise a raw qty (Xoro grain) to unit grain using the inferred
-// grain + pack_size. Pack rows multiply, unit rows pass through.
 export function toQtyUnits(qty, grain, packSize) {
   const q = Number(qty) || 0;
   const p = Math.max(1, Number(packSize) || 1);
   return grain === "pack" ? q * p : q;
 }
 
-// Compute per-row margin from net_amount, unit-grain qty, and per-unit
-// cost snapshot. Returns { amount, pct } where amount is in $ and pct
-// is a fraction (0.25 = 25%). Returns null fields when inputs are
-// missing or net_amount is non-positive.
-//
-// Cost basis: pass `master_unit_cost / pack_size` so the per-unit cost
-// is consistent regardless of whether the master records per-pack or
-// per-unit prices. (ROF master generally records per-pack cost for
-// prepacks; dividing by pack_size yields per-unit.)
 export function computeRowMargin({ netAmount, qtyUnits, perUnitCost }) {
   if (netAmount == null || qtyUnits == null || perUnitCost == null) {
     return { amount: null, pct: null };
@@ -62,19 +47,50 @@ export function computeRowMargin({ netAmount, qtyUnits, perUnitCost }) {
   return { amount, pct };
 }
 
-// Convenience: take a raw Xoro line + a master snapshot and return the
-// full set of derived columns the sync handlers persist. Keeps the
-// inference + margin math in one call site so handlers stay slim.
+// Resolve a per-unit cost from a master snapshot + the row's grain +
+// the row's per-unit sale price. master.unit_cost grain is
+// inconsistent across ip_item_master: usually per-pack for true
+// prepack-master rows, but per-unit for variant rows under a
+// prepack family (and per-unit for non-prepack items).
 //
-// master: { pack_size, unit_cost } or null/undefined if the item
-// wasn't found (caller usually rejects the row earlier).
+// Rules:
+//  1. Pack-grain sale: master.unit_cost is per-pack (Xoro convention),
+//     divide by pack_size for per-unit.
+//  2. Unit-grain sale: if master.unit_cost > 2 x unit-price, master
+//     cost is implausibly high relative to the per-unit sale price
+//     and is almost certainly stored at per-pack grain — divide.
+//  3. Otherwise master.unit_cost is at per-unit grain; use as-is.
+//
+// The 2x threshold mirrors the legacy cost-implausibility gate that
+// exportExcel.ts used to apply at READ time — moving it to the WRITE
+// path so the snapshot persisted on every row is already correct.
+export function resolvePerUnitCost({ masterUnitCost, packSize, grain, netAmount, qtyUnits }) {
+  if (masterUnitCost == null) return null;
+  const cost = Number(masterUnitCost);
+  if (!Number.isFinite(cost)) return null;
+  const ps = Math.max(1, Number(packSize) || 1);
+  if (grain === "pack") return cost / ps;
+  if (netAmount != null && qtyUnits > 0) {
+    const unitPrice = Number(netAmount) / Number(qtyUnits);
+    if (Number.isFinite(unitPrice) && unitPrice > 0 && cost > unitPrice * 2) {
+      return cost / ps;
+    }
+  }
+  return cost;
+}
+
 export function deriveSalesGrainFields({ rawItemNumber, qty, netAmount, master }) {
   const packSize = Math.max(1, Number(master?.pack_size) || 1);
   const grain = inferQtyGrain(rawItemNumber, packSize);
   const qtyUnits = toQtyUnits(qty, grain, packSize);
-  const perUnitCost = master?.unit_cost != null
-    ? Number(master.unit_cost) / packSize
-    : null;
+  const perUnitCost = resolvePerUnitCost({
+    masterUnitCost: master?.unit_cost ?? null,
+    packSize,
+    grain,
+    netAmount,
+    qtyUnits,
+  });
+  const cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
   const { amount, pct } = computeRowMargin({
     netAmount,
     qtyUnits,
@@ -84,6 +100,7 @@ export function deriveSalesGrainFields({ rawItemNumber, qty, netAmount, master }
     qty_grain: grain,
     qty_units: qtyUnits,
     unit_cost_at_sale: perUnitCost,
+    cogs_amount: cogsAmount,
     margin_amount: amount,
     margin_pct: pct,
   };

@@ -1,12 +1,13 @@
 // Tests for the sales-grain helper module — the inference rule + the
-// margin math that every nightly run leans on. These are pure functions
-// so the tests are pure: no DB, no fixtures.
+// cost-grain rule + margin/cogs math that every nightly run leans on.
+// Pure functions, no DB.
 
 import { describe, it, expect } from "vitest";
 import {
   inferQtyGrain,
   toQtyUnits,
   computeRowMargin,
+  resolvePerUnitCost,
   deriveSalesGrainFields,
 } from "../sales-grain.js";
 
@@ -35,8 +36,6 @@ describe("inferQtyGrain", () => {
       expect(inferQtyGrain("ABC_RED_PPK6", 6)).toBe("pack");
     });
     it("returns 'unit' for a prepack-master line sold as a size variant (PPK token absent)", () => {
-      // A prepack STYLE may have variant rows with no PPK token — e.g. a
-      // single size pulled out of the pack. Those are at unit grain.
       expect(inferQtyGrain("RYG1768-Black-XL", 24)).toBe("unit");
       expect(inferQtyGrain("RYB0412-Red-M", 24)).toBe("unit");
     });
@@ -78,7 +77,6 @@ describe("toQtyUnits", () => {
 
 describe("computeRowMargin", () => {
   it("computes amount + pct for valid inputs", () => {
-    // 100 units × $5 cost = $500 cost. $700 revenue → $200 margin, 28.57%.
     const m = computeRowMargin({ netAmount: 700, qtyUnits: 100, perUnitCost: 5 });
     expect(m.amount).toBe(200);
     expect(m.pct).toBeCloseTo(0.2857, 4);
@@ -105,39 +103,117 @@ describe("computeRowMargin", () => {
   });
 });
 
+describe("resolvePerUnitCost", () => {
+  it("divides per-pack master cost by pack_size for pack-grain sales", () => {
+    const c = resolvePerUnitCost({
+      masterUnitCost: 240, packSize: 60, grain: "pack",
+      netAmount: 4800, qtyUnits: 1200,
+    });
+    expect(c).toBeCloseTo(4, 5);
+  });
+
+  it("uses master cost as-is for unit-grain sales with plausible cost vs price", () => {
+    const c = resolvePerUnitCost({
+      masterUnitCost: 5, packSize: 1, grain: "unit",
+      netAmount: 87.5, qtyUnits: 10,
+    });
+    expect(c).toBe(5);
+  });
+
+  it("divides per-pack master cost by pack_size for unit-grain sale when master cost > 2x unit price", () => {
+    // Variant SKU mis-tagged with pack_size=24, master cost $158 (per-pack).
+    // Sold at $8.75/unit. 158 > 8.75*2 -> divide.
+    const c = resolvePerUnitCost({
+      masterUnitCost: 158, packSize: 24, grain: "unit",
+      netAmount: 87.5, qtyUnits: 10,
+    });
+    expect(c).toBeCloseTo(158 / 24, 5);
+  });
+
+  it("uses master cost as-is when cost just slightly above price (within 2x threshold)", () => {
+    const c = resolvePerUnitCost({
+      masterUnitCost: 10, packSize: 24, grain: "unit",
+      netAmount: 70, qtyUnits: 10,
+    });
+    expect(c).toBe(10);
+  });
+
+  it("falls back to as-is when sale price is missing / non-positive (can't sanity-check)", () => {
+    const c = resolvePerUnitCost({
+      masterUnitCost: 158, packSize: 24, grain: "unit",
+      netAmount: null, qtyUnits: 0,
+    });
+    expect(c).toBe(158);
+  });
+
+  it("returns null when master cost is missing or non-numeric", () => {
+    expect(resolvePerUnitCost({ masterUnitCost: null, packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
+    expect(resolvePerUnitCost({ masterUnitCost: undefined, packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
+    expect(resolvePerUnitCost({ masterUnitCost: "not a number", packSize: 1, grain: "unit", netAmount: 10, qtyUnits: 1 })).toBe(null);
+  });
+});
+
 describe("deriveSalesGrainFields", () => {
-  // The screenshot scenario from the bug report:
-  // RYG1768PPK, pack_size=81, master unit_cost=$240/pack ($2.96/unit).
-  // LY row: Xoro recorded as 20 PACKS at $240/pack = $4,800.
-  // TY row: Xoro recorded as 1,620 UNITS at $2.96/unit = $4,800.
-  // Both should normalise to 1,620 qty_units and same revenue.
-  it("normalises pack-grain Xoro line to unit qty (the LY case)", () => {
+  // The screenshot scenario: RYG1768PPK, pack_size=60, master $240/pack ($4/unit).
+  // LY row: 20 PACKS at $240/pack = $4,800.
+  it("normalises pack-grain Xoro line + persists cogs (the LY case)", () => {
     const r = deriveSalesGrainFields({
       rawItemNumber: "RYG1768PPK-Black",
       qty: 20,
       netAmount: 4800,
-      master: { pack_size: 81, unit_cost: 240 },
+      master: { pack_size: 60, unit_cost: 240 },
     });
     expect(r.qty_grain).toBe("pack");
-    expect(r.qty_units).toBe(1620);
-    // per-unit cost = 240 / 81 = 2.962962…
-    expect(r.unit_cost_at_sale).toBeCloseTo(2.9630, 4);
-    // margin = 4800 - 1620 * 2.9630 = 4800 - 4800 = 0
+    expect(r.qty_units).toBe(1200);
+    expect(r.unit_cost_at_sale).toBeCloseTo(4, 5);
+    expect(r.cogs_amount).toBeCloseTo(4800, 2);
     expect(r.margin_amount).toBeCloseTo(0, 2);
     expect(r.margin_pct).toBeCloseTo(0, 4);
   });
 
-  it("preserves unit-grain Xoro line (the TY case)", () => {
+  it("preserves unit-grain Xoro line + computes cogs (the TY case)", () => {
     const r = deriveSalesGrainFields({
-      rawItemNumber: "RYG1768-Black-XL", // size variant, no PPK token
-      qty: 1620,
+      rawItemNumber: "RYG1768-Black-XL",
+      qty: 1200,
       netAmount: 4800,
-      master: { pack_size: 81, unit_cost: 240 },
+      master: { pack_size: 60, unit_cost: 4 },
     });
     expect(r.qty_grain).toBe("unit");
-    expect(r.qty_units).toBe(1620);
-    // Same per-unit cost, same margin
+    expect(r.qty_units).toBe(1200);
+    expect(r.unit_cost_at_sale).toBe(4);
+    expect(r.cogs_amount).toBe(4800);
     expect(r.margin_amount).toBeCloseTo(0, 2);
+  });
+
+  // The anomaly from the spot-check: variant sku tagged pack_size=24
+  // but actually unit-grain with master cost stored at per-unit grain.
+  // Smart cost rule avoids the spurious 96.87% margin.
+  it("handles the unit-grain anomaly: variant SKU, pack_size>1 mis-tag, per-unit master cost", () => {
+    const r = deriveSalesGrainFields({
+      rawItemNumber: "RYB059430-ALGAE-DARKWASH",
+      qty: 4078,
+      netAmount: 35682.50,
+      master: { pack_size: 24, unit_cost: 6.58 },
+    });
+    expect(r.qty_grain).toBe("unit");
+    expect(r.qty_units).toBe(4078);
+    expect(r.unit_cost_at_sale).toBe(6.58);
+    expect(r.cogs_amount).toBeCloseTo(4078 * 6.58, 2);
+    expect(r.margin_amount).toBeCloseTo(35682.50 - 4078 * 6.58, 2);
+    expect(r.margin_pct).toBeGreaterThan(0.20);
+    expect(r.margin_pct).toBeLessThan(0.30);
+  });
+
+  it("handles the converse anomaly: unit-grain sale with per-pack master cost (sanity check divides)", () => {
+    const r = deriveSalesGrainFields({
+      rawItemNumber: "RYB059430-LOOSE-XL",
+      qty: 100,
+      netAmount: 800,
+      master: { pack_size: 24, unit_cost: 158 },
+    });
+    expect(r.qty_grain).toBe("unit");
+    expect(r.unit_cost_at_sale).toBeCloseTo(158 / 24, 5);
+    expect(r.cogs_amount).toBeCloseTo(100 * (158 / 24), 2);
   });
 
   it("returns 'unit' grain + qty_units=qty for non-prepacks", () => {
@@ -150,8 +226,9 @@ describe("deriveSalesGrainFields", () => {
     expect(r.qty_grain).toBe("unit");
     expect(r.qty_units).toBe(12);
     expect(r.unit_cost_at_sale).toBe(15);
-    expect(r.margin_amount).toBe(360 - 12 * 15);
-    expect(r.margin_pct).toBeCloseTo((360 - 180) / 360, 4);
+    expect(r.cogs_amount).toBe(180);
+    expect(r.margin_amount).toBe(180);
+    expect(r.margin_pct).toBeCloseTo(0.5, 4);
   });
 
   it("returns nulls for cost-dependent fields when master.unit_cost is missing", () => {
@@ -164,6 +241,7 @@ describe("deriveSalesGrainFields", () => {
     expect(r.qty_grain).toBe("unit");
     expect(r.qty_units).toBe(12);
     expect(r.unit_cost_at_sale).toBe(null);
+    expect(r.cogs_amount).toBe(null);
     expect(r.margin_amount).toBe(null);
     expect(r.margin_pct).toBe(null);
   });
@@ -178,6 +256,7 @@ describe("deriveSalesGrainFields", () => {
     expect(r.qty_grain).toBe("unit");
     expect(r.qty_units).toBe(5);
     expect(r.unit_cost_at_sale).toBe(null);
+    expect(r.cogs_amount).toBe(null);
     expect(r.margin_amount).toBe(null);
     expect(r.margin_pct).toBe(null);
   });
