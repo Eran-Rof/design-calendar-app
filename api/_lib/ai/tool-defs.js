@@ -122,6 +122,32 @@ export const TOOLS = [
     },
   },
 
+  // ── Entity cards (single-call snapshots) ──────────────────────────────
+  {
+    name: "style_card",
+    description: "One-call snapshot of a style: master facts (description, category, pack_size, variant count, distinct colors), T3 vs LY sales (qty + revenue + growth share), top 5 T3 customers by revenue, open SO + PO commitments. Use this whenever the operator names a single style_code and wants orientation ('how is RYB0412 doing', 'tell me about RCB1510NPT'). Faster than find_style + describe_table + query_shipments + query_open_sos in sequence.",
+    input_schema: {
+      type: "object",
+      properties: {
+        style_code: { type: "string", description: "Exact style_code (canonical, not the variant SKU). Use find_style first if you only have a fragment." },
+      },
+      required: ["style_code"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "customer_card",
+    description: "One-call snapshot of a customer: resolved IDs (Xoro spellings drift), T3 vs LY sales (qty + revenue + growth share), top 5 T3 styles by revenue, open SO commitments in $. Use this whenever the operator names a single customer and wants orientation ('how is Burlington doing', 'snapshot Ross'). Pass either customer_id (exact uuid) or customer_name (substring — same resolution as find_customer).",
+    input_schema: {
+      type: "object",
+      properties: {
+        customer_id:   { type: "string", description: "ip_customer_master.id (exact uuid)." },
+        customer_name: { type: "string", description: "Free-text name; substring + first-word prefix matching like find_customer." },
+      },
+      additionalProperties: false,
+    },
+  },
+
   // ── Reply tools (terminal) ────────────────────────────────────────────
   {
     name: "answer_text",
