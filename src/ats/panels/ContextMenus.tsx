@@ -582,7 +582,7 @@ const SalesHistorySection: React.FC<SalesHistorySectionProps> = ({ salesAgg, loa
 interface SalesHistoryBlockProps {
   label: string;
   windowLabel: string;
-  agg: { qty: number; totalPrice: number };
+  agg: { qty: number; totalPrice: number; marginAmount: number };
   avgCost: number;
   ppkMult: number;
   isPrepack: boolean;
@@ -591,16 +591,24 @@ interface SalesHistoryBlockProps {
 
 const SalesHistoryBlock: React.FC<SalesHistoryBlockProps> = ({ label, windowLabel, agg, avgCost, ppkMult, isPrepack, customerFilter }) => {
   const empty = agg.qty === 0 && agg.totalPrice === 0;
+  // agg.qty is at UNIT grain (qty_units from the DB, or qty fallback for
+  // legacy rows). Both unitPrice and avgCost are now per-unit, so margin
+  // math is a clean subtraction — no ppkMult dance.
   const unitPrice = agg.qty > 0 ? agg.totalPrice / agg.qty : 0;
-  // Margin: unitPrice and avgCost are per-pack and per-unit respectively
-  // for prepacks. Multiply avgCost by ppkMult to land both in the same
-  // grain (pack). Non-prepacks: ppkMult=1, no-op.
-  const margin = (unitPrice > 0 && avgCost > 0)
-    ? ((unitPrice - avgCost * ppkMult) / unitPrice) * 100
-    : null;
+  // Prefer the server-computed margin (margin_amount summed from
+  // ip_sales_history_wholesale). Falls back to the per-unit subtract
+  // when marginAmount is 0 (legacy rows where the nightly hasn't
+  // populated margin yet).
+  let margin: number | null = null;
+  if (agg.totalPrice > 0 && agg.marginAmount !== 0) {
+    margin = (agg.marginAmount / agg.totalPrice) * 100;
+  } else if (unitPrice > 0 && avgCost > 0) {
+    margin = ((unitPrice - avgCost) / unitPrice) * 100;
+  }
   const marginColor = margin === null ? "#94A3B8" : margin >= 30 ? "#6EE7B7" : margin >= 10 ? "#FCD34D" : "#FCA5A5";
+  const packCount = isPrepack && ppkMult > 1 ? agg.qty / ppkMult : agg.qty;
   const qtyDisplay = isPrepack
-    ? `${agg.qty.toLocaleString()} pack${agg.qty !== 1 ? "s" : ""} (${(agg.qty * ppkMult).toLocaleString()} units)`
+    ? `${packCount.toLocaleString(undefined, { maximumFractionDigits: 1 })} pack${packCount !== 1 ? "s" : ""} (${agg.qty.toLocaleString()} units)`
     : `${agg.qty.toLocaleString()} units`;
 
   return (
@@ -617,7 +625,7 @@ const SalesHistoryBlock: React.FC<SalesHistoryBlockProps> = ({ label, windowLabe
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", color: "#CBD5E1" }}>
           <span style={{ color: "#F59E0B", fontWeight: 700 }}>{qtyDisplay}</span>
           {agg.totalPrice > 0 && <span>${agg.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
-          {unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Avg ${unitPrice.toFixed(2)}/{isPrepack ? "pack" : "unit"}</span>}
+          {unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Avg ${(isPrepack && ppkMult > 1 ? unitPrice * ppkMult : unitPrice).toFixed(2)}/{isPrepack ? "pack" : "unit"}</span>}
           {margin !== null && <span style={{ color: marginColor, fontWeight: 600, fontSize: 11 }}>Margin {margin >= 0 ? "" : "-"}{Math.abs(margin).toFixed(1)}%</span>}
         </div>
       )}

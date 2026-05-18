@@ -16,14 +16,29 @@ interface SalesRow {
   customer_id: string | null;
   txn_date: string;        // YYYY-MM-DD
   qty: number | string;
+  // qty_units: authoritative unit-grain qty. Populated by the nightly
+  // sync handler since migration 20260517230000. NULL for legacy rows
+  // and for rows from non-nightly write paths (xoro-sales-sync,
+  // excelIngestService) until those are updated — we COALESCE to qty.
+  qty_units: number | string | null;
   net_amount: number | string | null;
   unit_price: number | string | null;
+  // margin_amount: server-computed margin $ per row (net - units*cost).
+  // NULL when net_amount or unit_cost_at_sale missing. Operators see a
+  // blank margin cell rather than a wrong-grain recomputation.
+  margin_amount: number | string | null;
 }
 
-// Per-SKU aggregate over a date window: total qty + total revenue.
+// Per-SKU aggregate over a date window: total qty + total revenue +
+// total margin $ (so the export can compute margin % = margin / revenue
+// without re-doing per-unit cost math).
 export interface SalesAggregate {
   qty: number;
   totalPrice: number;
+  // Sum of margin_amount across the aggregated rows. May be 0 if every
+  // row had a NULL margin (legacy / non-nightly path). Compute margin %
+  // = marginAmount / totalPrice; suppress when totalPrice is 0.
+  marginAmount: number;
 }
 
 // Aggregates keyed by ATS row's `sku` string (variant-level SKU as the
@@ -43,7 +58,10 @@ export interface SalesFetchResult {
   // orders left), we still want it to appear in the report so the
   // operator can see the customer's full purchase history. Keyed by
   // ip_item_master.id (uuid).
-  extraBySkuId: Map<string, SalesAggregate & { lyQty: number; lyTotal: number; t3Qty: number; t3Total: number }>;
+  extraBySkuId: Map<string, SalesAggregate & {
+    lyQty: number; lyTotal: number; lyMargin: number;
+    t3Qty: number; t3Total: number; t3Margin: number;
+  }>;
 }
 
 // ── Module-level cache of the wide (15-month) sales-history window ───
@@ -118,7 +136,7 @@ function sliceBoundaries(start: string, end: string, slices: number): string[] {
 // the boundary day; the caller's final slice covers through `end`
 // inclusive by passing endExclusive = end + 1 day.
 async function fetchSalesSlice(startInclusive: string, endExclusive: string, pageSize = 1000): Promise<SalesRow[]> {
-  const cols = "sku_id,customer_id,txn_date,qty,net_amount,unit_price";
+  const cols = "sku_id,customer_id,txn_date,qty,qty_units,net_amount,unit_price,margin_amount";
   const path = `ip_sales_history_wholesale?select=${cols}&txn_date=gte.${startInclusive}&txn_date=lt.${endExclusive}&order=txn_date.asc`;
   return sbGetAll<SalesRow>(path, pageSize);
 }
@@ -413,41 +431,50 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     const inLY = needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd;
     if (!inT3 && !inLY) continue;
 
-    // qty stays raw from Xoro. Earlier code multiplied by ppkMult to
-    // land in unit grain, but Xoro's sales-history grain isn't
-    // reliably pack-vs-unit across records — and dirty master size
-    // data (stray "PPKn" tokens on non-prepack variants) was
-    // triggering 60x inflation on real-customer columns
-    // (e.g. RCB1258 non-PPK variants showing $0.09/unit on Ross
-    // Procurement exports). The grid still uses ppkMult for on-
-    // hand / on-PO / on-SO via compute.ts; sales columns now mirror
-    // Xoro's recorded grain per SKU.
-    const qty = toNum(r.qty);
+    // qty_units is the authoritative unit-grain qty written by the
+    // nightly sync handler (since migration 20260517230000). Falls
+    // back to qty for legacy rows + rows from non-nightly write paths
+    // (xoro-sales-sync, browser excel modal) until those are updated.
+    // The fallback is correct for non-prepack rows (qty_units == qty)
+    // but produces explosion-shaped results for legacy prepack rows
+    // until the nightly re-runs them — that's the expected migration
+    // posture, not a regression.
+    const qty = r.qty_units != null ? toNum(r.qty_units) : toNum(r.qty);
     let rev = toNum(r.net_amount);
-    if (rev <= 0) rev = toNum(r.unit_price) * qty;
+    if (rev <= 0) rev = toNum(r.unit_price) * toNum(r.qty);
+    // margin_amount is NULL for legacy / non-nightly rows — we treat
+    // missing as 0 so the per-SKU sum doesn't get polluted with NaN,
+    // but the downstream margin% display suppresses the column when
+    // the aggregate's marginAmount is 0 (no signal vs. 0% margin).
+    const marg = toNum(r.margin_amount);
 
     const atsSku = idToSku.get(r.sku_id);
     if (atsSku) {
       if (inT3) {
         const ex = t3.get(atsSku);
-        if (ex) { ex.qty += qty; ex.totalPrice += rev; }
-        else t3.set(atsSku, { qty, totalPrice: rev });
+        if (ex) { ex.qty += qty; ex.totalPrice += rev; ex.marginAmount += marg; }
+        else t3.set(atsSku, { qty, totalPrice: rev, marginAmount: marg });
       }
       if (inLY) {
         const ex = ly.get(atsSku);
-        if (ex) { ex.qty += qty; ex.totalPrice += rev; }
-        else ly.set(atsSku, { qty, totalPrice: rev });
+        if (ex) { ex.qty += qty; ex.totalPrice += rev; ex.marginAmount += marg; }
+        else ly.set(atsSku, { qty, totalPrice: rev, marginAmount: marg });
       }
     } else if (shouldCollectExtras) {
       let ex = extraBySkuId.get(r.sku_id);
       if (!ex) {
-        ex = { qty: 0, totalPrice: 0, t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0 };
+        ex = {
+          qty: 0, totalPrice: 0, marginAmount: 0,
+          t3Qty: 0, t3Total: 0, t3Margin: 0,
+          lyQty: 0, lyTotal: 0, lyMargin: 0,
+        };
         extraBySkuId.set(r.sku_id, ex);
       }
-      if (inT3) { ex.t3Qty += qty; ex.t3Total += rev; }
-      if (inLY) { ex.lyQty += qty; ex.lyTotal += rev; }
+      if (inT3) { ex.t3Qty += qty; ex.t3Total += rev; ex.t3Margin += marg; }
+      if (inLY) { ex.lyQty += qty; ex.lyTotal += rev; ex.lyMargin += marg; }
       ex.qty += qty;
       ex.totalPrice += rev;
+      ex.marginAmount += marg;
     }
   }
 
@@ -491,8 +518,8 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
       // given the operator explicitly selected one).
       const today = todayIso();
       return {
-        t3: { qty: 0, totalPrice: 0 },
-        ly: { qty: 0, totalPrice: 0 },
+        t3: { qty: 0, totalPrice: 0, marginAmount: 0 },
+        ly: { qty: 0, totalPrice: 0, marginAmount: 0 },
         t3Window: { start: isoMinusMonths(today, 3), end: today },
         lyWindow: { start: isoMinusMonths(today, 15), end: isoMinusMonths(today, 12) },
       };
@@ -515,31 +542,33 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
     salesRows = await directFetch(lyStart, today);
   }
 
-  // qty stays raw from Xoro — mirrors fetchSalesAggregates. The
-  // master-derived ppkMult was over-aggressive for sales (dirty
-  // size data triggered 60x inflation on non-prepack rows). Sales
-  // columns now show Xoro's recorded grain per SKU.
-  let t3Qty = 0, t3Total = 0;
-  let lyQty = 0, lyTotal = 0;
+  // qty_units (when populated by the nightly handler) is at unit grain.
+  // Fall back to qty for legacy / non-nightly rows. Margin sums roll up
+  // alongside qty + revenue so callers can compute aggregate margin %.
+  let t3Qty = 0, t3Total = 0, t3Margin = 0;
+  let lyQty = 0, lyTotal = 0, lyMargin = 0;
   for (const r of salesRows) {
     if (!idSet.has(r.sku_id)) continue;
     if (customerIdSet && (r.customer_id == null || !customerIdSet.has(r.customer_id))) continue;
-    const qty = toNum(r.qty);
+    const qty = r.qty_units != null ? toNum(r.qty_units) : toNum(r.qty);
     let rev = toNum(r.net_amount);
-    if (rev <= 0) rev = toNum(r.unit_price) * qty;
+    if (rev <= 0) rev = toNum(r.unit_price) * toNum(r.qty);
+    const marg = toNum(r.margin_amount);
     if (r.txn_date >= t3Start && r.txn_date <= today) {
       t3Qty += qty;
       t3Total += rev;
+      t3Margin += marg;
     }
     if (r.txn_date >= lyStart && r.txn_date <= lyEnd) {
       lyQty += qty;
       lyTotal += rev;
+      lyMargin += marg;
     }
   }
 
   return {
-    t3: { qty: t3Qty, totalPrice: t3Total },
-    ly: { qty: lyQty, totalPrice: lyTotal },
+    t3: { qty: t3Qty, totalPrice: t3Total, marginAmount: t3Margin },
+    ly: { qty: lyQty, totalPrice: lyTotal, marginAmount: lyMargin },
     t3Window: { start: t3Start, end: today },
     lyWindow: { start: lyStart, end: lyEnd },
   };

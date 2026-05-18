@@ -918,13 +918,13 @@ export const NavBar: React.FC<NavBarProps> = ({
             // show only the extras and under-report the true total.
             if (g.t3Qty > 0 || g.t3Total > 0) {
               const existing = salesAggregates.t3.get(g.sku);
-              if (existing) { existing.qty += g.t3Qty; existing.totalPrice += g.t3Total; }
-              else salesAggregates.t3.set(g.sku, { qty: g.t3Qty, totalPrice: g.t3Total });
+              if (existing) { existing.qty += g.t3Qty; existing.totalPrice += g.t3Total; existing.marginAmount += g.t3Margin; }
+              else salesAggregates.t3.set(g.sku, { qty: g.t3Qty, totalPrice: g.t3Total, marginAmount: g.t3Margin });
             }
             if (g.lyQty > 0 || g.lyTotal > 0) {
               const existing = salesAggregates.ly.get(g.sku);
-              if (existing) { existing.qty += g.lyQty; existing.totalPrice += g.lyTotal; }
-              else salesAggregates.ly.set(g.sku, { qty: g.lyQty, totalPrice: g.lyTotal });
+              if (existing) { existing.qty += g.lyQty; existing.totalPrice += g.lyTotal; existing.marginAmount += g.lyMargin; }
+              else salesAggregates.ly.set(g.sku, { qty: g.lyQty, totalPrice: g.lyTotal, marginAmount: g.lyMargin });
             }
           }
           if (synthetic.length > 0) {
