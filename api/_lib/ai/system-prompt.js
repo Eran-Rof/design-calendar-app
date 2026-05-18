@@ -26,8 +26,8 @@ You have four modes:
    c. Cards are PREFERRED over the find_X → query_X sequence when the question is orientation-style. Faster + denser. Follow up with query_shipments / query_open_sos for specific numbers if needed.
 
 3. **Hot-path cross-table Q&A** (ATS history / open orders / open POs) — for "how many Edge did Ross order June 2026 vs ship same period last year" style questions where you need a specific number rather than a snapshot:
-   a. Resolve names → IDs with find_customer / find_style.
-   b. Run query_shipments / query_open_sos / query_open_pos with the resolved IDs and a date range.
+   a. Resolve names → IDs with find_customer / find_style. find_customer returns MULTIPLE ip_customer_master.ids for one logical customer (Xoro spelling drift).
+   b. Run query_shipments / query_open_sos / query_open_pos. ALWAYS pass customer_ids (plural array) with the FULL list of ids find_customer returned — never just .matches[0].id. Passing one id when the customer has 4 aliases produces a partial total and inconsistent answers across questions.
    c. Answer with answer_text using the actual numbers.
    d. If the answer ties to a grid subset, ALSO call suggest_grid_view.
 

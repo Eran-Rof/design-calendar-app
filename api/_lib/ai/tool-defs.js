@@ -74,11 +74,12 @@ export const TOOLS = [
   },
   {
     name: "query_shipments",
-    description: "Aggregate historical wholesale shipments (ip_sales_history_wholesale) for a customer and/or style/SKU within a date range. Returns rows grouped by style_code with total qty + net_amount. Use this for 'how much did we ship X to Y in period Z' questions.",
+    description: "Aggregate historical wholesale shipments (ip_sales_history_wholesale) for a customer (or set of customer IDs that resolve to the same logical customer via Xoro spelling drift) and/or style/SKU within a date range. Returns rows grouped by style_code with total qty + net_amount. Use this for 'how much did we ship X to Y in period Z' questions. CRITICAL: when narrowing by customer, ALWAYS pass customer_ids (plural array) with ALL ids find_customer returned, not just the first match.",
     input_schema: {
       type: "object",
       properties: {
-        customer_id:  { type: "string",  description: "ip_customer_master.id; preferred when known." },
+        customer_id:  { type: "string",  description: "DEPRECATED — pass customer_ids array instead. Kept for backward compat; coerced to a single-item array." },
+        customer_ids: { type: "array", items: { type: "string" }, description: "ip_customer_master.id list. PREFERRED. Use ALL ids find_customer returned for the requested customer name — Xoro drift means one logical customer maps to multiple master rows." },
         style_code:   { type: "string",  description: "ip_item_master.style_code; filters all SKU variants in the family." },
         sku_code:     { type: "string",  description: "ip_item_master.sku_code; exact SKU filter." },
         date_from:    { type: "string",  description: "ISO date YYYY-MM-DD; inclusive lower bound on txn_date." },
@@ -92,11 +93,12 @@ export const TOOLS = [
   },
   {
     name: "query_open_sos",
-    description: "Aggregate open sales orders (ip_open_sales_orders). Filter by customer, style/SKU, and ship_date range. Returns grouped totals for qty_open / qty_ordered / qty_shipped.",
+    description: "Aggregate open sales orders (ip_open_sales_orders). Filter by customer (PREFERRED: customer_ids array — Xoro spelling drift), style/SKU, and ship_date range. Returns grouped totals for qty_open / qty_ordered / qty_shipped.",
     input_schema: {
       type: "object",
       properties: {
-        customer_id:  { type: "string" },
+        customer_id:  { type: "string",  description: "DEPRECATED — pass customer_ids array instead. Coerced to single-item array." },
+        customer_ids: { type: "array", items: { type: "string" }, description: "ip_customer_master.id list. PREFERRED. Use ALL ids find_customer returned." },
         style_code:   { type: "string" },
         sku_code:     { type: "string" },
         date_from:    { type: "string", description: "Inclusive lower bound on ship_date." },
