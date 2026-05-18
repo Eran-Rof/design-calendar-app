@@ -12,6 +12,12 @@ import {
   type GridSuggestion,
   type ToolTraceEntry,
 } from "./tools";
+import {
+  loadConversation,
+  saveConversation,
+  clearConversation,
+  type StoredChatMessage,
+} from "./conversationStore";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -27,6 +33,12 @@ interface AskAIPanelProps {
   // Sample prompts shown above the input on first open. Caller can
   // tailor them per-grid (ATS vs SO vs PO etc.).
   samplePrompts?: string[];
+  /** Stable identifier for the host app (e.g. "ats", "po_wip", "dc",
+   *  "planning", "tanda"). Used as the localStorage key prefix for
+   *  conversation memory (Tier 2E). Omit to disable persistence —
+   *  the panel still works exactly the same, conversations just don't
+   *  survive close/reopen. */
+  appId?: string;
 }
 
 interface ChatMessage {
@@ -116,7 +128,7 @@ function RenderedMessage({ text }: { text: string }) {
 }
 
 export const AskAIPanel: React.FC<AskAIPanelProps> = ({
-  open, onClose, buildContext, setters, samplePrompts,
+  open, onClose, buildContext, setters, samplePrompts, appId,
 }) => {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -125,6 +137,21 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   // Empty array = "not loaded / nothing to show", in which case we
   // fall back to the static samplePrompts prop.
   const [popularPrompts, setPopularPrompts] = useState<string[]>([]);
+  // Resolved operator id for the conversation-memory key. Falls back
+  // to "anon" when sessionStorage.plm_user is missing (e.g. dev mode
+  // without a login) so persistence still works per-machine.
+  const userId = useRef<string>((() => {
+    try {
+      const raw = sessionStorage.getItem("plm_user");
+      if (!raw) return "anon";
+      const u = JSON.parse(raw) as { id?: string; name?: string } | null;
+      return u?.id || u?.name || "anon";
+    } catch { return "anon"; }
+  })()).current;
+  // Track whether we've already hydrated from localStorage so the
+  // first open doesn't trigger a save before we've loaded — that
+  // would overwrite the prior conversation with an empty array.
+  const hydratedRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -133,6 +160,39 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
+
+  // Tier 2E: hydrate prior conversation on first open. Only runs once
+  // per panel mount — re-opening the panel during the same mount
+  // reuses the in-memory `messages` state.
+  useEffect(() => {
+    if (!open || hydratedRef.current || !appId) return;
+    hydratedRef.current = true;
+    const prior = loadConversation(appId, userId);
+    if (prior && prior.length > 0) setMessages(prior);
+  }, [open, appId, userId]);
+
+  // Tier 2E: persist on every messages change. Skipped until we've
+  // hydrated (otherwise the first render writes [] over the stored
+  // history). Also skipped when there's no appId (host opted out).
+  useEffect(() => {
+    if (!appId || !hydratedRef.current) return;
+    // Drop any pending / error bubbles before persisting — restoring
+    // an "Error: HTTP 500" bubble from yesterday is just noise.
+    const toPersist: StoredChatMessage[] = messages
+      .filter(m => !m.pending && !m.error)
+      .map(m => ({
+        id: m.id,
+        role: m.role,
+        text: m.text,
+        ...(m.actionLabel        ? { actionLabel: m.actionLabel }             : {}),
+        ...(m.suggestionPushed   ? { suggestionPushed: m.suggestionPushed }   : {}),
+        ...(m.cached             ? { cached: m.cached }                       : {}),
+        ...(typeof m.cachedAgeSeconds === "number"
+          ? { cachedAgeSeconds: m.cachedAgeSeconds }
+          : {}),
+      }));
+    saveConversation(appId, userId, toPersist);
+  }, [messages, appId, userId]);
 
   // Tier 1C: fetch the top N most-hit questions from the answer cache
   // when the panel first opens. We don't refetch on every open — the
@@ -383,14 +443,48 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               <div style={{ fontSize: 11, color: "#64748B" }}>Ask me anything ROF related</div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            title="Close"
-            style={{
-              background: "transparent", border: "none", color: "#94A3B8",
-              cursor: "pointer", fontSize: 20, padding: "0 6px",
-            }}
-          >×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {/* Clear conversation — only shown when there's something to clear
+                AND persistence is wired (appId provided). Wipes both the
+                in-memory state and the localStorage entry so the operator
+                can deliberately reset context. Tier 2E. */}
+            {appId && messages.length > 0 && (
+              <button
+                onClick={() => {
+                  if (busy) return;
+                  setMessages([]);
+                  clearConversation(appId, userId);
+                  setTimeout(() => inputRef.current?.focus(), 30);
+                }}
+                title="Clear conversation"
+                disabled={busy}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#64748B",
+                  cursor: busy ? "not-allowed" : "pointer",
+                  fontSize: 11,
+                  padding: "0 8px",
+                  fontFamily: "inherit",
+                  fontWeight: 500,
+                  opacity: busy ? 0.4 : 1,
+                  transition: "color 0.1s",
+                }}
+                onMouseEnter={e => { if (!busy) e.currentTarget.style.color = "#94A3B8"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = "#64748B"; }}
+              >
+                Clear
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              title="Close"
+              style={{
+                background: "transparent", border: "none", color: "#94A3B8",
+                cursor: "pointer", fontSize: 20, padding: "0 6px",
+              }}
+            >×</button>
+          </div>
         </div>
 
         <div

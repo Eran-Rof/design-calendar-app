@@ -2051,6 +2051,7 @@ function TandAApp() {
           "Which POs have shipped but no receipt yet?",
           "Disputes opened in the last 30 days",
         ]}
+        appId="po_wip"
       />
     </div>
   );

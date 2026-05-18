@@ -1174,6 +1174,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         onClose={() => setAiOpen(false)}
         buildContext={aiBuildContext}
         setters={aiSetters}
+        appId="ats"
       />
     )}
 
