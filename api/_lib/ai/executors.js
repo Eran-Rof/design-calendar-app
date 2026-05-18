@@ -223,17 +223,24 @@ async function tool_query_shipments(db, input) {
   const { data, error } = await q;
   if (error) return { error: error.message };
 
+  // Pull pack_size alongside sku/style mapping so groups can surface
+  // is_prepack — lets Claude separate prepack vs non-prepack rows in
+  // the answer instead of guessing at grain. Fetched for non-customer
+  // groupings since customer doesn't carry pack info anyway.
   const seenSkuIds = Array.from(new Set((data || []).map(r => r.sku_id).filter(Boolean)));
   let skuToStyle = new Map();
   let skuToCode  = new Map();
+  let skuToPack  = new Map();
   if (seenSkuIds.length > 0 && (input?.group_by ?? "style") !== "customer") {
     const { data: masters } = await db
       .from("ip_item_master")
-      .select("id, sku_code, style_code")
+      .select("id, sku_code, style_code, pack_size")
       .in("id", seenSkuIds);
     for (const m of (masters || [])) {
       if (m.style_code) skuToStyle.set(m.id, m.style_code);
       if (m.sku_code)   skuToCode.set(m.id, m.sku_code);
+      const ps = Number(m.pack_size || 1);
+      skuToPack.set(m.id, ps > 0 ? ps : 1);
     }
   }
 
@@ -248,21 +255,51 @@ async function tool_query_shipments(db, input) {
       case "style":
       default:         key = skuToStyle.get(r.sku_id) || skuToCode.get(r.sku_id) || "(unmatched)"; break;
     }
-    if (!groups.has(key)) groups.set(key, { key, qty: 0, net_amount: 0, row_count: 0 });
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        qty: 0,
+        net_amount: 0,
+        row_count: 0,
+        pack_size: groupBy === "customer" || groupBy === "month" ? null : 1,
+      });
+    }
     const g = groups.get(key);
     g.qty        += Number(r.qty || 0);
     g.net_amount += Number(r.net_amount || 0);
     g.row_count  += 1;
+    if (groupBy !== "customer" && groupBy !== "month") {
+      // Take the MAX pack_size across rows in the group — handles the
+      // edge case where one logical style has both a prepack variant
+      // and a non-prepack one and they merge in 'style' grouping.
+      const ps = skuToPack.get(r.sku_id) ?? 1;
+      if (ps > (g.pack_size ?? 1)) g.pack_size = ps;
+    }
   }
-  const out = Array.from(groups.values()).sort((a, b) => b.qty - a.qty).slice(0, QUERY_RESULT_LIMIT);
+  const out = Array.from(groups.values())
+    .map(g => ({ ...g, is_prepack: (g.pack_size ?? 1) > 1 }))
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, QUERY_RESULT_LIMIT);
   const totalQty = out.reduce((s, g) => s + g.qty, 0);
   const totalAmt = out.reduce((s, g) => s + g.net_amount, 0);
+  // Pre-split totals so Claude can write the answer without inferring.
+  const prepackGroups = out.filter(g => g.is_prepack);
+  const nonPrepackGroups = out.filter(g => !g.is_prepack);
+  const prepackQty    = prepackGroups.reduce((s, g) => s + g.qty, 0);
+  const nonPrepackQty = nonPrepackGroups.reduce((s, g) => s + g.qty, 0);
+  const prepackAmt    = prepackGroups.reduce((s, g) => s + g.net_amount, 0);
+  const nonPrepackAmt = nonPrepackGroups.reduce((s, g) => s + g.net_amount, 0);
   return {
     groups: out,
     group_count: groups.size,
     row_count: (data || []).length,
     capped: (data || []).length >= QUERY_ROW_LIMIT,
     totals: { qty: totalQty, net_amount: totalAmt },
+    totals_by_grain: (groupBy === "customer" || groupBy === "month") ? null : {
+      non_prepack: { style_count: nonPrepackGroups.length, qty: nonPrepackQty, net_amount: nonPrepackAmt },
+      prepack:     { style_count: prepackGroups.length,    qty: prepackQty,    net_amount: prepackAmt },
+      note: "Sales qty is at Xoro's recorded grain. Non-prepack rows are unit-grain. Prepack rows are pack-grain — multiply by each group's pack_size to convert to units. DO NOT speculate; the breakdown above is authoritative.",
+    },
     group_by: groupBy,
   };
 }
