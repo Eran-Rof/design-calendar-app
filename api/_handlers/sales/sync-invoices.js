@@ -424,6 +424,9 @@ export default async function handler(req, res) {
     existing.qty_units = existing.qty_grain === "pack"
       ? totalQty * inferredPackSize
       : totalQty;
+    existing.cogs_amount = existing.unit_cost_at_sale != null
+      ? existing.qty_units * existing.unit_cost_at_sale
+      : null;
     if (mergedNet != null && existing.unit_cost_at_sale != null && mergedNet > 0) {
       const newMarginAmount = mergedNet - existing.qty_units * existing.unit_cost_at_sale;
       existing.margin_amount = newMarginAmount;
