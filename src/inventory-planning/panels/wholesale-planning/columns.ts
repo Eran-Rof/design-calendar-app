@@ -51,6 +51,7 @@ export const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
   { key: "class",       label: "Class" },
   { key: "histT3",      label: "Hist T3" },
   { key: "histLY",      label: "SP/LY" },
+  { key: "margin",      label: "Margin %" },
   { key: "system",      label: "System" },
   { key: "buyer",       label: "Buyer" },
   { key: "override",    label: "Override" },

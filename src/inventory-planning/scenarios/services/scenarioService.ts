@@ -101,6 +101,7 @@ export async function cloneBaseIntoScenario(args: {
       history_months_used: r.history_months_used,
       notes: r.notes,
       ly_reference_qty: r.ly_reference_qty ?? null,
+      historical_margin_pct: r.historical_margin_pct ?? null,
       planned_buy_qty: r.planned_buy_qty ?? null,
       unit_cost_override: r.unit_cost_override ?? null,
     })));
@@ -249,6 +250,7 @@ export async function cloneBaseIntoSavedBuild(args: {
         history_months_used: r.history_months_used,
         notes: r.notes,
         ly_reference_qty: r.ly_reference_qty ?? null,
+      historical_margin_pct: r.historical_margin_pct ?? null,
         planned_buy_qty: r.planned_buy_qty ?? null,
         unit_cost_override: r.unit_cost_override ?? null,
       })),

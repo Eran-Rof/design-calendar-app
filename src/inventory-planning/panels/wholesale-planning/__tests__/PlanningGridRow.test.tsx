@@ -24,7 +24,7 @@ function row(over: Partial<IpPlanningGridRow> = {}): IpPlanningGridRow {
     customer_id: "C1", customer_name: "Acme",
     period_start: "2026-05-01", period_end: "2026-05-31", period_code: "2026-05",
     abc_class: null, xyz_class: null,
-    historical_trailing_qty: 100, ly_reference_qty: 80, historical_receipts_qty: 0,
+    historical_trailing_qty: 100, ly_reference_qty: 80, historical_margin_pct: null, historical_receipts_qty: 0,
     system_forecast_qty: 120, system_forecast_qty_original: 120,
     system_forecast_qty_overridden_at: null, system_forecast_qty_overridden_by: null,
     buyer_request_qty: 0, override_qty: 0,
@@ -251,10 +251,11 @@ describe("<PlanningGridRow /> — context menu + onSelectRow", () => {
       openSummaryCtx: openCtx,
     }));
     const cells = container.querySelectorAll("td");
-    // On Hand is the 17th td (0=cat, 1=subCat, 2=style, 3=desc, 4=color,
-    // 5=customer, 6=period, 7=class, 8=histT3, 9=histLY, 10=system,
-    // 11=buyer, 12=override, 13=final, 14=confidence, 15=method, 16=onHand)
-    const onHand = cells[16];
+    // On Hand is the 18th td (0=cat, 1=subCat, 2=style, 3=desc, 4=color,
+    // 5=customer, 6=period, 7=class, 8=histT3, 9=histLY, 10=margin,
+    // 11=system, 12=buyer, 13=override, 14=final, 15=confidence,
+    // 16=method, 17=onHand)
+    const onHand = cells[17];
     expect(onHand).toBeDefined();
     fireEvent.contextMenu(within(onHand as HTMLElement).getByText("25"));
     expect(openCtx).toHaveBeenCalledWith(expect.anything(), "onHand", expect.objectContaining({ forecast_id: "f1" }));

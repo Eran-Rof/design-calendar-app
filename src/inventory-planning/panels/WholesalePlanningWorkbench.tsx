@@ -938,6 +938,7 @@ export default function WholesalePlanningWorkbench() {
         confidence_level: "estimate",
         forecast_method: "zero_floor",
         ly_reference_qty: null,
+        historical_margin_pct: null,
         item_cost: null,
         ats_avg_cost: null,
         avg_cost: null,
@@ -1404,6 +1405,7 @@ export default function WholesalePlanningWorkbench() {
             final_forecast_qty: 0,
             historical_trailing_qty: 0,
             ly_reference_qty: null,
+            historical_margin_pct: null,
             system_forecast_qty: 0,
             system_forecast_qty_original: 0,
           }));

@@ -2527,6 +2527,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <Th widths={dynamicColWidths} label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
               <Th widths={dynamicColWidths} label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
               <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
+              <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={hiddenColumns.has("margin")} />
               <Th widths={dynamicColWidths} label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
               <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
               <Th widths={dynamicColWidths} label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />

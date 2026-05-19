@@ -313,6 +313,11 @@ export function buildWholesaleBaselineForecast(
         forecast_method: baseline.method,
         history_months_used: baseline.history_months_used,
         ly_reference_qty: lyRef,
+        // Margin is computed in wholesaleForecastService — it needs the
+        // raw sales rows (with margin_amount + net_amount), which this
+        // pure compute layer doesn't see. Service post-processes the
+        // baseline output before upsert.
+        historical_margin_pct: null,
         notes: null,
       });
     }
@@ -377,6 +382,7 @@ export function applyBuyerRequests(
       forecast_method: "zero_floor",
       history_months_used: null,
       ly_reference_qty: null,
+      historical_margin_pct: null,
       notes: "Synthesized from buyer request — no prior history.",
     });
     matched.add(key); // avoid double-appending if multiple requests share a key
