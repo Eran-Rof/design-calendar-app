@@ -9,7 +9,7 @@
 
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import type { ATSRow } from "./types";
-import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds } from "./itemMasterLookup";
+import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds, getMatchingItemMasterIds } from "./itemMasterLookup";
 
 interface SalesRow {
   sku_id: string;
@@ -287,6 +287,16 @@ export interface FetchSalesArgs {
   // with NULL channel_id (legacy / pre-migration data) are excluded
   // from any store-specific filter.
   storeFilter?: string[];
+  // On-screen non-store filters. When any of these is non-empty, the
+  // sales aggregation is unhooked from the grid's visible-SKU set and
+  // re-keyed off the union of "SKUs whose master row matches these
+  // filters" + "SKUs in the grid". Without this, cross-store totals
+  // don't reconcile because the grid's store-tag restriction silently
+  // drops the wholesale sales of SKUs whose only grid presence is via
+  // ECOM-tagged POs. See project_ats_export_grain_handoff_2026_05_18.
+  filterCategory?: string[];
+  filterSubCategory?: string[];
+  filterStyle?: string[];
   // Optional custom window for the T3 block. When provided, T3
   // aggregates use [customStart, customEnd] instead of the default
   // "last 3 months from today", and SP LY uses the same window shifted
@@ -373,7 +383,7 @@ function cacheCovers(start: string, end: string): boolean {
   return start >= salesCacheStart && end <= salesCacheEnd;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter }: FetchSalesArgs): Promise<SalesFetchResult> {
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle }: FetchSalesArgs): Promise<SalesFetchResult> {
   // Window resolution. Default: T3 = trailing 3 months from today;
   // LY = same window shifted back 12 months (== [today-15m, today-12m]).
   // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
@@ -489,12 +499,32 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
 
   const t3: SalesAggMap = new Map();
   const ly: SalesAggMap = new Map();
-  // Cross-grid: sku_ids that have customer sales but aren't in the
-  // current grid. Only meaningful when a customer is selected — the
-  // report is intended to surface "everything this customer bought"
-  // not "every SKU in the master ever sold to anyone".
+  // Master-derived SKU filter. When the operator has any cat/sub-cat/
+  // style filter active, totals must include sales from SKUs that match
+  // those filters even when those SKUs aren't currently in the grid
+  // (their only PO/inventory row was tagged a store the operator
+  // filtered out). Without this, cross-store math doesn't reconcile
+  // (e.g. ROF + PT shows $4M when channel totals say $6.8M).
+  //
+  // null = no filter (keep existing grid-only behaviour for back-compat).
+  const hasFilterableNonStoreSelection =
+    (filterCategory    && filterCategory.length    > 0) ||
+    (filterSubCategory && filterSubCategory.length > 0) ||
+    (filterStyle       && filterStyle.length       > 0);
+  let validSkuIds: Set<string> | null = null;
+  if (hasFilterableNonStoreSelection || wantStoreFilter) {
+    validSkuIds = getMatchingItemMasterIds({
+      filterCategory:    filterCategory    ?? [],
+      filterSubCategory: filterSubCategory ?? [],
+      filterStyle:       filterStyle       ?? [],
+    });
+  }
+  // Cross-grid: sku_ids that have sales but aren't in the current grid.
+  // Activated by either a customer filter (the original use case) OR a
+  // store/cat/sub-cat/style filter (so cross-store totals reconcile).
+  // The export-render layer surfaces these as synthetic rows.
   const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
-  const shouldCollectExtras = !!customerIdSet;
+  const shouldCollectExtras = !!customerIdSet || hasFilterableNonStoreSelection || wantStoreFilter;
 
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
@@ -518,6 +548,10 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     // the aggregate's marginAmount is 0 (no signal vs. 0% margin).
     const marg = toNum(r.margin_amount);
 
+    // When a non-store filter is active, master-derived validSkuIds
+    // narrows what's eligible. Sales for SKUs outside that set are
+    // dropped entirely (correct — they don't match the filter).
+    if (validSkuIds && !validSkuIds.has(r.sku_id)) continue;
     const atsSku = idToSku.get(r.sku_id);
     if (atsSku) {
       if (inT3) {

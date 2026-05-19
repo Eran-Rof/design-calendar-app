@@ -744,6 +744,12 @@ export const NavBar: React.FC<NavBarProps> = ({
           // would bleed into a ROF ECOM-only export's totals (see
           // migration 20260518030000 for context).
           storeFilter: exportFilterOpts.storeFilter,
+          // Other on-screen filters — passed so the sales aggregation
+          // can decouple from the grid's visible-SKU set and reconcile
+          // cross-store math (see project_ats_export_grain_handoff_2026_05_18).
+          filterCategory:    exportFilterOpts.filterCategory,
+          filterSubCategory: exportFilterOpts.filterSubCategory,
+          filterStyle:       exportFilterOpts.filterStyle,
           // Custom window for the T3 block (and LY = same window -12mo).
           // Modal only persists non-empty strings when the operator has
           // both enabled the toggle AND picked dates — empty strings
@@ -752,14 +758,21 @@ export const NavBar: React.FC<NavBarProps> = ({
           customEnd:   opts.customSalesRangeEnabled && opts.customSalesRangeEnd   ? opts.customSalesRangeEnd   : undefined,
         });
 
-        // Cross-grid: when a customer is selected, also surface SKUs
-        // the customer historically bought that aren't visible in
-        // the current grid (shipped through, no open commitments).
-        // The fetcher collected those as extraBySkuId keyed by
-        // ip_item_master.id. Resolve each id via the cache first;
+        // Cross-grid: surface SKUs with channel-/customer-/cat-matching
+        // sales that aren't visible in the current grid (shipped through,
+        // no open commitments; or grid presence only via an excluded
+        // store tag). The fetcher collected those as extraBySkuId keyed
+        // by ip_item_master.id. Resolve each id via the cache first;
         // for any not in the local cache, hit Supabase once for the
         // batch so newly-added or never-carried styles also surface.
-        if (opts.customerEnabled && salesAggregates.extraBySkuId.size > 0) {
+        //
+        // Activation: previously customer-only. Now also triggers when a
+        // specific store filter or cat/sub-cat/style filter is active,
+        // because those filters' totals only reconcile when synthetic
+        // cross-grid rows are included (see project_ats_export_grain_
+        // handoff_2026_05_18). The fetcher already aligned its
+        // shouldCollectExtras gate, so the size check here is sufficient.
+        if (salesAggregates.extraBySkuId.size > 0) {
           const allIds = [...salesAggregates.extraBySkuId.keys()];
           const cached = new Map<string, ReturnType<typeof getItemMasterById>>();
           const missingIds: string[] = [];
