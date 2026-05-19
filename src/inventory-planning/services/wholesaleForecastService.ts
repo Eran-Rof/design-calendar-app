@@ -204,7 +204,11 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       sku_id: s.sku_id,
       category_id: s.category_id ?? itemCategoryBySku.get(s.sku_id) ?? null,
       txn_date: s.txn_date,
-      qty: s.qty,
+      // qty_units is the authoritative unit-grain value (handles
+      // mixed pack/unit-grain prepack rows). Fallback to qty when the
+      // sync handler hasn't backfilled the column yet — see
+      // 20260517230000_sales_history_grain_and_margin.sql.
+      qty: s.qty_units ?? s.qty,
     }));
 
   // Parse a request's note marker once. The form encodes the
@@ -827,17 +831,23 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   for (const s of sales) {
     if (s.txn_date < t3Cutoff) continue;
     const key = `${s.customer_id}:${s.sku_id}`;
-    trailing.set(key, (trailing.get(key) ?? 0) + s.qty);
+    // Prefer the backfilled unit-grain qty over the raw column — see
+    // 20260517230000_sales_history_grain_and_margin.sql for why mixed
+    // pack/unit grain rows were systematically under-counting prepacks.
+    const units = s.qty_units ?? s.qty;
+    trailing.set(key, (trailing.get(key) ?? 0) + units);
     const ym = s.txn_date.slice(0, 7);
     let byMonth = trailingByMonth.get(key);
     if (!byMonth) { byMonth = new Map(); trailingByMonth.set(key, byMonth); }
-    byMonth.set(ym, (byMonth.get(ym) ?? 0) + s.qty);
+    byMonth.set(ym, (byMonth.get(ym) ?? 0) + units);
   }
 
   // ABC / XYZ classification per SKU, using the full 12-month window.
   // Stamped on every row (TBD + forecast) below so the grid can render
-  // a Class column and the planner can filter by it.
-  const classBySku = classifyAbcXyz(sales, run.source_snapshot_date, { monthsBack: 12 });
+  // a Class column and the planner can filter by it. Pass unit-grain
+  // qty so prepack styles rank correctly against non-prepack peers.
+  const salesAtUnitGrain = sales.map((s) => ({ ...s, qty: s.qty_units ?? s.qty }));
+  const classBySku = classifyAbcXyz(salesAtUnitGrain, run.source_snapshot_date, { monthsBack: 12 });
 
   const asOf = new Date().toISOString().slice(0, 10);
 

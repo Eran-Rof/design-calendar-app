@@ -167,6 +167,12 @@ export interface IpSalesWholesaleRow {
   txn_type: IpSalesTxnType;
   txn_date: IpIsoDate;
   qty: number;
+  // Authoritative unit-grain qty. = qty when qty_grain='unit',
+  // = qty * pack_size when qty_grain='pack'. Backfilled by
+  // 20260517230000_sales_history_grain_and_margin.sql; nullable on
+  // rows the nightly sync hasn't touched yet, so analysis paths must
+  // fall back to qty with `qty_units ?? qty`.
+  qty_units?: number | null;
   unit_price: number | null;
   gross_amount: number | null;
   discount_amount: number | null;

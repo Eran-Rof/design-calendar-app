@@ -363,7 +363,7 @@ export const wholesaleRepo = {
     // page size keeps each request comfortably inside the budget; total
     // wall time barely changes since PostgREST batches efficiently.
     return sbGetAll<IpSalesWholesaleRow>(
-      `ip_sales_history_wholesale?select=sku_id,customer_id,category_id,txn_date,qty,net_amount&txn_date=gte.${sinceIso}&order=txn_date.asc`,
+      `ip_sales_history_wholesale?select=sku_id,customer_id,category_id,txn_date,qty,qty_units,net_amount&txn_date=gte.${sinceIso}&order=txn_date.asc`,
       500,
     );
   },
