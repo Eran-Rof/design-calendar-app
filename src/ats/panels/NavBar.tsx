@@ -846,8 +846,8 @@ export const NavBar: React.FC<NavBarProps> = ({
             // take the max so a missing/unparseable size on one variant
             // doesn't downgrade the group to mult=1.
             ppkMult: number;
-            t3Qty: number; t3Total: number;
-            lyQty: number; lyTotal: number;
+            t3Qty: number; t3Total: number; t3Margin: number;
+            lyQty: number; lyTotal: number; lyMargin: number;
           }
           const groups = new Map<string, CrossGroup>();
           let unresolved = 0;
@@ -887,7 +887,8 @@ export const NavBar: React.FC<NavBarProps> = ({
                 resolvedCost: resolved.cost,
                 costSource: resolved.source,
                 ppkMult: 1,
-                t3Qty: 0, t3Total: 0, lyQty: 0, lyTotal: 0,
+                t3Qty: 0, t3Total: 0, t3Margin: 0,
+                lyQty: 0, lyTotal: 0, lyMargin: 0,
               };
               groups.set(key, g);
             }
@@ -896,10 +897,12 @@ export const NavBar: React.FC<NavBarProps> = ({
             // regex on text fields.
             const mult = rec.pack_size ?? 1;
             if (mult > g.ppkMult) g.ppkMult = mult;
-            g.t3Qty   += agg.t3Qty;
-            g.t3Total += agg.t3Total;
-            g.lyQty   += agg.lyQty;
-            g.lyTotal += agg.lyTotal;
+            g.t3Qty    += agg.t3Qty;
+            g.t3Total  += agg.t3Total;
+            g.t3Margin += agg.t3Margin;
+            g.lyQty    += agg.lyQty;
+            g.lyTotal  += agg.lyTotal;
+            g.lyMargin += agg.lyMargin;
           }
 
           const synthetic: ATSRow[] = [];
