@@ -314,13 +314,24 @@ export interface SalesFetchWindows {
   lyEnd:   string;
 }
 
-// Kick off (or return the in-flight Promise for) the 15-month sales-
+// Kick off (or return the in-flight Promise for) the full sales-
 // history fetch. Safe to call multiple times — concurrent callers
 // share one round trip. Failures clear the cached Promise so the
 // next call retries.
 //
 // Called from ATS.tsx mount alongside loadItemMasterCache so the data
 // is warm by the time the operator clicks Export Excel.
+//
+// History scope: PRELOAD_START is the floor — the cache covers every
+// txn from that date through today. Previously this was a rolling
+// 15-month window which silently truncated custom date ranges that
+// reached back further (user report: LY block needed 2025-01-01 but
+// preload only started 2025-02-19, dropping $2M of revenue from
+// totals). PRELOAD_START is set well before the earliest ingested
+// txn so the cache always covers operator-pickable ranges; revisit
+// when ip_sales_history_wholesale grows past several years' worth.
+const PRELOAD_START = "2020-01-01";
+
 export function preloadSalesHistory(): Promise<SalesRow[]> {
   if (salesCachePromise) return salesCachePromise;
   if (!SB_URL) {
@@ -329,18 +340,19 @@ export function preloadSalesHistory(): Promise<SalesRow[]> {
   }
 
   const today = todayIso();
-  const start = isoMinusMonths(today, 15);
+  const start = PRELOAD_START;
 
-  // Parallel-fetch the 15-month window in 5 × ~3-month slices. The
-  // table now carries 60k+ rows and serial offset pagination was
-  // measuring 90s+ wall time on a cold load (60+ sequential round
-  // trips at 500/page). Splitting the date window into 5 concurrent
-  // half-open ranges drops it to ~12 round trips per slice in
-  // parallel = roughly 5× faster end-to-end, while keeping each
-  // slice's offset well under the 57014 statement-timeout threshold
-  // observed at offset 16k+ with page=1000.
+  // Parallel-fetch the full window in 5 evenly-spaced slices. The
+  // table carries 45k+ rows today (rolling year-to-date plus prior
+  // calendar year via Xoro report scope) and serial offset
+  // pagination was measuring 90s+ wall time on a cold load (60+
+  // sequential round trips at 500/page). Splitting the date window
+  // into 5 concurrent half-open ranges drops it to ~12 round trips
+  // per slice in parallel = roughly 5× faster end-to-end, while
+  // keeping each slice's offset well under the 57014 statement-
+  // timeout threshold observed at offset 16k+ with page=1000.
   const SLICES = 5;
-  const PAGE_SIZE = 1000; // safe within a 3-month slice (offsets stay small)
+  const PAGE_SIZE = 1000;
   const boundaries = sliceBoundaries(start, today, SLICES);
 
   salesCachePromise = (async () => {
@@ -445,23 +457,23 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   // requested range, slice in-memory instead of round-tripping. The
   // preload is kicked off at app start (ATS.tsx) so this is usually
   // warm by the time the operator clicks Export.
+  //
+  // When the cache doesn't cover (e.g. custom date range reaches
+  // earlier than the 15-month preload window — operator picks Jan of
+  // last year while today is in May, so LY block needs Jan-Feb of two
+  // years ago), always directFetch the requested range. Previously
+  // the fallback awaited the in-flight preload Promise even when the
+  // preload covered a strictly smaller window — the export silently
+  // missed every sale before the preload's start. Surfaced by a user
+  // report: ROF LY total $4.83M vs DB truth $6.87M, exactly the
+  // 2025-01-01..02-18 slice that fell off the preload edge.
   let salesRows: SalesRow[];
   if (cacheCovers(fetchStart, fetchEnd)) {
     salesRows = salesCacheRows!;
     console.info(`[ATS export] using cached sales (${salesRows.length} rows, window ${salesCacheStart}..${salesCacheEnd})`);
   } else {
-    // Cache miss (preload not finished / not running) — wait for it
-    // if in flight, otherwise fetch directly.
-    if (salesCachePromise) {
-      try {
-        salesRows = await salesCachePromise;
-        console.info(`[ATS export] awaited preload (${salesRows.length} rows)`);
-      } catch {
-        salesRows = await directFetch(fetchStart, fetchEnd);
-      }
-    } else {
-      salesRows = await directFetch(fetchStart, fetchEnd);
-    }
+    console.info(`[ATS export] cache window ${salesCacheStart ?? "—"}..${salesCacheEnd ?? "—"} does not cover ${fetchStart}..${fetchEnd}; direct-fetching the requested range.`);
+    salesRows = await directFetch(fetchStart, fetchEnd);
   }
 
   // In-memory customer filter (the sales-row cache is unfiltered so
