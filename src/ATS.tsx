@@ -141,7 +141,7 @@ function ATSReport() {
   const toggleExpandGroup    = useCallback((key: string) => {
     setExpandedGroups(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   }, [setExpandedGroups]);
-  const STORES = ["ROF", "ROF ECOM", "PT"] as const;
+  const STORES = ["ROF", "ROF ECOM", "PT", "PT ECOM"] as const;
   const poStores = storeFilter;
   const soStores = storeFilter;
   const setPoStores = setStoreFilter;
