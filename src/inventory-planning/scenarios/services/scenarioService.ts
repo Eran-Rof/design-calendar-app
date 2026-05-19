@@ -327,24 +327,37 @@ export async function cloneBaseIntoSavedBuild(args: {
   return scenario;
 }
 
-// Drops a saved build entirely: deletes the scenario row, then clears
-// every child row tied to its planning_run, then drops the planning_run.
+// Drops a saved build entirely: clears every child row tied to its
+// planning_run (cancellable, the bulk of the work), then deletes the
+// scenario row, then the planning_run row.
 //
-// Why three steps instead of relying on FK cascade: a single DELETE on
+// Why chunked instead of relying on FK cascade: a single DELETE on
 // ip_planning_runs cascades into forecast / recs / TBD / buckets /
 // overrides — easily 7,000+ rows per saved build — and that one
-// statement reliably trips Supabase's 8s timeout (57014). wipePlanningRunData
-// already does the chunked id-in-list deletes (DELETE_CHUNK=500), so by
-// the time the final deletePlanningRun runs there are no children left
-// and it's a single-row delete that completes instantly.
+// statement reliably trips Supabase's 8s timeout (57014).
+// wipePlanningRunData does chunked id-in-list deletes (DELETE_CHUNK=500),
+// so by the time the parent deletes run there are no children left.
 //
-// Scenario row dropped first so a partial delete leaves no orphan
-// scenario pointing at a still-live planning_run.
-export async function deleteSavedBuild(scenarioId: string): Promise<void> {
+// Ordering: children first so the planner can Cancel mid-flight without
+// orphaning the scenario row. If the wipe is cancelled, the snapshot
+// stays bound (in a thinned state) and can be re-deleted; if the wipe
+// completes, the two single-row parent deletes are sub-second and
+// uncancellable.
+export async function deleteSavedBuild(
+  scenarioId: string,
+  options: { signal?: AbortSignal; onProgress?: (update: SaveBuildProgress) => void } = {},
+): Promise<void> {
+  const { signal, onProgress } = options;
   const scenario = await scenarioRepo.getScenario(scenarioId);
   if (!scenario) return;
+
+  onProgress?.({ label: "Preparing delete…", done: 0, total: 1 });
+  await wholesaleRepo.wipePlanningRunData(scenario.planning_run_id, { signal, onProgress });
+
+  // Post-cancel window: child rows are gone, finish up. These are
+  // single-row deletes against indexed PKs — sub-second.
+  onProgress?.({ label: "Removing snapshot metadata…", done: 1, total: 1 });
   await scenarioRepo.deleteScenario(scenarioId);
-  await wholesaleRepo.wipePlanningRunData(scenario.planning_run_id);
   await wholesaleRepo.deletePlanningRun(scenario.planning_run_id);
 }
 

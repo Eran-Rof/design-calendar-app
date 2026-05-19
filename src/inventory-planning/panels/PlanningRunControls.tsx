@@ -71,6 +71,11 @@ export default function PlanningRunControls({
   // Save-modal progress — separate from the build progress so the two
   // flows can render concurrently without one stomping the other's bar.
   const [saveProgress, setSaveProgress] = useState<SaveBuildProgress | null>(null);
+  // Delete-modal progress — mirrors save flow but for the chunked wipe.
+  // Bar runs against the pre-counted child rows across all 5 tables.
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<SaveBuildProgress | null>(null);
+  const deleteAbortRef = useRef<AbortController | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
   // Is the currently-loaded run itself a saved build? Drives the
@@ -234,8 +239,15 @@ export default function PlanningRunControls({
   async function onConfirmDeleteSavedBuild() {
     if (!pendingDeleteSaved) return;
     const scenario = pendingDeleteSaved;
+    const controller = new AbortController();
+    deleteAbortRef.current = controller;
+    setDeleteBusy(true);
+    setDeleteProgress({ label: "Preparing delete…", done: 0, total: 1 });
     try {
-      await deleteSavedBuild(scenario.id);
+      await deleteSavedBuild(scenario.id, {
+        signal: controller.signal,
+        onProgress: (update) => setDeleteProgress(update),
+      });
       onToast({ text: `Deleted saved build "${scenario.scenario_name}"`, kind: "info" });
       // If we were viewing it, drop the selection.
       if (selectedRunId === scenario.planning_run_id) onSelect("");
@@ -250,9 +262,21 @@ export default function PlanningRunControls({
         setDeleteSucceeded(false);
       }, 1500);
     } catch (e) {
-      onToast({ text: "Delete failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+      if (e instanceof BuildCancelledError) {
+        onToast({ text: "Delete cancelled — some rows may have already been removed; the snapshot is still listed.", kind: "info" });
+      } else {
+        onToast({ text: "Delete failed: " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+      }
       setPendingDeleteSaved(null);
+    } finally {
+      deleteAbortRef.current = null;
+      setDeleteBusy(false);
+      setDeleteProgress(null);
     }
+  }
+
+  function cancelDelete() {
+    deleteAbortRef.current?.abort();
   }
 
   // Card-level collapse toggle. Persists to localStorage so a planner
@@ -495,7 +519,7 @@ export default function PlanningRunControls({
           role="dialog"
           aria-modal="true"
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-          onClick={(e) => { if (e.target === e.currentTarget && !deleteSucceeded) setPendingDeleteSaved(null); }}
+          onClick={(e) => { if (e.target === e.currentTarget && !deleteSucceeded && !deleteBusy) setPendingDeleteSaved(null); }}
         >
           <div style={{ background: PAL.panel, border: `1px solid ${deleteSucceeded ? PAL.green : PAL.red}`, borderRadius: 10, padding: 18, minWidth: 420, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
             {deleteSucceeded ? (
@@ -511,15 +535,46 @@ export default function PlanningRunControls({
             ) : (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <span style={{ background: PAL.red, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DELETE</span>
-                  <strong style={{ color: PAL.text, fontSize: 14 }}>Delete saved build?</strong>
+                  <span style={{ background: PAL.red, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>{deleteBusy ? "DELETING…" : "DELETE"}</span>
+                  <strong style={{ color: PAL.text, fontSize: 14 }}>{deleteBusy ? "Deleting saved build…" : "Delete saved build?"}</strong>
                 </div>
                 <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
-                  <strong style={{ color: PAL.text }}>{pendingDeleteSaved.scenario_name}</strong> and every row tied to its underlying planning run will be permanently deleted. This cannot be undone.
+                  <strong style={{ color: PAL.text }}>{pendingDeleteSaved.scenario_name}</strong>
+                  {deleteBusy
+                    ? " — clearing every row tied to its planning run in chunks. You can cancel; partial wipes leave the snapshot listed so you can retry."
+                    : " and every row tied to its underlying planning run will be permanently deleted. This cannot be undone."}
                 </div>
+                {deleteBusy && deleteProgress && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: PAL.textDim, fontSize: 12, marginBottom: 4 }}>
+                      <span>{deleteProgress.label}</span>
+                      <span>
+                        {deleteProgress.total > 1
+                          ? `${deleteProgress.done.toLocaleString()} / ${deleteProgress.total.toLocaleString()}`
+                          : ""}
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: PAL.border, borderRadius: 3, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.max(2, Math.min(100, Math.round(100 * deleteProgress.done / Math.max(1, deleteProgress.total))))}%`,
+                          background: PAL.red,
+                          transition: "width 200ms ease-out",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <button style={S.btnSecondary} onClick={() => setPendingDeleteSaved(null)}>Cancel</button>
-                  <button style={{ ...S.btnPrimary, background: PAL.red, color: "#fff" }} onClick={() => void onConfirmDeleteSavedBuild()}>Delete</button>
+                  {deleteBusy ? (
+                    <button style={S.btnSecondary} onClick={cancelDelete}>Cancel delete</button>
+                  ) : (
+                    <>
+                      <button style={S.btnSecondary} onClick={() => setPendingDeleteSaved(null)}>Cancel</button>
+                      <button style={{ ...S.btnPrimary, background: PAL.red, color: "#fff" }} onClick={() => void onConfirmDeleteSavedBuild()}>Delete</button>
+                    </>
+                  )}
                 </div>
               </>
             )}

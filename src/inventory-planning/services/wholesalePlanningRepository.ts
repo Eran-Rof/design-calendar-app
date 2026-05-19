@@ -1061,26 +1061,58 @@ export const wholesaleRepo = {
   // Chunked the same way replaceRecommendations is — single DELETE
   // WHERE planning_run_id=X over 16k rows reliably 57014's. Read ids,
   // delete in id-in-list batches.
-  async wipePlanningRunData(planningRunId: string): Promise<{ forecast: number; recs: number; tbd: number; buckets: number; overrides: number }> {
-    let forecast = 0, recs = 0, tbd = 0, buckets = 0, overrides = 0;
+  async wipePlanningRunData(
+    planningRunId: string,
+    options: {
+      signal?: AbortSignal;
+      onProgress?: (update: { label: string; done: number; total: number }) => void;
+    } = {},
+  ): Promise<{ forecast: number; recs: number; tbd: number; buckets: number; overrides: number }> {
+    const { signal, onProgress } = options;
+    const checkAbort = () => { if (signal?.aborted) throw new BuildCancelledError(); };
     const DELETE_CHUNK = 500;
-    const wipeTable = async (table: string): Promise<number> => {
-      const rows = await sbGetAll<{ id: string }>(
-        `${table}?select=id&planning_run_id=eq.${planningRunId}&order=id.asc`,
-      );
-      for (let i = 0; i < rows.length; i += DELETE_CHUNK) {
-        const ids = rows.slice(i, i + DELETE_CHUNK).map((r) => r.id);
-        const inList = ids.map((id) => `"${id}"`).join(",");
+    type Key = "forecast" | "recs" | "tbd" | "buckets" | "overrides";
+    const tables: Array<{ key: Key; table: string; label: string }> = [
+      { key: "forecast",  table: "ip_wholesale_forecast",         label: "Removing forecast rows" },
+      { key: "recs",      table: "ip_wholesale_recommendations",  label: "Removing recommendations" },
+      { key: "tbd",       table: "ip_wholesale_forecast_tbd",     label: "Removing TBD stock-buys" },
+      { key: "buckets",   table: "ip_planner_bucket_buys",        label: "Removing bucket buys" },
+      { key: "overrides", table: "ip_planner_overrides",          label: "Removing overrides" },
+    ];
+
+    // Pre-count every table once so the progress bar runs against a single
+    // shared total and the bar moves smoothly across phase boundaries.
+    checkAbort();
+    onProgress?.({ label: "Counting rows to delete…", done: 0, total: 1 });
+    const allIds = await Promise.all(
+      tables.map((t) => sbGetAll<{ id: string }>(
+        `${t.table}?select=id&planning_run_id=eq.${planningRunId}&order=id.asc`,
+      )),
+    );
+    const totalRows = allIds.reduce((s, arr) => s + arr.length, 0);
+    const result: Record<Key, number> = { forecast: 0, recs: 0, tbd: 0, buckets: 0, overrides: 0 };
+    if (totalRows === 0) {
+      onProgress?.({ label: "Nothing to remove", done: 0, total: 1 });
+      return result;
+    }
+
+    let done = 0;
+    for (let ti = 0; ti < tables.length; ti++) {
+      const { key, table, label } = tables[ti];
+      const ids = allIds[ti];
+      result[key] = ids.length;
+      if (ids.length === 0) continue;
+      onProgress?.({ label, done, total: totalRows });
+      for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+        checkAbort();
+        const chunkIds = ids.slice(i, i + DELETE_CHUNK).map((r) => r.id);
+        const inList = chunkIds.map((id) => `"${id}"`).join(",");
         await sbDelete(`${table}?planning_run_id=eq.${planningRunId}&id=in.(${inList})`);
+        done += chunkIds.length;
+        onProgress?.({ label, done, total: totalRows });
       }
-      return rows.length;
-    };
-    forecast  = await wipeTable("ip_wholesale_forecast");
-    recs      = await wipeTable("ip_wholesale_recommendations");
-    tbd       = await wipeTable("ip_wholesale_forecast_tbd");
-    buckets   = await wipeTable("ip_planner_bucket_buys");
-    overrides = await wipeTable("ip_planner_overrides");
-    return { forecast, recs, tbd, buckets, overrides };
+    }
+    return result;
   },
 
   // ── Recommendations ──────────────────────────────────────────────────────
