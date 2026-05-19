@@ -522,12 +522,20 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     horizon,
   );
   const asOf = new Date().toISOString().slice(0, 10);
-  // Per-SKU MOQ from the item master — drives MOQ rounding on the
-  // recommended_qty so the suggestion matches what the planner can
-  // actually order in case packs.
+  // Per-SKU rounding multiple. Combines two constraints from the
+  // item master:
+  //   • moq_units  — vendor minimum order (case pack)
+  //   • pack_size  — prepack units-per-pack (PPK styles; 1 = non-prepack)
+  // recommended_qty must be a multiple of BOTH. In practice one is 1,
+  // so max() is the right binary operation; if both > 1, the LCM is
+  // the safe choice but would surprise the planner with very large
+  // round-ups. max() is what they'd compute on paper.
   const moqBySku = new Map<string, number>();
   for (const i of items) {
-    if (i.moq_units && i.moq_units > 1) moqBySku.set(i.id, i.moq_units);
+    const moq = (i.moq_units && i.moq_units > 1) ? i.moq_units : 1;
+    const pack = (i.pack_size && i.pack_size > 1) ? i.pack_size : 1;
+    const rounding = Math.max(moq, pack);
+    if (rounding > 1) moqBySku.set(i.id, rounding);
   }
   const recs = generateWholesaleRecommendations(relevantPersisted, supplyBySkuPeriod, asOf, undefined, moqBySku);
   checkAbort(signal);

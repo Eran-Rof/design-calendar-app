@@ -108,6 +108,11 @@ export interface IpItem {
   unit_price: number | null;
   lead_time_days: number | null;
   moq_units: number | null;
+  // Units per pack for prepack SKUs (1 = non-prepack). Authoritative
+  // pack-quantity constraint — recommended_qty must round UP to a
+  // multiple of this for prepacks. Populated by the Xoro item-master
+  // sync via 20260517220000_item_master_pack_size.sql; default 1.
+  pack_size?: number | null;
   lifecycle_status: string | null;
   planning_class: string | null;
   active: boolean;

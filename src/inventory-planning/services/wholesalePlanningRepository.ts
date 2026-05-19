@@ -280,7 +280,7 @@ export const wholesaleRepo = {
     // Explicit column list: skips external_refs (Xoro JSONB import
     // payload, can be many KB per row) and other columns no IP caller
     // reads. JSONB blob was previously the bulk of every fetch.
-    const COLS = "id,sku_code,style_code,description,category_id,color,size,unit_cost,attributes";
+    const COLS = "id,sku_code,style_code,description,category_id,color,size,unit_cost,moq_units,pack_size,attributes";
     const PAGE = 500;
     const out: IpItem[] = [];
     let lastSku: string | null = null;
