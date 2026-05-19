@@ -139,6 +139,7 @@ export function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "
     case "class":       return cmpStr(`${a.abc_class ?? "Z"}${a.xyz_class ?? "Z"}`, `${b.abc_class ?? "Z"}${b.xyz_class ?? "Z"}`, sign);
     case "histT3":      return cmpNum(a.historical_trailing_qty, b.historical_trailing_qty, sign);
     case "histLY":      return cmpNum(a.ly_reference_qty, b.ly_reference_qty, sign);
+    case "margin":      return cmpNum(a.historical_margin_pct, b.historical_margin_pct, sign);
     case "system":      return cmpNum(a.system_forecast_qty, b.system_forecast_qty, sign);
     case "buyer":       return cmpNum(a.buyer_request_qty, b.buyer_request_qty, sign);
     case "override":    return cmpNum(a.override_qty, b.override_qty, sign);

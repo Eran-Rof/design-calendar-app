@@ -182,6 +182,12 @@ export interface IpSalesWholesaleRow {
   gross_amount: number | null;
   discount_amount: number | null;
   net_amount: number | null;
+  // Per-row gross margin from 20260517230000_sales_history_grain_and_margin.sql.
+  // margin_amount = net_amount - qty_units * unit_cost_at_sale.
+  // margin_pct is a fraction (0.25 = 25%). Both null when net_amount or
+  // unit_cost_at_sale was missing at sync time.
+  margin_amount?: number | null;
+  margin_pct?: number | null;
   currency: IpCurrencyCode | null;
   source: IpSource;
   raw_payload_id?: string | null;

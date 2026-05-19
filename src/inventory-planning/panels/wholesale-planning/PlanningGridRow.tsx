@@ -301,6 +301,24 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
       <td style={{ ...S.tdNum, color: r.forecast_method === "ly_sales" && r.ly_reference_qty != null ? PAL.accent2 : PAL.textMuted, ...colHide("histLY") }}>
         {r.ly_reference_qty != null ? formatQty(r.ly_reference_qty) : "—"}
       </td>
+      <td
+        style={{
+          ...S.tdNum,
+          color: r.historical_margin_pct == null
+            ? PAL.textMuted
+            : r.historical_margin_pct < 0
+              ? PAL.red
+              : r.historical_margin_pct >= 0.3
+                ? PAL.green
+                : PAL.text,
+          ...colHide("margin"),
+        }}
+        title={r.historical_margin_pct == null
+          ? "No margin data in the trailing 3-month window for this customer + SKU"
+          : `Weighted-avg gross margin over the trailing 3 months (weighted by net sales $)`}
+      >
+        {r.historical_margin_pct != null ? `${(r.historical_margin_pct * 100).toFixed(1)}%` : "—"}
+      </td>
       <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("system") }} onClick={(e) => e.stopPropagation()}>
         {r.is_aggregate ? (
           <span style={{ fontFamily: "monospace", color: PAL.text }}>
