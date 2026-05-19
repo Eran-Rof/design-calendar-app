@@ -69,6 +69,14 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   const wantStore = opts.storeFilter.includes("All")
     ? null
     : new Set(opts.storeFilter.map(normForCompare));
+  // PT ECOM is a sales-only channel sharing PT's physical inventory.
+  // No PO/SO/inventory row carries store="PT ECOM", so filtering to it
+  // alone would empty the grid. Treat PT ECOM as an alias for PT in the
+  // row filter — sales totals still narrow to channel_id=PT ECOM via the
+  // export's separate channel filter.
+  if (wantStore && wantStore.has("PT ECOM")) {
+    wantStore.add("PT");
+  }
   const wantGender = opts.filterGender === "All" ? null : normForCompare(opts.filterGender);
   // Empty array = no filter; otherwise build a set for O(1) membership.
   const wantCategory = opts.filterCategory.length === 0
