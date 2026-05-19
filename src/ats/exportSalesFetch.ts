@@ -322,15 +322,34 @@ export interface SalesFetchWindows {
 // Called from ATS.tsx mount alongside loadItemMasterCache so the data
 // is warm by the time the operator clicks Export Excel.
 //
-// History scope: PRELOAD_START is the floor — the cache covers every
-// txn from that date through today. Previously this was a rolling
-// 15-month window which silently truncated custom date ranges that
-// reached back further (user report: LY block needed 2025-01-01 but
-// preload only started 2025-02-19, dropping $2M of revenue from
-// totals). PRELOAD_START is set well before the earliest ingested
-// txn so the cache always covers operator-pickable ranges; revisit
-// when ip_sales_history_wholesale grows past several years' worth.
-const PRELOAD_START = "2020-01-01";
+// History scope: the cache covers every txn from the table's actual
+// earliest date through today. Previously this was a rolling 15-month
+// window which silently truncated custom date ranges that reached back
+// further (user report: LY block needed 2025-01-01 but preload only
+// started 2025-02-19, dropping $2M of revenue from totals).
+//
+// We dynamically query MIN(txn_date) at preload time so the cache
+// always covers every operator-pickable range without wasting slices
+// on years of empty data. PRELOAD_FALLBACK_START is used only if the
+// MIN query fails — set well before the earliest plausible ingest.
+const PRELOAD_FALLBACK_START = "2020-01-01";
+
+// Returns the table's earliest txn_date (YYYY-MM-DD), or the fallback
+// if the query fails / the table is empty. Cheap — a single indexed
+// MIN aggregation finishes in well under 100ms.
+async function fetchEarliestTxnDate(): Promise<string> {
+  if (!SB_URL) return PRELOAD_FALLBACK_START;
+  try {
+    const url = `${SB_URL}/rest/v1/ip_sales_history_wholesale?select=txn_date&order=txn_date.asc&limit=1`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) return PRELOAD_FALLBACK_START;
+    const rows = (await r.json()) as Array<{ txn_date: string }>;
+    if (!rows.length || !rows[0].txn_date) return PRELOAD_FALLBACK_START;
+    return rows[0].txn_date;
+  } catch {
+    return PRELOAD_FALLBACK_START;
+  }
+}
 
 export function preloadSalesHistory(): Promise<SalesRow[]> {
   if (salesCachePromise) return salesCachePromise;
@@ -340,30 +359,32 @@ export function preloadSalesHistory(): Promise<SalesRow[]> {
   }
 
   const today = todayIso();
-  const start = PRELOAD_START;
-
-  // Parallel-fetch the full window in 5 evenly-spaced slices. The
-  // table carries 45k+ rows today (rolling year-to-date plus prior
-  // calendar year via Xoro report scope) and serial offset
-  // pagination was measuring 90s+ wall time on a cold load (60+
-  // sequential round trips at 500/page). Splitting the date window
-  // into 5 concurrent half-open ranges drops it to ~12 round trips
-  // per slice in parallel = roughly 5× faster end-to-end, while
-  // keeping each slice's offset well under the 57014 statement-
-  // timeout threshold observed at offset 16k+ with page=1000.
-  const SLICES = 5;
-  const PAGE_SIZE = 1000;
-  const boundaries = sliceBoundaries(start, today, SLICES);
 
   salesCachePromise = (async () => {
     const t0 = performance.now();
     try {
+      // Query the actual earliest txn_date so the 5 parallel slices
+      // cover ONLY the populated range. A fixed 2020-01-01 floor was
+      // spending round trips on 4 years of empty slices, measurably
+      // slowing cold load even though each empty slice is just one
+      // request — they still serialize the slice-promise array and
+      // add latency to the slowest parallel branch.
+      const start = await fetchEarliestTxnDate();
+
+      // Parallel-fetch in 5 evenly-spaced slices. With slices covering
+      // only populated dates, each gets ~9k rows = ~9 round trips at
+      // page=1000 = ~5s parallel. Keeps each slice's offset well under
+      // the 57014 statement-timeout threshold observed at offset 16k+.
+      const SLICES = 5;
+      const PAGE_SIZE = 1000;
+      const boundaries = sliceBoundaries(start, today, SLICES);
+
       const slicePromises: Promise<SalesRow[]>[] = [];
       for (let i = 0; i < boundaries.length - 1; i++) {
         const sliceStart = boundaries[i];
-        // For all slices we use half-open (gte/lt) so adjacent slices
-        // never double-count the boundary day. The final slice's
-        // exclusive end is day-after-today so today is included.
+        // Half-open (gte/lt) so adjacent slices never double-count the
+        // boundary day. Final slice's exclusive end is day-after-today
+        // so today is included.
         const isLast = i === boundaries.length - 2;
         const sliceEnd = isLast ? isoPlusDays(boundaries[i + 1], 1) : boundaries[i + 1];
         slicePromises.push(fetchSalesSlice(sliceStart, sliceEnd, PAGE_SIZE));
