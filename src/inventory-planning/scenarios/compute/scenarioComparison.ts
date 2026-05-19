@@ -38,6 +38,18 @@ export function compareScenarioToBase(input: ComparisonInput): {
   const basePlannedBuy = sumPlannedBuyByGrain(input.baseWholesaleForecast);
   const scenPlannedBuy = sumPlannedBuyByGrain(input.scenarioWholesaleForecast);
 
+  // (sku, period) → blended margin-$/unit estimate. Forecast rows are
+  // per-(customer, sku, period); we weight margin_pct by
+  // final_forecast_qty so a high-volume customer dominates the
+  // blended margin. Cost source is the item-master unit_cost when
+  // the planner hasn't overridden it on the forecast row.
+  const costBySku = new Map<string, number>();
+  for (const i of input.items) {
+    if (i.unit_cost != null && i.unit_cost > 0) costBySku.set(i.id, i.unit_cost);
+  }
+  const baseMargin = marginPerUnitByGrain(input.baseWholesaleForecast, costBySku);
+  const scenMargin = marginPerUnitByGrain(input.scenarioWholesaleForecast, costBySku);
+
   const keys = new Set<string>();
   const baseByKey = new Map<string, IpProjectedInventory>();
   const scenByKey = new Map<string, IpProjectedInventory>();
@@ -53,6 +65,7 @@ export function compareScenarioToBase(input: ComparisonInput): {
   const rows: ScenarioComparisonRow[] = [];
   let demand_delta_sum = 0, supply_delta_sum = 0, shortage_delta_sum = 0, excess_delta_sum = 0;
   let buy_delta_sum = 0;
+  let margin_dollars_delta_sum = 0;
   let service_risk_added = 0, service_risk_removed = 0;
   let stockouts_added = 0, stockouts_removed = 0, recs_changed = 0;
 
@@ -91,11 +104,21 @@ export function compareScenarioToBase(input: ComparisonInput): {
     const scenRecQty = isBuyAction(scenTop?.recommendation_type) ? (scenTop?.recommendation_qty ?? 0) : 0;
     const buyDelta = (scenPlanned - basePlanned);
 
-    demand_delta_sum  += (scenDem - baseDem);
+    // Margin $/unit estimate — prefer the scenario's own margin
+    // signal (so a scenario that bumps a high-margin customer reads
+    // its uplift correctly), fall back to base, null when neither
+    // has usable data. Multiplied by demand_delta to attribute the
+    // qty shift to a dollar value the planner can rank by.
+    const marginPerUnit = scenMargin.get(k) ?? baseMargin.get(k) ?? null;
+    const dmdDelta = scenDem - baseDem;
+    const marginDelta = marginPerUnit != null ? dmdDelta * marginPerUnit : 0;
+
+    demand_delta_sum  += dmdDelta;
     supply_delta_sum  += (scen.total_available_supply_qty - base.total_available_supply_qty);
     shortage_delta_sum += (scen.shortage_qty - base.shortage_qty);
     excess_delta_sum  += (scen.excess_qty - base.excess_qty);
     buy_delta_sum    += buyDelta;
+    margin_dollars_delta_sum += marginDelta;
 
     rows.push({
       sku_id: base.sku_id || scen.sku_id,
@@ -131,14 +154,21 @@ export function compareScenarioToBase(input: ComparisonInput): {
       buy_delta: buyDelta,
       base_service_risk: baseRisk,
       scenario_service_risk: scenRisk,
+      margin_per_unit_estimate: marginPerUnit,
+      margin_dollars_delta: marginDelta,
     });
   }
 
   rows.sort((a, b) => {
-    // Buy delta now factors into impact ranking — a row whose buy
-    // qty changes by 1,000 deserves attention even if its demand
-    // delta is small (e.g., a reserve rule changed how much was
-    // committed).
+    // Primary rank by abs gross-margin $ delta — bubbles the rows
+    // where a scenario actually moves money to the top, even when
+    // their unit delta is modest. Falls back to the unit-impact
+    // sum for rows without usable margin data (so the comparison
+    // still works against runs built before historical_margin_pct
+    // was populated).
+    const marginA = Math.abs(a.margin_dollars_delta);
+    const marginB = Math.abs(b.margin_dollars_delta);
+    if (marginA !== marginB) return marginB - marginA;
     const impactA = Math.abs(a.demand_delta) + Math.abs(a.shortage_delta) + Math.abs(a.buy_delta);
     const impactB = Math.abs(b.demand_delta) + Math.abs(b.shortage_delta) + Math.abs(b.buy_delta);
     return impactB - impactA;
@@ -154,6 +184,7 @@ export function compareScenarioToBase(input: ComparisonInput): {
       shortage_delta_sum,
       excess_delta_sum,
       buy_delta_sum,
+      margin_dollars_delta_sum,
       service_risk_added,
       service_risk_removed,
       stockouts_added,
@@ -161,6 +192,56 @@ export function compareScenarioToBase(input: ComparisonInput): {
       recs_changed,
     },
   };
+}
+
+// Estimate margin-$ per incremental unit at the (sku, period) grain.
+// margin_pct is gross-margin as a fraction of revenue, so:
+//   price_per_unit         = unit_cost / (1 - margin_pct)
+//   margin_$_per_unit      = price × margin_pct = unit_cost × pct / (1 - pct)
+// Forecast rows are per-customer; we weight each customer's
+// (pct, cost) by their final_forecast_qty so a 10k-unit customer
+// dominates a 100-unit one. Margin_pct clamped below 0.95 to avoid
+// the asymptote when a row looks like 95%+ margin (almost always a
+// data error — cost field missing/zero).
+function marginPerUnitByGrain(
+  rows: IpWholesaleForecast[] | undefined,
+  costBySku: Map<string, number>,
+): Map<string, number> {
+  if (!rows) return new Map();
+  type Acc = { weightedPct: number; weight: number; cost: number };
+  const acc = new Map<string, Acc>();
+  for (const f of rows) {
+    if (f.historical_margin_pct == null) continue;
+    // Prefer the planner's per-row cost override; fall back to the
+    // item master cost. No usable cost → skip the row (can't put
+    // a $ on a margin %).
+    const cost = (f.unit_cost_override != null && f.unit_cost_override > 0)
+      ? f.unit_cost_override
+      : (costBySku.get(f.sku_id) ?? 0);
+    if (cost <= 0) continue;
+    const w = f.final_forecast_qty;
+    if (!w || w <= 0) continue;
+    const k = `${f.sku_id}:${f.period_start}`;
+    const cur = acc.get(k);
+    if (cur) {
+      cur.weightedPct += f.historical_margin_pct * w;
+      cur.weight += w;
+      // Cost is per-sku and stable across customers at the same
+      // grain; keep the first seen as the representative.
+      if (cur.cost <= 0) cur.cost = cost;
+    } else {
+      acc.set(k, { weightedPct: f.historical_margin_pct * w, weight: w, cost });
+    }
+  }
+  const out = new Map<string, number>();
+  for (const [k, a] of acc) {
+    if (a.weight <= 0 || a.cost <= 0) continue;
+    const pct = Math.min(0.95, Math.max(-1, a.weightedPct / a.weight));
+    const denom = 1 - pct;
+    if (denom <= 0) continue;
+    out.set(k, (a.cost * pct) / denom);
+  }
+  return out;
 }
 
 function sumPlannedBuyByGrain(rows: IpWholesaleForecast[] | undefined): Map<string, number> {
