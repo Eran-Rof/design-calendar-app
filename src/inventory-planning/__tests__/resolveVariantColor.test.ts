@@ -146,6 +146,7 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
     confidence_level: "estimate",
     forecast_method: "zero_floor",
     ly_reference_qty: null,
+    historical_margin_pct: null,
     item_cost: null,
     ats_avg_cost: null,
     avg_cost: null,

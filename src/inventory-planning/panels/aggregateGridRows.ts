@@ -271,6 +271,22 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes, b
     system_forecast_qty_overridden_at: null,
     system_forecast_qty_overridden_by: null,
     ly_reference_qty: sumNullable("ly_reference_qty"),
+    // Margin % can't be summed — weight each constituent by its
+    // final_forecast_qty so the rollup reflects "average margin you'd
+    // earn at the forecast mix". Skip rows missing margin or with
+    // zero forecast weight.
+    historical_margin_pct: ((): number | null => {
+      let wSum = 0;
+      let wq = 0;
+      for (const r of bucket) {
+        if (r.historical_margin_pct == null) continue;
+        const w = r.final_forecast_qty;
+        if (!w || w <= 0) continue;
+        wSum += r.historical_margin_pct * w;
+        wq += w;
+      }
+      return wq > 0 ? wSum / wq : null;
+    })(),
     on_hand_qty: sumNullableUniqueSkuPeriod("on_hand_qty"),
     on_so_qty: sum("on_so_qty"),
     on_po_qty: sumNullableUniqueSkuPeriod("on_po_qty"),

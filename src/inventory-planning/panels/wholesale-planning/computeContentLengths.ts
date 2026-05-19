@@ -15,6 +15,7 @@ const DASH = "—";
 
 const numFmt = (v: number | null | undefined): string => (v == null ? DASH : formatQty(v));
 const moneyFmt = (v: number | null | undefined): string => (v == null ? DASH : `$${v.toFixed(2)}`);
+const pctFmt = (v: number | null | undefined): string => (v == null ? DASH : `${(v * 100).toFixed(1)}%`);
 
 /**
  * Returns the max content length (in chars) per column key, seeded
@@ -43,6 +44,7 @@ export function computeContentLengths(rows: IpPlanningGridRow[]): Record<string,
     set("class",       `${r.abc_class ?? ""}${r.xyz_class ?? ""}`);
     set("histT3",      numFmt(r.historical_trailing_qty));
     set("histLY",      numFmt(r.ly_reference_qty));
+    set("margin",      pctFmt(r.historical_margin_pct));
     set("system",      numFmt(r.system_forecast_qty));
     set("buyer",       numFmt(r.buyer_request_qty));
     set("override",    numFmt(r.override_qty));

@@ -24,7 +24,7 @@ function row(over: Partial<IpPlanningGridRow> = {}): IpPlanningGridRow {
     customer_id: "C1", customer_name: "Acme",
     period_start: "2026-05-01", period_end: "2026-05-31", period_code: "2026-05",
     abc_class: null, xyz_class: null,
-    historical_trailing_qty: 100, ly_reference_qty: 80, historical_receipts_qty: 0,
+    historical_trailing_qty: 100, ly_reference_qty: 80, historical_margin_pct: null, historical_receipts_qty: 0,
     system_forecast_qty: 120, system_forecast_qty_original: 120,
     system_forecast_qty_overridden_at: null, system_forecast_qty_overridden_by: null,
     buyer_request_qty: 0, override_qty: 0,

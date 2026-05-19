@@ -95,6 +95,10 @@ export interface IpWholesaleForecast {
   forecast_method: IpForecastMethod;
   history_months_used: number | null;
   ly_reference_qty: number | null;
+  // Weighted-average gross margin % over the trailing T3 window for
+  // (customer, sku). Fraction (0.25 = 25%). NULL when no usable
+  // margin data in the window. See 20260519100000_ip_forecast_historical_margin_pct.sql.
+  historical_margin_pct: number | null;
   planned_buy_qty: number | null;
   unit_cost_override: number | null;
   notes: string | null;
@@ -263,6 +267,10 @@ export interface IpPlanningGridRow {
   confidence_level: IpConfidenceLevel;
   forecast_method: IpForecastMethod;
   ly_reference_qty: number | null;
+  // Trailing-T3 weighted-avg margin % for this (customer, sku) pair.
+  // Mirror of IpWholesaleForecast.historical_margin_pct; null for TBD
+  // rows and pairs with no usable margin data.
+  historical_margin_pct: number | null;
   item_cost: number | null;
   ats_avg_cost: number | null;
   // Canonical avg cost from ip_item_avg_cost (Xoro/Excel ingest). Static

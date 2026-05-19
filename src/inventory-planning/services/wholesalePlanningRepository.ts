@@ -363,7 +363,7 @@ export const wholesaleRepo = {
     // page size keeps each request comfortably inside the budget; total
     // wall time barely changes since PostgREST batches efficiently.
     return sbGetAll<IpSalesWholesaleRow>(
-      `ip_sales_history_wholesale?select=sku_id,customer_id,category_id,txn_date,qty,qty_units,net_amount&txn_date=gte.${sinceIso}&order=txn_date.asc`,
+      `ip_sales_history_wholesale?select=sku_id,customer_id,category_id,txn_date,qty,qty_units,net_amount,margin_amount,margin_pct&txn_date=gte.${sinceIso}&order=txn_date.asc`,
       500,
     );
   },
@@ -568,9 +568,9 @@ export const wholesaleRepo = {
         // PGRST204 = column not in schema cache (migration pending). Retry
         // without the optional planner-editable columns so builds survive
         // before the ALTER TABLEs run on the target environment.
-        if (msg.includes("PGRST204") && (msg.includes("ly_reference_qty") || msg.includes("planned_buy_qty") || msg.includes("unit_cost_override"))) {
+        if (msg.includes("PGRST204") && (msg.includes("ly_reference_qty") || msg.includes("planned_buy_qty") || msg.includes("unit_cost_override") || msg.includes("historical_margin_pct"))) {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, unit_cost_override: _c, ...rest }) => rest);
+          const stripped = chunk.map(({ ly_reference_qty: _a, planned_buy_qty: _b, unit_cost_override: _c, historical_margin_pct: _d, ...rest }) => rest);
           await sbPost<IpWholesaleForecast>(url, stripped, prefer);
           return;
         }

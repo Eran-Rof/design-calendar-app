@@ -439,6 +439,35 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
   let forecastRows = buildFinalWholesaleForecast(computeInput);
 
+  // Weighted-average gross margin % per (customer, sku) over the same
+  // T3 window used for trailing qty. Weighted by net_amount so a $10k
+  // sale moves the average more than a $100 sale. Skips rows with null
+  // margin/net (rows the sync handler hasn't backfilled). The result
+  // is a decimal fraction (0.25 = 25%) matching the column type.
+  const marginCutoff = historySince(snapshotDate, 3);
+  const marginSums = new Map<string, { marginSum: number; netSum: number }>();
+  for (const s of sales) {
+    if (s.txn_date < marginCutoff) continue;
+    if (s.margin_amount == null || s.net_amount == null || s.net_amount <= 0) continue;
+    if (!s.customer_id) continue;
+    const k = `${s.customer_id}:${s.sku_id}`;
+    const cur = marginSums.get(k);
+    if (cur) {
+      cur.marginSum += s.margin_amount;
+      cur.netSum += s.net_amount;
+    } else {
+      marginSums.set(k, { marginSum: s.margin_amount, netSum: s.net_amount });
+    }
+  }
+  const marginByCustSku = new Map<string, number>();
+  for (const [k, v] of marginSums) {
+    if (v.netSum > 0) marginByCustSku.set(k, v.marginSum / v.netSum);
+  }
+  forecastRows = forecastRows.map((f) => ({
+    ...f,
+    historical_margin_pct: marginByCustSku.get(`${f.customer_id}:${f.sku_id}`) ?? null,
+  }));
+
   // Period-scoped build — drop rows whose period_code isn't in the
   // selected set. Done post-compute so rolling supply still walks the
   // full horizon even if only some periods persist. Accepts both the
@@ -990,6 +1019,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       period_start: f.period_start,
       period_end: f.period_end,
       historical_trailing_qty: trailing.get(`${f.customer_id}:${f.sku_id}`) ?? 0,
+      historical_margin_pct: f.historical_margin_pct ?? null,
       historical_trailing_breakdown: ((): Array<{ month: string; qty: number }> | null => {
         const byMonth = trailingByMonth.get(`${f.customer_id}:${f.sku_id}`);
         if (!byMonth || byMonth.size === 0) return null;
@@ -1265,6 +1295,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       confidence_level: "estimate",
       forecast_method: "zero_floor",
       ly_reference_qty: null,
+      historical_margin_pct: null,
       item_cost: null,
       ats_avg_cost: null,
       avg_cost: supplyTbd?.unit_cost ?? null,
