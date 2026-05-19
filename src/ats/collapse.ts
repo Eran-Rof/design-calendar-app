@@ -123,6 +123,7 @@ function storeRank(s: string | null | undefined): number {
   if (k === "ROF") return 0;
   if (k === "ROF ECOM") return 1;
   if (k === "PT") return 2;
+  if (k === "PT ECOM") return 3;
   return 100;
 }
 function hasOpenActivity(r: ATSRow): boolean {

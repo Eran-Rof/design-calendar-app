@@ -5,13 +5,22 @@ import { getSkuSalesAggregates, type SkuSalesAggregates } from "../exportSalesFe
 import { askAI, buildRowAskPrompt } from "../../ai/askAIBridge";
 
 // Shared store pill — used by both summary and cell menus
-const storeTag = (store: string) => (
-  <span style={{
-    fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
-    background: store === "ROF ECOM" ? "rgba(14,165,233,0.2)" : store === "PT" ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)",
-    color:      store === "ROF ECOM" ? "#7dd3fc"             : store === "PT" ? "#c4b5fd"             : "#93c5fd",
-  }}>{store}</span>
-);
+const storeTag = (store: string) => {
+  const bg = store === "ROF ECOM" ? "rgba(14,165,233,0.2)"
+           : store === "PT"       ? "rgba(139,92,246,0.2)"
+           : store === "PT ECOM"  ? "rgba(236,72,153,0.2)"
+           :                        "rgba(59,130,246,0.2)";
+  const fg = store === "ROF ECOM" ? "#7dd3fc"
+           : store === "PT"       ? "#c4b5fd"
+           : store === "PT ECOM"  ? "#f9a8d4"
+           :                        "#93c5fd";
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
+      background: bg, color: fg,
+    }}>{store}</span>
+  );
+};
 
 interface SummaryContextMenuProps {
   summaryCtx: SummaryCtxMenu | null;

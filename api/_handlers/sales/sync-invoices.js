@@ -102,6 +102,19 @@ function canonName(raw) {
   return String(raw ?? "").trim().toUpperCase().replace(/\s+/g, " ");
 }
 
+// Map Sale Store + Customer to a channel_code. detectSoStore handles the
+// store-string fuzzy match (covers Xoro variants like "Psycho Tuna" and
+// "Prebook - Psycho Tuna"). For PT we then split on Customer: rows where
+// the customer is "Shopify psychotuna" are ecom and route to PT ECOM;
+// everything else under PT stays wholesale.
+function resolveChannelCode(saleStore, customerName) {
+  const base = detectSoStore("", saleStore || "", "");
+  if (base === "PT" && canonName(customerName) === "SHOPIFY PSYCHOTUNA") {
+    return "PT ECOM";
+  }
+  return base;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -358,7 +371,7 @@ export default async function handler(req, res) {
     const { data, error } = await admin
       .from("ip_channel_master")
       .select("id, channel_code")
-      .in("channel_code", ["ROF", "ROF ECOM", "PT"]);
+      .in("channel_code", ["ROF", "ROF ECOM", "PT", "PT ECOM"]);
     if (error) {
       counts.errors.push(`channel lookup: ${error.message}`);
     } else {
@@ -393,7 +406,7 @@ export default async function handler(req, res) {
       sku_id: skuId,
       customer_id: customerId,
       category_id: null,
-      channel_id: channelCodeToId.get(detectSoStore("", c.saleStore || "", "")) ?? null,
+      channel_id: channelCodeToId.get(resolveChannelCode(c.saleStore, c.customerName)) ?? null,
       order_number: null,
       invoice_number: c.invoiceNumber,
       txn_type: c.invoiceNumber ? "invoice" : "ship",
