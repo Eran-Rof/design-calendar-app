@@ -432,6 +432,55 @@ export function getItemMasterById(id: string): ItemMasterRecord | null {
   return byId?.get(id) ?? null;
 }
 
+/**
+ * Returns the set of ip_item_master.ids whose master row matches the
+ * given on-screen filters. Used by the ATS export's sales aggregation
+ * to decouple "what sales count toward the totals" from "what rows the
+ * grid is currently showing" — necessary for the cross-store math to
+ * reconcile (otherwise a Pants SKU whose only grid row is ROF ECOM-
+ * tagged loses its ROF wholesale sales when the operator filters to
+ * ROF + PT).
+ *
+ * Filters are AND'd together; empty arrays mean "no constraint on this
+ * dimension". Variant rows (sku_code !== style_code) typically have an
+ * empty `attributes` object, so we resolve category/sub-category via
+ * the style-level row when present (matches the convention in
+ * resolveStyle()).
+ *
+ * Returns null when the cache isn't loaded — caller falls back to the
+ * grid-row SKU set to avoid an empty-total regression.
+ */
+export function getMatchingItemMasterIds(filters: {
+  filterCategory: string[];
+  filterSubCategory: string[];
+  filterStyle: string[];
+}): Set<string> | null {
+  if (!byId || !byStyleCode) return null;
+  const wantCategory    = filters.filterCategory.length    > 0 ? new Set(filters.filterCategory)    : null;
+  const wantSubCategory = filters.filterSubCategory.length > 0 ? new Set(filters.filterSubCategory) : null;
+  const wantStyle       = filters.filterStyle.length       > 0 ? new Set(filters.filterStyle)       : null;
+  const out = new Set<string>();
+  for (const rec of byId.values()) {
+    // Variant rows inherit category / sub-category from the style row
+    // when their own attributes are empty (verified live, see comments
+    // on ItemMasterRecord.attributes).
+    let cat    = rec.attributes?.group_name    ?? null;
+    let subCat = rec.attributes?.category_name ?? null;
+    if ((!cat || !subCat) && rec.style_code) {
+      const styleRow = byStyleCode.get(rec.style_code.toUpperCase());
+      if (styleRow) {
+        cat    = cat    ?? styleRow.attributes?.group_name    ?? null;
+        subCat = subCat ?? styleRow.attributes?.category_name ?? null;
+      }
+    }
+    if (wantCategory    && !wantCategory.has(cat ?? ""))           continue;
+    if (wantSubCategory && !wantSubCategory.has(subCat ?? ""))      continue;
+    if (wantStyle       && !wantStyle.has(rec.style_code ?? ""))    continue;
+    out.add(rec.id);
+  }
+  return out;
+}
+
 /** Visible for tests — inject a pre-built cache without hitting
  *  Supabase. Sets `cachePromise` to a resolved Promise so subsequent
  *  `loadItemMasterCache()` calls become no-ops. */
