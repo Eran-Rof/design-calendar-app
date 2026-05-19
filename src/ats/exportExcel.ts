@@ -512,6 +512,11 @@ export function buildExportPayload(
   const GREEN_TEXT = "006100";
   const RED_TEXT   = "9C0006";
   function t3VsLyCell(t3Val: number, lyVal: number, baseStyle: any): any {
+    // NaN sieve. `NaN <= 0` is false, so an upstream NaN sneaks past
+    // the value guards below and renders as "NaN%" in Excel. Coerce
+    // to 0 first so the existing guards do the right thing.
+    if (!Number.isFinite(t3Val)) t3Val = 0;
+    if (!Number.isFinite(lyVal)) lyVal = 0;
     if (t3Val <= 0 && lyVal <= 0) {
       return { v: "", t: "s", s: { ...baseStyle, numFmt: "0.0%" } };
     }
@@ -549,6 +554,10 @@ export function buildExportPayload(
   //   • T3 > 0, LY = 0   → positive (full T3 margin shows as the gain)
   //   • T3 = 0, LY > 0   → negative (loss of the prior margin)
   function marginDiffCell(t3Mrgn: number, lyMrgn: number, baseStyle: any): any {
+    // Same NaN sieve as t3VsLyCell — protects against an upstream
+    // NaN slipping past the === 0 guard and rendering as "NaN%".
+    if (!Number.isFinite(t3Mrgn)) t3Mrgn = 0;
+    if (!Number.isFinite(lyMrgn)) lyMrgn = 0;
     // Blank when EITHER side is 0/unknown. The export uses 0 as a
     // sentinel for "no margin computable" (either no sales in window,
     // or all contributing rows had suppressed cost from the $0
@@ -764,7 +773,11 @@ export function buildExportPayload(
     const isEvenInputRow = (ri % 2) === 0;
     const fill = isEvenInputRow ? FILL_EVEN : FILL_ODD;
     const qtyExcelRow = nextExcelRow;
-    const mult = r.ppkMult ?? 1;
+    // Guard against ppkMult=0 from data-quality outliers (rows with a
+    // zeroed pack_size after a botched master refresh). `?? 1` only
+    // fires on null/undefined; a numeric 0 falls through and causes a
+    // divide-by-zero downstream that turns every qty cell into NaN.
+    const mult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
     const isPrepack = mult > 1;
     // Grain divisor for display. Row qty fields + period values come
     // in at UNIT grain (computeRowsFromExcelData stores onHand*ppkMult);

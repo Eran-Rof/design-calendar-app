@@ -553,11 +553,21 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     });
   }
   // Cross-grid: sku_ids that have sales but aren't in the current grid.
-  // Activated by either a customer filter (the original use case) OR a
-  // store/cat/sub-cat/style filter (so cross-store totals reconcile).
-  // The export-render layer surfaces these as synthetic rows.
+  // The export-render layer surfaces these as synthetic rows so totals
+  // include every sale that matches the operator's filter scope, not
+  // just sales for SKUs that happen to have a current inventory / PO /
+  // SO row. Bug history:
+  //   - Originally activated only by a customer filter (PRs #84-89).
+  //   - PR #224 extended to store / cat / sub-cat / style filters to
+  //     close the $2.8M cross-channel gap when narrowing by store.
+  //   - This change extends it UNCONDITIONALLY — even with "All stores"
+  //     and no other filter, "Total" math must include every sale
+  //     in the trailing window, not just those tied to a current grid
+  //     row. Otherwise SKUs that sold but went out-of-stock (no current
+  //     PO/SO/inventory row) silently drop from the total — that's the
+  //     ~$700K "selecting all stores doesn't compute" gap operators saw.
   const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
-  const shouldCollectExtras = !!customerIdSet || hasFilterableNonStoreSelection || wantStoreFilter;
+  const shouldCollectExtras = true;
 
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
