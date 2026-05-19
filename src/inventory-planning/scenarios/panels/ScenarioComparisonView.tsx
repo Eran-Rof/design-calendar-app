@@ -33,6 +33,7 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
           && r.shortage_delta === 0
           && r.excess_delta === 0
           && r.buy_delta === 0
+          && r.margin_dollars_delta === 0
           && r.base_top_rec === r.scenario_top_rec
           && r.base_service_risk === r.scenario_service_risk) return false;
       return true;
@@ -45,6 +46,11 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
         <StatCell label="Δ demand" value={signed(totals.demand_delta_sum)} accent={totals.demand_delta_sum > 0 ? PAL.accent : totals.demand_delta_sum < 0 ? PAL.yellow : PAL.textMuted} />
         <StatCell label="Δ supply" value={signed(totals.supply_delta_sum)} accent={totals.supply_delta_sum > 0 ? PAL.green : totals.supply_delta_sum < 0 ? PAL.red : PAL.textMuted} />
         <StatCell label="Δ buy" value={signed(totals.buy_delta_sum)} accent={totals.buy_delta_sum > 0 ? PAL.accent : totals.buy_delta_sum < 0 ? PAL.green : PAL.textMuted} />
+        <StatCell
+          label="Δ margin $"
+          value={signedDollars(totals.margin_dollars_delta_sum)}
+          accent={totals.margin_dollars_delta_sum > 0 ? PAL.green : totals.margin_dollars_delta_sum < 0 ? PAL.red : PAL.textMuted}
+        />
         <StatCell label="Δ shortage" value={signed(totals.shortage_delta_sum)} accent={totals.shortage_delta_sum > 0 ? PAL.red : totals.shortage_delta_sum < 0 ? PAL.green : PAL.textMuted} />
         <StatCell label="Δ excess" value={signed(totals.excess_delta_sum)} accent={totals.excess_delta_sum > 0 ? PAL.yellow : totals.excess_delta_sum < 0 ? PAL.green : PAL.textMuted} />
         <StatCell label="Service risk ±"
@@ -91,6 +97,7 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
               <th style={{ ...S.th, textAlign: "right" }} title="Planner-typed planned_buy_qty (base)">Base buy</th>
               <th style={{ ...S.th, textAlign: "right" }} title="Planner-typed planned_buy_qty (scenario)">Scn buy</th>
               <th style={{ ...S.th, textAlign: "right" }} title="Scenario buy − Base buy">Δ buy</th>
+              <th style={{ ...S.th, textAlign: "right" }} title="Estimated gross margin $ impact = Δ demand × (unit_cost × margin% / (1 − margin%)). Null when no usable margin data for this (sku, period).">Δ margin $</th>
               <th style={S.th}>Base rec</th>
               <th style={S.th}>Scn rec</th>
               <th style={S.th} title="Service risk flag from the top recommendation">Risk</th>
@@ -125,6 +132,24 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
                 <td style={{ ...S.tdNum, color: r.buy_delta > 0 ? PAL.accent : r.buy_delta < 0 ? PAL.green : PAL.textMuted, fontWeight: 700 }}>
                   {signed(r.buy_delta)}
                 </td>
+                <td
+                  style={{
+                    ...S.tdNum,
+                    color: r.margin_per_unit_estimate == null
+                      ? PAL.textMuted
+                      : r.margin_dollars_delta > 0
+                        ? PAL.green
+                        : r.margin_dollars_delta < 0
+                          ? PAL.red
+                          : PAL.textMuted,
+                    fontWeight: 700,
+                  }}
+                  title={r.margin_per_unit_estimate == null
+                    ? "No margin data for this (sku, period) — estimate skipped"
+                    : `~$${r.margin_per_unit_estimate.toFixed(2)} per unit × ${signed(r.demand_delta)} units`}
+                >
+                  {r.margin_per_unit_estimate == null ? "—" : signedDollars(r.margin_dollars_delta)}
+                </td>
                 <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>{r.base_top_rec ?? "–"}</td>
                 <td style={{ ...S.td, color: r.base_top_rec !== r.scenario_top_rec ? PAL.accent : PAL.textDim, fontSize: 11 }}>
                   {r.scenario_top_rec ?? "–"}
@@ -146,14 +171,14 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
               </tr>
             ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={20} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No comparison rows — run the scenario's apply + recompute first."
                   : "No rows match filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={19} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={20} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -170,6 +195,14 @@ function signed(n: number): string {
   const rounded = Math.round(n);
   if (rounded === 0) return "0";
   return rounded > 0 ? `+${rounded.toLocaleString()}` : rounded.toLocaleString();
+}
+
+function signedDollars(n: number): string {
+  if (!Number.isFinite(n)) return "–";
+  const rounded = Math.round(n);
+  if (rounded === 0) return "$0";
+  const sign = rounded > 0 ? "+" : "−";
+  return `${sign}$${Math.abs(rounded).toLocaleString()}`;
 }
 
 function deltaColor(n: number): string {

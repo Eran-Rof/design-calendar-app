@@ -148,6 +148,15 @@ export interface ScenarioComparisonRow {
   buy_delta: number;
   base_service_risk: boolean;
   scenario_service_risk: boolean;
+  // Margin-$ impact of the scenario at this (sku, period). Derived
+  // from historical_margin_pct + unit_cost on the corresponding
+  // forecast rows (scenario preferred, base fallback). Null when
+  // neither side has usable margin data.
+  margin_per_unit_estimate: number | null;
+  // demand_delta × margin_per_unit_estimate. Positive = scenario
+  // earns more gross margin $; negative = scenario earns less.
+  // 0 when margin_per_unit_estimate is null OR demand_delta = 0.
+  margin_dollars_delta: number;
 }
 
 export interface ScenarioComparisonTotals {
@@ -160,6 +169,9 @@ export interface ScenarioComparisonTotals {
   // Sum of buy_delta across rows. Direct read of "how much more
   // does this scenario need bought."
   buy_delta_sum: number;
+  // Sum of margin_dollars_delta across rows. The headline "this
+  // scenario earns/loses $X in expected gross margin" number.
+  margin_dollars_delta_sum: number;
   // Service-risk count flips: how many rows became risky vs were de-risked.
   service_risk_added: number;
   service_risk_removed: number;
