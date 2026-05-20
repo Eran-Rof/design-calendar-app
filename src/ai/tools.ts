@@ -9,7 +9,7 @@ export interface ApplyFiltersAction {
     category?: string[];
     sub_category?: string[];
     style?: string[];
-    gender?: string;
+    gender?: string | string[];
     status?: string;
     min_ats?: number | null;
     store?: string[];
@@ -77,7 +77,7 @@ export interface GridContextSnapshot {
     category?: string[];
     sub_category?: string[];
     style?: string[];
-    gender?: string;
+    gender?: string | string[];
     status?: string;
     min_ats?: number | null;
     store?: string[];
@@ -116,7 +116,7 @@ export interface AIGridSetters {
   setFilterCategory?: (v: string[] | ((p: string[]) => string[])) => void;
   setFilterSubCategory?: (v: string[] | ((p: string[]) => string[])) => void;
   setFilterStyle?: (v: string[] | ((p: string[]) => string[])) => void;
-  setFilterGender?: (v: string | ((p: string) => string)) => void;
+  setFilterGender?: (v: string[] | ((p: string[]) => string[])) => void;
   setFilterStatus?: (v: string | ((p: string) => string)) => void;
   setMinATS?: (v: number | "" | ((p: number | "") => number | "")) => void;
   setStoreFilter?: (v: string[] | ((p: string[]) => string[])) => void;
@@ -132,7 +132,7 @@ const FILTER_DEFAULTS = {
   category: [] as string[],
   sub_category: [] as string[],
   style: [] as string[],
-  gender: "All",
+  gender: [] as string[],
   status: "All",
   min_ats: "" as number | "",
   store: ["All"] as string[],
@@ -146,7 +146,16 @@ export function applyAction(action: AIAction, setters: AIGridSetters): void {
       if (Array.isArray(p.category)        && setters.setFilterCategory)    setters.setFilterCategory(p.category);
       if (Array.isArray(p.sub_category)    && setters.setFilterSubCategory) setters.setFilterSubCategory(p.sub_category);
       if (Array.isArray(p.style)           && setters.setFilterStyle)       setters.setFilterStyle(p.style);
-      if (typeof p.gender === "string"     && setters.setFilterGender)      setters.setFilterGender(p.gender);
+      // Accept either an array (preferred — multi-select) or a single
+      // string for backward compat with older AI prompts. "All" / "" /
+      // null collapses to [] (no filter).
+      if (setters.setFilterGender) {
+        if (Array.isArray(p.gender)) {
+          setters.setFilterGender(p.gender);
+        } else if (typeof p.gender === "string") {
+          setters.setFilterGender(p.gender === "All" || p.gender === "" ? [] : [p.gender]);
+        }
+      }
       if (typeof p.status === "string"     && setters.setFilterStatus)      setters.setFilterStatus(p.status);
       if ("min_ats" in p && setters.setMinATS) {
         setters.setMinATS(p.min_ats == null ? "" : p.min_ats);
@@ -260,7 +269,8 @@ export function describeAction(action: AIAction): string {
       if (Array.isArray(p.category))              parts.push(`category=${p.category.length ? p.category.join(",") : "(any)"}`);
       if (Array.isArray(p.sub_category))          parts.push(`sub=${p.sub_category.length ? p.sub_category.join(",") : "(any)"}`);
       if (Array.isArray(p.style))                 parts.push(`style=${p.style.length ? p.style.join(",") : "(any)"}`);
-      if (typeof p.gender === "string")           parts.push(`gender=${p.gender}`);
+      if (Array.isArray(p.gender))                parts.push(`gender=${p.gender.length ? p.gender.join(",") : "(any)"}`);
+      else if (typeof p.gender === "string")      parts.push(`gender=${p.gender}`);
       if (typeof p.status === "string")           parts.push(`status=${p.status}`);
       if ("min_ats" in p)                          parts.push(`min ATS=${p.min_ats ?? "(any)"}`);
       if (Array.isArray(p.store))                 parts.push(`stores=${p.store.join(",") || "(any)"}`);

@@ -25,7 +25,7 @@ export interface ATSState {
   // column). Scoped at toolbar build time to whichever categories /
   // sub-cats are currently active so the dropdown stays manageable.
   filterStyle: string[];
-  filterGender: string;
+  filterGender: string[];
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -147,7 +147,7 @@ export function createInitialState(startDate: string): ATSState {
     filterCategory: [],
     filterSubCategory: [],
     filterStyle: [],
-    filterGender: "All",
+    filterGender: [],
     filterStatus: "All",
     minATS: "",
     // Default to ROF only (the primary customer-facing inventory).

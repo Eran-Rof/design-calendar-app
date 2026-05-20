@@ -12,7 +12,9 @@ export interface RowFilterOpts {
   // Multi-select on master_style. Empty array = no filter; otherwise the
   // row must match ONE of the listed styles (set membership).
   filterStyle: string[];
-  filterGender: string;
+  // Multi-select on attributes.gender. Empty array = no filter; otherwise
+  // the row's gender must be in the set (case-/whitespace-tolerant).
+  filterGender: string[];
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -77,7 +79,9 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   if (wantStore && wantStore.has("PT ECOM")) {
     wantStore.add("PT");
   }
-  const wantGender = opts.filterGender === "All" ? null : normForCompare(opts.filterGender);
+  const wantGender = opts.filterGender.length === 0
+    ? null
+    : new Set(opts.filterGender.map(normForCompare));
   // Empty array = no filter; otherwise build a set for O(1) membership.
   const wantCategory = opts.filterCategory.length === 0
     ? null
@@ -103,7 +107,7 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
     if (wantStyle !== null) {
       if (!wantStyle.has(r.master_style ?? "")) return false;
     }
-    if (wantGender !== null && normForCompare(r.gender) !== wantGender) return false;
+    if (wantGender !== null && !wantGender.has(normForCompare(r.gender))) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;
     if (opts.filterStatus !== "All") {
       if (opts.filterStatus === "Out" && !(todayQty <= 0)) return false;

@@ -26,8 +26,12 @@ interface MultiSelectDropdownProps {
   onChange: (v: string[]) => void;
   minWidth?: number;
   placeholder?: string;
+  // Optional label resolver — if the option's display name differs from
+  // its stored value (e.g. Gender filter stores codes "M"/"B" but shows
+  // "Mens"/"Boys"). Falls back to the raw option string.
+  getLabel?: (v: string) => string;
 }
-const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value, options, onChange, minWidth = 140, placeholder }) => {
+const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value, options, onChange, minWidth = 140, placeholder, getLabel }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -40,12 +44,13 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
   const q = search.toLowerCase();
-  const shown = q ? options.filter(o => o.toLowerCase().includes(q)) : options;
+  const labelFor = (o: string) => getLabel ? getLabel(o) : o;
+  const shown = q ? options.filter(o => labelFor(o).toLowerCase().includes(q) || o.toLowerCase().includes(q)) : options;
   const selected = new Set(value);
   const headerText = value.length === 0
     ? "All"
     : value.length === 1
-      ? value[0]
+      ? labelFor(value[0])
       : `${value.length} selected`;
   const toggle = (opt: string) => {
     if (selected.has(opt)) {
@@ -103,7 +108,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
                     onChange={() => toggle(opt)}
                     style={{ accentColor: "#10B981", cursor: "pointer" }}
                   />
-                  <span>{opt}</span>
+                  <span>{labelFor(opt)}</span>
                 </label>
               );
             })}
@@ -194,8 +199,8 @@ interface ToolbarProps {
   filterStyle: string[];
   setFilterStyle: (v: string[]) => void;
   styles: string[];
-  filterGender: string;
-  setFilterGender: (v: string) => void;
+  filterGender: string[];
+  setFilterGender: (v: string[]) => void;
   // Status filter — driven by the colored stat-card pills (Negative ATS,
   // Aged Inven, etc.). Cleared by the toolbar's Clear button so a stuck
   // pill doesn't keep the grid filtered after the planner expects a reset.
@@ -311,7 +316,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setFilterCategory([]);
     setFilterSubCategory([]);
     setFilterStyle([]);
-    setFilterGender("All");
+    setFilterGender([]);
     setFilterStatus("All");
     setStoreFilter(["ROF"]);
     setMinATS("");
@@ -387,17 +392,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       onChange={setFilterStyle}
       minWidth={150}
     />
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Gender:</span>
-      <select style={S.select} value={filterGender} onChange={e => setFilterGender(e.target.value)}>
-        <option value="All">All</option>
-        <option value="M">Mens</option>
-        <option value="B">Boys</option>
-        <option value="C">Child</option>
-        <option value="Wms">Women's</option>
-        <option value="G">Girls</option>
-      </select>
-    </div>
+    <MultiSelectDropdown
+      label="Gender"
+      value={filterGender}
+      options={["M", "B", "C", "Wms", "G"]}
+      onChange={setFilterGender}
+      getLabel={v => ({ M: "Mens", B: "Boys", C: "Child", Wms: "Women's", G: "Girls" } as Record<string, string>)[v] ?? v}
+    />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Collapse:</span>
       <select style={S.select} value={collapseLevel} onChange={e => setCollapseLevel(e.target.value as typeof collapseLevel)}>
