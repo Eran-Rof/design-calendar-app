@@ -7,6 +7,7 @@ import UpcMasterPanel from "./panels/UpcMasterPanel";
 import ScaleMasterPanel from "./panels/ScaleMasterPanel";
 import PackGtinMasterPanel from "./panels/PackGtinMasterPanel";
 import PackingListUploadPanel from "./panels/PackingListUploadPanel";
+import PAUnpackerPanel from "./panels/PAUnpackerPanel";
 import LabelBatchPanel from "./panels/LabelBatchPanel";
 import CartonPanel from "./panels/CartonPanel";
 import ReceivingPanel from "./panels/ReceivingPanel";
@@ -36,6 +37,7 @@ export default function GS1App() {
         {activeTab === "scale"    && <ScaleMasterPanel />}
         {activeTab === "gtins"    && <PackGtinMasterPanel />}
         {activeTab === "upload"   && <PackingListUploadPanel />}
+        {activeTab === "pa_unpacker" && <PAUnpackerPanel />}
         {activeTab === "labels"   && <LabelBatchPanel />}
         {activeTab === "templates" && <LabelTemplatesPanel />}
         {activeTab === "cartons"  && <CartonPanel />}

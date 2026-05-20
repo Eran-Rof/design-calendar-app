@@ -10,6 +10,7 @@ const TABS: Array<{ id: GS1Tab; label: string }> = [
   { id: "scale",     label: "Scale Master" },
   { id: "gtins",     label: "Pack GTINs" },
   { id: "upload",    label: "Packing List" },
+  { id: "pa_unpacker", label: "PA Unpacker" },
   { id: "labels",    label: "Label Batches" },
   { id: "templates", label: "Label Templates" },
   { id: "cartons",   label: "Carton Labels" },
