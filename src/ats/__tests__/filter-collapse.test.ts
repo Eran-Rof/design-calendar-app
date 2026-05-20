@@ -23,7 +23,7 @@ function row(p: Partial<ATSRow> & { sku: string; store: string; master_category:
 
 const TODAY = new Date("2026-05-04T12:00:00Z");
 const filtDefaults = {
-  search: "", filterCategory: [] as string[], filterSubCategory: [] as string[], filterStyle: [] as string[], filterGender: "All",
+  search: "", filterCategory: [] as string[], filterSubCategory: [] as string[], filterStyle: [] as string[], filterGender: [] as string[],
   filterStatus: "All", minATS: "" as const, customerSkuSet: null, today: TODAY,
 };
 
@@ -153,7 +153,7 @@ describe("filter + collapse: gender filter", () => {
   ];
 
   it("gender='M' keeps only A; collapse aggregates only A", () => {
-    const f = filterRows(data, { ...filtDefaults, storeFilter: ["All"], filterGender: "M" });
+    const f = filterRows(data, { ...filtDefaults, storeFilter: ["All"], filterGender: ["M"] });
     expect(f.map(r => r.sku)).toEqual(["A"]);
     const collapsed = collapseRows(sortRows(f, null, "asc"), "category", new Set());
     expect(collapsed).toHaveLength(1);
@@ -166,7 +166,7 @@ describe("filter + collapse: gender filter", () => {
       row({ sku: "B", store: "ROF", master_category: "DENIM", gender: " M " }),
       row({ sku: "C", store: "ROF", master_category: "DENIM", gender: "B"   }), // truly different — drops
     ];
-    const f = filterRows(dirty, { ...filtDefaults, storeFilter: ["All"], filterGender: "M" });
+    const f = filterRows(dirty, { ...filtDefaults, storeFilter: ["All"], filterGender: ["M"] });
     expect(f.map(r => r.sku).sort()).toEqual(["A", "B"]);
   });
 });

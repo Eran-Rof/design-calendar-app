@@ -10,7 +10,7 @@ interface UseRowFilteringOpts {
   filterCategory: string[];
   filterSubCategory: string[];
   filterStyle: string[];
-  filterGender: string;
+  filterGender: string[];
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
