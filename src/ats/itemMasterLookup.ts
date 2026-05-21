@@ -241,8 +241,17 @@ async function fetchAllItemMaster(): Promise<ItemMasterRecord[]> {
   if (!SB_URL) throw new Error("Supabase URL not configured");
   const out: ItemMasterRecord[] = [];
   const PAGE = 1000;
-  for (let offset = 0; ; offset += PAGE) {
-    const url = `${SB_URL}/rest/v1/ip_item_master?select=*&order=sku_code.asc&limit=${PAGE}&offset=${offset}`;
+  // Explicit column list — `select=*` pulls every column including
+  // large/unused ones (e.g. wide `attributes` JSON) and was triggering
+  // the 8s statement timeout on a 40k+ row table.
+  const SELECT = "id,sku_code,style_code,color,size,description,unit_cost,pack_size,attributes";
+  // Keyset pagination on sku_code instead of offset. At 40k+ rows the
+  // offset path forced Postgres to scan + sort all preceding rows per
+  // page; keyset uses the unique sku_code index for O(log n) seeks.
+  let lastSkuCode: string | null = null;
+  for (let pageNum = 0; pageNum < 200; pageNum++) {
+    const cursor = lastSkuCode === null ? "" : `&sku_code=gt.${encodeURIComponent(lastSkuCode)}`;
+    const url = `${SB_URL}/rest/v1/ip_item_master?select=${SELECT}${cursor}&order=sku_code.asc&limit=${PAGE}`;
     const r = await fetch(url, { headers: SB_HEADERS });
     if (!r.ok) {
       throw new Error(`Supabase GET ip_item_master failed: ${r.status} ${await r.text()}`);
@@ -250,7 +259,7 @@ async function fetchAllItemMaster(): Promise<ItemMasterRecord[]> {
     const chunk = (await r.json()) as ItemMasterRecord[];
     out.push(...chunk);
     if (chunk.length < PAGE) break;
-    if (offset > 1_000_000) break; // safety cap
+    lastSkuCode = chunk[chunk.length - 1].sku_code;
   }
   return out;
 }
