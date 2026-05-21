@@ -297,7 +297,11 @@ export interface FetchSalesArgs {
   rows: ATSRow[];
   needT3: boolean;
   needLY: boolean;
-  customer: string;
+  // Single customer name OR an array of customer names (multi-select).
+  // Empty string / empty array = "all customers". When multiple names
+  // are provided, each is resolved to its ip_customer_master.id set
+  // independently and the union is used to filter the sales rows.
+  customer: string | string[];
   // Store filter — array of channel_code strings ("ROF", "ROF ECOM",
   // "PT"). When provided and not ["All"], the sales fetch narrows to
   // rows whose channel_id matches one of the resolved channels. Rows
@@ -474,19 +478,28 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   else if (needT3)      { fetchStart = t3Start; fetchEnd = t3End; }
   else                  { fetchStart = lyStart; fetchEnd = lyEnd; }
 
-  // Resolve customer name → all matching ip_customer_master.ids (one
-  // round trip, separate from the sales fetch). Empty array = name
-  // doesn't match anything; an explicit customer filter that finds
-  // zero ids means "no rows", not "all customers".
+  // Resolve customer name(s) → union of matching ip_customer_master.ids
+  // across every provided name. Empty input = "all customers"; non-empty
+  // input that resolves to zero ids means "no rows", not "all customers".
+  const customerNames = Array.isArray(customer)
+    ? customer.map((s) => s.trim()).filter(Boolean)
+    : (customer.trim() ? [customer.trim()] : []);
   let customerIdSet: Set<string> | null = null;
-  if (customer) {
-    const ids = await resolveCustomerIds(customer);
-    if (ids.length === 0) {
-      console.warn(`[ATS export] customer "${customer}" not in ip_customer_master — T3/LY will be empty.`);
+  if (customerNames.length > 0) {
+    const idLists = await Promise.all(customerNames.map((n) => resolveCustomerIds(n)));
+    const merged = new Set<string>();
+    idLists.forEach((ids, i) => {
+      if (ids.length === 0) {
+        console.warn(`[ATS export] customer "${customerNames[i]}" not in ip_customer_master — its rows will be empty.`);
+      }
+      for (const id of ids) merged.add(id);
+    });
+    if (merged.size === 0) {
+      console.warn(`[ATS export] none of ${customerNames.length} customer name(s) matched ip_customer_master — T3/LY will be empty.`);
       return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
     }
-    customerIdSet = new Set(ids);
-    console.info(`[ATS export] customer "${customer}" matched ${ids.length} ip_customer_master row${ids.length === 1 ? "" : "s"}: ${ids.join(", ")}`);
+    customerIdSet = merged;
+    console.info(`[ATS export] customer filter resolved ${customerNames.length} name(s) → ${merged.size} ip_customer_master row(s).`);
   }
 
   const { idToSku, matched, unmatched } = buildIdToSkuMap(rows);
@@ -675,7 +688,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     }
   }
 
-  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customer || "all"}, windows t3=${t3Start}..${t3End} ly=${lyStart}..${lyEnd})`);
+  console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customerNames.length === 0 ? "all" : customerNames.join("+")}, windows t3=${t3Start}..${t3End} ly=${lyStart}..${lyEnd})`);
 
   // Resolve customer_id → name in one batch, then build the public
   // byCustomer Map. Done after the row scan so we only query for the

@@ -9,6 +9,7 @@ function rec(over: {
   storeName?: string | null;
   saleStoreName?: string | null;
   headerShipDate?: string | null;
+  headerCancelDate?: string | null;
   lines: Array<{
     sku?: string | null;
     qtyRemaining?: number | null;
@@ -17,6 +18,7 @@ function rec(over: {
     unitPrice?: number | null;
     lineAmount?: number | null;
     lineShipDate?: string | null;
+    lineCancelDate?: string | null;
   }>;
 }): XoroSoRecord {
   return {
@@ -26,6 +28,7 @@ function rec(over: {
       StoreName: over.storeName ?? null,
       SaleStoreName: over.saleStoreName ?? null,
       DateToBeShipped: over.headerShipDate ?? null,
+      CancelDate: over.headerCancelDate ?? null,
     },
     SoEstimateItemLineArr: over.lines.map((l) => ({
       ItemNumber: l.sku ?? null,
@@ -35,6 +38,7 @@ function rec(over: {
       UnitPrice: l.unitPrice ?? null,
       LineAmount: l.lineAmount ?? null,
       DateToBeShipped: l.lineShipDate ?? null,
+      CancelDate: l.lineCancelDate ?? null,
     })),
   };
 }
@@ -145,6 +149,51 @@ describe("normalizeXoroSos", () => {
       }),
     ]);
     expect(events[0].store).toBe("Psycho Tuna");
+  });
+
+  it("extracts header-level CancelDate onto every line", () => {
+    const { events } = normalizeXoroSos([
+      rec({
+        orderNumber: "S1",
+        customerFullName: "X",
+        storeName: "PT",
+        headerShipDate: "08/15/2026",
+        headerCancelDate: "06/01/2026",
+        lines: [
+          { sku: "AAA-RED-L", qtyRemaining: 1 },
+          { sku: "AAA-RED-XL", qtyRemaining: 2 },
+        ],
+      }),
+    ]);
+    expect(events[0].cancelDate).toBe("2026-06-01");
+    expect(events[1].cancelDate).toBe("2026-06-01");
+  });
+
+  it("prefers line-level CancelDate over header CancelDate", () => {
+    const { events } = normalizeXoroSos([
+      rec({
+        orderNumber: "S1",
+        customerFullName: "X",
+        storeName: "PT",
+        headerShipDate: "08/15/2026",
+        headerCancelDate: "06/01/2026",
+        lines: [{ sku: "AAA-RED-L", qtyRemaining: 1, lineCancelDate: "05/20/2026" }],
+      }),
+    ]);
+    expect(events[0].cancelDate).toBe("2026-05-20");
+  });
+
+  it("leaves cancelDate undefined when neither header nor line provides one", () => {
+    const { events } = normalizeXoroSos([
+      rec({
+        orderNumber: "S1",
+        customerFullName: "X",
+        storeName: "PT",
+        headerShipDate: "08/15/2026",
+        lines: [{ sku: "AAA-RED-L", qtyRemaining: 1 }],
+      }),
+    ]);
+    expect(events[0].cancelDate).toBeUndefined();
   });
 
   it("skips lines with no SKU, no date, or zero qty and reports counts", () => {
