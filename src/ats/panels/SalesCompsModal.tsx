@@ -124,11 +124,25 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
   const fmt = (o: T) => optionLabel ? optionLabel(o) : o;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // Direction the popover opens — "down" when there's room below the
+  // button, "up" otherwise. Computed when the popover opens so the
+  // bottom-most fields (like View By) don't get their popover clipped
+  // by the modal's scroll-container edge.
+  const [openDir, setOpenDir] = useState<"down" | "up">("down");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   // Click-outside closes the multi-select popover. Listens only while
   // open so we don't waste handlers on idle dropdowns.
   useEffect(() => {
     if (!open) return;
+    // Compute direction once at open time. Popover height capped at
+    // 260px (see styles below); flip up if the button's bottom is
+    // within that distance of the viewport bottom.
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const roomBelow = window.innerHeight - rect.bottom;
+      setOpenDir(roomBelow < 280 && rect.top > 280 ? "up" : "down");
+    }
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node | null;
       if (!t || !wrapRef.current) return;
@@ -162,12 +176,24 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
     <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }}>
       <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
       {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-      <button type="button" onClick={() => setOpen(o => !o)} style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}>
+      <button ref={buttonRef} type="button" onClick={() => setOpen(o => !o)} style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}>
         {summary}
         <span style={{ float: "right", color: C.textDim, fontSize: 10 }}>▼</span>
       </button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 1100, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, maxHeight: 260, display: "flex", flexDirection: "column", padding: 4, boxShadow: "0 6px 18px rgba(0,0,0,0.5)" }}>
+        <div style={{
+          position: "absolute",
+          // Opens upward when the button is too close to the viewport
+          // bottom — keeps the popover inside the modal's scroll area
+          // so options aren't clipped.
+          ...(openDir === "down"
+            ? { top: "calc(100% + 4px)" }
+            : { bottom: "calc(100% + 4px)" }),
+          left: 0, right: 0, zIndex: 1100,
+          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
+          maxHeight: 260, display: "flex", flexDirection: "column", padding: 4,
+          boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
+        }}>
           <input
             type="text"
             value={search}
@@ -706,13 +732,37 @@ export const SalesCompsModal: React.FC<Props> = ({
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
             Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
           </div>
           <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
         </div>
+
+        {/* Loading overlay shown during the 10–15s fetch. Sits inside
+            the modal body so the operator can still see the selection
+            form context behind it. Centered spinner + status text +
+            estimated time. Pointer-events:none so click-outside on
+            backdrop still works to cancel. */}
+        {running && (
+          <div style={{
+            position: "absolute", inset: 0, background: "rgba(15,23,42,0.85)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: 14, zIndex: 1200, borderRadius: 12,
+          }}>
+            <div style={{
+              width: 42, height: 42, borderRadius: "50%",
+              border: `3px solid ${C.border}`, borderTopColor: C.accent,
+              animation: "salescomps-spin 0.8s linear infinite",
+            }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Fetching sales history…</div>
+            <div style={{ fontSize: 11, color: C.textMuted, maxWidth: 320, textAlign: "center", lineHeight: 1.4 }}>
+              Typically 10–15 seconds. Pulling the {start} → {end} window plus the LY-shifted comparison, then aggregating per-customer + per-style.
+            </div>
+            <style>{`@keyframes salescomps-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
 
         {!result && (
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
@@ -736,13 +786,16 @@ export const SalesCompsModal: React.FC<Props> = ({
 
             {rangeWarn && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Start date must be on or before End date.</div>}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi hint="Empty = all customers" />
-              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi hint="Empty = all stores" />
+            {/* 3-column grid for the 6 filter dropdowns so the whole
+                form fits in ~90vh without scrolling — keeps the Output
+                section above the fold even when DevTools is open. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi />
+              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
               <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
-              <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi hint="Empty = all genders" />
+              <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi />
             </div>
 
             <fieldset style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", margin: 0 }}>
