@@ -58,7 +58,13 @@ async function sql(query) {
 // ── Step 1: Load all unit-grain master rows that have a suspicious
 // sale (price ≥ 5× cost). Pull JUST these candidates — keeps the
 // scan size proportional to the actual problem space.
-console.log(`\n▶ Step 1: Identify suspect sales rows...`);
+//
+// Ecom rows are excluded up front: channels containing "Ecom" + any
+// customer whose name contains "shopify" (belt-and-suspenders for
+// Shopify storefronts that didn't get routed to PT ECOM). Ecom is
+// always per-each direct-to-consumer, so a 5–6× retail markup is
+// real margin, not pack-priced-as-unit.
+console.log(`\n▶ Step 1: Identify suspect sales rows (wholesale only)...`);
 const suspectSales = await sql(`
   SELECT s.id          AS sales_id,
          s.sku_id,
@@ -78,10 +84,13 @@ const suspectSales = await sql(`
   FROM ip_sales_history_wholesale s
   JOIN ip_item_master m ON m.id = s.sku_id
   LEFT JOIN ip_customer_master cu ON cu.id = s.customer_id
+  LEFT JOIN ip_channel_master ch ON ch.id = s.channel_id
   WHERE m.pack_size = 1
     AND m.unit_cost IS NOT NULL
     AND m.unit_cost > 0
     AND s.unit_price >= m.unit_cost * ${SUSPICIOUS_PRICE_RATIO}
+    AND (ch.name IS NULL OR ch.name NOT ILIKE '%Ecom%')
+    AND (cu.name IS NULL OR cu.name NOT ILIKE '%shopify%')
   ORDER BY s.txn_date DESC, m.sku_code;
 `);
 console.log(`   → ${suspectSales.length} suspect rows (price >= ${SUSPICIOUS_PRICE_RATIO}× cost)`);

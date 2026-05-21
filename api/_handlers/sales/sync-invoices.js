@@ -122,6 +122,22 @@ function resolveChannelCode(saleStore, customerName) {
   return base;
 }
 
+// Ecom channels never sell PPK packs — they're always per-each direct-to-
+// consumer. The PPK detector + token routing skip these so the natural
+// 5–6× retail markup doesn't get mistaken for pack-priced-as-unit.
+//
+// Belt-and-suspenders: also treat any customer whose name contains
+// "shopify" as ecom. resolveChannelCode catches the canonical
+// "Shopify psychotuna" string, but variants ("shopify_psychotuna",
+// "Shopify - Psycho Tuna", new Shopify storefronts, etc.) would slip
+// past the channel mapping and land in PT wholesale otherwise.
+const ECOM_CHANNEL_CODES = new Set(["ROF ECOM", "PT ECOM"]);
+function isEcomCandidate(c) {
+  if (ECOM_CHANNEL_CODES.has(resolveChannelCode(c.saleStore, c.customerName))) return true;
+  if (c.customerName && /shopify/i.test(c.customerName)) return true;
+  return false;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -474,6 +490,7 @@ export default async function handler(req, res) {
   // ("{style}PPK{suffix}" and "{style}-PPK{suffix}") plus the
   // mis-tagged-style_code fallback.
   for (const c of candidates) {
+    if (isEcomCandidate(c)) continue; // ecom is always eaches — never PPK
     if (!parsePackSizeFromRaw(c.rawItemNumber)) continue;
     const unitMaster = skuToMaster.get(c.sku);
     if (!unitMaster) continue;
@@ -529,6 +546,7 @@ export default async function handler(req, res) {
   const suspectByIdx = new Map();
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i];
+    if (isEcomCandidate(c)) continue; // ecom is always eaches — never PPK
     const m = skuToMaster.get(c.sku);
     if (!m || !m.style_code) continue;
     const packSize = Number(m.pack_size) || 1;
