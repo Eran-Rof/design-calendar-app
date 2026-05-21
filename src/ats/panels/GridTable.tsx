@@ -306,26 +306,31 @@ export const GridTable: React.FC<GridTableProps> = ({
     ...S.th,
     top: 0,
     height: TOTALS_ROW_HEIGHT,
-    // border-box so the 2px borderBottom is INCLUDED in TOTALS_ROW_HEIGHT.
-    // The column-header row below sticks at top: TOTALS_ROW_HEIGHT — with
-    // content-box the cell's real visual height was 122px (120 + 2 border),
-    // so the next row stuck at 120 covered the bottom 2px and the divider
-    // disappeared during vertical scroll. border-box keeps the geometry
-    // exact: cell occupies [0, 120], border occupies [118, 120], the
-    // column-header row starts flush at 120, divider stays visible.
     boxSizing: "border-box",
-    // 4px top/bottom — doubled from the previous 2px tight version.
-    // Keeps 10px horizontal padding so columns don't crowd borders.
     padding: "4px 10px",
     background: "#1E293B",
-    // Slightly heavier border under the totals row so the divider
-    // between totals and column headers stays visible.
+    // Divider between totals row and column-header row, drawn THREE ways
+    // for redundancy because sticky cells under vertical scroll are prone
+    // to Chrome compositor culling of plain borders:
+    //   1. Real borderBottom (2px, the original mechanism)
+    //   2. Inset box-shadow at the cell's bottom edge (paints inside the
+    //      box, survives compositor culling that drops the border)
+    //   3. borderTop on the column-header row's cells (see headerRowDivider
+    //      below) — paints into the next row's top edge, so if the totals
+    //      row goes invisible briefly during scroll, the line still shows.
     borderBottom: "2px solid #475569",
+    boxShadow: "inset 0 -2px 0 #475569",
     fontSize: 12,
     textTransform: "none",
     letterSpacing: 0,
     verticalAlign: "middle",
   };
+  // Divider on the column-header row — applied to every cell in that row
+  // (sticky-left + period). Active only when the totals row is showing.
+  // 3px chosen to swamp any subpixel rounding between the two sticky tops.
+  const headerRowDivider: React.CSSProperties = showTotalsRow
+    ? { borderTop: "3px solid #475569" }
+    : {};
 
   // Renders a single totals cell with stacked lines:
   //   Qty / B Inven / Cost / Sale / Mrgn $ / Mrgn % / E Inven
@@ -521,6 +526,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                     cursor: "pointer",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     background: isActive ? "#243048" : "#1E293B",
+                    ...headerRowDivider,
                     ...unfreezeStyle(c.key),
                   }}
                   onClick={() => handleThClick(c.key)}
@@ -543,6 +549,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                     background: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
                     color: isActive ? "#F1F5F9" : p.isToday ? "#10B981" : p.isWeekend ? "#475569" : "#6B7280",
                     borderBottom: p.isToday ? "2px solid #10B981" : "1px solid #334155",
+                    ...headerRowDivider,
                     whiteSpace: "pre-line",
                     lineHeight: 1.3,
                     fontSize: rangeUnit === "days" ? 10 : 11,

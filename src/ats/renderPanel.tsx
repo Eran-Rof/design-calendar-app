@@ -346,6 +346,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         setExcelData={setExcelData}
         aiBuildContext={aiBuildContext}
         aiSetters={aiSetters}
+        filteredCount={filtered.length}
+        lastSync={lastSync}
       />
       <SyncProgressBanner syncProgress={syncProgress} />
       <UnmatchedBanner
@@ -436,7 +438,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           freezeKey={freezeKey ?? null} setFreezeKey={setFreezeKey!}
           hiddenColumns={hiddenColumns ?? []} setHiddenColumns={setHiddenColumns!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
-          filteredCount={filtered.length} lastSync={lastSync}
         />
 
         {/* LEGEND */}

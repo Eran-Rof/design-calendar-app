@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import S from "../styles";
-import { fmtDateDisplay } from "../helpers";
 import type { ExcelData } from "../types";
 
 // Reusable searchable dropdown built to match the existing Customer/Vendor
@@ -266,8 +265,6 @@ interface ToolbarProps {
   // sale prices or cost basis. 0-100, drives the totals row only.
   generalMarginPct: number;
   setGeneralMarginPct: (v: number) => void;
-  filteredCount: number;
-  lastSync: string;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -289,7 +286,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
-  filteredCount, lastSync,
 }) => {
   // Margin input is decimal-aware. A separate `draft` string is what
   // the controlled <input> binds to, so the user can type "21." and
@@ -713,21 +709,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </label>
       );
     })()}{/* /MARGIN bubble — totals-conditional */}
-
-
-    <div style={{ color: "#6B7280", fontSize: 12, whiteSpace: "nowrap" }}>
-      {filteredCount.toLocaleString()} SKUs
-      {/* lastSync is a UTC ISO from server (api/_lib/ats-parse.js writes new Date().toISOString()).
-          Splitting on "T" keeps the UTC date, but the time below is converted to local via
-          toLocaleTimeString — produces a "May/13 5:02 PM" mismatch when local is UTC- and
-          the sync ran late in the local day (UTC has rolled to tomorrow). Use local date
-          for both halves so date + time always agree. */}
-      {lastSync && (() => {
-        const d = new Date(lastSync);
-        const localIso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-        return <span style={{ display: "block" }}>Synced {fmtDateDisplay(localIso)} {d.toLocaleTimeString()}</span>;
-      })()}
-    </div>
   </div>
   );
 };
