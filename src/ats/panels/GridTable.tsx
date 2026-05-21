@@ -309,28 +309,27 @@ export const GridTable: React.FC<GridTableProps> = ({
     boxSizing: "border-box",
     padding: "4px 10px",
     background: "#1E293B",
-    // Divider between totals row and column-header row, drawn THREE ways
-    // for redundancy because sticky cells under vertical scroll are prone
-    // to Chrome compositor culling of plain borders:
-    //   1. Real borderBottom (2px, the original mechanism)
-    //   2. Inset box-shadow at the cell's bottom edge (paints inside the
-    //      box, survives compositor culling that drops the border)
-    //   3. borderTop on the column-header row's cells (see headerRowDivider
-    //      below) — paints into the next row's top edge, so if the totals
-    //      row goes invisible briefly during scroll, the line still shows.
-    borderBottom: "2px solid #475569",
-    boxShadow: "inset 0 -2px 0 #475569",
+    // No borderBottom / no boxShadow divider here. Previous attempts to
+    // draw the divider via cell-level styling kept failing because Chrome
+    // culls borders/shadows on sticky <th> elements during scroll-stack
+    // composites. Divider now lives on its own dedicated <tr> below — a
+    // solid-fill 3px cell that's part of the table layout and doesn't
+    // depend on any per-cell border rendering.
     fontSize: 12,
     textTransform: "none",
     letterSpacing: 0,
     verticalAlign: "middle",
   };
-  // Divider on the column-header row — applied to every cell in that row
-  // (sticky-left + period). Active only when the totals row is showing.
-  // 3px chosen to swamp any subpixel rounding between the two sticky tops.
-  const headerRowDivider: React.CSSProperties = showTotalsRow
-    ? { borderTop: "3px solid #475569" }
-    : {};
+  // Vertical offset for the column-header row when the divider row is
+  // present. The divider row sits at top: TOTALS_ROW_HEIGHT with height 3,
+  // so the column header has to start 3px lower to leave room.
+  const DIVIDER_HEIGHT = 3;
+  const headerRowTop = showTotalsRow ? TOTALS_ROW_HEIGHT + DIVIDER_HEIGHT : 0;
+  // Total visible column count for the divider cell's colSpan. Counts
+  // the visible sticky-left cols plus the period cols. Updates when
+  // operator hides cols or changes the horizon — that's why it's
+  // computed per render rather than memoized.
+  const dividerColSpan = STICKY_COL_META.filter(c => !isHidden(c.key)).length + displayPeriods.length;
 
   // Renders a single totals cell with stacked lines:
   //   Qty / B Inven / Cost / Sale / Mrgn $ / Mrgn % / E Inven
@@ -505,7 +504,35 @@ export const GridTable: React.FC<GridTableProps> = ({
             })()}
           </tr>
           )}
-          {/* Column headers — pushed below the totals row */}
+          {/* Dedicated divider row — solid 3px slate-600 band between the
+              totals row and the column-header row. Built as its own sticky
+              <tr> after every prior border/shadow attempt was culled by
+              Chrome on sticky <th> cells during scroll. A single colSpan
+              cell with a background fill is reliably composited because
+              it's the cell's CONTENT, not a border. zIndex 5 keeps it
+              above data rows (z 2) and column header row sticky cells
+              (z 3) so nothing can paint over it during horizontal scroll. */}
+          {showTotalsRow && (
+            <tr>
+              <th
+                colSpan={dividerColSpan}
+                style={{
+                  position: "sticky",
+                  top: TOTALS_ROW_HEIGHT,
+                  height: DIVIDER_HEIGHT,
+                  padding: 0,
+                  background: "#475569",
+                  border: "none",
+                  zIndex: 5,
+                  // line-height: 0 so any stray ASCII (whitespace) in this
+                  // empty cell can't expand its height past 3px.
+                  lineHeight: 0,
+                  fontSize: 0,
+                }}
+              />
+            </tr>
+          )}
+          {/* Column headers — pushed below the totals row + divider */}
           <tr>
             {/* Sticky left columns. Hidden columns (operator-toggled
                 via the Toolbar's "Columns" dropdown) are dropped here
@@ -520,13 +547,12 @@ export const GridTable: React.FC<GridTableProps> = ({
                   key={c.key}
                   style={{
                     ...S.th, ...S.stickyCol,
-                    top: showTotalsRow ? TOTALS_ROW_HEIGHT : 0,
+                    top: headerRowTop,
                     left, minWidth: stickyWidths[c.key], zIndex: 3,
                     textAlign: ci >= 5 ? "center" : "left",
                     cursor: "pointer",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     background: isActive ? "#243048" : "#1E293B",
-                    ...headerRowDivider,
                     ...unfreezeStyle(c.key),
                   }}
                   onClick={() => handleThClick(c.key)}
@@ -543,13 +569,12 @@ export const GridTable: React.FC<GridTableProps> = ({
                   key={p.key}
                   style={{
                     ...S.th,
-                    top: showTotalsRow ? TOTALS_ROW_HEIGHT : 0,
+                    top: headerRowTop,
                     minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
                     textAlign: "center",
                     background: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
                     color: isActive ? "#F1F5F9" : p.isToday ? "#10B981" : p.isWeekend ? "#475569" : "#6B7280",
                     borderBottom: p.isToday ? "2px solid #10B981" : "1px solid #334155",
-                    ...headerRowDivider,
                     whiteSpace: "pre-line",
                     lineHeight: 1.3,
                     fontSize: rangeUnit === "days" ? 10 : 11,
