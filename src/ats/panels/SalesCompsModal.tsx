@@ -3,17 +3,24 @@
 // then shows a TY vs LY comparison.
 //
 // Selection step: AppDatePicker for start/end (custom popover, no native
-// browser widget so styling is consistent across apps), plus dropdowns
-// pre-populated from the grid's current filter state. Operator can
-// override any filter before running.
+// browser widget so styling is consistent across apps), plus searchable
+// dropdowns pre-populated from the grid's current filter state. Each
+// dropdown closes on outside click. A radio toggle picks Summary vs
+// Detailed output.
 //
-// Results step: top summary card (TY total / LY total / Δ) + per-SKU
-// table sorted by TY revenue. Back button returns to the selection
-// view without losing inputs.
+// Results step: an expanded summary block (totals for qty / rev / cogs /
+// margin$ / margin%) and — in Detailed mode — a per-SKU table sorted
+// by largest TY revenue. Cross-grid sku_ids are resolved via the item-
+// master cache, so the table shows the real sku_code (e.g. RYO0658PPK-
+// BLACK/BIRCH) instead of an opaque uuid prefix. An Excel-download
+// button on the results view emits the same shape as the on-screen
+// data so it can live alongside the existing ATS reports folder.
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
+import { getItemMasterById } from "../itemMasterLookup";
 import type { ATSRow, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -24,6 +31,12 @@ function yearStartIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-01-01`;
 }
+function isoMinusMonths(iso: string, months: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
+  const d = new Date(iso + "T00:00:00");
+  d.setMonth(d.getMonth() - months);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 function fmtUSD(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "—";
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -32,10 +45,25 @@ function fmtPct(num: number, denom: number): string {
   if (!Number.isFinite(num) || !Number.isFinite(denom) || denom <= 0) return "—";
   return `${((num / denom) * 100).toFixed(1)}%`;
 }
-function fmtDiff(ty: number, ly: number): { text: string; positive: boolean } {
-  if (!Number.isFinite(ty) || !Number.isFinite(ly) || ly === 0) return { text: ty > 0 ? "NEW" : "—", positive: ty > 0 };
-  const diff = (ty - ly) / ly;
-  return { text: `${diff >= 0 ? "+" : ""}${(diff * 100).toFixed(1)}%`, positive: diff >= 0 };
+// Revenue/qty growth math — matches the ATS export's t3VsLyCell:
+// (ty - ly) / ty (NOT divided by ly). NEW when ty > 0 and ly = 0.
+function fmtGrowth(ty: number, ly: number): { text: string; positive: boolean } {
+  if (!Number.isFinite(ty)) ty = 0;
+  if (!Number.isFinite(ly)) ly = 0;
+  if (ty <= 0 && ly <= 0) return { text: "—", positive: true };
+  if (ty <= 0) return { text: "Only LY", positive: false };
+  const frac = (ty - ly) / ty;
+  return { text: `${frac >= 0 ? "+" : ""}${(frac * 100).toFixed(1)}%`, positive: frac >= 0 };
+}
+// Margin-points diff — matches the ATS export's marginDiffCell: a plain
+// subtraction of the two margin percentages (no division). Result is in
+// percentage points (e.g. 22% TY − 19% LY = "+3.0pp").
+function fmtMarginPoints(tyMrgn: number, tyRev: number, lyMrgn: number, lyRev: number): { text: string; positive: boolean } {
+  const tyPct = tyRev > 0 ? tyMrgn / tyRev : 0;
+  const lyPct = lyRev > 0 ? lyMrgn / lyRev : 0;
+  if (tyPct === 0 || lyPct === 0) return { text: "—", positive: true };
+  const diff = tyPct - lyPct;
+  return { text: `${diff >= 0 ? "+" : ""}${(diff * 100).toFixed(1)}pp`, positive: diff >= 0 };
 }
 
 // Theme tokens — mirror NavBar/ExportOptionsModal so the new modal looks
@@ -47,7 +75,6 @@ const C = {
   textMuted:  "#94A3B8",
   textDim:    "#64748B",
   accent:     "#10B981",
-  accentSoft: "#6EE7B7",
   rowAlt:     "#0F172A",
   green:      "#10B981",
   red:        "#F87171",
@@ -64,81 +91,80 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
+type ViewMode = "summary" | "detailed";
+
 interface SelectFieldProps<T extends string> {
   label: string;
   value: T[];
   options: T[];
   onChange: (next: T[]) => void;
-  // single = render as plain select; multi = checkbox dropdown
   multi?: boolean;
-  // human-readable description shown under the label
   hint?: string;
 }
 function SelectField<T extends string>({ label, value, options, onChange, multi, hint }: SelectFieldProps<T>): React.ReactElement {
-  // useState lives at the top so the hook is called on every render
-  // regardless of `multi`. Conditional hook calls (the early-return
-  // pattern that mixed with a useState below the branch) violate the
-  // Rules of Hooks and cause React error #310.
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // Click-outside closes the multi-select popover. Listens only while
+  // open so we don't waste handlers on idle dropdowns.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t || !wrapRef.current) return;
+      if (!wrapRef.current.contains(t)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
   if (!multi) {
     const single = value[0] ?? "";
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
         {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-        <select
-          value={single}
-          onChange={e => onChange(e.target.value ? [e.target.value as T] : [])}
-          style={inputStyle}
-        >
+        <select value={single} onChange={e => onChange(e.target.value ? [e.target.value as T] : [])} style={inputStyle}>
           <option value="">All</option>
           {options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       </div>
     );
   }
-  // Multi: render a summary + dropdown of checkboxes. Tight footprint;
-  // no popover gymnastics — we want this to feel like an inline form.
+
+  const filtered = search.trim() === ""
+    ? options
+    : options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.join(", ") : `${value.length} selected`;
-  const toggle = (o: T) => {
-    onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
-  };
+  const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }}>
+    <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }}>
       <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
       {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}
-      >
+      <button type="button" onClick={() => setOpen(o => !o)} style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}>
         {summary}
         <span style={{ float: "right", color: C.textDim, fontSize: 10 }}>▼</span>
       </button>
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            right: 0,
-            zIndex: 1100,
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 6,
-            maxHeight: 220,
-            overflowY: "auto",
-            padding: 4,
-            boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
-          }}
-        >
-          {options.length === 0 && <div style={{ fontSize: 11, color: C.textDim, padding: 6 }}>No options</div>}
-          {options.map(o => (
-            <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-              <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o}</span>
-            </label>
-          ))}
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 1100, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, maxHeight: 260, display: "flex", flexDirection: "column", padding: 4, boxShadow: "0 6px 18px rgba(0,0,0,0.5)" }}>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            autoFocus
+            style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, marginBottom: 4 }}
+          />
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {filtered.length === 0 && <div style={{ fontSize: 11, color: C.textDim, padding: 6 }}>No matches</div>}
+            {filtered.map(o => (
+              <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o}</span>
+              </label>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -148,20 +174,20 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
 interface Props {
   open: boolean;
   onClose: () => void;
-  // Pre-populated filter scope — auto-defaults to whatever the grid
-  // toolbar has selected when the modal opens. Operator can override
-  // any field before running.
   defaultCustomer: string;
   defaultCategories: string[];
   defaultSubCategories: string[];
   defaultStyles: string[];
   defaultStoreFilter: string[];
-  // The grid's row set + excelData needed by fetchSalesAggregates to
-  // resolve sku_id ↔ ATS sku and surface cross-grid synthetic rows.
-  // Dropdown option lists are derived from these rows so the modal
-  // doesn't need a separate prop per filter dimension.
   rows: ATSRow[];
   excelData: ExcelData | null;
+}
+
+interface AggRow {
+  sku: string;
+  styleKey: string;       // BASE-COLOR — used to dedupe cross-grid hits
+  tyQty: number; tyRev: number; tyMrgn: number;
+  lyQty: number; lyRev: number; lyMrgn: number;
 }
 
 export const SalesCompsModal: React.FC<Props> = ({
@@ -169,9 +195,6 @@ export const SalesCompsModal: React.FC<Props> = ({
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
   rows, excelData,
 }) => {
-  // Filter option lists derived from rows. Prefer the cleaner
-  // master_* fields populated by ip_item_master enrichment; fall back
-  // to the row's own field when master didn't match.
   const categories = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) { const v = r.master_category ?? r.category; if (v) s.add(v); }
@@ -193,6 +216,7 @@ export const SalesCompsModal: React.FC<Props> = ({
     if (s.size === 0) ["ROF", "ROF ECOM", "PT", "PT ECOM"].forEach(c => s.add(c));
     return [...s].sort();
   }, [rows]);
+
   const [start, setStart] = useState(yearStartIso());
   const [end,   setEnd]   = useState(todayIso());
   const [customer, setCustomer]                 = useState<string[]>(defaultCustomer ? [defaultCustomer] : []);
@@ -200,58 +224,40 @@ export const SalesCompsModal: React.FC<Props> = ({
   const [selSubCategories, setSelSubCategories] = useState<string[]>(defaultSubCategories);
   const [selStyles, setSelStyles]               = useState<string[]>(defaultStyles);
   const [selStores, setSelStores]               = useState<string[]>(defaultStoreFilter);
+  const [viewMode, setViewMode]                 = useState<ViewMode>("detailed");
 
   const [running, setRunning] = useState(false);
   const [result, setResult]   = useState<SalesFetchResult | null>(null);
   const [rangeWarn, setRangeWarn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Customer list comes from excelData.sos — same source ExportOptions
-  // uses. Sorted + deduped.
   const customers = useMemo(() => {
     const set = new Set<string>();
     if (excelData) for (const s of excelData.sos) if (s.customerName) set.add(s.customerName);
     return [...set].sort();
   }, [excelData]);
 
-  // Summary rollup across all SKUs in the fetch result (t3 = TY since
-  // the picker shifts the window, ly = LY by design). Hooks (including
-  // useMemo) MUST be declared before the early return below — React
-  // requires a stable hook call order across renders (error #310).
-  const summary = useMemo(() => {
-    if (!result) return null;
-    let tyQty = 0, tyRev = 0, tyMrgn = 0;
-    let lyQty = 0, lyRev = 0, lyMrgn = 0;
-    for (const a of result.t3.values()) { tyQty += a.qty; tyRev += a.totalPrice; tyMrgn += a.marginAmount; }
-    for (const a of result.ly.values()) { lyQty += a.qty; lyRev += a.totalPrice; lyMrgn += a.marginAmount; }
-    for (const e of result.extraBySkuId.values()) {
-      tyQty += e.t3Qty; tyRev += e.t3Total; tyMrgn += e.t3Margin;
-      lyQty += e.lyQty; lyRev += e.lyTotal; lyMrgn += e.lyMargin;
-    }
-    return { tyQty, tyRev, tyMrgn, lyQty, lyRev, lyMrgn };
-  }, [result]);
-
-  // Per-SKU table: merge t3 and ly maps + extras into a single keyed list
-  // sorted by max(ty rev, ly rev) so the biggest movers float to the top.
-  const tableRows = useMemo(() => {
+  // Per-SKU aggregate, rolled up by sku_code (BASE-COLOR). Cross-grid
+  // sku_ids are resolved via the item-master cache so the table shows
+  // a real "RBB1438N-BLACK" instead of "[cross-grid] xxxxxxxx".
+  // Entries we can't resolve to a real master record are dropped —
+  // "only show styles" per the spec.
+  const tableRows = useMemo<AggRow[]>(() => {
     if (!result) return [];
-    type Row = { sku: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number };
-    const map = new Map<string, Row>();
-    const ensure = (sku: string): Row => {
+    const map = new Map<string, AggRow>();
+    const ensure = (sku: string): AggRow => {
       const cur = map.get(sku);
       if (cur) return cur;
-      const fresh: Row = { sku, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
+      const fresh: AggRow = { sku, styleKey: sku, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
       map.set(sku, fresh);
       return fresh;
     };
     for (const [sku, a] of result.t3) { const r = ensure(sku); r.tyQty += a.qty; r.tyRev += a.totalPrice; r.tyMrgn += a.marginAmount; }
     for (const [sku, a] of result.ly) { const r = ensure(sku); r.lyQty += a.qty; r.lyRev += a.totalPrice; r.lyMrgn += a.marginAmount; }
-    // extras don't have a string sku; surface them under their sku_id
-    // so the operator can at least see the magnitude. Cross-grid coverage
-    // is best-effort — the export-render layer resolves these more
-    // thoroughly.
     for (const [skuId, e] of result.extraBySkuId) {
-      const r = ensure(`[cross-grid] ${skuId.slice(0, 8)}`);
+      const master = getItemMasterById(skuId);
+      if (!master?.sku_code) continue; // drop unresolvable rows
+      const r = ensure(master.sku_code);
       r.tyQty += e.t3Qty; r.tyRev += e.t3Total; r.tyMrgn += e.t3Margin;
       r.lyQty += e.lyQty; r.lyRev += e.lyTotal; r.lyMrgn += e.lyMargin;
     }
@@ -260,8 +266,19 @@ export const SalesCompsModal: React.FC<Props> = ({
       .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
   }, [result]);
 
-  // All hooks above, all conditional rendering below. Plain values + handlers
-  // (not hooks) can sit on either side — they don't affect hook order.
+  // Totals across the rolled-up rows — basis for the summary cards.
+  const totals = useMemo(() => {
+    let tyQty = 0, tyRev = 0, tyMrgn = 0, lyQty = 0, lyRev = 0, lyMrgn = 0;
+    for (const r of tableRows) {
+      tyQty += r.tyQty; tyRev += r.tyRev; tyMrgn += r.tyMrgn;
+      lyQty += r.lyQty; lyRev += r.lyRev; lyMrgn += r.lyMrgn;
+    }
+    return {
+      tyQty, tyRev, tyMrgn, tyCogs: tyRev - tyMrgn,
+      lyQty, lyRev, lyMrgn, lyCogs: lyRev - lyMrgn,
+    };
+  }, [tableRows]);
+
   if (!open) return null;
 
   const run = async () => {
@@ -271,16 +288,14 @@ export const SalesCompsModal: React.FC<Props> = ({
     setRunning(true);
     try {
       const r = await fetchSalesAggregates({
-        rows,
-        needT3: true,
-        needLY: true,
-        customer:  customer[0] || "",
-        customStart: start,
-        customEnd:   end,
-        storeFilter:      selStores.length > 0 ? selStores : undefined,
-        filterCategory:   selCategories.length > 0 ? selCategories : undefined,
+        rows, needT3: true, needLY: true,
+        customer:          customer[0] || "",
+        customStart:       start,
+        customEnd:         end,
+        storeFilter:       selStores.length > 0 ? selStores : undefined,
+        filterCategory:    selCategories.length > 0 ? selCategories : undefined,
         filterSubCategory: selSubCategories.length > 0 ? selSubCategories : undefined,
-        filterStyle:      selStyles.length > 0 ? selStyles : undefined,
+        filterStyle:       selStyles.length > 0 ? selStyles : undefined,
       });
       setResult(r);
     } catch (e: any) {
@@ -290,23 +305,68 @@ export const SalesCompsModal: React.FC<Props> = ({
     }
   };
 
-  const reset = () => {
-    setResult(null);
-    setError(null);
+  const reset = () => { setResult(null); setError(null); };
+
+  const downloadExcel = () => {
+    if (!result) return;
+    const scope = [
+      customer[0] && `customer ${customer[0]}`,
+      selStores.length > 0 && `stores ${selStores.join("/")}`,
+      selCategories.length > 0 && `categories ${selCategories.join("/")}`,
+      selSubCategories.length > 0 && `sub-cats ${selSubCategories.join("/")}`,
+      selStyles.length > 0 && `styles ${selStyles.join("/")}`,
+    ].filter(Boolean).join(" · ") || "all";
+    const aoa: (string | number)[][] = [
+      ["Sales Comps"],
+      [`TY window: ${start} → ${end}`],
+      [`LY window: ${isoMinusMonths(start, 12)} → ${isoMinusMonths(end, 12)}`],
+      [`Scope: ${scope}`],
+      [],
+      ["", "TY", "LY", "Δ"],
+      ["Units",   totals.tyQty,   totals.lyQty,   fmtGrowth(totals.tyQty,  totals.lyQty).text],
+      ["Revenue", totals.tyRev,   totals.lyRev,   fmtGrowth(totals.tyRev,  totals.lyRev).text],
+      ["COGS",    totals.tyCogs,  totals.lyCogs,  fmtGrowth(totals.tyCogs, totals.lyCogs).text],
+      ["Margin $", totals.tyMrgn, totals.lyMrgn,  fmtGrowth(totals.tyMrgn, totals.lyMrgn).text],
+      ["Margin %",
+        totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
+        totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
+        fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text],
+      [],
+    ];
+    if (viewMode === "detailed") {
+      aoa.push(["SKU", "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"]);
+      for (const r of tableRows) {
+        aoa.push([
+          r.sku,
+          r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
+          r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
+          r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
+          r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
+          fmtGrowth(r.tyRev, r.lyRev).text,
+          fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
+        ]);
+      }
+    }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Comps");
+    XLSX.writeFile(wb, `SalesComps_${start}_to_${end}.xlsx`);
   };
 
+  const scopeLine = [
+    customer[0] && `customer ${customer[0]}`,
+    selStores.length > 0 && `stores ${selStores.join("/")}`,
+    selCategories.length > 0 && `categories ${selCategories.length}`,
+    selSubCategories.length > 0 && `sub-cats ${selSubCategories.length}`,
+    selStyles.length > 0 && `styles ${selStyles.length}`,
+  ].filter(Boolean).join(" · ") || "all";
+
   return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }}
-        onClick={e => e.stopPropagation()}
-      >
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results</span>}
+            Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results ({viewMode})</span>}
           </div>
           <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
         </div>
@@ -328,18 +388,32 @@ export const SalesCompsModal: React.FC<Props> = ({
               </div>
             </div>
             <div style={{ fontSize: 11, color: C.textDim, marginTop: -8 }}>
-              LY window auto-computes: {(() => { const ly = (d: string) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "—"; const dt = new Date(d + "T00:00:00"); dt.setMonth(dt.getMonth() - 12); return dt.toISOString().slice(0, 10); }; return `${ly(start)} → ${ly(end)}`; })()}
+              LY window auto-computes: {isoMinusMonths(start, 12)} → {isoMinusMonths(end, 12)}
             </div>
 
             {rangeWarn && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Start date must be on or before End date.</div>}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} hint="Empty = all customers" />
+              <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi hint="Empty = all customers" />
               <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi hint="Empty = all stores" />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
               <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
             </div>
+
+            <fieldset style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", margin: 0 }}>
+              <legend style={{ fontSize: 11, color: C.textMuted, padding: "0 4px", fontWeight: 600 }}>Output</legend>
+              <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                  <input type="radio" name="comps-view" checked={viewMode === "summary"} onChange={() => setViewMode("summary")} />
+                  <span><strong>Summary</strong> — totals only (qty / sales / COGS / margin $ / margin %)</span>
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                  <input type="radio" name="comps-view" checked={viewMode === "detailed"} onChange={() => setViewMode("detailed")} />
+                  <span><strong>Detailed</strong> — totals + per-SKU table</span>
+                </label>
+              </div>
+            </fieldset>
 
             {error && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Fetch failed: {error}</div>}
 
@@ -352,69 +426,62 @@ export const SalesCompsModal: React.FC<Props> = ({
           </div>
         )}
 
-        {result && summary && (
+        {result && (
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              <SummaryCard label="TY Revenue" big={fmtUSD(summary.tyRev)} sub={`${summary.tyQty.toLocaleString()} units · ${fmtPct(summary.tyMrgn, summary.tyRev)} margin`} />
-              <SummaryCard label="LY Revenue" big={fmtUSD(summary.lyRev)} sub={`${summary.lyQty.toLocaleString()} units · ${fmtPct(summary.lyMrgn, summary.lyRev)} margin`} />
-              <SummaryCard
-                label="TY vs LY"
-                big={fmtDiff(summary.tyRev, summary.lyRev).text}
-                sub={`${summary.tyRev - summary.lyRev >= 0 ? "+" : ""}${fmtUSD(Math.abs(summary.tyRev - summary.lyRev))} vs LY`}
-                positive={fmtDiff(summary.tyRev, summary.lyRev).positive}
-              />
-            </div>
+            <SummaryBlock totals={totals} />
 
             <div style={{ fontSize: 11, color: C.textDim }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · scope: {[
-                customer[0] && `customer ${customer[0]}`,
-                selStores.length > 0 && `stores ${selStores.join("/")}`,
-                selCategories.length > 0 && `categories ${selCategories.length}`,
-                selSubCategories.length > 0 && `sub-cats ${selSubCategories.length}`,
-                selStyles.length > 0 && `styles ${selStyles.length}`,
-              ].filter(Boolean).join(" · ") || "all"}
+              Window: {start} → {end} (TY) · {tableRows.length} SKUs · scope: {scopeLine}
             </div>
 
-            <div style={{ flex: 1, minHeight: 280, maxHeight: "55vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
-                  <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <th style={th()}>SKU</th>
-                    <th style={th("right")}>TY Qty</th>
-                    <th style={th("right")}>TY Rev</th>
-                    <th style={th("right")}>TY Mrgn%</th>
-                    <th style={th("right")}>LY Qty</th>
-                    <th style={th("right")}>LY Rev</th>
-                    <th style={th("right")}>LY Mrgn%</th>
-                    <th style={th("right")}>Δ Rev</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRows.map((r, i) => {
-                    const diff = fmtDiff(r.tyRev, r.lyRev);
-                    return (
-                      <tr key={r.sku} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
-                        <td style={td()}>{r.sku}</td>
-                        <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
-                        <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
-                        <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>
-                        <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
-                        <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
-                        <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>
-                        <td style={{ ...td("right"), color: diff.positive ? C.green : C.red, fontWeight: 600 }}>{diff.text}</td>
-                      </tr>
-                    );
-                  })}
-                  {tableRows.length === 0 && (
-                    <tr><td colSpan={8} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {viewMode === "detailed" && (
+              <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
+                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <th style={th()}>SKU</th>
+                      <th style={th("right")}>TY Qty</th>
+                      <th style={th("right")}>TY Rev</th>
+                      <th style={th("right")}>TY Mrgn%</th>
+                      <th style={th("right")}>LY Qty</th>
+                      <th style={th("right")}>LY Rev</th>
+                      <th style={th("right")}>LY Mrgn%</th>
+                      <th style={th("right")}>Δ Rev</th>
+                      <th style={th("right")}>Δ Mrgn pp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((r, i) => {
+                      const growth = fmtGrowth(r.tyRev, r.lyRev);
+                      const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
+                      return (
+                        <tr key={r.sku} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
+                          <td style={td()}>{r.sku}</td>
+                          <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
+                          <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
+                          <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>
+                          <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
+                          <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
+                          <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>
+                          <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
+                          <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>
+                        </tr>
+                      );
+                    })}
+                    {tableRows.length === 0 && (
+                      <tr><td colSpan={9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
-              <button onClick={reset} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.text, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>← Back</button>
-              <button onClick={onClose} style={{ background: C.accent, border: `1px solid ${C.accent}`, color: "#001A12", padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Done</button>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={downloadExcel} style={{ background: "#1D6F42", border: "1px solid #155734", color: "#fff", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>↓ Download Excel</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={reset} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.text, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>← Back</button>
+                <button onClick={onClose} style={{ background: C.accent, border: `1px solid ${C.accent}`, color: "#001A12", padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Done</button>
+              </div>
             </div>
           </div>
         )}
@@ -430,13 +497,38 @@ function td(align: "left" | "right" = "left", color: string = C.text): React.CSS
   return { textAlign: align, padding: "6px 10px", fontSize: 12, color, borderTop: `1px solid ${C.border}` };
 }
 
-interface SummaryCardProps { label: string; big: string; sub: string; positive?: boolean }
-function SummaryCard({ label, big, sub, positive }: SummaryCardProps): React.ReactElement {
+// Five-row summary block. Used in both view modes — same totals appear
+// regardless. Detailed mode renders the per-SKU table below this.
+function SummaryBlock({ totals }: { totals: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number } }): React.ReactElement {
+  const rows: Array<{ label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted" }> = [
+    { label: "Units",   ty: totals.tyQty.toLocaleString(), ly: totals.lyQty.toLocaleString(), diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
+    { label: "Revenue", ty: fmtUSD(totals.tyRev),          ly: fmtUSD(totals.lyRev),          diff: fmtGrowth(totals.tyRev,  totals.lyRev)  },
+    { label: "COGS",    ty: fmtUSD(totals.tyCogs),         ly: fmtUSD(totals.lyCogs),         diff: fmtGrowth(totals.tyCogs, totals.lyCogs), tone: "muted" },
+    { label: "Margin $", ty: fmtUSD(totals.tyMrgn),        ly: fmtUSD(totals.lyMrgn),         diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn) },
+    { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev) },
+  ];
   return (
-    <div style={{ background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px" }}>
-      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2, color: positive == null ? C.text : positive ? C.green : C.red }}>{big}</div>
-      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{sub}</div>
+    <div style={{ background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            <th style={{ textAlign: "left",  padding: "4px 8px", fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Metric</th>
+            <th style={{ textAlign: "right", padding: "4px 8px", fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>TY</th>
+            <th style={{ textAlign: "right", padding: "4px 8px", fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>LY</th>
+            <th style={{ textAlign: "right", padding: "4px 8px", fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Δ TY vs LY</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.label}>
+              <td style={{ padding: "6px 8px", fontWeight: 600, color: r.tone === "muted" ? C.textMuted : C.text }}>{r.label}</td>
+              <td style={{ padding: "6px 8px", textAlign: "right", color: r.tone === "muted" ? C.textMuted : C.text }}>{r.ty}</td>
+              <td style={{ padding: "6px 8px", textAlign: "right", color: C.textMuted }}>{r.ly}</td>
+              <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: r.diff.positive ? C.green : C.red }}>{r.diff.text}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
