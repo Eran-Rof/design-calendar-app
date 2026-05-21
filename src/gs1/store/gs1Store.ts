@@ -66,7 +66,7 @@ import type {
   ExceptionGroup,
 } from "../types";
 
-export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "labels" | "cartons" | "receiving" | "templates" | "exceptions" | "notifications";
+export type GS1Tab = "company" | "upc" | "scale" | "gtins" | "upload" | "pa_unpacker" | "labels" | "cartons" | "receiving" | "templates" | "exceptions" | "notifications";
 
 interface GS1State {
   activeTab: GS1Tab;
