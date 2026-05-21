@@ -7,6 +7,7 @@
 
 import React, { useMemo, useState } from "react";
 import type { ExcelData } from "../types";
+import { AppDatePicker } from "../../shared/components/AppDatePicker";
 
 function todayIso(): string {
   const d = new Date();
@@ -331,23 +332,18 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 28, fontSize: 12, color: "#94A3B8" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ width: 36 }}>From</span>
-                      <input
-                        type="date"
+                      <AppDatePicker
                         value={customStart}
-                        max={customEnd || undefined}
-                        onChange={e => setCustomStart(e.target.value)}
-                        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "5px 8px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit" }}
+                        onCommit={setCustomStart}
+                        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "5px 8px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", minWidth: 120 }}
                       />
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ width: 36 }}>To</span>
-                      <input
-                        type="date"
+                      <AppDatePicker
                         value={customEnd}
-                        min={customStart || undefined}
-                        max={todayIso()}
-                        onChange={e => setCustomEnd(e.target.value)}
-                        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "5px 8px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit" }}
+                        onCommit={setCustomEnd}
+                        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "5px 8px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", minWidth: 120 }}
                       />
                     </div>
                     <div style={{ fontSize: 11, color: "#64748B" }}>
