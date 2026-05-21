@@ -314,6 +314,7 @@ export interface FetchSalesArgs {
   filterCategory?: string[];
   filterSubCategory?: string[];
   filterStyle?: string[];
+  filterGender?: string[];
   // Optional custom window for the T3 block. When provided, T3
   // aggregates use [customStart, customEnd] instead of the default
   // "last 3 months from today", and SP LY uses the same window shifted
@@ -437,7 +438,7 @@ function cacheCovers(start: string, end: string): boolean {
   return start >= salesCacheStart && end <= salesCacheEnd;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, needByCustomer }: FetchSalesArgs): Promise<SalesFetchResult> {
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, filterGender, needByCustomer }: FetchSalesArgs): Promise<SalesFetchResult> {
   // Window resolution. Default: T3 = trailing 3 months from today;
   // LY = same window shifted back 12 months (== [today-15m, today-12m]).
   // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
@@ -564,13 +565,15 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   const hasFilterableNonStoreSelection =
     (filterCategory    && filterCategory.length    > 0) ||
     (filterSubCategory && filterSubCategory.length > 0) ||
-    (filterStyle       && filterStyle.length       > 0);
+    (filterStyle       && filterStyle.length       > 0) ||
+    (filterGender      && filterGender.length      > 0);
   let validSkuIds: Set<string> | null = null;
   if (hasFilterableNonStoreSelection || wantStoreFilter) {
     validSkuIds = getMatchingItemMasterIds({
       filterCategory:    filterCategory    ?? [],
       filterSubCategory: filterSubCategory ?? [],
       filterStyle:       filterStyle       ?? [],
+      filterGender:      filterGender      ?? [],
     });
   }
   // Cross-grid: sku_ids that have sales but aren't in the current grid.
