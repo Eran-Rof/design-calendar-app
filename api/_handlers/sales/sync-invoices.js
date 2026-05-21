@@ -25,6 +25,7 @@ import {
   deriveSalesGrainFields,
   detectPackPricedAsUnit,
   findSiblingPpkMaster,
+  isChargebackReversalRow,
   SUSPICIOUS_PRICE_RATIO,
 } from "../../_lib/sales-grain.js";
 import { detectSoStore } from "../../_lib/ats-parse.js";
@@ -176,6 +177,7 @@ export default async function handler(req, res) {
     skipped_no_sku: 0,
     skipped_no_date: 0,
     skipped_zero_qty: 0,
+    skipped_cb_reversal: 0,
     new_items_created: 0,
     new_customers_created: 0,
     deleted_before_insert: 0,
@@ -219,6 +221,11 @@ export default async function handler(req, res) {
     const amount = toNum(r["Amount"]);
     const invoiceNumber = str(r["Invoice Number"]) || null;
     const description = str(r["Description"]);
+
+    if (isChargebackReversalRow(itemNumber, description)) {
+      counts.skipped_cb_reversal++;
+      continue;
+    }
 
     if (!missingSkus.has(sku)) {
       missingSkus.set(sku, { itemNumber, description });

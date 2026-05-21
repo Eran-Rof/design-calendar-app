@@ -19,6 +19,16 @@
 
 const PPK_TOKEN_RE = /(?:^|[^A-Z])PPK\d*(?:[^A-Z0-9]|$)/i;
 
+// Xoro chargeback-reversal rows (e.g. ROSSCBREVERSAL / "Ross CB
+// Reversal") are accounting adjustments, not real sales. Skip when
+// BOTH the item number and description tag the row — the AND keeps
+// the filter conservative: a legit item whose description happens
+// to mention "reversal" alone won't be dropped.
+export function isChargebackReversalRow(itemNumber, description) {
+  return /CBREVERSAL/i.test(String(itemNumber || ""))
+      && /cb\s*reversal/i.test(String(description || ""));
+}
+
 export function inferQtyGrain(rawItemNumber, packSize) {
   if (!rawItemNumber) return "unit";
   if (!packSize || packSize <= 1) return "unit";
