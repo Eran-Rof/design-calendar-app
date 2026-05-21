@@ -225,6 +225,11 @@ export const SalesCompsModal: React.FC<Props> = ({
   const [selStyles, setSelStyles]               = useState<string[]>(defaultStyles);
   const [selStores, setSelStores]               = useState<string[]>(defaultStoreFilter);
   const [viewMode, setViewMode]                 = useState<ViewMode>("detailed");
+  // Customer-facing toggle. When ON, COGS / Margin $ / Margin % rows
+  // are hidden from the summary, the per-SKU table, and the Excel
+  // export. Mirrors the pattern in ExportOptionsModal so internal
+  // shoppable numbers don't accidentally leave the building.
+  const [customerFacing, setCustomerFacing]     = useState(false);
 
   const [running, setRunning] = useState(false);
   const [result, setResult]   = useState<SalesFetchResult | null>(null);
@@ -320,37 +325,47 @@ export const SalesCompsModal: React.FC<Props> = ({
       ["Sales Comps"],
       [`TY window: ${start} → ${end}`],
       [`LY window: ${isoMinusMonths(start, 12)} → ${isoMinusMonths(end, 12)}`],
-      [`Scope: ${scope}`],
+      [`Scope: ${scope}${customerFacing ? "  (customer-facing — margin hidden)" : ""}`],
       [],
       ["", "TY", "LY", "Δ"],
       ["Units",   totals.tyQty,   totals.lyQty,   fmtGrowth(totals.tyQty,  totals.lyQty).text],
       ["Revenue", totals.tyRev,   totals.lyRev,   fmtGrowth(totals.tyRev,  totals.lyRev).text],
-      ["COGS",    totals.tyCogs,  totals.lyCogs,  fmtGrowth(totals.tyCogs, totals.lyCogs).text],
-      ["Margin $", totals.tyMrgn, totals.lyMrgn,  fmtGrowth(totals.tyMrgn, totals.lyMrgn).text],
-      ["Margin %",
+    ];
+    if (!customerFacing) {
+      aoa.push(["COGS",    totals.tyCogs,  totals.lyCogs,  fmtGrowth(totals.tyCogs, totals.lyCogs).text]);
+      aoa.push(["Margin $", totals.tyMrgn, totals.lyMrgn,  fmtGrowth(totals.tyMrgn, totals.lyMrgn).text]);
+      aoa.push(["Margin %",
         totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
         totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
-        fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text],
-      [],
-    ];
+        fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text]);
+    }
+    aoa.push([]);
     if (viewMode === "detailed") {
-      aoa.push(["SKU", "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"]);
+      const header: string[] = customerFacing
+        ? ["SKU", "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
+        : ["SKU", "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"];
+      aoa.push(header);
       for (const r of tableRows) {
-        aoa.push([
-          r.sku,
-          r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
-          r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
-          r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
-          r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
-          fmtGrowth(r.tyRev, r.lyRev).text,
-          fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
-        ]);
+        if (customerFacing) {
+          aoa.push([r.sku, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]);
+        } else {
+          aoa.push([
+            r.sku,
+            r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
+            r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
+            r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
+            r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
+            fmtGrowth(r.tyRev, r.lyRev).text,
+            fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
+          ]);
+        }
       }
     }
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     XLSX.utils.book_append_sheet(wb, ws, "Sales Comps");
-    XLSX.writeFile(wb, `SalesComps_${start}_to_${end}.xlsx`);
+    const cfSuffix = customerFacing ? "_customer" : "";
+    XLSX.writeFile(wb, `SalesComps_${start}_to_${end}${cfSuffix}.xlsx`);
   };
 
   const scopeLine = [
@@ -413,6 +428,10 @@ export const SalesCompsModal: React.FC<Props> = ({
                   <span><strong>Detailed</strong> — totals + per-SKU table</span>
                 </label>
               </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                <input type="checkbox" checked={customerFacing} onChange={e => setCustomerFacing(e.target.checked)} />
+                <span><strong>Customer-facing</strong> — hide COGS / Margin $ / Margin % from the report and Excel export</span>
+              </label>
             </fieldset>
 
             {error && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Fetch failed: {error}</div>}
@@ -428,10 +447,10 @@ export const SalesCompsModal: React.FC<Props> = ({
 
         {result && (
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
-            <SummaryBlock totals={totals} />
+            <SummaryBlock totals={totals} customerFacing={customerFacing} />
 
             <div style={{ fontSize: 11, color: C.textDim }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · scope: {scopeLine}
+              Window: {start} → {end} (TY) · {tableRows.length} SKUs · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
             </div>
 
             {viewMode === "detailed" && (
@@ -442,12 +461,12 @@ export const SalesCompsModal: React.FC<Props> = ({
                       <th style={th()}>SKU</th>
                       <th style={th("right")}>TY Qty</th>
                       <th style={th("right")}>TY Rev</th>
-                      <th style={th("right")}>TY Mrgn%</th>
+                      {!customerFacing && <th style={th("right")}>TY Mrgn%</th>}
                       <th style={th("right")}>LY Qty</th>
                       <th style={th("right")}>LY Rev</th>
-                      <th style={th("right")}>LY Mrgn%</th>
+                      {!customerFacing && <th style={th("right")}>LY Mrgn%</th>}
                       <th style={th("right")}>Δ Rev</th>
-                      <th style={th("right")}>Δ Mrgn pp</th>
+                      {!customerFacing && <th style={th("right")}>Δ Mrgn pp</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -459,17 +478,17 @@ export const SalesCompsModal: React.FC<Props> = ({
                           <td style={td()}>{r.sku}</td>
                           <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                           <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
-                          <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>
+                          {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}
                           <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
                           <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
-                          <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>
+                          {!customerFacing && <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>}
                           <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
-                          <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>
+                          {!customerFacing && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>}
                         </tr>
                       );
                     })}
                     {tableRows.length === 0 && (
-                      <tr><td colSpan={9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
+                      <tr><td colSpan={customerFacing ? 6 : 9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -497,16 +516,20 @@ function td(align: "left" | "right" = "left", color: string = C.text): React.CSS
   return { textAlign: align, padding: "6px 10px", fontSize: 12, color, borderTop: `1px solid ${C.border}` };
 }
 
-// Five-row summary block. Used in both view modes — same totals appear
-// regardless. Detailed mode renders the per-SKU table below this.
-function SummaryBlock({ totals }: { totals: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number } }): React.ReactElement {
-  const rows: Array<{ label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted" }> = [
-    { label: "Units",   ty: totals.tyQty.toLocaleString(), ly: totals.lyQty.toLocaleString(), diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
-    { label: "Revenue", ty: fmtUSD(totals.tyRev),          ly: fmtUSD(totals.lyRev),          diff: fmtGrowth(totals.tyRev,  totals.lyRev)  },
-    { label: "COGS",    ty: fmtUSD(totals.tyCogs),         ly: fmtUSD(totals.lyCogs),         diff: fmtGrowth(totals.tyCogs, totals.lyCogs), tone: "muted" },
-    { label: "Margin $", ty: fmtUSD(totals.tyMrgn),        ly: fmtUSD(totals.lyMrgn),         diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn) },
-    { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev) },
+// Five-row summary block (Units, Revenue, COGS, Margin $, Margin %).
+// Used in both view modes — same totals appear regardless. Detailed
+// mode renders the per-SKU table below this. When customerFacing is
+// true, COGS / Margin $ / Margin % are dropped so the report can be
+// shared externally.
+function SummaryBlock({ totals, customerFacing }: { totals: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number }; customerFacing: boolean }): React.ReactElement {
+  const allRows: Array<{ label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted"; internalOnly?: boolean }> = [
+    { label: "Units",    ty: totals.tyQty.toLocaleString(),       ly: totals.lyQty.toLocaleString(),       diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
+    { label: "Revenue",  ty: fmtUSD(totals.tyRev),                ly: fmtUSD(totals.lyRev),                diff: fmtGrowth(totals.tyRev,  totals.lyRev)  },
+    { label: "COGS",     ty: fmtUSD(totals.tyCogs),               ly: fmtUSD(totals.lyCogs),               diff: fmtGrowth(totals.tyCogs, totals.lyCogs), tone: "muted", internalOnly: true },
+    { label: "Margin $", ty: fmtUSD(totals.tyMrgn),               ly: fmtUSD(totals.lyMrgn),               diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn), internalOnly: true },
+    { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev), internalOnly: true },
   ];
+  const rows = customerFacing ? allRows.filter(r => !r.internalOnly) : allRows;
   return (
     <div style={{ background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
