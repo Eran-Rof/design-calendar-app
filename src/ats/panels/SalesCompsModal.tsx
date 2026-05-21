@@ -20,7 +20,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
-import { getItemMasterById } from "../itemMasterLookup";
+import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import type { ATSRow, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -91,7 +91,21 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
-type ViewMode = "summary" | "detailed";
+// "View By" dimensions the results step can roll up against. Multi-
+// select — each selected dimension renders its own CompsTable in the
+// results pane. "so" is a special view that compares open SOs to LY
+// ship $ using the SO's cancel_date as the reference; the rest are
+// straightforward group-bys of the existing fetch result.
+type ViewByKey = "customer" | "category" | "sub_category" | "style" | "sku" | "so";
+const VIEW_BY_LABELS: Record<ViewByKey, string> = {
+  customer:     "Customer",
+  category:     "Category",
+  sub_category: "Sub-Category",
+  style:        "Style",
+  sku:          "SKU",
+  so:           "SO (open vs LY ship)",
+};
+const VIEW_BY_OPTIONS: ViewByKey[] = ["customer", "category", "sub_category", "style", "sku", "so"];
 
 interface SelectFieldProps<T extends string> {
   label: string;
@@ -100,8 +114,14 @@ interface SelectFieldProps<T extends string> {
   onChange: (next: T[]) => void;
   multi?: boolean;
   hint?: string;
+  // Optional display formatter — used by the View By selector which
+  // wants "Sub-Category" shown even though the underlying key is
+  // "sub_category". Other callers pass plain string options and don't
+  // need this.
+  optionLabel?: (o: T) => string;
 }
-function SelectField<T extends string>({ label, value, options, onChange, multi, hint }: SelectFieldProps<T>): React.ReactElement {
+function SelectField<T extends string>({ label, value, options, onChange, multi, hint, optionLabel }: SelectFieldProps<T>): React.ReactElement {
+  const fmt = (o: T) => optionLabel ? optionLabel(o) : o;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -126,7 +146,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
         {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
         <select value={single} onChange={e => onChange(e.target.value ? [e.target.value as T] : [])} style={inputStyle}>
           <option value="">All</option>
-          {options.map(o => <option key={o} value={o}>{o}</option>)}
+          {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
         </select>
       </div>
     );
@@ -135,7 +155,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
   const filtered = search.trim() === ""
     ? options
     : options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
-  const summary = value.length === 0 ? "All" : value.length <= 2 ? value.join(", ") : `${value.length} selected`;
+  const summary = value.length === 0 ? "All" : value.length <= 2 ? value.map(fmt).join(", ") : `${value.length} selected`;
   const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
 
   return (
@@ -161,7 +181,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
             {filtered.map(o => (
               <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                 <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(o)}</span>
               </label>
             ))}
           </div>
@@ -216,6 +236,14 @@ export const SalesCompsModal: React.FC<Props> = ({
     if (allStores.length > 0) return [...allStores].sort();
     return ["ROF", "ROF ECOM", "PT", "PT ECOM"];
   }, [allStores]);
+  // Gender option list — derived from rows (no equivalent allGenders
+  // prop yet; the gender domain is small enough that the filtered-
+  // rows derivation is rarely missing values in practice).
+  const genders = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) { if (r.gender) s.add(r.gender); }
+    return [...s].sort();
+  }, [rows]);
 
   const [start, setStart] = useState(yearStartIso());
   const [end,   setEnd]   = useState(todayIso());
@@ -224,7 +252,12 @@ export const SalesCompsModal: React.FC<Props> = ({
   const [selSubCategories, setSelSubCategories] = useState<string[]>(defaultSubCategories);
   const [selStyles, setSelStyles]               = useState<string[]>(defaultStyles);
   const [selStores, setSelStores]               = useState<string[]>(defaultStoreFilter);
-  const [viewMode, setViewMode]                 = useState<ViewMode>("detailed");
+  const [selGenders, setSelGenders]             = useState<string[]>([]);
+  // Multi-select for the results layout. Each selected dimension gets
+  // its own CompsTable. Default is Customer (matches the old Summary
+  // mode); operators can add Style/Category/etc. to stack additional
+  // breakdowns underneath. "sku" replaces the old Detailed mode.
+  const [viewBy, setViewBy]                     = useState<ViewByKey[]>(["customer"]);
   // Customer-facing toggle. When ON, COGS / Margin $ / Margin % rows
   // are hidden from the summary, the per-SKU table, and the Excel
   // export. Mirrors the pattern in ExportOptionsModal so internal
@@ -319,6 +352,7 @@ export const SalesCompsModal: React.FC<Props> = ({
         filterCategory:    selCategories.length > 0 ? selCategories : undefined,
         filterSubCategory: selSubCategories.length > 0 ? selSubCategories : undefined,
         filterStyle:       selStyles.length > 0 ? selStyles : undefined,
+        filterGender:      selGenders.length > 0 ? selGenders : undefined,
         // Pull per-customer rollup so Summary mode can render a
         // customer-by-customer breakdown alongside the grand total.
         // Cheap — one extra batched ip_customer_master lookup, no
@@ -334,6 +368,24 @@ export const SalesCompsModal: React.FC<Props> = ({
   };
 
   const reset = () => { setResult(null); setError(null); };
+  // Clear button on the selection step. Resets everything back to
+  // defaults — dates back to YTD, every filter dropdown empty, view-by
+  // back to Customer, customer-facing off. Operator can start fresh
+  // without closing + reopening the modal.
+  const clearAll = () => {
+    setStart(yearStartIso());
+    setEnd(todayIso());
+    setCustomer([]);
+    setSelCategories([]);
+    setSelSubCategories([]);
+    setSelStyles([]);
+    setSelStores([]);
+    setSelGenders([]);
+    setViewBy(["customer"]);
+    setCustomerFacing(false);
+    setRangeWarn(false);
+    setError(null);
+  };
 
   const downloadExcel = () => {
     if (!result) return;
@@ -363,46 +415,54 @@ export const SalesCompsModal: React.FC<Props> = ({
         fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text]);
     }
     aoa.push([]);
-    // Summary view → per-customer rollup. Detailed view → per-SKU.
-    const isSummary = viewMode === "summary";
-    const leftLabel = isSummary ? "Customer" : "SKU";
-    const dataRows = isSummary
-      ? customerRows.map(c => ({ label: c.customer, tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn, lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn }))
-      : tableRows.map(r => ({ label: r.sku, tyQty: r.tyQty, tyRev: r.tyRev, tyMrgn: r.tyMrgn, lyQty: r.lyQty, lyRev: r.lyRev, lyMrgn: r.lyMrgn }));
-    const header: string[] = customerFacing
-      ? [leftLabel, "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
-      : [leftLabel, "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"];
-    aoa.push(header);
-    for (const r of dataRows) {
-      if (customerFacing) {
-        aoa.push([r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]);
-      } else {
-        aoa.push([
-          r.label,
-          r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
-          r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
-          r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
-          r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
-          fmtGrowth(r.tyRev, r.lyRev).text,
-          fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
-        ]);
+    // One table per selected View By dimension. SO is skipped (data
+    // model TBD — see modal placeholder).
+    for (const dim of viewBy) {
+      if (dim === "so") {
+        aoa.push([`-- ${VIEW_BY_LABELS[dim]} -- (data model TBD; placeholder)`]);
+        aoa.push([]);
+        continue;
       }
-    }
-    // Grand TOTAL row at the bottom — matches the on-screen table.
-    if (dataRows.length > 0) {
-      if (customerFacing) {
-        aoa.push(["TOTAL", totals.tyQty, totals.tyRev, totals.lyQty, totals.lyRev, fmtGrowth(totals.tyRev, totals.lyRev).text]);
-      } else {
-        aoa.push([
-          "TOTAL",
-          totals.tyQty, totals.tyRev, totals.tyCogs, totals.tyMrgn,
-          totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
-          totals.lyQty, totals.lyRev, totals.lyCogs, totals.lyMrgn,
-          totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
-          fmtGrowth(totals.tyRev, totals.lyRev).text,
-          fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text,
-        ]);
+      const dataRows = groupedRowsFor(dim, tableRows, customerRows);
+      aoa.push([`-- ${VIEW_BY_LABELS[dim]} --`]);
+      const header: string[] = customerFacing
+        ? [VIEW_BY_LABELS[dim], "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
+        : [VIEW_BY_LABELS[dim], "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"];
+      aoa.push(header);
+      for (const r of dataRows) {
+        if (customerFacing) {
+          aoa.push([r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]);
+        } else {
+          aoa.push([
+            r.label,
+            r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
+            r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
+            r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
+            r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
+            fmtGrowth(r.tyRev, r.lyRev).text,
+            fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
+          ]);
+        }
       }
+      // Per-view TOTAL row — sums always equal the grand totals across
+      // dimensions, but repeating the row inside each section keeps each
+      // table self-contained in the spreadsheet.
+      if (dataRows.length > 0) {
+        if (customerFacing) {
+          aoa.push(["TOTAL", totals.tyQty, totals.tyRev, totals.lyQty, totals.lyRev, fmtGrowth(totals.tyRev, totals.lyRev).text]);
+        } else {
+          aoa.push([
+            "TOTAL",
+            totals.tyQty, totals.tyRev, totals.tyCogs, totals.tyMrgn,
+            totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
+            totals.lyQty, totals.lyRev, totals.lyCogs, totals.lyMrgn,
+            totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
+            fmtGrowth(totals.tyRev, totals.lyRev).text,
+            fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text,
+          ]);
+        }
+      }
+      aoa.push([]);
     }
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -424,7 +484,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results ({viewMode})</span>}
+            Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
           </div>
           <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
         </div>
@@ -457,19 +517,21 @@ export const SalesCompsModal: React.FC<Props> = ({
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
               <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
+              <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi hint="Empty = all genders" />
             </div>
 
             <fieldset style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", margin: 0 }}>
               <legend style={{ fontSize: 11, color: C.textMuted, padding: "0 4px", fontWeight: 600 }}>Output</legend>
-              <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
-                <label title="Top-level totals only: qty, sales $, COGS $, margin $, margin %" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
-                  <input type="radio" name="comps-view" checked={viewMode === "summary"} onChange={() => setViewMode("summary")} />
-                  <strong>Summary</strong>
-                </label>
-                <label title="Totals plus per-SKU table sorted by largest TY revenue" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
-                  <input type="radio" name="comps-view" checked={viewMode === "detailed"} onChange={() => setViewMode("detailed")} />
-                  <strong>Detailed</strong>
-                </label>
+              <div title="Each selected dimension renders its own comparison table in the results. Pick one to focus, several to stack breakdowns. SO is an open-SO comparison anchored to the SO's cancel date.">
+                <SelectField<ViewByKey>
+                  label="View By"
+                  value={viewBy}
+                  options={VIEW_BY_OPTIONS}
+                  onChange={(next) => setViewBy(next.length === 0 ? ["customer"] : next)}
+                  multi
+                  hint="Pick one or more dimensions — each renders its own table"
+                  optionLabel={k => VIEW_BY_LABELS[k]}
+                />
               </div>
               <label title="Hide COGS / Margin $ / Margin % from the report and Excel export — safe to share externally" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
                 <input type="checkbox" checked={customerFacing} onChange={e => setCustomerFacing(e.target.checked)} />
@@ -479,11 +541,14 @@ export const SalesCompsModal: React.FC<Props> = ({
 
             {error && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Fetch failed: {error}</div>}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-              <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.text, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-              <button onClick={run} disabled={running} style={{ background: C.accent, border: `1px solid ${C.accent}`, color: "#001A12", padding: "8px 18px", borderRadius: 6, cursor: running ? "wait" : "pointer", fontSize: 13, fontWeight: 600, opacity: running ? 0.6 : 1 }}>
-                {running ? "Running…" : "Run Comp"}
-              </button>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 4, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={clearAll} title="Reset all filters + date range + view options to defaults" style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>Clear</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.text, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+                <button onClick={run} disabled={running} style={{ background: C.accent, border: `1px solid ${C.accent}`, color: "#001A12", padding: "8px 18px", borderRadius: 6, cursor: running ? "wait" : "pointer", fontSize: 13, fontWeight: 600, opacity: running ? 0.6 : 1 }}>
+                  {running ? "Running…" : "Run Comp"}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -493,26 +558,35 @@ export const SalesCompsModal: React.FC<Props> = ({
             <SummaryBlock totals={totals} customerFacing={customerFacing} />
 
             <div style={{ fontSize: 11, color: C.textDim }}>
-              Window: {start} → {end} (TY) · {viewMode === "summary" ? `${customerRows.length} customers` : `${tableRows.length} SKUs`} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
+              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
             </div>
 
-            {viewMode === "summary" && (
-              <CompsTable
-                colLabel="Customer"
-                rows={customerRows.map(c => ({ key: c.customer, label: c.customer, tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn, lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn }))}
-                totals={totals}
-                customerFacing={customerFacing}
-              />
-            )}
-
-            {viewMode === "detailed" && (
-              <CompsTable
-                colLabel="SKU"
-                rows={tableRows.map(r => ({ key: r.sku, label: r.sku, tyQty: r.tyQty, tyRev: r.tyRev, tyMrgn: r.tyMrgn, lyQty: r.lyQty, lyRev: r.lyRev, lyMrgn: r.lyMrgn }))}
-                totals={totals}
-                customerFacing={customerFacing}
-              />
-            )}
+            {/* Render one CompsTable per selected View By dimension.
+                The grouping logic for each dimension lives in
+                groupedRowsFor — sku/style/category/sub_category use the
+                item-master cache; customer uses the byCustomer rollup
+                from the fetch; SO is a placeholder pending the open-SO
+                data model. */}
+            {viewBy.map(dim => {
+              if (dim === "so") {
+                return (
+                  <div key={dim} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", color: C.textMuted, fontSize: 12, lineHeight: 1.5 }}>
+                    <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>SO view — open SOs vs LY ship $</div>
+                    Coming next. The data model for this view (matching open SOs to last-year shipped \$ using each SO's cancel_date as the anchor) needs alignment with the open-SO dataset before the table can render. Pick another View By dimension for now.
+                  </div>
+                );
+              }
+              const built = groupedRowsFor(dim, tableRows, customerRows);
+              return (
+                <CompsTable
+                  key={dim}
+                  colLabel={VIEW_BY_LABELS[dim]}
+                  rows={built}
+                  totals={totals}
+                  customerFacing={customerFacing}
+                />
+              );
+            })}
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
               <button onClick={downloadExcel} style={{ background: "#1D6F42", border: "1px solid #155734", color: "#fff", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>↓ Download Excel</button>
@@ -527,6 +601,47 @@ export const SalesCompsModal: React.FC<Props> = ({
     </div>
   );
 };
+
+// Build a CompsTable rows array for one of the simple View By
+// dimensions. SKU/customer pass through; style/category/sub_category
+// look the dimension value up via the item-master cache + group the
+// per-SKU rows. Rows without a resolvable dimension value land under
+// "(no <dim>)" so the operator can see how much money is unattributed.
+function groupedRowsFor(
+  dim: Exclude<ViewByKey, "so">,
+  skuRows: AggRow[],
+  customerRows: Array<{ customer: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }>,
+): Array<{ key: string; label: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }> {
+  if (dim === "sku") {
+    return skuRows.map(r => ({ key: r.sku, label: r.sku, tyQty: r.tyQty, tyRev: r.tyRev, tyMrgn: r.tyMrgn, lyQty: r.lyQty, lyRev: r.lyRev, lyMrgn: r.lyMrgn }));
+  }
+  if (dim === "customer") {
+    return customerRows.map(c => ({ key: c.customer, label: c.customer, tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn, lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn }));
+  }
+  const acc = new Map<string, { tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }>();
+  for (const r of skuRows) {
+    // Look up the dimension value via the master cache. sku-keyed
+    // lookup — first variant id under that sku string.
+    const ids = resolveItemMasterIds(r.sku);
+    let label: string | null = null;
+    for (const id of ids) {
+      const rec = getItemMasterById(id);
+      if (!rec) continue;
+      if (dim === "style")        label = rec.style_code ?? null;
+      if (dim === "category")     label = rec.attributes?.group_name    ?? null;
+      if (dim === "sub_category") label = rec.attributes?.category_name ?? null;
+      if (label) break;
+    }
+    const key = label ?? `(no ${VIEW_BY_LABELS[dim].toLowerCase()})`;
+    const cur = acc.get(key) ?? { tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
+    cur.tyQty += r.tyQty; cur.tyRev += r.tyRev; cur.tyMrgn += r.tyMrgn;
+    cur.lyQty += r.lyQty; cur.lyRev += r.lyRev; cur.lyMrgn += r.lyMrgn;
+    acc.set(key, cur);
+  }
+  return [...acc.entries()]
+    .map(([k, v]) => ({ key: k, label: k, ...v }))
+    .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
+}
 
 function th(align: "left" | "right" = "left"): React.CSSProperties {
   return { textAlign: align, padding: "8px 10px", fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.04em" };

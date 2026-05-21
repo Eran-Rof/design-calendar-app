@@ -463,28 +463,33 @@ export function getMatchingItemMasterIds(filters: {
   filterCategory: string[];
   filterSubCategory: string[];
   filterStyle: string[];
+  filterGender?: string[];
 }): Set<string> | null {
   if (!byId || !byStyleCode) return null;
   const wantCategory    = filters.filterCategory.length    > 0 ? new Set(filters.filterCategory)    : null;
   const wantSubCategory = filters.filterSubCategory.length > 0 ? new Set(filters.filterSubCategory) : null;
   const wantStyle       = filters.filterStyle.length       > 0 ? new Set(filters.filterStyle)       : null;
+  const wantGender      = filters.filterGender && filters.filterGender.length > 0 ? new Set(filters.filterGender) : null;
   const out = new Set<string>();
   for (const rec of byId.values()) {
-    // Variant rows inherit category / sub-category from the style row
-    // when their own attributes are empty (verified live, see comments
-    // on ItemMasterRecord.attributes).
+    // Variant rows inherit category / sub-category / gender from the
+    // style row when their own attributes are empty (verified live,
+    // see comments on ItemMasterRecord.attributes).
     let cat    = rec.attributes?.group_name    ?? null;
     let subCat = rec.attributes?.category_name ?? null;
-    if ((!cat || !subCat) && rec.style_code) {
+    let gender = rec.attributes?.gender        ?? null;
+    if ((!cat || !subCat || !gender) && rec.style_code) {
       const styleRow = byStyleCode.get(rec.style_code.toUpperCase());
       if (styleRow) {
         cat    = cat    ?? styleRow.attributes?.group_name    ?? null;
         subCat = subCat ?? styleRow.attributes?.category_name ?? null;
+        gender = gender ?? styleRow.attributes?.gender        ?? null;
       }
     }
     if (wantCategory    && !wantCategory.has(cat ?? ""))           continue;
     if (wantSubCategory && !wantSubCategory.has(subCat ?? ""))      continue;
     if (wantStyle       && !wantStyle.has(rec.style_code ?? ""))    continue;
+    if (wantGender      && !wantGender.has(gender ?? ""))            continue;
     out.add(rec.id);
   }
   return out;
