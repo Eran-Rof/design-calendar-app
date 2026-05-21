@@ -21,7 +21,7 @@ import * as XLSX from "xlsx";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
-import type { ATSRow, ExcelData } from "../types";
+import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
   const d = new Date();
@@ -220,6 +220,22 @@ interface AggRow {
   lyQty: number; lyRev: number; lyMrgn: number;
 }
 
+// SO comp row. Mixed "row" / "subtotal" kind because the style-grouped
+// variant of the SO view interleaves subtotal rows between style
+// groups (only when a style has ≥ 2 SOs).
+interface SoRow {
+  kind: "row" | "subtotal";
+  key: string;
+  label: string;
+  // Optional metadata columns shown only in the per-SO modes.
+  style?: string;
+  orderNumber?: string;
+  customer?: string;
+  cancelDate?: string;
+  tyQty: number; tyRev: number; tyMrgn: number;
+  lyQty: number; lyRev: number; lyMrgn: number;
+}
+
 export const SalesCompsModal: React.FC<Props> = ({
   open, onClose,
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
@@ -316,6 +332,197 @@ export const SalesCompsModal: React.FC<Props> = ({
       lyQty, lyRev, lyMrgn, lyCogs: lyRev - lyMrgn,
     };
   }, [tableRows]);
+
+  // LY ship $ keyed by master_style — used by the SO view to fetch
+  // "same style all colors" comparison numbers. result.ly is keyed by
+  // variant-level sku; we collapse to style via the item-master cache.
+  const lyRevByStyle = useMemo(() => {
+    const m = new Map<string, { qty: number; rev: number; mrgn: number }>();
+    if (!result) return m;
+    const add = (style: string | null | undefined, qty: number, rev: number, mrgn: number) => {
+      if (!style) return;
+      const cur = m.get(style) ?? { qty: 0, rev: 0, mrgn: 0 };
+      cur.qty += qty; cur.rev += rev; cur.mrgn += mrgn;
+      m.set(style, cur);
+    };
+    for (const [sku, a] of result.ly) {
+      const ids = resolveItemMasterIds(sku);
+      let style: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (rec?.style_code) { style = rec.style_code; break; }
+      }
+      add(style, a.qty, a.totalPrice, a.marginAmount);
+    }
+    for (const [skuId, e] of result.extraBySkuId) {
+      const rec = getItemMasterById(skuId);
+      add(rec?.style_code, e.lyQty, e.lyTotal, e.lyMargin);
+    }
+    return m;
+  }, [result]);
+
+  // SO view rows. Built from the OPEN SOs in excelData, filtered by
+  // every form selection: cancel-date within TY window, plus
+  // customer / store / category / sub-cat / style / gender. LY column
+  // comes from the lyRevByStyle map above ("same style, all colors").
+  //
+  // Row grouping follows whichever OTHER View By dimension the operator
+  // picked together with SO:
+  //   • Style co-selected → one row per (style, SO) — multiple SOs
+  //     with the same style produce multiple lines; subtotals when a
+  //     style spans ≥ 2 SOs.
+  //   • Customer / Category / Sub-Category co-selected → aggregate
+  //     under that dimension (sum of open SOs).
+  //   • Only SO selected → one row per SO order_number.
+  // A grand-total row closes every variant.
+  const soRows = useMemo<SoRow[]>(() => {
+    if (!result || !excelData) return [];
+    if (!viewBy.includes("so")) return [];
+    const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
+    // Resolve each open SO's master_style + master_category + master_sub_category
+    // up front so we can apply scope filters without doing the lookup
+    // multiple times per SO.
+    const enriched: Array<{ s: ATSSoEvent; style: string | null; category: string | null; subCategory: string | null; gender: string | null; cancelDate: string }> = [];
+    for (const s of excelData.sos) {
+      if (!s.date || s.date < start || s.date > end) continue;
+      if (!want(selStores, s.store)) continue;
+      if (customer[0] && s.customerName !== customer[0]) continue;
+      const ids = resolveItemMasterIds(s.sku);
+      let style: string | null = null;
+      let cat: string | null = null;
+      let subCat: string | null = null;
+      let gender: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (!rec) continue;
+        style  = style  ?? rec.style_code               ?? null;
+        cat    = cat    ?? rec.attributes?.group_name    ?? null;
+        subCat = subCat ?? rec.attributes?.category_name ?? null;
+        gender = gender ?? rec.attributes?.gender        ?? null;
+        if (style && cat && subCat && gender) break;
+      }
+      if (!want(selCategories, cat))       continue;
+      if (!want(selSubCategories, subCat)) continue;
+      if (!want(selStyles, style))         continue;
+      if (!want(selGenders, gender))       continue;
+      enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: s.date });
+    }
+
+    const groupBy: "style" | "customer" | "category" | "sub_category" | "so" =
+      viewBy.includes("style")        ? "style"        :
+      viewBy.includes("customer")     ? "customer"     :
+      viewBy.includes("category")     ? "category"     :
+      viewBy.includes("sub_category") ? "sub_category" :
+      "so";
+
+    const out: SoRow[] = [];
+    if (groupBy === "style") {
+      // One row per (style, SO). LY comes from lyRevByStyle (shared
+      // across all SOs of the same style — that's intentional, the
+      // user asked for "same style all colors" matching).
+      const groups = new Map<string, SoRow[]>();
+      for (const e of enriched) {
+        const styleKey = e.style ?? "(no style)";
+        const lyEntry = lyRevByStyle.get(styleKey) ?? { qty: 0, rev: 0, mrgn: 0 };
+        const row: SoRow = {
+          kind: "row",
+          key: `${styleKey}::${e.s.orderNumber}`,
+          label: `${styleKey} — ${e.s.orderNumber}`,
+          style: styleKey,
+          orderNumber: e.s.orderNumber,
+          customer: e.s.customerName,
+          cancelDate: e.cancelDate,
+          tyQty: e.s.qty,
+          tyRev: e.s.totalPrice,
+          tyMrgn: 0, // open SOs don't carry per-row cost here
+          lyQty: lyEntry.qty,
+          lyRev: lyEntry.rev,
+          lyMrgn: lyEntry.mrgn,
+        };
+        if (!groups.has(styleKey)) groups.set(styleKey, []);
+        groups.get(styleKey)!.push(row);
+      }
+      // Style groups, sorted by total TY rev descending. Subtotal row
+      // only when the group has ≥ 2 SOs (one-line groups don't need
+      // a subtotal — the row is its own total).
+      const sorted = [...groups.entries()].sort((a, b) => {
+        const aSum = a[1].reduce((s, r) => s + r.tyRev, 0);
+        const bSum = b[1].reduce((s, r) => s + r.tyRev, 0);
+        return bSum - aSum;
+      });
+      for (const [style, rows] of sorted) {
+        for (const r of rows) out.push(r);
+        if (rows.length >= 2) {
+          out.push({
+            kind: "subtotal",
+            key: `__subtotal::${style}`,
+            label: `Subtotal — ${style}`,
+            tyQty: rows.reduce((s, r) => s + r.tyQty, 0),
+            tyRev: rows.reduce((s, r) => s + r.tyRev, 0),
+            tyMrgn: 0,
+            lyQty: rows[0].lyQty,    // same style → same LY (no double-count)
+            lyRev: rows[0].lyRev,
+            lyMrgn: rows[0].lyMrgn,
+          });
+        }
+      }
+    } else if (groupBy === "so") {
+      // Default: one row per SO order_number.
+      for (const e of enriched) {
+        const lyEntry = lyRevByStyle.get(e.style ?? "") ?? { qty: 0, rev: 0, mrgn: 0 };
+        out.push({
+          kind: "row",
+          key: e.s.orderNumber,
+          label: e.s.orderNumber,
+          style: e.style ?? undefined,
+          orderNumber: e.s.orderNumber,
+          customer: e.s.customerName,
+          cancelDate: e.cancelDate,
+          tyQty: e.s.qty,
+          tyRev: e.s.totalPrice,
+          tyMrgn: 0,
+          lyQty: lyEntry.qty,
+          lyRev: lyEntry.rev,
+          lyMrgn: lyEntry.mrgn,
+        });
+      }
+      out.sort((a, b) => b.tyRev - a.tyRev);
+    } else {
+      // Aggregate under customer / category / sub_category.
+      const dimGet = (e: typeof enriched[number]): string => {
+        if (groupBy === "customer") return e.s.customerName || "(no customer)";
+        if (groupBy === "category") return e.category || "(no category)";
+        return e.subCategory || "(no sub-category)";
+      };
+      const agg = new Map<string, { tyQty: number; tyRev: number; styles: Set<string> }>();
+      for (const e of enriched) {
+        const k = dimGet(e);
+        const cur = agg.get(k) ?? { tyQty: 0, tyRev: 0, styles: new Set<string>() };
+        cur.tyQty += e.s.qty;
+        cur.tyRev += e.s.totalPrice;
+        if (e.style) cur.styles.add(e.style);
+        agg.set(k, cur);
+      }
+      for (const [label, v] of agg) {
+        // LY for an aggregate row = sum of lyRevByStyle for every style
+        // touched by the rolled-up SOs. Same-style dedup is implicit
+        // because Set keys are unique.
+        let lyQty = 0, lyRev = 0, lyMrgn = 0;
+        for (const st of v.styles) {
+          const ent = lyRevByStyle.get(st);
+          if (!ent) continue;
+          lyQty += ent.qty; lyRev += ent.rev; lyMrgn += ent.mrgn;
+        }
+        out.push({
+          kind: "row", key: label, label,
+          tyQty: v.tyQty, tyRev: v.tyRev, tyMrgn: 0,
+          lyQty, lyRev, lyMrgn,
+        });
+      }
+      out.sort((a, b) => b.tyRev - a.tyRev);
+    }
+    return out;
+  }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle]);
 
   // Per-customer rows for the Summary view. Sorted by TY revenue
   // descending so the biggest customers appear first. Dropped rows
@@ -419,7 +626,23 @@ export const SalesCompsModal: React.FC<Props> = ({
     // model TBD — see modal placeholder).
     for (const dim of viewBy) {
       if (dim === "so") {
-        aoa.push([`-- ${VIEW_BY_LABELS[dim]} -- (data model TBD; placeholder)`]);
+        aoa.push([`-- ${VIEW_BY_LABELS[dim]} --`]);
+        const showStyle = viewBy.includes("style");
+        const showPerOrder = showStyle || (!viewBy.includes("customer") && !viewBy.includes("category") && !viewBy.includes("sub_category"));
+        const hdr: string[] = [];
+        if (showStyle)    hdr.push("Style");
+        if (showPerOrder) hdr.push("Order #", "Cancel Date", "Customer");
+        if (!showPerOrder) hdr.push(viewBy.includes("customer") ? "Customer" : viewBy.includes("category") ? "Category" : "Sub-Category");
+        hdr.push("TY Qty", "TY Open SO $", "LY Qty", "LY Ship $ (style)", "Δ Rev");
+        aoa.push(hdr);
+        for (const r of soRows) {
+          const row: (string | number)[] = [];
+          if (showStyle)    row.push(r.kind === "subtotal" ? r.label : (r.style ?? "—"));
+          if (showPerOrder) row.push(r.orderNumber ?? "—", r.cancelDate ?? "—", r.customer ?? "—");
+          if (!showPerOrder) row.push(r.label);
+          row.push(r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text);
+          aoa.push(row);
+        }
         aoa.push([]);
         continue;
       }
@@ -570,10 +793,11 @@ export const SalesCompsModal: React.FC<Props> = ({
             {viewBy.map(dim => {
               if (dim === "so") {
                 return (
-                  <div key={dim} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", color: C.textMuted, fontSize: 12, lineHeight: 1.5 }}>
-                    <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>SO view — open SOs vs LY ship $</div>
-                    Coming next. The data model for this view (matching open SOs to last-year shipped \$ using each SO's cancel_date as the anchor) needs alignment with the open-SO dataset before the table can render. Pick another View By dimension for now.
-                  </div>
+                  <SoCompsTable
+                    key={dim}
+                    rows={soRows}
+                    viewBy={viewBy}
+                  />
                 );
               }
               const built = groupedRowsFor(dim, tableRows, customerRows);
@@ -721,6 +945,107 @@ function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: stri
 // mode renders the per-SKU table below this. When customerFacing is
 // true, COGS / Margin $ / Margin % are dropped so the report can be
 // shared externally.
+// SO comparison table. Different column shape from CompsTable:
+// includes Order#, Cancel Date, Customer (when not aggregated) along-
+// side TY (open SO $) and LY (ship $ for same style, all colors, in
+// the LY-shifted window). Subtotal rows mixed into the body when the
+// style-grouped variant is in play (>= 2 SOs per style).
+function SoCompsTable({ rows, viewBy }: { rows: SoRow[]; viewBy: ViewByKey[] }): React.ReactElement {
+  const showStyleCol    = viewBy.includes("style");
+  const showOrderCol    = viewBy.includes("style") || (!viewBy.includes("customer") && !viewBy.includes("category") && !viewBy.includes("sub_category"));
+  const showCancelCol   = showOrderCol;
+  const showCustomerCol = showOrderCol;
+  const dataRows = rows.filter(r => r.kind === "row");
+  const grandTotal = dataRows.reduce(
+    (acc, r) => ({
+      tyQty: acc.tyQty + r.tyQty,
+      tyRev: acc.tyRev + r.tyRev,
+      // Don't double-count LY for the style-grouped variant — multiple
+      // rows can share the same style + same LY entry. Track the
+      // already-counted styles client-side.
+      lyQty: acc.lyQty,
+      lyRev: acc.lyRev,
+    }),
+    { tyQty: 0, tyRev: 0, lyQty: 0, lyRev: 0 },
+  );
+  // Recompute LY total dedup'd by style.
+  const seenStyles = new Set<string>();
+  let lyQty = 0, lyRev = 0;
+  for (const r of dataRows) {
+    const key = r.style ?? r.key;
+    if (seenStyles.has(key)) continue;
+    seenStyles.add(key);
+    lyQty += r.lyQty; lyRev += r.lyRev;
+  }
+  grandTotal.lyQty = lyQty;
+  grandTotal.lyRev = lyRev;
+  const grandGrowth = fmtGrowth(grandTotal.tyRev, grandTotal.lyRev);
+  return (
+    <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            {showStyleCol    && <th style={th()}>Style</th>}
+            {showOrderCol    && <th style={th()}>Order #</th>}
+            {showCancelCol   && <th style={th()}>Cancel Date</th>}
+            {showCustomerCol && <th style={th()}>Customer</th>}
+            {!showOrderCol   && <th style={th()}>{viewBy.includes("customer") ? "Customer" : viewBy.includes("category") ? "Category" : "Sub-Category"}</th>}
+            <th style={th("right")}>TY Qty</th>
+            <th style={th("right")}>TY Open SO $</th>
+            <th style={th("right")}>LY Qty</th>
+            <th style={th("right")}>LY Ship $ (style)</th>
+            <th style={th("right")}>Δ Rev</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const growth = fmtGrowth(r.tyRev, r.lyRev);
+            if (r.kind === "subtotal") {
+              return (
+                <tr key={r.key} style={{ background: "rgba(16,185,129,0.10)", borderTop: `1px solid ${C.border}`, fontWeight: 600 }}>
+                  <td style={{ ...td(), fontWeight: 600, color: C.accent }} colSpan={(showStyleCol ? 1 : 0) + (showOrderCol ? 1 : 0) + (showCancelCol ? 1 : 0) + (showCustomerCol ? 1 : 0) + (!showOrderCol ? 1 : 0)}>{r.label}</td>
+                  <td style={{ ...td("right"), fontWeight: 600 }}>{r.tyQty.toLocaleString()}</td>
+                  <td style={{ ...td("right"), fontWeight: 600 }}>{fmtUSD(r.tyRev)}</td>
+                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{r.lyQty.toLocaleString()}</td>
+                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{fmtUSD(r.lyRev)}</td>
+                  <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
+                </tr>
+              );
+            }
+            return (
+              <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
+                {showStyleCol    && <td style={td()}>{r.style ?? "—"}</td>}
+                {showOrderCol    && <td style={td()}>{r.orderNumber ?? "—"}</td>}
+                {showCancelCol   && <td style={td()}>{r.cancelDate ?? "—"}</td>}
+                {showCustomerCol && <td style={td()}>{r.customer ?? "—"}</td>}
+                {!showOrderCol   && <td style={td()}>{r.label}</td>}
+                <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
+                <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
+                <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
+                <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
+                <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
+              </tr>
+            );
+          })}
+          {dataRows.length === 0 && (
+            <tr><td colSpan={5 + (showStyleCol ? 1 : 0) + (showOrderCol ? 1 : 0) + (showCancelCol ? 1 : 0) + (showCustomerCol ? 1 : 0) + (!showOrderCol ? 1 : 0)} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No open SOs with cancel_date in this window for the selected scope.</td></tr>
+          )}
+          {dataRows.length > 0 && (
+            <tr style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
+              <td style={{ ...td(), fontWeight: 700, color: C.accent }} colSpan={(showStyleCol ? 1 : 0) + (showOrderCol ? 1 : 0) + (showCancelCol ? 1 : 0) + (showCustomerCol ? 1 : 0) + (!showOrderCol ? 1 : 0)}>GRAND TOTAL</td>
+              <td style={{ ...td("right"), fontWeight: 700 }}>{grandTotal.tyQty.toLocaleString()}</td>
+              <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(grandTotal.tyRev)}</td>
+              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{grandTotal.lyQty.toLocaleString()}</td>
+              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(grandTotal.lyRev)}</td>
+              <td style={{ ...td("right"), color: grandGrowth.positive ? C.green : C.red, fontWeight: 700 }}>{grandGrowth.text}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function SummaryBlock({ totals, customerFacing }: { totals: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number }; customerFacing: boolean }): React.ReactElement {
   const allRows: Array<{ label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted"; internalOnly?: boolean }> = [
     { label: "Units",    ty: totals.tyQty.toLocaleString(),       ly: totals.lyQty.toLocaleString(),       diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
