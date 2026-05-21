@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import S from "../styles";
+import { fmtDateDisplay } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
 import { computeGridTotals } from "../computeTotals";
 import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
@@ -500,6 +501,12 @@ interface NavBarProps {
   // Ask AI button stays hidden (useful for read-only embeds).
   aiBuildContext?: () => GridContextSnapshot;
   aiSetters?: AIGridSetters;
+  // Filtered-row count + last sync timestamp. Rendered as a small
+  // metadata block in the navbar (right of "Available to Sell"), so
+  // the operator can see "1,087 SKUs / Synced ..." without scrolling
+  // past the totals row to find it on the toolbar.
+  filteredCount: number;
+  lastSync: string;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -511,6 +518,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
   aiBuildContext, aiSetters,
+  filteredCount, lastSync,
 }) => {
   const [aiOpen, setAiOpen] = useState(false);
   // PR 4/4: draft input pushed in from outside (e.g. right-click on a
@@ -1019,6 +1027,26 @@ export const NavBar: React.FC<NavBarProps> = ({
       <div style={S.navLogo}>ATS</div>
       <span style={S.navTitle}>ATS Report</span>
       <span style={S.navSub}>Available to Sell</span>
+      {/* Filtered-row count + last sync. Moved here from the toolbar
+          (2026-05-20) so the operator sees the totals without having
+          to scroll past the totals row. lastSync is a UTC ISO from
+          the server; we display the LOCAL date+time so they always
+          agree (toLocaleTimeString flipping past midnight UTC was
+          producing date/time mismatches when the operator was
+          UTC- and the sync ran late local-time). */}
+      <span style={{
+        ...S.navSub,
+        marginLeft: 8, paddingLeft: 12,
+        borderLeft: "1px solid #334155",
+        display: "inline-flex", flexDirection: "column", lineHeight: 1.25,
+      }}>
+        <span>{filteredCount.toLocaleString()} SKUs</span>
+        {lastSync && (() => {
+          const d = new Date(lastSync);
+          const localIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          return <span style={{ fontSize: 11, color: "#475569" }}>Synced {fmtDateDisplay(localIso)} {d.toLocaleTimeString()}</span>;
+        })()}
+      </span>
     </div>
     <div style={S.navRight}>
       {mergeHistory?.length > 0 && (
