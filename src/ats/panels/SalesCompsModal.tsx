@@ -317,6 +317,231 @@ export const SalesCompsModal: React.FC<Props> = ({
     };
   }, [tableRows]);
 
+  // LY ship $ keyed by master_style — used by the SO view to fetch
+  // "same style all colors" comparison numbers. result.ly is keyed by
+  // variant-level sku; we collapse to style via the item-master cache.
+  const lyRevByStyle = useMemo(() => {
+    const m = new Map<string, { qty: number; rev: number; mrgn: number }>();
+    if (!result) return m;
+    const add = (style: string | null | undefined, qty: number, rev: number, mrgn: number) => {
+      if (!style) return;
+      const cur = m.get(style) ?? { qty: 0, rev: 0, mrgn: 0 };
+      cur.qty += qty; cur.rev += rev; cur.mrgn += mrgn;
+      m.set(style, cur);
+    };
+    for (const [sku, a] of result.ly) {
+      const ids = resolveItemMasterIds(sku);
+      let style: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (rec?.style_code) { style = rec.style_code; break; }
+      }
+      add(style, a.qty, a.totalPrice, a.marginAmount);
+    }
+    for (const [skuId, e] of result.extraBySkuId) {
+      const rec = getItemMasterById(skuId);
+      add(rec?.style_code, e.lyQty, e.lyTotal, e.lyMargin);
+    }
+    return m;
+  }, [result]);
+
+  // SO view rows. Built from the OPEN SOs in excelData, filtered by
+  // every form selection: cancel-date within TY window, plus
+  // customer / store / category / sub-cat / style / gender. LY column
+  // comes from the lyRevByStyle map above ("same style, all colors").
+  //
+  // Row grouping follows whichever OTHER View By dimension the operator
+  // picked together with SO:
+  //   • Style co-selected → one row per (style, SO) — multiple SOs
+  //     with the same style produce multiple lines; subtotals when a
+  //     style spans ≥ 2 SOs.
+  //   • Customer / Category / Sub-Category co-selected → aggregate
+  //     under that dimension (sum of open SOs).
+  //   • Only SO selected → one row per SO order_number.
+  // A grand-total row closes every variant.
+  const soRows = useMemo<SoRow[]>(() => {
+    if (!result || !excelData) return [];
+    if (!viewBy.includes("so")) return [];
+    const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
+    // Resolve each open SO's master_style + master_category + master_sub_category
+    // up front so we can apply scope filters without doing the lookup
+    // multiple times per SO.
+    const enriched: Array<{ s: ATSSoEvent; style: string | null; category: string | null; subCategory: string | null; gender: string | null; cancelDate: string }> = [];
+    for (const s of excelData.sos) {
+      if (!s.date || s.date < start || s.date > end) continue;
+      if (!want(selStores, s.store)) continue;
+      if (customer[0] && s.customerName !== customer[0]) continue;
+      const ids = resolveItemMasterIds(s.sku);
+      let style: string | null = null;
+      let cat: string | null = null;
+      let subCat: string | null = null;
+      let gender: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (!rec) continue;
+        style  = style  ?? rec.style_code               ?? null;
+        cat    = cat    ?? rec.attributes?.group_name    ?? null;
+        subCat = subCat ?? rec.attributes?.category_name ?? null;
+        gender = gender ?? rec.attributes?.gender        ?? null;
+        if (style && cat && subCat && gender) break;
+      }
+      if (!want(selCategories, cat))       continue;
+      if (!want(selSubCategories, subCat)) continue;
+      if (!want(selStyles, style))         continue;
+      if (!want(selGenders, gender))       continue;
+      enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: s.date });
+    }
+
+    const groupBy: "style" | "customer" | "category" | "sub_category" | "so" =
+      viewBy.includes("style")        ? "style"        :
+      viewBy.includes("customer")     ? "customer"     :
+      viewBy.includes("category")     ? "category"     :
+      viewBy.includes("sub_category") ? "sub_category" :
+      "so";
+
+    const out: SoRow[] = [];
+    if (groupBy === "style") {
+      // One row per (style, SO). An SO with multiple SKUs of the
+      // same style (e.g. 3 colors of RYO0658 on the same order)
+      // collapses to ONE row — sum qty / totalPrice across the
+      // matching SKUs. LY comes from lyRevByStyle (shared across
+      // all SOs of the same style — that's intentional, the user
+      // asked for "same style all colors" matching).
+      const perStyleSo = new Map<string, SoRow>();
+      for (const e of enriched) {
+        const styleKey = e.style ?? "(no style)";
+        const composite = `${styleKey}::${e.s.orderNumber}`;
+        const existing = perStyleSo.get(composite);
+        if (existing) {
+          existing.tyQty += e.s.qty;
+          existing.tyRev += e.s.totalPrice;
+          continue;
+        }
+        const lyEntry = lyRevByStyle.get(styleKey) ?? { qty: 0, rev: 0, mrgn: 0 };
+        perStyleSo.set(composite, {
+          kind: "row",
+          key: composite,
+          label: `${styleKey} — ${e.s.orderNumber}`,
+          style: styleKey,
+          orderNumber: e.s.orderNumber,
+          customer: e.s.customerName,
+          cancelDate: e.cancelDate,
+          tyQty: e.s.qty,
+          tyRev: e.s.totalPrice,
+          tyMrgn: 0, // open SOs don't carry per-row cost here
+          lyQty: lyEntry.qty,
+          lyRev: lyEntry.rev,
+          lyMrgn: lyEntry.mrgn,
+        });
+      }
+      const groups = new Map<string, SoRow[]>();
+      for (const row of perStyleSo.values()) {
+        const styleKey = row.style ?? "(no style)";
+        if (!groups.has(styleKey)) groups.set(styleKey, []);
+        groups.get(styleKey)!.push(row);
+      }
+      // Style groups, sorted by total TY rev descending. Subtotal row
+      // only when the group has ≥ 2 SOs (one-line groups don't need
+      // a subtotal — the row is its own total).
+      const sorted = [...groups.entries()].sort((a, b) => {
+        const aSum = a[1].reduce((s, r) => s + r.tyRev, 0);
+        const bSum = b[1].reduce((s, r) => s + r.tyRev, 0);
+        return bSum - aSum;
+      });
+      for (const [style, rows] of sorted) {
+        for (const r of rows) out.push(r);
+        if (rows.length >= 2) {
+          out.push({
+            kind: "subtotal",
+            key: `__subtotal::${style}`,
+            label: `Subtotal — ${style}`,
+            tyQty: rows.reduce((s, r) => s + r.tyQty, 0),
+            tyRev: rows.reduce((s, r) => s + r.tyRev, 0),
+            tyMrgn: 0,
+            lyQty: rows[0].lyQty,    // same style → same LY (no double-count)
+            lyRev: rows[0].lyRev,
+            lyMrgn: rows[0].lyMrgn,
+          });
+        }
+      }
+    } else if (groupBy === "so") {
+      // Default: one row per SO order_number. Multiple SKUs / styles
+      // on the same SO collapse — sum qty / totalPrice across them.
+      // LY uses the SET of styles touched by the SO so the comp
+      // covers every style on that order.
+      const perOrder = new Map<string, { e: typeof enriched[number]; tyQty: number; tyRev: number; styles: Set<string> }>();
+      for (const e of enriched) {
+        const cur = perOrder.get(e.s.orderNumber);
+        if (cur) {
+          cur.tyQty += e.s.qty;
+          cur.tyRev += e.s.totalPrice;
+          if (e.style) cur.styles.add(e.style);
+        } else {
+          perOrder.set(e.s.orderNumber, {
+            e,
+            tyQty: e.s.qty,
+            tyRev: e.s.totalPrice,
+            styles: e.style ? new Set([e.style]) : new Set(),
+          });
+        }
+      }
+      for (const { e, tyQty, tyRev, styles } of perOrder.values()) {
+        let lyQty = 0, lyRev = 0, lyMrgn = 0;
+        for (const st of styles) {
+          const ent = lyRevByStyle.get(st);
+          if (!ent) continue;
+          lyQty += ent.qty; lyRev += ent.rev; lyMrgn += ent.mrgn;
+        }
+        out.push({
+          kind: "row",
+          key: e.s.orderNumber,
+          label: e.s.orderNumber,
+          style: styles.size === 1 ? [...styles][0] : (styles.size > 1 ? `${styles.size} styles` : undefined),
+          orderNumber: e.s.orderNumber,
+          customer: e.s.customerName,
+          cancelDate: e.cancelDate,
+          tyQty, tyRev, tyMrgn: 0,
+          lyQty, lyRev, lyMrgn,
+        });
+      }
+      out.sort((a, b) => b.tyRev - a.tyRev);
+    } else {
+      // Aggregate under customer / category / sub_category.
+      const dimGet = (e: typeof enriched[number]): string => {
+        if (groupBy === "customer") return e.s.customerName || "(no customer)";
+        if (groupBy === "category") return e.category || "(no category)";
+        return e.subCategory || "(no sub-category)";
+      };
+      const agg = new Map<string, { tyQty: number; tyRev: number; styles: Set<string> }>();
+      for (const e of enriched) {
+        const k = dimGet(e);
+        const cur = agg.get(k) ?? { tyQty: 0, tyRev: 0, styles: new Set<string>() };
+        cur.tyQty += e.s.qty;
+        cur.tyRev += e.s.totalPrice;
+        if (e.style) cur.styles.add(e.style);
+        agg.set(k, cur);
+      }
+      for (const [label, v] of agg) {
+        // LY for an aggregate row = sum of lyRevByStyle for every style
+        // touched by the rolled-up SOs. Same-style dedup is implicit
+        // because Set keys are unique.
+        let lyQty = 0, lyRev = 0, lyMrgn = 0;
+        for (const st of v.styles) {
+          const ent = lyRevByStyle.get(st);
+          if (!ent) continue;
+          lyQty += ent.qty; lyRev += ent.rev; lyMrgn += ent.mrgn;
+        }
+        out.push({
+          kind: "row", key: label, label,
+          tyQty: v.tyQty, tyRev: v.tyRev, tyMrgn: 0,
+          lyQty, lyRev, lyMrgn,
+        });
+      }
+      out.sort((a, b) => b.tyRev - a.tyRev);
+    }
+    return out;
+  }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle]);
+
   // Per-customer rows for the Summary view. Sorted by TY revenue
   // descending so the biggest customers appear first. Dropped rows
   // where neither TY nor LY had any sales — they'd be noise.
