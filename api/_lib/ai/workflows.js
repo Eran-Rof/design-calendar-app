@@ -22,7 +22,50 @@
 // unit-tested without spinning a fake DB.
 
 import { clampDate, clampString } from "./utils.js";
-import { QUERY_ROW_LIMIT } from "./constants.js";
+
+// Hard ceiling on rows accumulated across a paginated scan. Workflows
+// aggregate sums/groups before returning so the payload to Claude stays
+// small even when the underlying scan is large; the cap exists only as
+// a runaway-guard. Set well above the realistic worst case (T3 wholesale
+// shipments ~10k, LY ~40k) so we don't silently truncate.
+const SCAN_HARD_CAP = 100_000;
+
+// PostgREST default page size. The Supabase project hasn't raised
+// db-max-rows, so any single request that asks for more than ~1k rows
+// gets silently capped at 1000. pageAll() compensates by iterating in
+// 1000-row windows via .range() until the result set is exhausted.
+const PAGE_SIZE = 1000;
+
+/**
+ * Paginate a Supabase query that may return more than PAGE_SIZE rows.
+ *
+ * `buildQuery` is a factory that returns a fresh PostgREST query
+ * builder on each call — required because Supabase JS builders are
+ * single-use (once `.range()` is appended they can't be reused).
+ * The query MUST include a stable `.order(...)` clause so the same
+ * row never appears on two consecutive pages and no row is skipped
+ * between pages. Most callers `.order("id")` since every relevant
+ * table has a UUID primary key.
+ *
+ * Returns `{ data: [] }` on success or `{ error: string }` on the
+ * first underlying error. Aborts (returns error) if SCAN_HARD_CAP is
+ * hit — better to fail loudly than continue returning a truncated
+ * snapshot that pretends to be complete.
+ */
+async function pageAll(buildQuery) {
+  const out = [];
+  for (let from = 0; from < SCAN_HARD_CAP; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { error: error.message };
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    if (data.length < PAGE_SIZE) return { data: out };
+  }
+  if (out.length >= SCAN_HARD_CAP) {
+    return { error: `scan exceeded SCAN_HARD_CAP (${SCAN_HARD_CAP}) — refusing to silently truncate` };
+  }
+  return { data: out };
+}
 
 // ────────────────────────────────────────────────────────────────────────
 // Pure helpers (unit-tested)
@@ -101,15 +144,16 @@ export function rankByChurnRisk(byCustomer, thresholdPct = 0.75, topN = 20) {
 // Bucketed via JOIN-by-fetch — sku_id → master row → style_code.
 async function aggregateByStyle(db, dateStart, dateEnd) {
   // Pull raw shipments. The grain here is sku_id; we collapse to style
-  // after a master-row lookup. For up to QUERY_ROW_LIMIT rows we can do
-  // it in a single round trip; beyond that we paginate.
-  const { data, error } = await db
+  // after a master-row lookup. Paginates because PostgREST caps single
+  // requests at 1000 rows; without this the briefing was silently
+  // under-reporting (~9k T3 wholesale rows seen as ~1k).
+  const { data, error } = await pageAll(() => db
     .from("ip_sales_history_wholesale")
     .select("sku_id, qty, net_amount")
     .gte("txn_date", dateStart)
     .lte("txn_date", dateEnd)
-    .limit(QUERY_ROW_LIMIT);
-  if (error) return { error: error.message };
+    .order("id"));
+  if (error) return { error };
 
   const skuIds = Array.from(new Set((data || []).map(r => r.sku_id).filter(Boolean)));
   if (skuIds.length === 0) return { byStyle: new Map() };
@@ -141,13 +185,13 @@ async function aggregateByStyle(db, dateStart, dateEnd) {
 // Pull customer-level revenue totals from ip_sales_history_wholesale
 // over a date range. Returns Map<customer_id, {qty, revenue}>.
 async function aggregateByCustomer(db, dateStart, dateEnd) {
-  const { data, error } = await db
+  const { data, error } = await pageAll(() => db
     .from("ip_sales_history_wholesale")
     .select("customer_id, qty, net_amount")
     .gte("txn_date", dateStart)
     .lte("txn_date", dateEnd)
-    .limit(QUERY_ROW_LIMIT);
-  if (error) return { error: error.message };
+    .order("id"));
+  if (error) return { error };
 
   const byCustomer = new Map();
   for (const r of (data || [])) {
@@ -198,12 +242,12 @@ async function openPoExposureByStyle(db, styleCodes) {
   const byStyle = new Map();
   for (let i = 0; i < skuIds.length; i += 100) {
     const batch = skuIds.slice(i, i + 100);
-    const { data, error } = await db
+    const { data, error } = await pageAll(() => db
       .from("ip_open_purchase_orders")
       .select("sku_id, qty_open, unit_cost")
       .in("sku_id", batch)
       .gt("qty_open", 0)
-      .limit(QUERY_ROW_LIMIT);
+      .order("id"));
     if (error) continue;
     for (const r of (data || [])) {
       const style = skuToStyle.get(r.sku_id);
@@ -225,12 +269,12 @@ async function openSoExposureByCustomer(db, customerIds) {
   const byCustomer = new Map();
   for (let i = 0; i < customerIds.length; i += 100) {
     const batch = customerIds.slice(i, i + 100);
-    const { data, error } = await db
+    const { data, error } = await pageAll(() => db
       .from("ip_open_sales_orders")
       .select("customer_id, qty_open, unit_price")
       .in("customer_id", batch)
       .gt("qty_open", 0)
-      .limit(QUERY_ROW_LIMIT);
+      .order("id"));
     if (error) continue;
     for (const r of (data || [])) {
       const qty = Number(r.qty_open || 0);
@@ -390,11 +434,17 @@ export const WORKFLOWS = [
         .slice(0, 5);
 
       // Open SO + open PO snapshot. Pull totals only — operator clicks
-      // through to the grids for line-item detail.
-      const [{ data: soRows }, { data: poRows }] = await Promise.all([
-        db.from("ip_open_sales_orders").select("qty_open, unit_price").gt("qty_open", 0).limit(QUERY_ROW_LIMIT),
-        db.from("ip_open_purchase_orders").select("qty_open, unit_cost").gt("qty_open", 0).limit(QUERY_ROW_LIMIT),
+      // through to the grids for line-item detail. Paginated because
+      // the open-SO set runs ~5k lines; single requests get capped at
+      // 1000 by PostgREST.
+      const [soRes, poRes] = await Promise.all([
+        pageAll(() => db.from("ip_open_sales_orders").select("qty_open, unit_price").gt("qty_open", 0).order("id")),
+        pageAll(() => db.from("ip_open_purchase_orders").select("qty_open, unit_cost").gt("qty_open", 0).order("id")),
       ]);
+      if (soRes.error) return { error: `open SO scan failed: ${soRes.error}` };
+      if (poRes.error) return { error: `open PO scan failed: ${poRes.error}` };
+      const soRows = soRes.data;
+      const poRows = poRes.data;
       const openSo = (soRows || []).reduce((acc, r) => {
         const qty = Number(r.qty_open || 0);
         acc.qty += qty;
