@@ -26,6 +26,7 @@ import {
   detectPackPricedAsUnit,
   findSiblingPpkMaster,
   isChargebackReversalRow,
+  parsePackSizeFromRaw,
   SUSPICIOUS_PRICE_RATIO,
 } from "../../_lib/sales-grain.js";
 import { detectSoStore } from "../../_lib/ats-parse.js";
@@ -178,6 +179,8 @@ export default async function handler(req, res) {
     skipped_no_date: 0,
     skipped_zero_qty: 0,
     skipped_cb_reversal: 0,
+    ppk_token_routed: 0,
+    avg_cost_lookups: 0,
     new_items_created: 0,
     new_customers_created: 0,
     deleted_before_insert: 0,
@@ -281,7 +284,23 @@ export default async function handler(req, res) {
   for (const [, m] of skuToMaster) {
     if (!m.style_code || (m.pack_size && Number(m.pack_size) > 1)) continue;
     const variantSuffix = m.sku_code.slice(m.style_code.length);
+    // Master uses two PPK naming conventions; preload both so the
+    // PPK-token routing pass + findSiblingPpkMaster can resolve either.
     siblingPpkCodes.add(`${m.style_code}PPK${variantSuffix}`);
+    siblingPpkCodes.add(`${m.style_code}-PPK${variantSuffix}`);
+    // Mis-tagged style_code fallback: if the master row's style_code
+    // already contains "-PPK", re-derive the true base from the sku
+    // (sku ends in "-COLOR"; strip back to the last dash, drop "-PPK").
+    const lastDash = m.sku_code.lastIndexOf("-");
+    if (lastDash > 0) {
+      const prefix    = m.sku_code.slice(0, lastDash);
+      const colorSuf  = m.sku_code.slice(lastDash); // includes leading "-"
+      const trueStyle = prefix.replace(/-?PPK\d*$/i, "");
+      if (trueStyle && trueStyle !== m.style_code) {
+        siblingPpkCodes.add(`${trueStyle}PPK${colorSuf}`);
+        siblingPpkCodes.add(`${trueStyle}-PPK${colorSuf}`);
+      }
+    }
   }
   const siblingsToFetch = [...siblingPpkCodes].filter(code => !skuToMaster.has(code));
   for (let i = 0; i < siblingsToFetch.length; i += CHUNK) {
@@ -445,6 +464,57 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── Pass 2a-pre: PPK-token routing ──────────────────────────────────────
+  // When the raw Xoro Item Number carries an explicit "PPK<digits>"
+  // token (e.g. "RBB1438N-BLACK-PPK48"), route the sale to the
+  // pack-grain master row instead of the each-grain BASE-COLOR row.
+  // The token IS the signal — no price/ratio guard needed, unlike the
+  // post-hoc detector below which exists for legacy rows missing the
+  // token. findSiblingPpkMaster handles both master naming forms
+  // ("{style}PPK{suffix}" and "{style}-PPK{suffix}") plus the
+  // mis-tagged-style_code fallback.
+  for (const c of candidates) {
+    if (!parsePackSizeFromRaw(c.rawItemNumber)) continue;
+    const unitMaster = skuToMaster.get(c.sku);
+    if (!unitMaster) continue;
+    if (Number(unitMaster.pack_size) > 1) continue; // already pack-grain
+    const sibling = findSiblingPpkMaster(unitMaster, skuToMaster);
+    if (!sibling) continue;
+    c.sku = sibling.sku_code; // upserts now target the PPK master
+    counts.ppk_token_routed += 1;
+  }
+
+  // ── Pass 2a-cost: per-row avg cost from ip_item_avg_cost ────────────────
+  // ip_item_avg_cost is the Xoro Item Costing Report ingest (handled by
+  // api/_handlers/xoro/sync-item-costing.js). It carries per-size +
+  // per-PPK rows keyed by the FULL raw Xoro sku — exactly the
+  // granularity master.unit_cost lacks. We fetch the avg_cost for every
+  // candidate's raw sku in one batch and pass it into
+  // deriveSalesGrainFields as the authoritative cost. Master cost
+  // remains the fallback for rows the avg-cost report doesn't cover.
+  const avgCostByRawCanon = new Map();
+  {
+    const rawCanonSet = new Set(
+      candidates.map(c => canonSku(c.rawItemNumber)).filter(Boolean)
+    );
+    const rawCanonList = [...rawCanonSet];
+    for (let i = 0; i < rawCanonList.length; i += CHUNK) {
+      const chunk = rawCanonList.slice(i, i + CHUNK);
+      const { data, error } = await admin
+        .from("ip_item_avg_cost")
+        .select("sku_code, avg_cost")
+        .in("sku_code", chunk);
+      if (error) { counts.errors.push(`avg cost lookup chunk ${i}: ${error.message}`); continue; }
+      for (const row of data ?? []) {
+        const v = Number(row.avg_cost);
+        if (Number.isFinite(v) && v > 0) {
+          avgCostByRawCanon.set(row.sku_code, v);
+          counts.avg_cost_lookups += 1;
+        }
+      }
+    }
+  }
+
   // ── Pass 2a: grain detector — reclassify pack-priced unit lines ─────────
   // Xoro occasionally records a wholesale prepack line under the unit-
   // grain SKU. Detector identifies these by their suspicious unit_price
@@ -576,6 +646,7 @@ export default async function handler(req, res) {
       qty: c.qty,
       netAmount,
       master: skuToMaster.get(c.sku),
+      avgCostPerRawQty: avgCostByRawCanon.get(canonSku(c.rawItemNumber)),
     });
 
     out.push({

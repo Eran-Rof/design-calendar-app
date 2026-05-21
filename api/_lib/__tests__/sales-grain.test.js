@@ -13,6 +13,7 @@ import {
   pickReferenceUnitPrice,
   detectPackPricedAsUnit,
   isChargebackReversalRow,
+  parsePackSizeFromRaw,
   SUSPICIOUS_PRICE_RATIO,
 } from "../sales-grain.js";
 
@@ -566,5 +567,107 @@ describe("isChargebackReversalRow", () => {
     expect(isChargebackReversalRow(null, null)).toBe(false);
     expect(isChargebackReversalRow(undefined, "Ross CB Reversal")).toBe(false);
     expect(isChargebackReversalRow("ROSSCBREVERSAL", undefined)).toBe(false);
+  });
+});
+
+describe("parsePackSizeFromRaw", () => {
+  it("extracts the pack size from a Xoro PPK<n> token", () => {
+    expect(parsePackSizeFromRaw("RBB1438N-BLACK-PPK48")).toBe(48);
+    expect(parsePackSizeFromRaw("RYO0658PPK-BLACK")).toBe(null); // no digits after PPK
+    expect(parsePackSizeFromRaw("RYO0658-PPK18")).toBe(18);
+    expect(parsePackSizeFromRaw("RBB1438N_BLACK_PPK_60")).toBe(60);
+  });
+
+  it("returns null when there's no PPK token", () => {
+    expect(parsePackSizeFromRaw("RBB1438N-BLACK-8")).toBe(null);
+    expect(parsePackSizeFromRaw("RBB1438N-BLACK")).toBe(null);
+    expect(parsePackSizeFromRaw("")).toBe(null);
+    expect(parsePackSizeFromRaw(null)).toBe(null);
+    expect(parsePackSizeFromRaw(undefined)).toBe(null);
+  });
+
+  it("rejects pack_size <= 1 (data quality)", () => {
+    expect(parsePackSizeFromRaw("RYO0658-PPK1")).toBe(null);
+    expect(parsePackSizeFromRaw("RYO0658-PPK0")).toBe(null);
+  });
+
+  it("is case-insensitive on the PPK token", () => {
+    expect(parsePackSizeFromRaw("rbb1438n-black-ppk48")).toBe(48);
+    expect(parsePackSizeFromRaw("RBB1438N-Black-Ppk24")).toBe(24);
+  });
+});
+
+describe("deriveSalesGrainFields — avgCostPerRawQty override", () => {
+  it("uses avgCostPerRawQty when supplied (per-pack cost on a PPK row)", () => {
+    // RBB1438N-BLACK-PPK48 sale: 114 packs at $185.93/pack, $223.20 avg
+    // cost per pack from ip_item_avg_cost. cogs = 114 × $223.20.
+    const out = deriveSalesGrainFields({
+      rawItemNumber: "RBB1438N-BLACK-PPK48",
+      qty: 114,
+      netAmount: 21196,
+      master: { pack_size: 48, unit_cost: 249.6 },
+      avgCostPerRawQty: 223.20,
+    });
+    expect(out.qty_grain).toBe("pack");
+    expect(out.qty_units).toBe(114 * 48);
+    expect(out.cogs_amount).toBeCloseTo(114 * 223.20, 2);
+    // per-unit cost falls out of cogs / qty_units automatically
+    expect(out.unit_cost_at_sale).toBeCloseTo(223.20 / 48, 5);
+  });
+
+  it("uses avgCostPerRawQty on a size-level each row (per-each cost)", () => {
+    // RBB1438N-BLACK-8 sale: 10 each at $20, $5.60 per each.
+    const out = deriveSalesGrainFields({
+      rawItemNumber: "RBB1438N-BLACK-8",
+      qty: 10,
+      netAmount: 200,
+      master: { pack_size: 1, unit_cost: 5.6 },
+      avgCostPerRawQty: 5.6,
+    });
+    expect(out.qty_grain).toBe("unit");
+    expect(out.qty_units).toBe(10);
+    expect(out.cogs_amount).toBeCloseTo(56, 2);
+    expect(out.unit_cost_at_sale).toBeCloseTo(5.6, 5);
+    expect(out.margin_amount).toBeCloseTo(200 - 56, 2);
+    expect(out.margin_pct).toBeCloseTo((200 - 56) / 200, 4);
+  });
+
+  it("falls back to master.unit_cost when avgCostPerRawQty is missing / invalid", () => {
+    // Same input as above but without avg cost — falls through to
+    // resolvePerUnitCost / master.unit_cost.
+    const out = deriveSalesGrainFields({
+      rawItemNumber: "RBB1438N-BLACK-8",
+      qty: 10,
+      netAmount: 200,
+      master: { pack_size: 1, unit_cost: 5.6 },
+    });
+    expect(out.cogs_amount).toBeCloseTo(56, 2);
+    expect(out.unit_cost_at_sale).toBeCloseTo(5.6, 5);
+
+    // Invalid avg cost values also fall back
+    for (const bad of [null, undefined, 0, -1, NaN, "x"]) {
+      const r = deriveSalesGrainFields({
+        rawItemNumber: "RBB1438N-BLACK-8",
+        qty: 10,
+        netAmount: 200,
+        master: { pack_size: 1, unit_cost: 5.6 },
+        avgCostPerRawQty: bad,
+      });
+      expect(r.unit_cost_at_sale).toBeCloseTo(5.6, 5);
+    }
+  });
+
+  it("avgCostPerRawQty wins even when master.unit_cost is null (data-gap recovery)", () => {
+    // Newly-added master row with no cost yet — avg-cost table fills the gap.
+    const out = deriveSalesGrainFields({
+      rawItemNumber: "NEWSTYLE-RED-8",
+      qty: 5,
+      netAmount: 100,
+      master: { pack_size: 1, unit_cost: null },
+      avgCostPerRawQty: 4.0,
+    });
+    expect(out.cogs_amount).toBe(20);
+    expect(out.unit_cost_at_sale).toBe(4.0);
+    expect(out.margin_amount).toBe(80);
   });
 });
