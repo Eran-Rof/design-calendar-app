@@ -21,7 +21,8 @@ import * as XLSX from "xlsx";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
-import type { ATSRow, ExcelData } from "../types";
+import { fmtDateDisplay } from "../helpers";
+import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
   const d = new Date();
@@ -245,6 +246,31 @@ interface AggRow {
   tyQty: number; tyRev: number; tyMrgn: number;
   lyQty: number; lyRev: number; lyMrgn: number;
 }
+
+// One row in the SO view's table. Two shapes:
+//   - `kind: "row"`: a real SO (or aggregated dimension) with the full
+//     metadata block (order #, customer, cancel date) the SO-specific
+//     columns render.
+//   - `kind: "subtotal"`: synthetic per-style subtotal inserted under
+//     a style group that has ≥ 2 distinct SOs. Carries only the
+//     summed totals; the SO-specific metadata is omitted.
+type SoRow = {
+  kind: "row";
+  key: string;
+  label: string;
+  style?: string;
+  orderNumber?: string;
+  customer?: string;
+  cancelDate?: string;
+  tyQty: number; tyRev: number; tyMrgn: number;
+  lyQty: number; lyRev: number; lyMrgn: number;
+} | {
+  kind: "subtotal";
+  key: string;
+  label: string;
+  tyQty: number; tyRev: number; tyMrgn: number;
+  lyQty: number; lyRev: number; lyMrgn: number;
+};
 
 export const SalesCompsModal: React.FC<Props> = ({
   open, onClose,
@@ -678,11 +704,54 @@ export const SalesCompsModal: React.FC<Props> = ({
         fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text]);
     }
     aoa.push([]);
-    // One table per selected View By dimension. SO is skipped (data
-    // model TBD — see modal placeholder).
+    // One table per selected View By dimension. SO emits the same
+    // column set the on-screen SoCompsTable shows (per-order metadata
+    // when style is co-selected or SO is alone; collapsed to a single
+    // dimension column otherwise).
     for (const dim of viewBy) {
       if (dim === "so") {
-        aoa.push([`-- ${VIEW_BY_LABELS[dim]} -- (data model TBD; placeholder)`]);
+        const showSoMeta = viewBy.includes("style") || !(viewBy.includes("customer") || viewBy.includes("category") || viewBy.includes("sub_category"));
+        const soDimLabel =
+          viewBy.includes("customer")     ? "Customer" :
+          viewBy.includes("category")     ? "Category" :
+          viewBy.includes("sub_category") ? "Sub-Category" :
+          "SO";
+        aoa.push([`-- ${VIEW_BY_LABELS[dim]} --`]);
+        const header: (string | number)[] = showSoMeta
+          ? ["Style", "Order #", "Cancel", "Customer", "TY Qty", "TY Open SO $", "LY Qty", "LY Ship $", "Δ Rev"]
+          : [soDimLabel, "TY Qty", "TY Open SO $", "LY Qty", "LY Ship $", "Δ Rev"];
+        aoa.push(header);
+        for (const r of soRows) {
+          if (r.kind === "subtotal") {
+            const subRow: (string | number)[] = showSoMeta
+              ? [r.label, "", "", "", r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]
+              : [r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text];
+            aoa.push(subRow);
+            continue;
+          }
+          const growth = fmtGrowth(r.tyRev, r.lyRev).text;
+          const detailRow: (string | number)[] = showSoMeta
+            ? [r.style ?? "", r.orderNumber ?? "", r.cancelDate ?? "", r.customer ?? "", r.tyQty, r.tyRev, r.lyQty, r.lyRev, growth]
+            : [r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, growth];
+          aoa.push(detailRow);
+        }
+        // Grand-total row for the SO block — LY dedup'd by style so
+        // multiple SOs sharing one style don't double-count the LY
+        // ship dollars (matches the on-screen TOTAL row).
+        const dataRows = soRows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
+        if (dataRows.length > 0) {
+          const seenStyles = new Set<string>();
+          let tQ = 0, tR = 0, lQ = 0, lR = 0;
+          for (const r of dataRows) {
+            tQ += r.tyQty; tR += r.tyRev;
+            const sk = r.style ?? r.key;
+            if (!seenStyles.has(sk)) { lQ += r.lyQty; lR += r.lyRev; seenStyles.add(sk); }
+          }
+          const totalRow: (string | number)[] = showSoMeta
+            ? ["TOTAL", "", "", "", tQ, tR, lQ, lR, fmtGrowth(tR, lR).text]
+            : ["TOTAL", tQ, tR, lQ, lR, fmtGrowth(tR, lR).text];
+          aoa.push(totalRow);
+        }
         aoa.push([]);
         continue;
       }
@@ -859,10 +928,22 @@ export const SalesCompsModal: React.FC<Props> = ({
                 data model. */}
             {viewBy.map(dim => {
               if (dim === "so") {
+                // Match the per-SO column set when style is co-selected
+                // (row-per-(style,SO)) or SO is alone (row-per-order_number).
+                // Customer / Category / Sub-Category co-select collapses
+                // to a single dimension column (no per-order metadata).
+                const showSoMeta = viewBy.includes("style") || !(viewBy.includes("customer") || viewBy.includes("category") || viewBy.includes("sub_category"));
+                const soDimLabel =
+                  viewBy.includes("customer")     ? "Customer" :
+                  viewBy.includes("category")     ? "Category" :
+                  viewBy.includes("sub_category") ? "Sub-Category" :
+                  "SO";
                 return (
-                  <div key={dim} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", color: C.textMuted, fontSize: 12, lineHeight: 1.5 }}>
-                    <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>SO view — open SOs vs LY ship $</div>
-                    Coming next. The data model for this view (matching open SOs to last-year shipped \$ using each SO's cancel_date as the anchor) needs alignment with the open-SO dataset before the table can render. Pick another View By dimension for now.
+                  <div key={dim} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      SO — open SOs (cancel in window) vs LY ship $ (same style, all colors)
+                    </div>
+                    <SoCompsTable rows={soRows} showSoMeta={showSoMeta} dimensionLabel={soDimLabel} />
                   </div>
                 );
               }
@@ -998,6 +1079,122 @@ function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: stri
               {!customerFacing && <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtPct(totals.lyMrgn, totals.lyRev)}</td>}
               <td style={{ ...td("right"), color: totalGrowth.positive ? C.green : C.red, fontWeight: 700 }}>{totalGrowth.text}</td>
               {!customerFacing && <td style={{ ...td("right"), color: totalMp.positive ? C.green : C.red, fontWeight: 700 }}>{totalMp.text}</td>}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// SO view's table. Compares open SO $ (TY) against same-style-all-
+// colors LY ship $. The column set depends on how the rows were
+// grouped upstream (soRows useMemo):
+//   - "style"-grouped or SO-only: shows the per-SO metadata columns
+//     (Style? · Order # · Cancel Date · Customer).
+//   - "customer" / "category" / "sub_category"-grouped: shows the
+//     dimension label only, since order/customer/date no longer make
+//     sense on a multi-SO row.
+// Subtotal rows (kind: "subtotal") render with bold accent styling
+// under their style group.
+function SoCompsTable({
+  rows,
+  showSoMeta,
+  dimensionLabel,
+}: {
+  rows: SoRow[];
+  showSoMeta: boolean;
+  dimensionLabel: string;
+}): React.ReactElement {
+  // Grand total across the data rows. Subtotal rows are skipped (they
+  // already sum the rows above them — adding them would double-count).
+  // LY is deduped by style key so a single style spanning N SOs only
+  // contributes once, matching the per-style subtotal math.
+  const dataRows = rows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
+  const seenStylesLy = new Set<string>();
+  let totalTyQty = 0, totalTyRev = 0, totalLyQty = 0, totalLyRev = 0;
+  for (const r of dataRows) {
+    totalTyQty += r.tyQty;
+    totalTyRev += r.tyRev;
+    const styleKey = r.style ?? r.key;
+    if (!seenStylesLy.has(styleKey)) {
+      totalLyQty += r.lyQty;
+      totalLyRev += r.lyRev;
+      seenStylesLy.add(styleKey);
+    }
+  }
+  const totalGrowth = fmtGrowth(totalTyRev, totalLyRev);
+
+  return (
+    <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            {showSoMeta ? (
+              <>
+                <th style={th()}>Style</th>
+                <th style={th()}>Order #</th>
+                <th style={th()}>Cancel</th>
+                <th style={th()}>Customer</th>
+              </>
+            ) : (
+              <th style={th()}>{dimensionLabel}</th>
+            )}
+            <th style={th("right")}>TY Qty</th>
+            <th style={th("right")}>TY Open SO $</th>
+            <th style={th("right")}>LY Qty</th>
+            <th style={th("right")}>LY Ship $</th>
+            <th style={th("right")}>Δ Rev</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            if (r.kind === "subtotal") {
+              return (
+                <tr key={r.key} style={{ background: C.rowAlt, fontWeight: 600 }}>
+                  <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), color: C.accent, fontWeight: 600 }}>{r.label}</td>
+                  <td style={{ ...td("right"), fontWeight: 600 }}>{r.tyQty.toLocaleString()}</td>
+                  <td style={{ ...td("right"), fontWeight: 600 }}>{fmtUSD(r.tyRev)}</td>
+                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{r.lyQty.toLocaleString()}</td>
+                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{fmtUSD(r.lyRev)}</td>
+                  <td style={{ ...td("right"), fontWeight: 600, color: fmtGrowth(r.tyRev, r.lyRev).positive ? C.green : C.red }}>{fmtGrowth(r.tyRev, r.lyRev).text}</td>
+                </tr>
+              );
+            }
+            const growth = fmtGrowth(r.tyRev, r.lyRev);
+            return (
+              <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
+                {showSoMeta ? (
+                  <>
+                    <td style={td()}>{r.style ?? ""}</td>
+                    <td style={{ ...td(), fontFamily: "monospace", color: C.text }}>{r.orderNumber ?? ""}</td>
+                    <td style={td("left", C.textMuted)}>{r.cancelDate ? fmtDateDisplay(r.cancelDate) : ""}</td>
+                    <td style={td()}>{r.customer ?? ""}</td>
+                  </>
+                ) : (
+                  <td style={td()}>{r.label}</td>
+                )}
+                <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
+                <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
+                <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
+                <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
+                <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
+              </tr>
+            );
+          })}
+          {dataRows.length === 0 && (
+            <tr><td colSpan={showSoMeta ? 9 : 6} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>
+              No open SOs match this scope.
+            </td></tr>
+          )}
+          {dataRows.length > 0 && (
+            <tr style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
+              <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), fontWeight: 700, color: C.accent }}>TOTAL</td>
+              <td style={{ ...td("right"), fontWeight: 700 }}>{totalTyQty.toLocaleString()}</td>
+              <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(totalTyRev)}</td>
+              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{totalLyQty.toLocaleString()}</td>
+              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(totalLyRev)}</td>
+              <td style={{ ...td("right"), fontWeight: 700, color: totalGrowth.positive ? C.green : C.red }}>{totalGrowth.text}</td>
             </tr>
           )}
         </tbody>
