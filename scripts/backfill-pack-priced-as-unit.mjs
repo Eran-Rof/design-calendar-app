@@ -273,6 +273,10 @@ for (let i = 0; i < ppkSkus.length; i += 200) {
 }
 console.log(`   → avg_cost coverage: ${avgCostByCode.size}/${ppkSkus.length} PPK skus`);
 
+// Update one row at a time using parameterised UPDATE. Each update
+// rewrites sku_id (to PPK sibling), qty_units (× pack_size), and
+// re-derives cogs/margin via the PPK row's unit_cost (or the
+// avg_cost from ip_item_avg_cost when present).
 let updated = 0;
 let failed = 0;
 for (const r of reclassifications) {
