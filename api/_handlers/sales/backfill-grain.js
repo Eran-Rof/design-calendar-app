@@ -66,10 +66,6 @@ export default async function handler(req, res) {
   // ── Step 1: pull suspect rows ─────────────────────────────────────────
   // pack_size = 1 (each-grain master) + master.unit_cost > 0 + sale
   // priced at >= SUSPICIOUS_PRICE_RATIO × unit_cost.
-  const dateClause = since ? `and s.txn_date >= '${since}'` : "";
-  const { data: suspects, error: e1 } = await admin.rpc("exec_sql", { q: "select 1" }).catch(() => ({ data: null, error: null }));
-  // ↑ no RPC available — fall back to a chunked select. Use the
-  // supabase-js builder to stay portable.
   // Ecom rows are always eaches — exclude two ways up front so the
   // natural 5-6× retail markup doesn't get flagged as pack-priced-
   // as-unit:
