@@ -325,6 +325,9 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
         onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
         categories={categories}
+        subCategories={subCategories}
+        styles={styles ?? []}
+        STORES={STORES}
         filterCategory={filterCategory.length === 1 ? filterCategory[0] : "All"}
         customerFilter={customerFilter ?? ""}
         exportFilterOpts={{

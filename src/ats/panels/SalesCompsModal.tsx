@@ -174,11 +174,21 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
 interface Props {
   open: boolean;
   onClose: () => void;
+  // Pre-selected scope from the grid's current filter state. Operator
+  // can override any field via the dropdowns below.
   defaultCustomer: string;
   defaultCategories: string[];
   defaultSubCategories: string[];
   defaultStyles: string[];
   defaultStoreFilter: string[];
+  // FULL option lists — sourced from the broader dataset (not just the
+  // currently-filtered grid rows) so the operator can broaden the
+  // selection beyond what's already on screen. Defaults above stay
+  // tied to the grid filter; options here let the operator add anything.
+  allCategories: string[];
+  allSubCategories: string[];
+  allStyles: string[];
+  allStores: string[];
   rows: ATSRow[];
   excelData: ExcelData | null;
 }
@@ -193,29 +203,19 @@ interface AggRow {
 export const SalesCompsModal: React.FC<Props> = ({
   open, onClose,
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
+  allCategories, allSubCategories, allStyles, allStores,
   rows, excelData,
 }) => {
-  const categories = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) { const v = r.master_category ?? r.category; if (v) s.add(v); }
-    return [...s].sort();
-  }, [rows]);
-  const subCategories = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) { if (r.master_sub_category) s.add(r.master_sub_category); }
-    return [...s].sort();
-  }, [rows]);
-  const styles = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) { if (r.master_style) s.add(r.master_style); }
-    return [...s].sort();
-  }, [rows]);
-  const stores = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) { if (r.store) s.add(r.store); }
-    if (s.size === 0) ["ROF", "ROF ECOM", "PT", "PT ECOM"].forEach(c => s.add(c));
-    return [...s].sort();
-  }, [rows]);
+  // Option lists come from the FULL dataset (not the filtered rows) so
+  // operators can broaden the report past the grid's current scope.
+  // Sorted for predictable presentation in the dropdowns.
+  const categories    = useMemo(() => [...allCategories].sort(),    [allCategories]);
+  const subCategories = useMemo(() => [...allSubCategories].sort(), [allSubCategories]);
+  const styles        = useMemo(() => [...allStyles].sort(),        [allStyles]);
+  const stores        = useMemo(() => {
+    if (allStores.length > 0) return [...allStores].sort();
+    return ["ROF", "ROF ECOM", "PT", "PT ECOM"];
+  }, [allStores]);
 
   const [start, setStart] = useState(yearStartIso());
   const [end,   setEnd]   = useState(todayIso());
@@ -419,18 +419,18 @@ export const SalesCompsModal: React.FC<Props> = ({
             <fieldset style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", margin: 0 }}>
               <legend style={{ fontSize: 11, color: C.textMuted, padding: "0 4px", fontWeight: 600 }}>Output</legend>
               <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                <label title="Top-level totals only: qty, sales $, COGS $, margin $, margin %" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
                   <input type="radio" name="comps-view" checked={viewMode === "summary"} onChange={() => setViewMode("summary")} />
-                  <span><strong>Summary</strong> — totals only (qty / sales / COGS / margin $ / margin %)</span>
+                  <strong>Summary</strong>
                 </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                <label title="Totals plus per-SKU table sorted by largest TY revenue" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
                   <input type="radio" name="comps-view" checked={viewMode === "detailed"} onChange={() => setViewMode("detailed")} />
-                  <span><strong>Detailed</strong> — totals + per-SKU table</span>
+                  <strong>Detailed</strong>
                 </label>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+              <label title="Hide COGS / Margin $ / Margin % from the report and Excel export — safe to share externally" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
                 <input type="checkbox" checked={customerFacing} onChange={e => setCustomerFacing(e.target.checked)} />
-                <span><strong>Customer-facing</strong> — hide COGS / Margin $ / Margin % from the report and Excel export</span>
+                <strong>Customer-facing</strong>
               </label>
             </fieldset>
 

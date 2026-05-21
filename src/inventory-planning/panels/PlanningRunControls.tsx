@@ -12,6 +12,7 @@ import type { ToastMessage } from "../components/Toast";
 import { scenarioRepo } from "../scenarios/services/scenarioRepo";
 import { cloneBaseIntoSavedBuild, deleteSavedBuild, type SaveBuildProgress } from "../scenarios/services/scenarioService";
 import type { IpScenario } from "../scenarios/types/scenarios";
+import { AppDatePicker } from "../../shared/components/AppDatePicker";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
@@ -747,18 +748,15 @@ function NewRunModal({ onClose, onCreated, onToast, scope }: {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <div>
                 <label style={S.label}>Horizon start</label>
-                <input type="date" style={{ ...S.input, width: "100%" }} value={horizonStart}
-                       onChange={(e) => setHorizonStart(e.target.value)} />
+                <AppDatePicker style={{ ...S.input, width: "100%" }} value={horizonStart} onCommit={setHorizonStart} />
               </div>
               <div>
                 <label style={S.label}>Horizon end</label>
-                <input type="date" style={{ ...S.input, width: "100%" }} value={horizonEnd}
-                       onChange={(e) => setHorizonEnd(e.target.value)} />
+                <AppDatePicker style={{ ...S.input, width: "100%" }} value={horizonEnd} onCommit={setHorizonEnd} />
               </div>
               <div>
                 <label style={S.label}>Snapshot date</label>
-                <input type="date" style={{ ...S.input, width: "100%" }} value={snapshot}
-                       onChange={(e) => setSnapshot(e.target.value)} />
+                <AppDatePicker style={{ ...S.input, width: "100%" }} value={snapshot} onCommit={setSnapshot} />
               </div>
             </div>
             <div>

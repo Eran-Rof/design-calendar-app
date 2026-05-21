@@ -24,6 +24,7 @@ import { S, PAL, formatDate } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import StaleDataBanner from "../../shared/components/StaleDataBanner";
+import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
 import SupplyExceptionPanel from "./SupplyExceptionPanel";
@@ -391,15 +392,12 @@ function NewReconciliationRunForm({
       </select>
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Horizon:</span>
-      <input type="date" style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
-             value={horizonStart} onChange={(e) => setHorizonStart(e.target.value)} />
+      <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={horizonStart} onCommit={setHorizonStart} />
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>→</span>
-      <input type="date" style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
-             value={horizonEnd} onChange={(e) => setHorizonEnd(e.target.value)} />
+      <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={horizonEnd} onCommit={setHorizonEnd} />
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Snapshot:</span>
-      <input type="date" style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }}
-             value={snapshot} onChange={(e) => setSnapshot(e.target.value)} />
+      <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={snapshot} onCommit={setSnapshot} />
 
       <input style={{ ...S.input, minWidth: 160, fontSize: 12, padding: "4px 8px" }}
              value={note} placeholder="Note (optional)"

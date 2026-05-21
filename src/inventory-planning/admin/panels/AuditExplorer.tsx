@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { searchAudit, type IpAuditRow } from "../../governance/services/auditExplorerService";
 import { S, PAL, formatDateTime } from "../../components/styles";
+import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 
 export default function AuditExplorer() {
   const [rows, setRows] = useState<IpAuditRow[]>([]);
@@ -50,11 +51,11 @@ export default function AuditExplorer() {
           </div>
           <div>
             <label style={S.label}>From</label>
-            <input type="date" style={{ ...S.input, width: "100%" }} value={from} onChange={(e) => setFrom(e.target.value)} />
+            <AppDatePicker style={{ ...S.input, width: "100%" }} value={from} onCommit={setFrom} />
           </div>
           <div>
             <label style={S.label}>To</label>
-            <input type="date" style={{ ...S.input, width: "100%" }} value={to} onChange={(e) => setTo(e.target.value)} />
+            <AppDatePicker style={{ ...S.input, width: "100%" }} value={to} onCommit={setTo} />
           </div>
           <div style={{ alignSelf: "end" }}>
             <button style={S.btnPrimary} onClick={run} disabled={loading}>{loading ? "Searching…" : "Search"}</button>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AppDatePicker } from "../shared/components/AppDatePicker";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -361,7 +362,7 @@ function TaskModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onC
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New task</h3>
         <Row label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inp} /></Row>
         <Row label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></Row>
-        <Row label="Due date"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inp} /></Row>
+        <Row label="Due date"><AppDatePicker value={dueDate} onCommit={setDueDate} style={inp} /></Row>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={() => void save()} disabled={saving} style={btnPrimary}>{saving ? "Saving…" : "Create"}</button>

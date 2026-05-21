@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AppDatePicker } from "../shared/components/AppDatePicker";
 
 interface Rule {
   id: string;
@@ -101,9 +102,9 @@ export default function InternalTax() {
           <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
             {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
-          <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} style={selectSt} />
+          <AppDatePicker value={periodStart} onCommit={setPeriodStart} style={selectSt} />
           <span style={{ color: C.textMuted }}>→</span>
-          <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} style={selectSt} />
+          <AppDatePicker value={periodEnd} onCommit={setPeriodEnd} style={selectSt} />
           <button onClick={exportCsv} style={btnSecondary}>Export CSV</button>
         </div>
       </div>
@@ -233,7 +234,7 @@ function RuleModal({ entityId, onClose, onCreated }: { entityId: string; onClose
             </select>
           </Row>
           <Row label="Threshold $ (optional)"><input type="number" value={threshold} onChange={(e) => setThreshold(e.target.value)} style={inp} /></Row>
-          <Row label="Effective from"><input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} style={inp} /></Row>
+          <Row label="Effective from"><AppDatePicker value={effectiveFrom} onCommit={setEffectiveFrom} style={inp} /></Row>
         </div>
         <Row label="Vendor-type exemptions (comma-sep)"><input value={exemptions} onChange={(e) => setExemptions(e.target.value)} placeholder="small_business, women_owned" style={inp} /></Row>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -278,8 +279,8 @@ function RemittanceModal({ entityId, onClose, onCreated }: { entityId: string; o
           </select>
         </Row>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Row label="Period start"><input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} style={inp} /></Row>
-          <Row label="Period end"><input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} style={inp} /></Row>
+          <Row label="Period start"><AppDatePicker value={periodStart} onCommit={setPeriodStart} style={inp} /></Row>
+          <Row label="Period end"><AppDatePicker value={periodEnd} onCommit={setPeriodEnd} style={inp} /></Row>
         </div>
         <Row label="Payment reference (optional — sets status=paid)"><input value={reference} onChange={(e) => setReference(e.target.value)} style={inp} /></Row>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>

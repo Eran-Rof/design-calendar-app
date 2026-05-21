@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
+import { AppDatePicker } from "../shared/components/AppDatePicker";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -69,9 +70,9 @@ export default function InternalAnalytics() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Spend & forecast</h2>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={inp} />
+          <AppDatePicker value={from} onCommit={setFrom} style={inp} />
           <span style={{ color: C.textMuted }}>→</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={inp} />
+          <AppDatePicker value={to} onCommit={setTo} style={inp} />
           <button onClick={() => void load()} style={btnPrimary}>Apply</button>
         </div>
       </div>

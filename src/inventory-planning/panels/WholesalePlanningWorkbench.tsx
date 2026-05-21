@@ -25,6 +25,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
+import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { S, PAL, formatPeriodCode } from "../components/styles";
 import { TabButton } from "../components/TabButton";
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
@@ -2210,11 +2211,9 @@ export default function WholesalePlanningWorkbench() {
           />
           <strong style={{ color: PAL.text, fontSize: 13 }}>Sales history:</strong>
           {!salesHistCollapsed && (<>
-          <input type="date" value={ingestFrom} onChange={(e) => setIngestFrom(e.target.value)}
-                 style={{ ...S.input, width: 140 }} />
+          <AppDatePicker value={ingestFrom} onCommit={setIngestFrom} style={{ ...S.input, width: 140 }} />
           <span style={{ color: PAL.textDim, fontSize: 12 }}>to</span>
-          <input type="date" value={ingestTo} onChange={(e) => setIngestTo(e.target.value)}
-                 style={{ ...S.input, width: 140 }} />
+          <AppDatePicker value={ingestTo} onCommit={setIngestTo} style={{ ...S.input, width: 140 }} />
           {!autoWalking ? (
             <button style={S.btnSecondary} onClick={autoWalkSales} disabled={ingesting} title="Bootstrap / history extension only. Walks every invoice page from page 1 — use this to pull history older than the nightly 'Last Calendar Year to Date' window (~17 months). Routine daily updates are covered by the nightly pipeline.">
               {runningKind === "autowalk" ? "Working…" : "▶ Fetch all Xoro sales"}

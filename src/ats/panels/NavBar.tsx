@@ -482,6 +482,12 @@ interface NavBarProps {
   onDownloadIncompleteSkus: () => void;
   onDownloadStockVsSo: () => void;
   categories: string[];
+  // Full filter option lists from the broader dataset — used by Sales
+  // Comps so the operator can broaden the report past the grid's
+  // current filter (e.g. add another category that isn't on screen).
+  subCategories: string[];
+  styles: string[];
+  STORES: string[];
   // Single-string copy of the active Category filter, fed in only for
   // the Aged Inven modal's category dropdown — that flow is still
   // single-select per-report. Pass the first selected category if the
@@ -514,7 +520,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
   exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
-  categories, filterCategory,
+  categories, subCategories, styles, STORES, filterCategory,
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
   excelData, setExcelData,
@@ -1394,6 +1400,10 @@ export const NavBar: React.FC<NavBarProps> = ({
       defaultSubCategories={exportFilterOpts.filterSubCategory}
       defaultStyles={exportFilterOpts.filterStyle}
       defaultStoreFilter={exportFilterOpts.storeFilter}
+      allCategories={categories}
+      allSubCategories={subCategories}
+      allStyles={styles}
+      allStores={STORES}
       rows={filtered}
       excelData={excelData}
     />
