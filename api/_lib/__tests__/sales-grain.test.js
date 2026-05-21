@@ -348,6 +348,37 @@ describe("findSiblingPpkMaster", () => {
     expect(findSiblingPpkMaster({ sku_code: "X" }, new Map())).toBeNull();
     expect(findSiblingPpkMaster({ style_code: "X" }, new Map())).toBeNull();
   });
+
+  it("finds a sibling that uses the '<style>-PPK-<color>' naming (Ross / DD's wholesale lines)", () => {
+    const masters = masterMap([
+      { sku_code: "RBB1440N-BLACK",     style_code: "RBB1440N",     pack_size: 1,  unit_cost: 5.5 },
+      { sku_code: "RBB1440N-PPK-BLACK", style_code: "RBB1440N-PPK", pack_size: 48, unit_cost: 264 },
+    ]);
+    const sibling = findSiblingPpkMaster(masters.get("RBB1440N-BLACK"), masters);
+    expect(sibling?.sku_code).toBe("RBB1440N-PPK-BLACK");
+    expect(sibling?.pack_size).toBe(48);
+  });
+
+  it("recovers when the unit master itself is mis-tagged with a '-PPK' style_code", () => {
+    // Real prod glitch: RBB1438N-BLACK lives on a unit-grain row whose
+    // style_code field reads "RBB1438N-PPK" rather than "RBB1438N".
+    const masters = masterMap([
+      { sku_code: "RBB1438N-BLACK",     style_code: "RBB1438N-PPK", pack_size: 1,  unit_cost: 5.6 },
+      { sku_code: "RBB1438N-PPK-BLACK", style_code: "RBB1438N-PPK", pack_size: 48, unit_cost: 249.6 },
+    ]);
+    const sibling = findSiblingPpkMaster(masters.get("RBB1438N-BLACK"), masters);
+    expect(sibling?.sku_code).toBe("RBB1438N-PPK-BLACK");
+  });
+
+  it("prefers the glued naming when both forms exist (RYO0658 stays on RYO0658PPK)", () => {
+    const masters = masterMap([
+      { sku_code: "RYO0658-BLACK",      style_code: "RYO0658", pack_size: 1,  unit_cost: 10 },
+      { sku_code: "RYO0658PPK-BLACK",   style_code: "RYO0658PPK", pack_size: 18, unit_cost: 180 },
+      { sku_code: "RYO0658-PPK-BLACK",  style_code: "RYO0658-PPK", pack_size: 18, unit_cost: 180 },
+    ]);
+    const sibling = findSiblingPpkMaster(masters.get("RYO0658-BLACK"), masters);
+    expect(sibling?.sku_code).toBe("RYO0658PPK-BLACK");
+  });
 });
 
 describe("pickReferenceUnitPrice", () => {

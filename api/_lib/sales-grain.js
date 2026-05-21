@@ -157,12 +157,35 @@ export const RATIO_TOLERANCE_PCT = 0.05;
  */
 export function findSiblingPpkMaster(unitMaster, masterByCode) {
   if (!unitMaster || !unitMaster.style_code || !unitMaster.sku_code) return null;
+
+  // Master uses two PPK naming conventions in production:
+  //   1. "RYO0658-BLACK"  (style "RYO0658")  → sibling "RYO0658PPK-BLACK"
+  //   2. "RBB1440N-BLACK" (style "RBB1440N") → sibling "RBB1440N-PPK-BLACK"
+  // Some unit rows also carry a mis-tagged style_code that already
+  // contains "-PPK" (data-quality bug — e.g. "RBB1438N-BLACK" with
+  // style "RBB1438N-PPK"). The fallback derives the true style code
+  // from the sku itself when that happens.
+  const candidates = [];
   const variantSuffix = unitMaster.sku_code.slice(unitMaster.style_code.length);
-  const ppkSkuCode = `${unitMaster.style_code}PPK${variantSuffix}`;
-  const sibling = masterByCode.get(ppkSkuCode);
-  if (!sibling) return null;
-  if (!sibling.pack_size || Number(sibling.pack_size) <= 1) return null;
-  return sibling;
+  candidates.push(`${unitMaster.style_code}PPK${variantSuffix}`);
+  candidates.push(`${unitMaster.style_code}-PPK${variantSuffix}`);
+
+  const lastDash = unitMaster.sku_code.lastIndexOf("-");
+  if (lastDash > 0) {
+    const prefix    = unitMaster.sku_code.slice(0, lastDash);
+    const colorSuf  = unitMaster.sku_code.slice(lastDash); // includes leading "-"
+    const trueStyle = prefix.replace(/-?PPK\d*$/i, "");
+    if (trueStyle && trueStyle !== unitMaster.style_code) {
+      candidates.push(`${trueStyle}PPK${colorSuf}`);
+      candidates.push(`${trueStyle}-PPK${colorSuf}`);
+    }
+  }
+
+  for (const code of candidates) {
+    const sibling = masterByCode.get(code);
+    if (sibling && Number(sibling.pack_size) > 1) return sibling;
+  }
+  return null;
 }
 
 /**
