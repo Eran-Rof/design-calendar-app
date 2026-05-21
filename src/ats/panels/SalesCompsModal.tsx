@@ -75,6 +75,11 @@ interface SelectFieldProps<T extends string> {
   hint?: string;
 }
 function SelectField<T extends string>({ label, value, options, onChange, multi, hint }: SelectFieldProps<T>): React.ReactElement {
+  // useState lives at the top so the hook is called on every render
+  // regardless of `multi`. Conditional hook calls (the early-return
+  // pattern that mixed with a useState below the branch) violate the
+  // Rules of Hooks and cause React error #310.
+  const [open, setOpen] = useState(false);
   if (!multi) {
     const single = value[0] ?? "";
     return (
@@ -94,7 +99,6 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
   }
   // Multi: render a summary + dropdown of checkboxes. Tight footprint;
   // no popover gymnastics — we want this to feel like an inline form.
-  const [open, setOpen] = useState(false);
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.join(", ") : `${value.length} selected`;
   const toggle = (o: T) => {
     onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
@@ -210,41 +214,10 @@ export const SalesCompsModal: React.FC<Props> = ({
     return [...set].sort();
   }, [excelData]);
 
-  if (!open) return null;
-
-  const run = async () => {
-    setRangeWarn(false);
-    setError(null);
-    if (!start || !end || start > end) { setRangeWarn(true); return; }
-    setRunning(true);
-    try {
-      const r = await fetchSalesAggregates({
-        rows,
-        needT3: true,
-        needLY: true,
-        customer:  customer[0] || "",
-        customStart: start,
-        customEnd:   end,
-        storeFilter:      selStores.length > 0 ? selStores : undefined,
-        filterCategory:   selCategories.length > 0 ? selCategories : undefined,
-        filterSubCategory: selSubCategories.length > 0 ? selSubCategories : undefined,
-        filterStyle:      selStyles.length > 0 ? selStyles : undefined,
-      });
-      setResult(r);
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const reset = () => {
-    setResult(null);
-    setError(null);
-  };
-
   // Summary rollup across all SKUs in the fetch result (t3 = TY since
-  // the picker shifts the window, ly = LY by design).
+  // the picker shifts the window, ly = LY by design). Hooks (including
+  // useMemo) MUST be declared before the early return below — React
+  // requires a stable hook call order across renders (error #310).
   const summary = useMemo(() => {
     if (!result) return null;
     let tyQty = 0, tyRev = 0, tyMrgn = 0;
@@ -286,6 +259,41 @@ export const SalesCompsModal: React.FC<Props> = ({
       .filter(r => r.tyRev > 0 || r.lyRev > 0)
       .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
   }, [result]);
+
+  // All hooks above, all conditional rendering below. Plain values + handlers
+  // (not hooks) can sit on either side — they don't affect hook order.
+  if (!open) return null;
+
+  const run = async () => {
+    setRangeWarn(false);
+    setError(null);
+    if (!start || !end || start > end) { setRangeWarn(true); return; }
+    setRunning(true);
+    try {
+      const r = await fetchSalesAggregates({
+        rows,
+        needT3: true,
+        needLY: true,
+        customer:  customer[0] || "",
+        customStart: start,
+        customEnd:   end,
+        storeFilter:      selStores.length > 0 ? selStores : undefined,
+        filterCategory:   selCategories.length > 0 ? selCategories : undefined,
+        filterSubCategory: selSubCategories.length > 0 ? selSubCategories : undefined,
+        filterStyle:      selStyles.length > 0 ? selStyles : undefined,
+      });
+      setResult(r);
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const reset = () => {
+    setResult(null);
+    setError(null);
+  };
 
   return (
     <div
