@@ -306,6 +306,14 @@ export const GridTable: React.FC<GridTableProps> = ({
     ...S.th,
     top: 0,
     height: TOTALS_ROW_HEIGHT,
+    // border-box so the 2px borderBottom is INCLUDED in TOTALS_ROW_HEIGHT.
+    // The column-header row below sticks at top: TOTALS_ROW_HEIGHT — with
+    // content-box the cell's real visual height was 122px (120 + 2 border),
+    // so the next row stuck at 120 covered the bottom 2px and the divider
+    // disappeared during vertical scroll. border-box keeps the geometry
+    // exact: cell occupies [0, 120], border occupies [118, 120], the
+    // column-header row starts flush at 120, divider stays visible.
+    boxSizing: "border-box",
     // 4px top/bottom — doubled from the previous 2px tight version.
     // Keeps 10px horizontal padding so columns don't crowd borders.
     padding: "4px 10px",
