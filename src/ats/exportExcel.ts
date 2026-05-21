@@ -501,8 +501,10 @@ export function buildExportPayload(
   //   • T3 > 0, LY > 0   →  positive % when T3 > LY, negative when
   //                          T3 < LY (incremental can be negative
   //                          when current period under-performed)
-  //   • T3 = 0, LY > 0   →  "GONE" (no current revenue to compute
-  //                          against; would be undefined division)
+  //   • T3 = 0, LY > 0   →  "Only LY" (no current revenue to compute
+  //                          against; would be undefined division).
+  //                          Rendered as a muted gray since it's an
+  //                          informational tag, not a warning.
   //   • T3 = 0, LY = 0   →  blank (no data either side)
   //
   // Positive renders green, negative renders red. The percent is
@@ -511,6 +513,7 @@ export function buildExportPayload(
   // row's zebra band is preserved.
   const GREEN_TEXT = "006100";
   const RED_TEXT   = "9C0006";
+  const MUTED_TEXT = "999999";
   function t3VsLyCell(t3Val: number, lyVal: number, baseStyle: any): any {
     // NaN sieve. `NaN <= 0` is false, so an upstream NaN sneaks past
     // the value guards below and renders as "NaN%" in Excel. Coerce
@@ -522,10 +525,11 @@ export function buildExportPayload(
     }
     if (t3Val <= 0) {
       // LY had sales, T3 doesn't — formula's denominator is 0. Show
-      // GONE as a clear semantic flag rather than -∞.
-      return { v: "GONE", t: "s", s: {
+      // "Only LY" as an informational tag (muted gray, not bold red)
+      // since it's not a warning, just a state.
+      return { v: "Only LY", t: "s", s: {
         ...baseStyle,
-        font: { ...(baseStyle.font ?? {}), bold: true, color: { rgb: RED_TEXT } },
+        font: { ...(baseStyle.font ?? {}), color: { rgb: MUTED_TEXT } },
       } };
     }
     const frac = (t3Val - lyVal) / t3Val;
@@ -562,7 +566,7 @@ export function buildExportPayload(
     // sentinel for "no margin computable" (either no sales in window,
     // or all contributing rows had suppressed cost from the $0
     // master.unit_cost rule). Subtracting a real margin from a 0
-    // sentinel produces a misleading negative diff (e.g. TY="GONE"
+    // sentinel produces a misleading negative diff (e.g. TY="Only LY"
     // qty showing -20.6% diff against LY 20.6%) — not a real decline.
     // Rare cost: a legitimate 0% margin sale (price === cost) will
     // also blank — far less harm than the misleading subtraction.
@@ -717,7 +721,7 @@ export function buildExportPayload(
     // T3 and LY, then (sum_T3 − sum_LY) / sum_LY. Matches what the
     // operator gets by hand-dividing the subtotal's T3 Ttl Sls and
     // LY Ttl Sls cells directly above this row. NEW rows (T3 > 0,
-    // LY = 0) and GONE rows (T3 = 0, LY > 0) contribute to one side
+    // LY = 0) and Only-LY rows (T3 = 0, LY > 0) contribute to one side
     // and not the other — that's correct: growth on a NEW SKU has no
     // baseline so its T3 sales legitimately inflate the numerator
     // against the unchanged denominator.
