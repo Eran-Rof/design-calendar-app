@@ -21,7 +21,12 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonSku, canonStyleColor } from "../../_lib/sku-canon.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
-import { deriveSalesGrainFields } from "../../_lib/sales-grain.js";
+import {
+  deriveSalesGrainFields,
+  detectPackPricedAsUnit,
+  findSiblingPpkMaster,
+  SUSPICIOUS_PRICE_RATIO,
+} from "../../_lib/sales-grain.js";
 import { detectSoStore } from "../../_lib/ats-parse.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
@@ -245,12 +250,48 @@ export default async function handler(req, res) {
     const chunk = allSkus.slice(i, i + CHUNK);
     const { data, error } = await admin
       .from("ip_item_master")
-      .select("id, sku_code, pack_size, unit_cost")
+      .select("id, sku_code, style_code, pack_size, unit_cost")
       .in("sku_code", chunk);
     if (error) { counts.errors.push(`item lookup chunk ${i}: ${error.message}`); continue; }
     for (const row of data ?? []) {
       skuToId.set(row.sku_code, row.id);
-      skuToMaster.set(row.sku_code, { pack_size: row.pack_size, unit_cost: row.unit_cost });
+      skuToMaster.set(row.sku_code, {
+        sku_code: row.sku_code,
+        style_code: row.style_code,
+        pack_size: row.pack_size,
+        unit_cost: row.unit_cost,
+      });
+    }
+  }
+
+  // ── Pull sibling PPK masters for the grain-detector ─────────────────────
+  // For every unit-grain master we just resolved, also pull its PPK
+  // sibling (style_code + "PPK", preserving variant suffix). The detector
+  // uses these to reclassify pack-priced lines that were coded under the
+  // unit-grain SKU. Without preloading we'd have one round-trip per
+  // suspect row — this is one extra bulk select instead.
+  const siblingPpkCodes = new Set();
+  for (const [, m] of skuToMaster) {
+    if (!m.style_code || (m.pack_size && Number(m.pack_size) > 1)) continue;
+    const variantSuffix = m.sku_code.slice(m.style_code.length);
+    siblingPpkCodes.add(`${m.style_code}PPK${variantSuffix}`);
+  }
+  const siblingsToFetch = [...siblingPpkCodes].filter(code => !skuToMaster.has(code));
+  for (let i = 0; i < siblingsToFetch.length; i += CHUNK) {
+    const chunk = siblingsToFetch.slice(i, i + CHUNK);
+    const { data, error } = await admin
+      .from("ip_item_master")
+      .select("id, sku_code, style_code, pack_size, unit_cost")
+      .in("sku_code", chunk);
+    if (error) { counts.errors.push(`sibling PPK lookup chunk ${i}: ${error.message}`); continue; }
+    for (const row of data ?? []) {
+      skuToId.set(row.sku_code, row.id);
+      skuToMaster.set(row.sku_code, {
+        sku_code: row.sku_code,
+        style_code: row.style_code,
+        pack_size: row.pack_size,
+        unit_cost: row.unit_cost,
+      });
     }
   }
 
@@ -296,7 +337,17 @@ export default async function handler(req, res) {
           skuToId.set(row.sku_code, row.id);
           // New items default to pack_size=1, unit_cost=null. inferQtyGrain
           // will return 'unit' (no PPK conversion), margin will be NULL.
-          skuToMaster.set(row.sku_code, { pack_size: 1, unit_cost: null });
+          // Re-look-up style_code from the upsert response (might not
+          // be in the bucket payload if it was inferred from the dash).
+          const inferredStyle = row.sku_code.indexOf("-") > 0
+            ? row.sku_code.slice(0, row.sku_code.indexOf("-"))
+            : row.sku_code;
+          skuToMaster.set(row.sku_code, {
+            sku_code: row.sku_code,
+            style_code: inferredStyle,
+            pack_size: 1,
+            unit_cost: null,
+          });
         }
         counts.new_items_created += chunk.length;
       }
@@ -385,6 +436,105 @@ export default async function handler(req, res) {
     } else {
       for (const row of data ?? []) channelCodeToId.set(row.channel_code, row.id);
     }
+  }
+
+  // ── Pass 2a: grain detector — reclassify pack-priced unit lines ─────────
+  // Xoro occasionally records a wholesale prepack line under the unit-
+  // grain SKU. Detector identifies these by their suspicious unit_price
+  // (≥ SUSPICIOUS_PRICE_RATIO × master.unit_cost) and verifies against
+  // a customer-specific reference per-unit price from history. When
+  // confirmed (price ≈ reference × pack_size within ±5%), the candidate
+  // is re-routed to the sibling PPK master row. See sales-grain.js.
+  //
+  // Pre-pass: find suspect (sku_id, customer_id) pairs so we can fetch
+  // historical reference prices in a single batch query.
+  const suspectPairs = new Set();
+  const suspectByIdx = new Map();
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    const m = skuToMaster.get(c.sku);
+    if (!m || !m.style_code) continue;
+    const packSize = Number(m.pack_size) || 1;
+    if (packSize > 1) continue;
+    const cost = Number(m.unit_cost) || 0;
+    if (cost <= 0) continue;
+    if ((Number(c.unitPrice) || 0) < cost * SUSPICIOUS_PRICE_RATIO) continue;
+    const skuId = skuToId.get(c.sku);
+    const custId = c.customerKey
+      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerKey) ?? null)
+      : null;
+    if (!skuId || !custId) continue;
+    const sibling = findSiblingPpkMaster(m, skuToMaster);
+    if (!sibling) continue;
+    suspectPairs.add(`${skuId}|${custId}`);
+    suspectByIdx.set(i, { skuId, custId, master: m, sibling });
+  }
+
+  // Batch-load historical unit prices for the suspect pairs.
+  // SAME (customer_id, sku_id) lookup, last 24 months, capped per
+  // pair to keep the response size bounded.
+  const refPricesByPair = new Map(); // `${skuId}|${custId}` → number[]
+  if (suspectPairs.size > 0) {
+    const pairs = [...suspectPairs];
+    const skuIds = [...new Set(pairs.map(p => p.split("|")[0]))];
+    const custIds = [...new Set(pairs.map(p => p.split("|")[1]))];
+    for (let i = 0; i < skuIds.length; i += CHUNK) {
+      const skuChunk = skuIds.slice(i, i + CHUNK);
+      for (let j = 0; j < custIds.length; j += CHUNK) {
+        const custChunk = custIds.slice(j, j + CHUNK);
+        const { data, error } = await admin
+          .from("ip_sales_history_wholesale")
+          .select("sku_id, customer_id, unit_price")
+          .in("sku_id", skuChunk)
+          .in("customer_id", custChunk)
+          .gte("txn_date", new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10))
+          .not("unit_price", "is", null)
+          .limit(5000);
+        if (error) { counts.errors.push(`grain reference lookup: ${error.message}`); continue; }
+        for (const row of data ?? []) {
+          const key = `${row.sku_id}|${row.customer_id}`;
+          if (!suspectPairs.has(key)) continue; // narrow to the cartesian filter
+          if (!refPricesByPair.has(key)) refPricesByPair.set(key, []);
+          refPricesByPair.get(key).push(Number(row.unit_price));
+        }
+      }
+    }
+  }
+
+  // Also fold in same-batch peer prices so a first-time ingest with
+  // both pack-priced and unit-priced rows for the same (customer, sku)
+  // can still establish a reference within the batch.
+  for (const c of candidates) {
+    const skuId = skuToId.get(c.sku);
+    const custId = c.customerKey
+      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerKey) ?? null)
+      : null;
+    if (!skuId || !custId) continue;
+    const key = `${skuId}|${custId}`;
+    if (!suspectPairs.has(key)) continue;
+    if (!refPricesByPair.has(key)) refPricesByPair.set(key, []);
+    refPricesByPair.get(key).push(Number(c.unitPrice));
+  }
+
+  // Apply detection + reclassify.
+  counts.pack_priced_as_unit_reclassified = 0;
+  for (const [idx, info] of suspectByIdx) {
+    const refPrices = refPricesByPair.get(`${info.skuId}|${info.custId}`) || [];
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: candidates[idx].unitPrice,
+      unitMaster: info.master,
+      masterByCode: skuToMaster,
+      historicalUnitPrices: refPrices,
+    });
+    if (!sibling) continue;
+    // Reclassify: swap to PPK sibling SKU. raw item-number gets the
+    // PPK suffix so `inferQtyGrain` reads it as pack-grain downstream
+    // (PPK_TOKEN_RE in sales-grain.js matches /\bPPK\d*/).
+    const original = candidates[idx].sku;
+    candidates[idx].sku = sibling.sku_code;
+    candidates[idx].rawItemNumber = sibling.sku_code;
+    counts.pack_priced_as_unit_reclassified += 1;
+    counts.errors.push(`[grain-reclassify] ${original} → ${sibling.sku_code} (unit_price=${candidates[idx].unitPrice}, customer_key=${candidates[idx].customerKey})`);
   }
 
   // ── Pass 2: build sales rows ─────────────────────────────────────────────
