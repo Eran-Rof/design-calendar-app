@@ -70,16 +70,41 @@ export default async function handler(req, res) {
   const { data: suspects, error: e1 } = await admin.rpc("exec_sql", { q: "select 1" }).catch(() => ({ data: null, error: null }));
   // ↑ no RPC available — fall back to a chunked select. Use the
   // supabase-js builder to stay portable.
+  // Ecom rows are always eaches — exclude two ways up front so the
+  // natural 5-6× retail markup doesn't get flagged as pack-priced-
+  // as-unit:
+  //   1. Channel name not containing "Ecom" (the explicit signal)
+  //   2. Customer name not containing "shopify" (belt-and-suspenders
+  //      for Shopify variants that didn't get routed to PT ECOM)
+  const wholesaleChannelIds = [];
+  {
+    const { data, error } = await admin
+      .from("ip_channel_master")
+      .select("id, name")
+      .not("name", "ilike", "%Ecom%");
+    if (error) return res.status(500).json({ error: "channel fetch", details: error.message });
+    for (const r of data ?? []) wholesaleChannelIds.push(r.id);
+  }
+  const shopifyCustomerIds = new Set();
+  {
+    const { data, error } = await admin
+      .from("ip_customer_master")
+      .select("id")
+      .ilike("name", "%shopify%");
+    if (error) return res.status(500).json({ error: "shopify cust fetch", details: error.message });
+    for (const r of data ?? []) shopifyCustomerIds.add(r.id);
+  }
   let suspect = null;
   {
     let query = admin
       .from("ip_sales_history_wholesale")
       .select("id, sku_id, customer_id, qty, unit_price, gross_amount, net_amount, txn_date, invoice_number")
+      .in("channel_id", wholesaleChannelIds)
       .limit(20000);
     if (since) query = query.gte("txn_date", since);
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: "suspect fetch", details: error.message });
-    suspect = data ?? [];
+    suspect = (data ?? []).filter(r => !shopifyCustomerIds.has(r.customer_id));
   }
 
   // Pull all referenced masters in one round-trip.
