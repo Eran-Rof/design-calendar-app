@@ -336,11 +336,11 @@ export const GridTable: React.FC<GridTableProps> = ({
   // Vertical offset for the column-header row when the divider row is
   // present. The divider row sits at top: TOTALS_ROW_HEIGHT with height 3,
   // so the column header has to start 3px lower to leave room.
-  // 5px (was 3) and a brighter slate so the divider is unambiguously
-  // visible against the totals/header backgrounds (#1E293B). Earlier
-  // 2-3px slate-600 attempts were apparently rendering but invisible
-  // due to low contrast with the surrounding dark cells.
-  const DIVIDER_HEIGHT = 5;
+  // 2px slate-600 — subtle separator between the totals row and the
+  // column-header row. The diagnostic 5px slate-400 confirmed the
+  // dedicated <tr> approach renders reliably; toning back now that
+  // we know the mechanism works.
+  const DIVIDER_HEIGHT = 2;
   const headerRowTop = showTotalsRow ? TOTALS_ROW_HEIGHT + DIVIDER_HEIGHT : 0;
   // Total visible column count for the divider cell's colSpan. Counts
   // the visible sticky-left cols plus the period cols. Updates when
@@ -538,7 +538,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   top: TOTALS_ROW_HEIGHT,
                   height: DIVIDER_HEIGHT,
                   padding: 0,
-                  background: "#94A3B8",
+                  background: "#475569",
                   border: "none",
                   zIndex: 5,
                   // line-height: 0 so any stray ASCII (whitespace) in this
