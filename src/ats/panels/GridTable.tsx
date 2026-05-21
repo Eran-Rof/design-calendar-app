@@ -258,19 +258,32 @@ export const GridTable: React.FC<GridTableProps> = ({
       }
       if (showTotalsRow) {
         const slot = meta.key === "onHand" ? sums.onHand : meta.key === "onOrder" ? sums.onOrder : sums.onPO;
-        // Sticky bucket cells show B Inven = E Inven = slot.cost (no
-        // period flow), so the same fmtUSD width applies — no extra
-        // candidate strings needed beyond what the existing 5 lines
-        // already cover.
-        const lines = [
-          slot.qty.toLocaleString(),
-          fmtUSD(slot.cost),
-          fmtUSD(slot.sale),
-          fmtUSD(slot.sale - slot.cost),
-          slot.sale > 0 ? `${(((slot.sale - slot.cost) / slot.sale) * 100).toFixed(1)}%` : "—",
+        // The sticky bucket totals cell renders 7 stacked rows of
+        // "<label> <value>" via a 2-column grid. The autoFit measure
+        // needs to fit BOTH halves, not just the value. Pick the
+        // widest combined width across all 7 rows so neither the
+        // label nor the value gets clipped.
+        //   E Inven dominates because it's the cumulative end-period
+        //   inventory $ — often the largest number on screen and
+        //   previously omitted from this loop, which is why On Hand /
+        //   On Order / On PO totals were being truncated. For sticky
+        //   bucket cells B Inven = E Inven = slot.cost (no period
+        //   flow), so we approximate eInven with slot.cost — the
+        //   actual displayed value in this render context.
+        const sticky_eInven_approx = slot.cost;
+        const pairs: Array<[string, string]> = [
+          ["Qty:",     slot.qty.toLocaleString()],
+          ["B Inven:", fmtUSD(slot.cost)],
+          ["Cost:",    fmtUSD(slot.cost)],
+          ["Sale:",    fmtUSD(slot.sale)],
+          ["Mrgn $:",  fmtUSD(slot.sale - slot.cost)],
+          ["Mrgn:",    slot.sale > 0 ? `${(((slot.sale - slot.cost) / slot.sale) * 100).toFixed(1)}%` : "—"],
+          ["E Inven:", fmtUSD(sticky_eInven_approx)],
         ];
-        for (const l of lines) {
-          if (l.length > maxLen) maxLen = l.length;
+        for (const [label, val] of pairs) {
+          // "label value" — +1 for the space between them.
+          const combined = label.length + 1 + val.length;
+          if (combined > maxLen) maxLen = combined;
         }
       }
       const charPx = meta.charType === "mono" ? MONO_CHAR_PX : TEXT_CHAR_PX;
@@ -323,7 +336,11 @@ export const GridTable: React.FC<GridTableProps> = ({
   // Vertical offset for the column-header row when the divider row is
   // present. The divider row sits at top: TOTALS_ROW_HEIGHT with height 3,
   // so the column header has to start 3px lower to leave room.
-  const DIVIDER_HEIGHT = 3;
+  // 5px (was 3) and a brighter slate so the divider is unambiguously
+  // visible against the totals/header backgrounds (#1E293B). Earlier
+  // 2-3px slate-600 attempts were apparently rendering but invisible
+  // due to low contrast with the surrounding dark cells.
+  const DIVIDER_HEIGHT = 5;
   const headerRowTop = showTotalsRow ? TOTALS_ROW_HEIGHT + DIVIDER_HEIGHT : 0;
   // Total visible column count for the divider cell's colSpan. Counts
   // the visible sticky-left cols plus the period cols. Updates when
@@ -521,7 +538,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                   top: TOTALS_ROW_HEIGHT,
                   height: DIVIDER_HEIGHT,
                   padding: 0,
-                  background: "#475569",
+                  background: "#94A3B8",
                   border: "none",
                   zIndex: 5,
                   // line-height: 0 so any stray ASCII (whitespace) in this
