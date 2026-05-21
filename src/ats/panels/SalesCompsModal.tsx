@@ -732,13 +732,37 @@ export const SalesCompsModal: React.FC<Props> = ({
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
             Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
           </div>
           <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
         </div>
+
+        {/* Loading overlay shown during the 10–15s fetch. Sits inside
+            the modal body so the operator can still see the selection
+            form context behind it. Centered spinner + status text +
+            estimated time. Pointer-events:none so click-outside on
+            backdrop still works to cancel. */}
+        {running && (
+          <div style={{
+            position: "absolute", inset: 0, background: "rgba(15,23,42,0.85)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: 14, zIndex: 1200, borderRadius: 12,
+          }}>
+            <div style={{
+              width: 42, height: 42, borderRadius: "50%",
+              border: `3px solid ${C.border}`, borderTopColor: C.accent,
+              animation: "salescomps-spin 0.8s linear infinite",
+            }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Fetching sales history…</div>
+            <div style={{ fontSize: 11, color: C.textMuted, maxWidth: 320, textAlign: "center", lineHeight: 1.4 }}>
+              Typically 10–15 seconds. Pulling the {start} → {end} window plus the LY-shifted comparison, then aggregating per-customer + per-style.
+            </div>
+            <style>{`@keyframes salescomps-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
 
         {!result && (
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
