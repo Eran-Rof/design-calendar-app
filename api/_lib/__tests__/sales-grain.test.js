@@ -9,6 +9,10 @@ import {
   computeRowMargin,
   resolvePerUnitCost,
   deriveSalesGrainFields,
+  findSiblingPpkMaster,
+  pickReferenceUnitPrice,
+  detectPackPricedAsUnit,
+  SUSPICIOUS_PRICE_RATIO,
 } from "../sales-grain.js";
 
 describe("inferQtyGrain", () => {
@@ -285,5 +289,227 @@ describe("deriveSalesGrainFields", () => {
     expect(r.cogs_amount).toBe(null);
     expect(r.margin_amount).toBe(null);
     expect(r.margin_pct).toBe(null);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Pack-priced-as-unit detector — operator-reported bug where Xoro codes
+// a wholesale prepack line under the unit-grain SKU (e.g. 131 packs of
+// 18 jackets recorded as 131 jackets at $222.30/unit). False-positive
+// protection is critical: any honest unit-grain sale at an elevated
+// price must NOT be reclassified.
+// ────────────────────────────────────────────────────────────────────────
+
+describe("findSiblingPpkMaster", () => {
+  function masterMap(rows) {
+    const m = new Map();
+    for (const r of rows) m.set(r.sku_code, r);
+    return m;
+  }
+
+  it("finds the variant PPK sibling for a unit-grain color-coded SKU", () => {
+    const masters = masterMap([
+      { sku_code: "RYO0658-BLACK/BIRCH",     style_code: "RYO0658",    pack_size: 1,  unit_cost: 10 },
+      { sku_code: "RYO0658PPK-BLACK/BIRCH", style_code: "RYO0658PPK", pack_size: 18, unit_cost: 180 },
+    ]);
+    const unit = masters.get("RYO0658-BLACK/BIRCH");
+    const sibling = findSiblingPpkMaster(unit, masters);
+    expect(sibling?.sku_code).toBe("RYO0658PPK-BLACK/BIRCH");
+    expect(sibling?.pack_size).toBe(18);
+  });
+
+  it("finds the bare PPK sibling when sku_code has no variant suffix", () => {
+    const masters = masterMap([
+      { sku_code: "RYO0658",    style_code: "RYO0658",    pack_size: 1,  unit_cost: 10 },
+      { sku_code: "RYO0658PPK", style_code: "RYO0658PPK", pack_size: 18, unit_cost: 180 },
+    ]);
+    const sibling = findSiblingPpkMaster(masters.get("RYO0658"), masters);
+    expect(sibling?.sku_code).toBe("RYO0658PPK");
+  });
+
+  it("returns null when no PPK sibling exists", () => {
+    const masters = masterMap([
+      { sku_code: "PLAIN-SKU", style_code: "PLAIN", pack_size: 1, unit_cost: 5 },
+    ]);
+    expect(findSiblingPpkMaster(masters.get("PLAIN-SKU"), masters)).toBeNull();
+  });
+
+  it("returns null when sibling exists but has pack_size <= 1 (data quality)", () => {
+    const masters = masterMap([
+      { sku_code: "X",    style_code: "X",    pack_size: 1, unit_cost: 5 },
+      { sku_code: "XPPK", style_code: "XPPK", pack_size: 1, unit_cost: 5 }, // mis-tagged sibling
+    ]);
+    expect(findSiblingPpkMaster(masters.get("X"), masters)).toBeNull();
+  });
+
+  it("returns null when the unit master is missing required fields", () => {
+    expect(findSiblingPpkMaster(null, new Map())).toBeNull();
+    expect(findSiblingPpkMaster({ sku_code: "X" }, new Map())).toBeNull();
+    expect(findSiblingPpkMaster({ style_code: "X" }, new Map())).toBeNull();
+  });
+});
+
+describe("pickReferenceUnitPrice", () => {
+  it("returns the median of reasonable prices (between cost and SUSPICIOUS_PRICE_RATIO × cost)", () => {
+    // cost = $10, SUSPICIOUS_PRICE_RATIO = 5 → reasonable band [10, 50]
+    expect(pickReferenceUnitPrice([12.35, 12.35, 35.70], 10)).toBe(12.35);
+  });
+
+  it("filters out pack-priced outliers above the reasonable band", () => {
+    // $222.30 is in the data but outside [10, 50] band → excluded
+    expect(pickReferenceUnitPrice([12.35, 222.30, 12.35], 10)).toBe(12.35);
+  });
+
+  it("returns null when no historical prices fall in the reasonable band", () => {
+    // All prices are pack-priced ($222.30 way above 5×$10 cap)
+    expect(pickReferenceUnitPrice([222.30, 222.30, 222.30], 10)).toBeNull();
+  });
+
+  it("returns null when masterUnitCost is missing or zero", () => {
+    expect(pickReferenceUnitPrice([12.35], 0)).toBeNull();
+    expect(pickReferenceUnitPrice([12.35], null)).toBeNull();
+    expect(pickReferenceUnitPrice([12.35], undefined)).toBeNull();
+  });
+
+  it("returns null on empty / non-array input", () => {
+    expect(pickReferenceUnitPrice([], 10)).toBeNull();
+    expect(pickReferenceUnitPrice(null, 10)).toBeNull();
+  });
+
+  it("medians a 2-row dataset by averaging the pair", () => {
+    expect(pickReferenceUnitPrice([12.00, 14.00], 10)).toBe(13);
+  });
+});
+
+describe("detectPackPricedAsUnit — false-positive protection", () => {
+  function masters() {
+    const m = new Map();
+    m.set("RYO0658-BLACK/BIRCH",     { sku_code: "RYO0658-BLACK/BIRCH",     style_code: "RYO0658",    pack_size: 1,  unit_cost: 10 });
+    m.set("RYO0658PPK-BLACK/BIRCH", { sku_code: "RYO0658PPK-BLACK/BIRCH", style_code: "RYO0658PPK", pack_size: 18, unit_cost: 180 });
+    return m;
+  }
+  const unitMaster = masters().get("RYO0658-BLACK/BIRCH");
+
+  it("RECLASSIFIES the operator's smoking-gun row (131 @ $222.30 with $12.35 history)", () => {
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 222.30,
+      unitMaster,
+      masterByCode: masters(),
+      historicalUnitPrices: [12.35, 12.35],
+    });
+    expect(sibling?.sku_code).toBe("RYO0658PPK-BLACK/BIRCH");
+  });
+
+  it("does NOT reclassify when the price ratio is off (e.g. ~12× cost but not divisible by pack_size)", () => {
+    // $200 is suspicious (20× cost) but $200/18 = $11.11 doesn't match the $12.35 reference within 5%
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 200,
+      unitMaster,
+      masterByCode: masters(),
+      historicalUnitPrices: [12.35, 12.35],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("does NOT reclassify a normal retail sale at 3.5× cost (below suspicious threshold)", () => {
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 35.70,
+      unitMaster,
+      masterByCode: masters(),
+      historicalUnitPrices: [35.70, 33.90],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("does NOT reclassify when no reference history exists (false-positive safety)", () => {
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 222.30,
+      unitMaster,
+      masterByCode: masters(),
+      historicalUnitPrices: [],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("does NOT reclassify when ALL history is also pack-priced (no reasonable reference)", () => {
+    // Recursive safety: if every prior row for this customer/sku is at the
+    // pack price, we can't establish a unit-price reference. Skip — better
+    // to leave the data as-is than to confidently mis-classify.
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 222.30,
+      unitMaster,
+      masterByCode: masters(),
+      historicalUnitPrices: [222.30, 222.30, 222.30],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("does NOT reclassify when no PPK sibling exists", () => {
+    const m = new Map();
+    m.set("PLAIN-SKU", { sku_code: "PLAIN-SKU", style_code: "PLAIN", pack_size: 1, unit_cost: 10 });
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 222.30,
+      unitMaster: m.get("PLAIN-SKU"),
+      masterByCode: m,
+      historicalUnitPrices: [12.35],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("does NOT reclassify when the unit master is already pack-grain (pack_size > 1)", () => {
+    const m = new Map();
+    m.set("RYO0658PPK", { sku_code: "RYO0658PPK", style_code: "RYO0658PPK", pack_size: 18, unit_cost: 180 });
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 222.30,
+      unitMaster: m.get("RYO0658PPK"),
+      masterByCode: m,
+      historicalUnitPrices: [180],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("does NOT reclassify when master.unit_cost is missing (can't gauge suspicion)", () => {
+    const m = masters();
+    m.set("X-NOCOST", { sku_code: "X-NOCOST", style_code: "X", pack_size: 1, unit_cost: null });
+    m.set("XPPK-NOCOST", { sku_code: "XPPK-NOCOST", style_code: "XPPK", pack_size: 18, unit_cost: null });
+    const sibling = detectPackPricedAsUnit({
+      candidateUnitPrice: 222.30,
+      unitMaster: m.get("X-NOCOST"),
+      masterByCode: m,
+      historicalUnitPrices: [12.35],
+    });
+    expect(sibling).toBeNull();
+  });
+
+  it("RECLASSIFIES when the price matches within the 5% tolerance band but not exactly", () => {
+    // ref × pack = $12.35 × 18 = $222.30; ±5% = [$211.19, $233.42]
+    expect(
+      detectPackPricedAsUnit({
+        candidateUnitPrice: 215,
+        unitMaster,
+        masterByCode: masters(),
+        historicalUnitPrices: [12.35],
+      })?.sku_code,
+    ).toBe("RYO0658PPK-BLACK/BIRCH");
+    expect(
+      detectPackPricedAsUnit({
+        candidateUnitPrice: 230,
+        unitMaster,
+        masterByCode: masters(),
+        historicalUnitPrices: [12.35],
+      })?.sku_code,
+    ).toBe("RYO0658PPK-BLACK/BIRCH");
+  });
+
+  it("does NOT reclassify just outside the 5% tolerance band", () => {
+    // $200 / $222.30 → 10% off → outside the ±5% band
+    expect(
+      detectPackPricedAsUnit({
+        candidateUnitPrice: 200,
+        unitMaster,
+        masterByCode: masters(),
+        historicalUnitPrices: [12.35],
+      }),
+    ).toBeNull();
   });
 });
