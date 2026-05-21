@@ -30,6 +30,7 @@ interface XoroSoLine {
   UnitPrice?: number | string | null;
   LineAmount?: number | string | null;
   DateToBeShipped?: string | null;
+  CancelDate?: string | null;
 }
 interface XoroSoHeader {
   OrderNumber?: string | null;
@@ -38,6 +39,12 @@ interface XoroSoHeader {
   StoreName?: string | null;
   SaleStoreName?: string | null;
   DateToBeShipped?: string | null;
+  // Cancel date — when the SO auto-cancels if unshipped. Used by the
+  // Sales Comps SO view's date filter so an SO with a Sept ship date
+  // and a June cancel date still appears inside a "May → July" window.
+  // Falls back to line-level CancelDate first, then header DateToBeShipped
+  // for legacy uploads that pre-date the CancelDate trim (May 2026).
+  CancelDate?: string | null;
   // Xoro labels the customer's PO inconsistently across endpoints —
   // cover the common variants. Surfaces in the right-click menu next
   // to the SO number when present.
@@ -96,6 +103,7 @@ export function normalizeXoroSos(records: XoroSoRecord[]): {
     // Tuna, etc.). Use the bare name.
     const store = String(h.StoreName ?? h.SaleStoreName ?? "").trim();
     const headerDate = toIsoDate(h.DateToBeShipped);
+    const headerCancelDate = toIsoDate(h.CancelDate);
 
     for (const ln of lines) {
       const sku = String(ln?.ItemNumber ?? "").trim();
@@ -112,8 +120,17 @@ export function normalizeXoroSos(records: XoroSoRecord[]): {
 
       const unitPrice = toNum(ln.UnitPrice);
       const totalPrice = toNum(ln.LineAmount) || unitPrice * qty;
+      // Cancel date: line-level wins (Xoro lets line cancels diverge
+      // from header on split-fulfillment orders); else header; else
+      // omit. Consumers (Sales Comps SO view) fall back to `date` when
+      // missing, so legacy uploads pre-CancelDate-trim still work.
+      const cancelDate = toIsoDate(ln.CancelDate) || headerCancelDate;
 
-      events.push({ sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store, customerPo: customerPo || undefined });
+      events.push({
+        sku, date, qty, orderNumber, customerName, unitPrice, totalPrice, store,
+        customerPo: customerPo || undefined,
+        cancelDate: cancelDate || undefined,
+      });
     }
   }
 

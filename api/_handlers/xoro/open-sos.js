@@ -53,6 +53,14 @@ function trimSoRecord(rec) {
       StoreName: h.StoreName ?? null,
       SaleStoreName: h.SaleStoreName ?? null,
       DateToBeShipped: h.DateToBeShipped ?? null,
+      // Cancel date: when the SO is auto-cancelled if not yet shipped.
+      // Sales Comps "View By: SO" filters on this rather than ship date
+      // so wholesale POs that ship later in the season still appear in
+      // the operator's current planning window. Xoro spells it
+      // "CancelDate" on the header; cover capitalization variants
+      // defensively so we don't silently drop the field on a future
+      // API change.
+      CancelDate: h.CancelDate ?? h.CancellationDate ?? h.CancelByDate ?? null,
     },
     SoEstimateItemLineArr: lines.map((l) => ({
       ItemNumber: l?.ItemNumber ?? null,
@@ -62,6 +70,7 @@ function trimSoRecord(rec) {
       UnitPrice: l?.UnitPrice ?? null,
       LineAmount: l?.LineAmount ?? null,
       DateToBeShipped: l?.DateToBeShipped ?? null,
+      CancelDate: l?.CancelDate ?? l?.CancellationDate ?? l?.CancelByDate ?? null,
     })),
   };
 }

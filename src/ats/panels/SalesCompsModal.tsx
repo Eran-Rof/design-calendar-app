@@ -398,9 +398,17 @@ export const SalesCompsModal: React.FC<Props> = ({
     // multiple times per SO.
     const enriched: Array<{ s: ATSSoEvent; style: string | null; category: string | null; subCategory: string | null; gender: string | null; cancelDate: string }> = [];
     for (const s of excelData.sos) {
-      if (!s.date || s.date < start || s.date > end) continue;
+      // The SO view filters on cancel_date per the operator spec
+      // ("comp open SOs against ship dollars for the same selection
+      // in prior year based on sales order cancel date"). Legacy SOs
+      // uploaded before the May 2026 CancelDate-trim change won't
+      // carry a cancel_date — fall back to `s.date` (DateToBeShipped)
+      // so those uploads still show, even though the comparison is
+      // technically anchored to the ship date for those rows.
+      const filterDate = s.cancelDate || s.date;
+      if (!filterDate || filterDate < start || filterDate > end) continue;
       if (!want(selStores, s.store)) continue;
-      if (customer[0] && s.customerName !== customer[0]) continue;
+      if (customer.length > 0 && !customer.includes(s.customerName)) continue;
       const ids = resolveItemMasterIds(s.sku);
       let style: string | null = null;
       let cat: string | null = null;
@@ -419,7 +427,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       if (!want(selSubCategories, subCat)) continue;
       if (!want(selStyles, style))         continue;
       if (!want(selGenders, gender))       continue;
-      enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: s.date });
+      enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: filterDate });
     }
 
     const groupBy: "style" | "customer" | "category" | "sub_category" | "so" =
@@ -600,7 +608,7 @@ export const SalesCompsModal: React.FC<Props> = ({
     try {
       const r = await fetchSalesAggregates({
         rows, needT3: true, needLY: true,
-        customer:          customer[0] || "",
+        customer:          customer,
         customStart:       start,
         customEnd:         end,
         storeFilter:       selStores.length > 0 ? selStores : undefined,
@@ -645,7 +653,7 @@ export const SalesCompsModal: React.FC<Props> = ({
   const downloadExcel = () => {
     if (!result) return;
     const scope = [
-      customer[0] && `customer ${customer[0]}`,
+      customer.length > 0 && `customer ${customer.join("/")}`,
       selStores.length > 0 && `stores ${selStores.join("/")}`,
       selCategories.length > 0 && `categories ${selCategories.join("/")}`,
       selSubCategories.length > 0 && `sub-cats ${selSubCategories.join("/")}`,
@@ -727,7 +735,7 @@ export const SalesCompsModal: React.FC<Props> = ({
   };
 
   const scopeLine = [
-    customer[0] && `customer ${customer[0]}`,
+    customer.length > 0 && `customer ${customer.length === 1 ? customer[0] : `${customer.length} selected`}`,
     selStores.length > 0 && `stores ${selStores.join("/")}`,
     selCategories.length > 0 && `categories ${selCategories.length}`,
     selSubCategories.length > 0 && `sub-cats ${selSubCategories.length}`,
