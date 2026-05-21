@@ -253,9 +253,30 @@ if (!APPLY) {
 
 console.log(`\n▶ Step 6: APPLY — updating ${reclassifications.length} rows...`);
 
+// Step 6a: pull per-PPK-sku avg cost from ip_item_avg_cost so the
+// recomputed cogs/margin land at the size-granular cost (the
+// authoritative source from the Xoro Item Costing Report) rather
+// than at master.unit_cost. Falls back to master cost when the
+// PPK sibling isn't in the avg-cost table.
+const ppkSkus = [...new Set(reclassifications.map(r => r.to_sku))];
+const avgCostByCode = new Map();
+for (let i = 0; i < ppkSkus.length; i += 200) {
+  const chunk = ppkSkus.slice(i, i + 200);
+  const rows = await sql(`
+    SELECT sku_code, avg_cost FROM ip_item_avg_cost
+    WHERE sku_code = ANY(ARRAY[${chunk.map(s => `'${s.replace(/'/g, "''")}'`).join(",")}]::text[]);
+  `);
+  for (const r of rows) {
+    const v = Number(r.avg_cost);
+    if (Number.isFinite(v) && v > 0) avgCostByCode.set(r.sku_code, v);
+  }
+}
+console.log(`   → avg_cost coverage: ${avgCostByCode.size}/${ppkSkus.length} PPK skus`);
+
 // Update one row at a time using parameterised UPDATE. Each update
 // rewrites sku_id (to PPK sibling), qty_units (× pack_size), and
-// re-derives cogs/margin via the PPK row's unit_cost.
+// re-derives cogs/margin via the PPK row's unit_cost (or the
+// avg_cost from ip_item_avg_cost when present).
 let updated = 0;
 let failed = 0;
 for (const r of reclassifications) {
@@ -265,6 +286,7 @@ for (const r of reclassifications) {
     qty: r.qty,
     netAmount: r.net,
     master: { pack_size: r.pack_size, unit_cost: ppkMaster.unit_cost },
+    avgCostPerRawQty: avgCostByCode.get(r.to_sku),
   });
   try {
     await sql(`

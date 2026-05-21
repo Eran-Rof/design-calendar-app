@@ -19,6 +19,20 @@
 
 const PPK_TOKEN_RE = /(?:^|[^A-Z])PPK\d*(?:[^A-Z0-9]|$)/i;
 
+// Numeric pack size extracted from a Xoro Item Number that contains a
+// "PPK<digits>" token (e.g. "RBB1438N-BLACK-PPK48" → 48). Returns null
+// when no token is present or when the digits are <= 1.
+//
+// Used by the sync handler to route PPK lines to their pack-grain master
+// row deterministically (without leaning on the price-anomaly detector
+// + its ±5% reference-price guard).
+export function parsePackSizeFromRaw(rawItemNumber) {
+  const m = String(rawItemNumber || "").match(/PPK[\s_-]*(\d+)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 1 ? n : null;
+}
+
 // Xoro chargeback-reversal rows (e.g. ROSSCBREVERSAL / "Ross CB
 // Reversal") are accounting adjustments, not real sales. Skip when
 // BOTH the item number and description tag the row — the AND keeps
@@ -245,18 +259,32 @@ export function detectPackPricedAsUnit({
   return sibling;
 }
 
-export function deriveSalesGrainFields({ rawItemNumber, qty, netAmount, master }) {
+// avgCostPerRawQty (optional): per-row-qty cost looked up from
+// ip_item_avg_cost — keyed by the FULL raw Xoro sku (with size/PPK
+// suffix), so PPK lines see the per-pack cost and size lines see the
+// per-each cost. When present it's authoritative: cogs = qty ×
+// avgCostPerRawQty, no pack arithmetic needed. When absent we fall
+// back to the master.unit_cost smart-cost rule.
+export function deriveSalesGrainFields({ rawItemNumber, qty, netAmount, master, avgCostPerRawQty }) {
   const packSize = Math.max(1, Number(master?.pack_size) || 1);
   const grain = inferQtyGrain(rawItemNumber, packSize);
   const qtyUnits = toQtyUnits(qty, grain, packSize);
-  const perUnitCost = resolvePerUnitCost({
-    masterUnitCost: master?.unit_cost ?? null,
-    packSize,
-    grain,
-    netAmount,
-    qtyUnits,
-  });
-  const cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
+  let perUnitCost;
+  let cogsAmount;
+  const ac = Number(avgCostPerRawQty);
+  if (Number.isFinite(ac) && ac > 0) {
+    cogsAmount = Number(qty) * ac;
+    perUnitCost = qtyUnits > 0 ? cogsAmount / qtyUnits : null;
+  } else {
+    perUnitCost = resolvePerUnitCost({
+      masterUnitCost: master?.unit_cost ?? null,
+      packSize,
+      grain,
+      netAmount,
+      qtyUnits,
+    });
+    cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
+  }
   const { amount, pct } = computeRowMargin({
     netAmount,
     qtyUnits,
