@@ -124,11 +124,25 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
   const fmt = (o: T) => optionLabel ? optionLabel(o) : o;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // Direction the popover opens — "down" when there's room below the
+  // button, "up" otherwise. Computed when the popover opens so the
+  // bottom-most fields (like View By) don't get their popover clipped
+  // by the modal's scroll-container edge.
+  const [openDir, setOpenDir] = useState<"down" | "up">("down");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   // Click-outside closes the multi-select popover. Listens only while
   // open so we don't waste handlers on idle dropdowns.
   useEffect(() => {
     if (!open) return;
+    // Compute direction once at open time. Popover height capped at
+    // 260px (see styles below); flip up if the button's bottom is
+    // within that distance of the viewport bottom.
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const roomBelow = window.innerHeight - rect.bottom;
+      setOpenDir(roomBelow < 280 && rect.top > 280 ? "up" : "down");
+    }
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node | null;
       if (!t || !wrapRef.current) return;
@@ -162,12 +176,24 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
     <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }}>
       <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
       {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-      <button type="button" onClick={() => setOpen(o => !o)} style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}>
+      <button ref={buttonRef} type="button" onClick={() => setOpen(o => !o)} style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}>
         {summary}
         <span style={{ float: "right", color: C.textDim, fontSize: 10 }}>▼</span>
       </button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 1100, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, maxHeight: 260, display: "flex", flexDirection: "column", padding: 4, boxShadow: "0 6px 18px rgba(0,0,0,0.5)" }}>
+        <div style={{
+          position: "absolute",
+          // Opens upward when the button is too close to the viewport
+          // bottom — keeps the popover inside the modal's scroll area
+          // so options aren't clipped.
+          ...(openDir === "down"
+            ? { top: "calc(100% + 4px)" }
+            : { bottom: "calc(100% + 4px)" }),
+          left: 0, right: 0, zIndex: 1100,
+          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
+          maxHeight: 260, display: "flex", flexDirection: "column", padding: 4,
+          boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
+        }}>
           <input
             type="text"
             value={search}
@@ -736,13 +762,16 @@ export const SalesCompsModal: React.FC<Props> = ({
 
             {rangeWarn && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Start date must be on or before End date.</div>}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi hint="Empty = all customers" />
-              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi hint="Empty = all stores" />
+            {/* 3-column grid for the 6 filter dropdowns so the whole
+                form fits in ~90vh without scrolling — keeps the Output
+                section above the fold even when DevTools is open. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi />
+              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
               <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
-              <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi hint="Empty = all genders" />
+              <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi />
             </div>
 
             <fieldset style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", margin: 0 }}>
