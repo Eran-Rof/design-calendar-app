@@ -7,6 +7,7 @@ import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
 import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
+import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
 import { getItemMasterById } from "../itemMasterLookup";
@@ -558,6 +559,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [agedDays, setAgedDays] = useState("365");
   const [agedCategory, setAgedCategory] = useState(filterCategory);
   const [agedEmpty, setAgedEmpty] = useState(false);
+  const [salesCompsOpen, setSalesCompsOpen] = useState(false);
   // Reports dropdown — collapses the previous five always-visible green
   // export buttons (Export Excel / Neg Inven / Aged Inven / NO Mrgn Data /
   // Stock Vs SO) into one button + popover menu. Each menu entry fires the
@@ -1154,6 +1156,12 @@ export const NavBar: React.FC<NavBarProps> = ({
                 sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
                 onClick: onDownloadStockVsSo,
               },
+              {
+                key: "salesComps",
+                label: "Sales Comps…",
+                sub: "TY vs same-period-LY for the date range + filters you pick",
+                onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
+              },
             ] as const).map((item) => (
               <button
                 key={item.key}
@@ -1376,6 +1384,18 @@ export const NavBar: React.FC<NavBarProps> = ({
       }}
       onClose={() => { setPreviewPayload(null); setExportOptsOpen(true); }}
       onCloseAll={() => { setPreviewPayload(null); }}
+    />
+
+    <SalesCompsModal
+      open={salesCompsOpen}
+      onClose={() => setSalesCompsOpen(false)}
+      defaultCustomer={customerFilter}
+      defaultCategories={exportFilterOpts.filterCategory}
+      defaultSubCategories={exportFilterOpts.filterSubCategory}
+      defaultStyles={exportFilterOpts.filterStyle}
+      defaultStoreFilter={exportFilterOpts.storeFilter}
+      rows={filtered}
+      excelData={excelData}
     />
     {exportLoading && (
       <div style={{
