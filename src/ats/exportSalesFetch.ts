@@ -811,7 +811,16 @@ export async function getSkuSalesAggregates(sku: string, customer: string): Prom
 // Direct (un-cached) fetch for the requested window. Used on cache
 // miss when the preload hasn't run.
 async function directFetch(start: string, end: string): Promise<SalesRow[]> {
-  const path = `ip_sales_history_wholesale?select=sku_id,customer_id,txn_date,qty,net_amount,unit_price&txn_date=gte.${start}&txn_date=lte.${end}&order=txn_date.asc`;
+  // The SELECT list MUST match the SalesRow type. Missing channel_id /
+  // qty_units / margin_amount is a silent killer: downstream the
+  // store filter compares against `r.channel_id`, and
+  // `channelIds.has(undefined)` is false — so every row gets dropped
+  // when the requested window extends past the cache (e.g. picking a
+  // future TY window for an open-SO comp). Symptom from prod
+  // 2026-05-21: Ross + 5/21–7/31 2026 TY window returned 0 SKUs even
+  // though the LY shift had 384 rows / $3.87M in the DB.
+  // Mirror every column the aggregator reads.
+  const path = `ip_sales_history_wholesale?select=sku_id,customer_id,channel_id,txn_date,qty,qty_units,net_amount,unit_price,margin_amount&txn_date=gte.${start}&txn_date=lte.${end}&order=txn_date.asc`;
   const rows = await sbGetAll<SalesRow>(path, 500);
   console.info(`[ATS export] direct fetch ${rows.length} sales rows for window ${start}..${end}`);
   return rows;

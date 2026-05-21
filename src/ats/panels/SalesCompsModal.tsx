@@ -386,7 +386,11 @@ export const SalesCompsModal: React.FC<Props> = ({
   //   • Only SO selected → one row per SO order_number.
   // A grand-total row closes every variant.
   const soRows = useMemo<SoRow[]>(() => {
-    if (!result || !excelData) return [];
+    // SO view is built primarily from excelData.sos (open SOs). The
+    // fetch result is only needed for the LY column. Don't gate on
+    // `result` being truthy — even when the fetch returns empty or
+    // fails, the operator still expects to see their open SOs.
+    if (!excelData) return [];
     if (!viewBy.includes("so")) return [];
     const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
     // Resolve each open SO's master_style + master_category + master_sub_category
