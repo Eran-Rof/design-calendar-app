@@ -364,6 +364,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
         </span>
       </td>
       <td
+        data-testid="on-hand-cell"
         style={{ ...S.tdNum, cursor: (r.on_hand_qty ?? 0) !== 0 ? "context-menu" : "default", ...colHide("onHand") }}
         title={(r.on_hand_qty ?? 0) !== 0 ? "Right-click for inventory details" : undefined}
         onContextMenu={(e) => { if ((r.on_hand_qty ?? 0) !== 0) void openSummaryCtx(e, "onHand", r); }}

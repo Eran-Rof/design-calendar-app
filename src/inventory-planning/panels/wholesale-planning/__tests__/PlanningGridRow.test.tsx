@@ -250,13 +250,8 @@ describe("<PlanningGridRow /> — context menu + onSelectRow", () => {
       row: row({ on_hand_qty: 25 }),
       openSummaryCtx: openCtx,
     }));
-    const cells = container.querySelectorAll("td");
-    // On Hand is the 18th td (0=cat, 1=subCat, 2=style, 3=desc, 4=color,
-    // 5=customer, 6=period, 7=class, 8=histT3, 9=histLY, 10=margin,
-    // 11=system, 12=buyer, 13=override, 14=final, 15=confidence,
-    // 16=method, 17=onHand)
-    const onHand = cells[17];
-    expect(onHand).toBeDefined();
+    const onHand = container.querySelector('[data-testid="on-hand-cell"]');
+    expect(onHand).toBeTruthy();
     fireEvent.contextMenu(within(onHand as HTMLElement).getByText("25"));
     expect(openCtx).toHaveBeenCalledWith(expect.anything(), "onHand", expect.objectContaining({ forecast_id: "f1" }));
   });
