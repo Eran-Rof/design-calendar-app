@@ -51,6 +51,19 @@ export interface SalesAggregate {
 // row carries it — same key the rest of exportExcel uses).
 export type SalesAggMap = Map<string, SalesAggregate>;
 
+// Per-customer rollup. Same TY/LY shape as the per-SKU aggregates,
+// only at customer_id grain. Populated when the caller passes
+// needByCustomer:true to fetchSalesAggregates. customerName is
+// resolved post-aggregation via a single batched ip_customer_master
+// lookup. NULL customer_id (rare; legacy / Xoro-side data gap) is
+// bucketed under the magic key "__unknown".
+export interface CustomerRollupEntry {
+  customerName: string;
+  t3: SalesAggregate;
+  ly: SalesAggregate;
+}
+export type CustomerRollup = Map<string, CustomerRollupEntry>;
+
 export interface SalesFetchResult {
   // Actual windows used (default or custom). Caller uses these to
   // render column headers + skip rows with no history in either.
@@ -68,6 +81,10 @@ export interface SalesFetchResult {
     lyQty: number; lyTotal: number; lyMargin: number;
     t3Qty: number; t3Total: number; t3Margin: number;
   }>;
+  // Per-customer rollup. Present only when the caller asked for it
+  // (needByCustomer:true). Keyed by customer_id; entry.customerName
+  // is the display name from ip_customer_master.
+  byCustomer?: CustomerRollup;
 }
 
 // ── Module-level cache of the wide (15-month) sales-history window ───
@@ -305,6 +322,10 @@ export interface FetchSalesArgs {
   // and fall through to directFetch.
   customStart?: string; // YYYY-MM-DD
   customEnd?: string;   // YYYY-MM-DD
+  // When true, the result includes a `byCustomer` rollup. One
+  // additional batched ip_customer_master lookup after the row scan
+  // — no extra sales-history round trip.
+  needByCustomer?: boolean;
 }
 
 export interface SalesFetchWindows {
@@ -416,7 +437,7 @@ function cacheCovers(start: string, end: string): boolean {
   return start >= salesCacheStart && end <= salesCacheEnd;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle }: FetchSalesArgs): Promise<SalesFetchResult> {
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, needByCustomer }: FetchSalesArgs): Promise<SalesFetchResult> {
   // Window resolution. Default: T3 = trailing 3 months from today;
   // LY = same window shifted back 12 months (== [today-15m, today-12m]).
   // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
@@ -569,6 +590,22 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
   const shouldCollectExtras = true;
 
+  // Per-customer accumulator. Populated alongside the per-sku maps so
+  // the byCustomer rollup uses the same filtered row set + the same
+  // T3/LY windows — no second pass, no extra fetch.
+  type CustAcc = { t3: SalesAggregate; ly: SalesAggregate };
+  const byCustomerAcc: Map<string, CustAcc> = new Map();
+  const ensureCust = (custId: string): CustAcc => {
+    const cur = byCustomerAcc.get(custId);
+    if (cur) return cur;
+    const fresh: CustAcc = {
+      t3: { qty: 0, totalPrice: 0, marginAmount: 0 },
+      ly: { qty: 0, totalPrice: 0, marginAmount: 0 },
+    };
+    byCustomerAcc.set(custId, fresh);
+    return fresh;
+  };
+
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
     const inLY = needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd;
@@ -595,6 +632,16 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     // narrows what's eligible. Sales for SKUs outside that set are
     // dropped entirely (correct — they don't match the filter).
     if (validSkuIds && !validSkuIds.has(r.sku_id)) continue;
+
+    // Per-customer rollup. Same qty / rev / margin numbers we just
+    // computed above, bucketed under the row's customer_id (or
+    // "__unknown" when the row has no customer linkage).
+    if (needByCustomer) {
+      const acc = ensureCust(r.customer_id ?? "__unknown");
+      if (inT3) { acc.t3.qty += qty; acc.t3.totalPrice += rev; acc.t3.marginAmount += marg; }
+      if (inLY) { acc.ly.qty += qty; acc.ly.totalPrice += rev; acc.ly.marginAmount += marg; }
+    }
+
     const atsSku = idToSku.get(r.sku_id);
     if (atsSku) {
       if (inT3) {
@@ -626,7 +673,44 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   }
 
   console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customer || "all"}, windows t3=${t3Start}..${t3End} ly=${lyStart}..${lyEnd})`);
-  return { windows, t3, ly, extraBySkuId };
+
+  // Resolve customer_id → name in one batch, then build the public
+  // byCustomer Map. Done after the row scan so we only query for the
+  // customer_ids that actually have sales in window.
+  let byCustomer: CustomerRollup | undefined;
+  if (needByCustomer && byCustomerAcc.size > 0) {
+    byCustomer = new Map();
+    const realIds = [...byCustomerAcc.keys()].filter(id => id !== "__unknown");
+    const nameById = new Map<string, string>();
+    if (realIds.length > 0) {
+      try {
+        // PostgREST `in.(...)` with quoted uuids. Chunked to keep the
+        // URL under typical 8k limits; 200 ids per request is well
+        // within that ceiling.
+        const CHUNK = 200;
+        for (let i = 0; i < realIds.length; i += CHUNK) {
+          const chunk = realIds.slice(i, i + CHUNK);
+          const enc = chunk.map(id => `"${id}"`).join(",");
+          const rows = await sbGet<{ id: string; name: string }>(
+            `ip_customer_master?select=id,name&id=in.(${encodeURIComponent(enc)})&limit=${chunk.length}`,
+          );
+          for (const r of rows) if (r.id && r.name) nameById.set(r.id, r.name);
+        }
+      } catch (e) {
+        console.warn("[ATS export] byCustomer name resolution failed:", e);
+      }
+    }
+    for (const [custId, acc] of byCustomerAcc) {
+      byCustomer.set(custId, {
+        customerName: custId === "__unknown" ? "(unknown / no customer)" : (nameById.get(custId) ?? custId.slice(0, 8)),
+        t3: acc.t3,
+        ly: acc.ly,
+      });
+    }
+    console.info(`[ATS export] byCustomer rollup → ${byCustomer.size} customers (${realIds.length - nameById.size} unresolved name${realIds.length - nameById.size === 1 ? "" : "s"})`);
+  }
+
+  return { windows, t3, ly, extraBySkuId, byCustomer };
 }
 
 // Resolve sales aggregates for one ATS-row SKU, narrowed by customer

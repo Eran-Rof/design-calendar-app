@@ -271,7 +271,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
   }, [result]);
 
-  // Totals across the rolled-up rows — basis for the summary cards.
+  // Totals across the rolled-up rows — basis for the summary table.
   const totals = useMemo(() => {
     let tyQty = 0, tyRev = 0, tyMrgn = 0, lyQty = 0, lyRev = 0, lyMrgn = 0;
     for (const r of tableRows) {
@@ -283,6 +283,24 @@ export const SalesCompsModal: React.FC<Props> = ({
       lyQty, lyRev, lyMrgn, lyCogs: lyRev - lyMrgn,
     };
   }, [tableRows]);
+
+  // Per-customer rows for the Summary view. Sorted by TY revenue
+  // descending so the biggest customers appear first. Dropped rows
+  // where neither TY nor LY had any sales — they'd be noise.
+  const customerRows = useMemo(() => {
+    if (!result?.byCustomer) return [];
+    type CRow = { customer: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number };
+    const out: CRow[] = [];
+    for (const entry of result.byCustomer.values()) {
+      if (entry.t3.totalPrice <= 0 && entry.ly.totalPrice <= 0) continue;
+      out.push({
+        customer: entry.customerName,
+        tyQty: entry.t3.qty, tyRev: entry.t3.totalPrice, tyMrgn: entry.t3.marginAmount,
+        lyQty: entry.ly.qty, lyRev: entry.ly.totalPrice, lyMrgn: entry.ly.marginAmount,
+      });
+    }
+    return out.sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
+  }, [result]);
 
   if (!open) return null;
 
@@ -301,6 +319,11 @@ export const SalesCompsModal: React.FC<Props> = ({
         filterCategory:    selCategories.length > 0 ? selCategories : undefined,
         filterSubCategory: selSubCategories.length > 0 ? selSubCategories : undefined,
         filterStyle:       selStyles.length > 0 ? selStyles : undefined,
+        // Pull per-customer rollup so Summary mode can render a
+        // customer-by-customer breakdown alongside the grand total.
+        // Cheap — one extra batched ip_customer_master lookup, no
+        // extra sales-history round trip.
+        needByCustomer:    true,
       });
       setResult(r);
     } catch (e: any) {
@@ -340,25 +363,45 @@ export const SalesCompsModal: React.FC<Props> = ({
         fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text]);
     }
     aoa.push([]);
-    if (viewMode === "detailed") {
-      const header: string[] = customerFacing
-        ? ["SKU", "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
-        : ["SKU", "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"];
-      aoa.push(header);
-      for (const r of tableRows) {
-        if (customerFacing) {
-          aoa.push([r.sku, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]);
-        } else {
-          aoa.push([
-            r.sku,
-            r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
-            r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
-            r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
-            r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
-            fmtGrowth(r.tyRev, r.lyRev).text,
-            fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
-          ]);
-        }
+    // Summary view → per-customer rollup. Detailed view → per-SKU.
+    const isSummary = viewMode === "summary";
+    const leftLabel = isSummary ? "Customer" : "SKU";
+    const dataRows = isSummary
+      ? customerRows.map(c => ({ label: c.customer, tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn, lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn }))
+      : tableRows.map(r => ({ label: r.sku, tyQty: r.tyQty, tyRev: r.tyRev, tyMrgn: r.tyMrgn, lyQty: r.lyQty, lyRev: r.lyRev, lyMrgn: r.lyMrgn }));
+    const header: string[] = customerFacing
+      ? [leftLabel, "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
+      : [leftLabel, "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"];
+    aoa.push(header);
+    for (const r of dataRows) {
+      if (customerFacing) {
+        aoa.push([r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]);
+      } else {
+        aoa.push([
+          r.label,
+          r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
+          r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
+          r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
+          r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
+          fmtGrowth(r.tyRev, r.lyRev).text,
+          fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
+        ]);
+      }
+    }
+    // Grand TOTAL row at the bottom — matches the on-screen table.
+    if (dataRows.length > 0) {
+      if (customerFacing) {
+        aoa.push(["TOTAL", totals.tyQty, totals.tyRev, totals.lyQty, totals.lyRev, fmtGrowth(totals.tyRev, totals.lyRev).text]);
+      } else {
+        aoa.push([
+          "TOTAL",
+          totals.tyQty, totals.tyRev, totals.tyCogs, totals.tyMrgn,
+          totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
+          totals.lyQty, totals.lyRev, totals.lyCogs, totals.lyMrgn,
+          totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
+          fmtGrowth(totals.tyRev, totals.lyRev).text,
+          fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text,
+        ]);
       }
     }
     const wb = XLSX.utils.book_new();
@@ -450,49 +493,25 @@ export const SalesCompsModal: React.FC<Props> = ({
             <SummaryBlock totals={totals} customerFacing={customerFacing} />
 
             <div style={{ fontSize: 11, color: C.textDim }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
+              Window: {start} → {end} (TY) · {viewMode === "summary" ? `${customerRows.length} customers` : `${tableRows.length} SKUs`} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
             </div>
 
+            {viewMode === "summary" && (
+              <CompsTable
+                colLabel="Customer"
+                rows={customerRows.map(c => ({ key: c.customer, label: c.customer, tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn, lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn }))}
+                totals={totals}
+                customerFacing={customerFacing}
+              />
+            )}
+
             {viewMode === "detailed" && (
-              <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
-                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <th style={th()}>SKU</th>
-                      <th style={th("right")}>TY Qty</th>
-                      <th style={th("right")}>TY Rev</th>
-                      {!customerFacing && <th style={th("right")}>TY Mrgn%</th>}
-                      <th style={th("right")}>LY Qty</th>
-                      <th style={th("right")}>LY Rev</th>
-                      {!customerFacing && <th style={th("right")}>LY Mrgn%</th>}
-                      <th style={th("right")}>Δ Rev</th>
-                      {!customerFacing && <th style={th("right")}>Δ Mrgn pp</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.map((r, i) => {
-                      const growth = fmtGrowth(r.tyRev, r.lyRev);
-                      const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
-                      return (
-                        <tr key={r.sku} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
-                          <td style={td()}>{r.sku}</td>
-                          <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
-                          <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
-                          {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}
-                          <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
-                          <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
-                          {!customerFacing && <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>}
-                          <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
-                          {!customerFacing && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>}
-                        </tr>
-                      );
-                    })}
-                    {tableRows.length === 0 && (
-                      <tr><td colSpan={customerFacing ? 6 : 9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <CompsTable
+                colLabel="SKU"
+                rows={tableRows.map(r => ({ key: r.sku, label: r.sku, tyQty: r.tyQty, tyRev: r.tyRev, tyMrgn: r.tyMrgn, lyQty: r.lyQty, lyRev: r.lyRev, lyMrgn: r.lyMrgn }))}
+                totals={totals}
+                customerFacing={customerFacing}
+              />
             )}
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
@@ -514,6 +533,72 @@ function th(align: "left" | "right" = "left"): React.CSSProperties {
 }
 function td(align: "left" | "right" = "left", color: string = C.text): React.CSSProperties {
   return { textAlign: align, padding: "6px 10px", fontSize: 12, color, borderTop: `1px solid ${C.border}` };
+}
+
+// Shared comparison table used by both Summary (per-customer) and
+// Detailed (per-SKU) views. Same column shape; the only difference
+// is the leftmost dimension. Bottom TOTAL row is computed from the
+// `totals` prop so it matches the SummaryBlock at the top exactly.
+interface CompsRow { key: string; label: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }
+interface CompsTotals { tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }
+function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: string; rows: CompsRow[]; totals: CompsTotals; customerFacing: boolean }): React.ReactElement {
+  const totalGrowth = fmtGrowth(totals.tyRev, totals.lyRev);
+  const totalMp = fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev);
+  return (
+    <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            <th style={th()}>{colLabel}</th>
+            <th style={th("right")}>TY Qty</th>
+            <th style={th("right")}>TY Rev</th>
+            {!customerFacing && <th style={th("right")}>TY Mrgn%</th>}
+            <th style={th("right")}>LY Qty</th>
+            <th style={th("right")}>LY Rev</th>
+            {!customerFacing && <th style={th("right")}>LY Mrgn%</th>}
+            <th style={th("right")}>Δ Rev</th>
+            {!customerFacing && <th style={th("right")}>Δ Mrgn pp</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const growth = fmtGrowth(r.tyRev, r.lyRev);
+            const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
+            return (
+              <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
+                <td style={td()}>{r.label}</td>
+                <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
+                <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
+                {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}
+                <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
+                <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
+                {!customerFacing && <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>}
+                <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
+                {!customerFacing && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>}
+              </tr>
+            );
+          })}
+          {rows.length === 0 && (
+            <tr><td colSpan={customerFacing ? 6 : 9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
+          )}
+          {/* Bottom TOTAL row — sums match the per-row sums above. Sticky-ish bold styling so the operator can find it at a glance. */}
+          {rows.length > 0 && (
+            <tr style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
+              <td style={{ ...td(), fontWeight: 700, color: C.accent }}>TOTAL</td>
+              <td style={{ ...td("right"), fontWeight: 700 }}>{totals.tyQty.toLocaleString()}</td>
+              <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(totals.tyRev)}</td>
+              {!customerFacing && <td style={{ ...td("right"), fontWeight: 700 }}>{fmtPct(totals.tyMrgn, totals.tyRev)}</td>}
+              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{totals.lyQty.toLocaleString()}</td>
+              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(totals.lyRev)}</td>
+              {!customerFacing && <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtPct(totals.lyMrgn, totals.lyRev)}</td>}
+              <td style={{ ...td("right"), color: totalGrowth.positive ? C.green : C.red, fontWeight: 700 }}>{totalGrowth.text}</td>
+              {!customerFacing && <td style={{ ...td("right"), color: totalMp.positive ? C.green : C.red, fontWeight: 700 }}>{totalMp.text}</td>}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 // Five-row summary block (Units, Revenue, COGS, Margin $, Margin %).
