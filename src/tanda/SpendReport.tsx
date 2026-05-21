@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
+import { AppDatePicker } from "../shared/components/AppDatePicker";
 
 interface SpendMonth { month: string; total: number; }
 interface SpendVendor { vendor_id: string; vendor_name: string | null; total: number; }
@@ -80,9 +81,9 @@ export default function SpendReport() {
       <div style={{ ...S.card, marginBottom: 14 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ fontSize: 13, color: TH.textSub, fontWeight: 600 }}>Period</div>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 160px" }} />
+          <AppDatePicker value={fromDate} onCommit={setFromDate} style={{ ...S.inp, marginBottom: 0, minWidth: 140 }} />
           <span style={{ color: TH.textMuted }}>→</span>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 160px" }} />
+          <AppDatePicker value={toDate} onCommit={setToDate} style={{ ...S.inp, marginBottom: 0, minWidth: 140 }} />
           <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px" }}>
             <option value="">All vendors</option>
             {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}

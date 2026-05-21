@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import InternalRfqDetail from "./InternalRfqDetail";
+import { AppDatePicker } from "../shared/components/AppDatePicker";
 
 interface Rfq {
   id: string;
@@ -180,8 +181,8 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             <Row label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inp, resize: "vertical" }} /></Row>
             <Row label="Category"><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Apparel" style={inp} /></Row>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              <Row label="Submission deadline"><input type="date" value={submissionDeadline} onChange={(e) => setSubmissionDeadline(e.target.value)} style={inp} /></Row>
-              <Row label="Delivery required by"><input type="date" value={deliveryBy} onChange={(e) => setDeliveryBy(e.target.value)} style={inp} /></Row>
+              <Row label="Submission deadline"><AppDatePicker value={submissionDeadline} onCommit={setSubmissionDeadline} style={inp} /></Row>
+              <Row label="Delivery required by"><AppDatePicker value={deliveryBy} onCommit={setDeliveryBy} style={inp} /></Row>
               <Row label="Estimated budget"><input type="number" value={estimatedBudget} onChange={(e) => setEstimatedBudget(e.target.value)} style={inp} /></Row>
             </div>
           </>
