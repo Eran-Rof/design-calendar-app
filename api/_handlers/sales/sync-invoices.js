@@ -204,6 +204,14 @@ export default async function handler(req, res) {
 
     const customerName = str(r["Customer"]) || null;
     const unitPrice = toNum(r["Unit Price"]);
+    // Xoro's "Amount" column = net charged after the per-line discount.
+    // Reading qty × unit_price (the pre-PR-#227 path) ignores Shopify
+    // promos / staff discounts / size-curve pricing and overstates
+    // revenue by 5–15% on PT ECOM / ROF ECOM, depending on which
+    // promos were active that week. When Amount is present, it's the
+    // truth; fall back to qty × unit_price only when Amount is missing
+    // (rare — legacy or hand-uploaded CSVs without that column).
+    const amount = toNum(r["Amount"]);
     const invoiceNumber = str(r["Invoice Number"]) || null;
     const description = str(r["Description"]);
 
@@ -221,7 +229,7 @@ export default async function handler(req, res) {
       // vs unit grain in Pass 2 before canonStyleColor strips the PPK
       // token. Without this we can't tell which grain Xoro recorded.
       rawItemNumber: itemNumber,
-      txnDate, qty, unitPrice, invoiceNumber,
+      txnDate, qty, unitPrice, amount, invoiceNumber,
       customerName, customerKey: customerName ? canonName(customerName) : null,
       saleStore: saleStore || null,
     });
@@ -394,7 +402,18 @@ export default async function handler(req, res) {
       ? `excel:inv:${c.invoiceNumber}:${c.sku}:${c.txnDate}`
       : `excel:${c.sku}:${c.txnDate}:${c.qty}`;
 
-    const netAmount = c.unitPrice != null ? c.unitPrice * c.qty : null;
+    // Gross = the undiscounted list price × qty. Net = what the
+    // customer actually paid (Xoro's "Amount" column). Discount =
+    // gross − net. Fall back to gross when Amount wasn't supplied
+    // — keeps the pre-fix behaviour for legacy CSVs that lack the
+    // column rather than introducing a NULL net for them.
+    const grossAmount = c.unitPrice != null ? c.unitPrice * c.qty : null;
+    const netAmount   = c.amount != null && c.amount !== 0
+      ? c.amount
+      : grossAmount;
+    const discountAmount = (grossAmount != null && netAmount != null && grossAmount > netAmount)
+      ? grossAmount - netAmount
+      : null;
     const grainFields = deriveSalesGrainFields({
       rawItemNumber: c.rawItemNumber,
       qty: c.qty,
@@ -413,8 +432,8 @@ export default async function handler(req, res) {
       txn_date: c.txnDate,
       qty: c.qty,
       unit_price: c.unitPrice,
-      gross_amount: netAmount,
-      discount_amount: null,
+      gross_amount: grossAmount,
+      discount_amount: discountAmount,
       net_amount: netAmount,
       currency: "USD",
       source: SOURCE,
@@ -442,9 +461,21 @@ export default async function handler(req, res) {
     else if (rUp != null) mergedUp = rUp;
     existing.qty = totalQty;
     existing.unit_price = mergedUp;
-    const mergedNet = mergedUp != null ? mergedUp * totalQty : null;
-    existing.gross_amount = mergedNet;
-    existing.net_amount = mergedNet;
+    // Sum the actual gross / net / discount across the merged rows
+    // instead of recomputing from unit_price × qty (which would drop
+    // the per-line discount captured from Xoro's "Amount" column).
+    const eGross    = Number(existing.gross_amount ?? 0);
+    const rGross    = Number(row.gross_amount      ?? 0);
+    const eNet      = Number(existing.net_amount   ?? 0);
+    const rNet      = Number(row.net_amount        ?? 0);
+    const eDiscount = existing.discount_amount != null ? Number(existing.discount_amount) : 0;
+    const rDiscount = row.discount_amount      != null ? Number(row.discount_amount)      : 0;
+    const mergedGross = eGross + rGross;
+    const mergedNet   = eNet   + rNet;
+    const mergedDiscount = eDiscount + rDiscount;
+    existing.gross_amount    = mergedGross;
+    existing.net_amount      = mergedNet;
+    existing.discount_amount = mergedDiscount > 0 ? mergedDiscount : null;
     // Re-derive qty_units + margin from the merged qty + net. Grain
     // stays the same (both rows share source_line_key → same sku →
     // same rawItemNumber classification). unit_cost_at_sale is also
