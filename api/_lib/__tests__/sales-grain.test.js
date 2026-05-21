@@ -12,6 +12,7 @@ import {
   findSiblingPpkMaster,
   pickReferenceUnitPrice,
   detectPackPricedAsUnit,
+  isChargebackReversalRow,
   SUSPICIOUS_PRICE_RATIO,
 } from "../sales-grain.js";
 
@@ -511,5 +512,28 @@ describe("detectPackPricedAsUnit — false-positive protection", () => {
         historicalUnitPrices: [12.35],
       }),
     ).toBeNull();
+  });
+});
+
+describe("isChargebackReversalRow", () => {
+  it("matches the three known chargeback-reversal SKUs from the Xoro feed", () => {
+    expect(isChargebackReversalRow("ROSSCBREVERSAL", "Ross CB Reversal")).toBe(true);
+    expect(isChargebackReversalRow("MACYCBREVERSAL", "Macy CB Reversal")).toBe(true);
+    expect(isChargebackReversalRow("HERITAGESURFCBREVERSAL", "Heritage Surf CB Reversal")).toBe(true);
+  });
+
+  it("requires BOTH item number and description to match — neither alone is enough", () => {
+    expect(isChargebackReversalRow("ROSSCBREVERSAL", "Some real item")).toBe(false);
+    expect(isChargebackReversalRow("RYO0658-BLACK", "Customer-issued reversal")).toBe(false);
+  });
+
+  it("ignores legit SKUs even when the description mentions reversal", () => {
+    expect(isChargebackReversalRow("RYB1239-BLACK", "Returns / reversal handling kit")).toBe(false);
+  });
+
+  it("handles null and undefined inputs without throwing", () => {
+    expect(isChargebackReversalRow(null, null)).toBe(false);
+    expect(isChargebackReversalRow(undefined, "Ross CB Reversal")).toBe(false);
+    expect(isChargebackReversalRow("ROSSCBREVERSAL", undefined)).toBe(false);
   });
 });
