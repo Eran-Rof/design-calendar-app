@@ -523,13 +523,28 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   // missed every sale before the preload's start. Surfaced by a user
   // report: ROF LY total $4.83M vs DB truth $6.87M, exactly the
   // 2025-01-01..02-18 slice that fell off the preload edge.
+  // Clamp the fetch upper bound to today. ip_sales_history_wholesale
+  // is shipped-sales data — no rows have txn_date > today. For a
+  // forward-looking window (e.g. 2026-05-22 → 2026-12-31 with LY
+  // shift back to 2025-05-22), the raw fetchEnd would span 19
+  // months; clamping cuts the worst case down to whatever portion
+  // sits in the past. Saw a 32m44s top-burner query in Supabase
+  // perf reports tracing to this; without the clamp every forward
+  // window hammers the DB with LIMIT/OFFSET pagination across an
+  // ever-deepening empty tail.
+  const clampedFetchEnd = fetchEnd > today ? today : fetchEnd;
+  // If clamping leaves an empty range (entire requested window is
+  // in the future and there's no LY block), nothing to fetch.
   let salesRows: SalesRow[];
-  if (cacheCovers(fetchStart, fetchEnd)) {
+  if (clampedFetchEnd < fetchStart) {
+    console.info(`[ATS export] fetch range entirely in the future (${fetchStart}..${fetchEnd}); skipping DB round trip`);
+    salesRows = [];
+  } else if (cacheCovers(fetchStart, clampedFetchEnd)) {
     salesRows = salesCacheRows!;
     console.info(`[ATS export] using cached sales (${salesRows.length} rows, window ${salesCacheStart}..${salesCacheEnd})`);
   } else {
-    console.info(`[ATS export] cache window ${salesCacheStart ?? "—"}..${salesCacheEnd ?? "—"} does not cover ${fetchStart}..${fetchEnd}; direct-fetching the requested range.`);
-    salesRows = await directFetch(fetchStart, fetchEnd);
+    console.info(`[ATS export] cache window ${salesCacheStart ?? "—"}..${salesCacheEnd ?? "—"} does not cover ${fetchStart}..${clampedFetchEnd}; direct-fetching the requested range.`);
+    salesRows = await directFetch(fetchStart, clampedFetchEnd);
   }
 
   // In-memory customer filter (the sales-row cache is unfiltered so
@@ -834,7 +849,12 @@ async function directFetch(start: string, end: string): Promise<SalesRow[]> {
   // though the LY shift had 384 rows / $3.87M in the DB.
   // Mirror every column the aggregator reads.
   const path = `ip_sales_history_wholesale?select=sku_id,customer_id,channel_id,txn_date,qty,qty_units,net_amount,unit_price,margin_amount&txn_date=gte.${start}&txn_date=lte.${end}&order=txn_date.asc`;
-  const rows = await sbGetAll<SalesRow>(path, 500);
+  // Page size 5000 vs the old 500: cuts page count 10x, which in
+  // turn cuts the deepest OFFSET (the part Postgres pays for) 10x.
+  // Each row is ~150 bytes so 5000 rows ≈ 750KB / page — well
+  // under any transport limit. Aligns with the preload slice path
+  // which already uses 1000+.
+  const rows = await sbGetAll<SalesRow>(path, 5000);
   console.info(`[ATS export] direct fetch ${rows.length} sales rows for window ${start}..${end}`);
   return rows;
 }
