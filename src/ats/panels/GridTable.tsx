@@ -38,8 +38,11 @@ function renderQty(opts: {
     );
   }
 
-  // Prepack — primary + faded hint.
-  const packs = qty / mult;
+  // Prepack — primary + faded hint. Round packs because source qty
+  // is no longer guaranteed to be a clean multiple of pack_size after
+  // the 2026-05-21 Xoro grain switch (qty is in eaches, may include
+  // odd-unit residuals). Matches the Math.round in exportExcel.ts.
+  const packs = Math.round(qty / mult);
   const primary = explode ? qty : packs;
   const hint = explode
     ? `PPK${mult} × ${formatNum(packs)}`
@@ -922,10 +925,11 @@ export const GridTable: React.FC<GridTableProps> = ({
                         // same ternary and the period palette differs (uses
                         // getQtyColor and a weight-by-bucket rule).
                         const mult = row.ppkMult ?? 1;
-                        const display = mult > 1 && !explodePpk ? qty! / mult : qty!;
+                        const packs = mult > 1 ? Math.round(qty! / mult) : qty!;
+                        const display = mult > 1 && !explodePpk ? packs : qty!;
                         const hint = mult > 1
                           ? (explodePpk
-                              ? `PPK${mult} × ${(qty! / mult).toLocaleString()}`
+                              ? `PPK${mult} × ${packs.toLocaleString()}`
                               : `PPK${mult} = ${qty!.toLocaleString()}`)
                           : null;
                         return (
