@@ -760,10 +760,15 @@ function ATSReport() {
 
   const onNegInven = useCallback(() => {
     setActiveSort("negATS");
-    exportNegInven(rows, displayPeriods, atShip, eventIndex);
+    // Return the report payload to NavBar so it can route it through
+    // the preview modal. null = nothing to preview (no negative rows).
+    return exportNegInven(rows, displayPeriods, atShip, eventIndex);
   }, [rows, displayPeriods, atShip, eventIndex]);
 
-  const onAgedInven = useCallback((days: number, category: string): "ok" | "empty" => {
+  const onAgedInven = useCallback((days: number, category: string) => {
+    // Returns "empty" when no rows qualify, otherwise a ReportPayload
+    // for the preview modal (downloaded workbook still includes every
+    // detail sheet — see exportAgedInven for sheet construction).
     return exportAgedInven(rows, days, category);
   }, [rows]);
 
