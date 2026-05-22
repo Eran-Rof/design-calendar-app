@@ -1,11 +1,21 @@
-// Preview modal for the ATS Excel export. Renders the AOA the export
+// Preview modal for every ATS Excel export. Renders the AOA the export
 // would produce as a scrollable HTML table so the operator can sanity-
 // check the contents before triggering the download. Styling mirrors
 // the workbook's intent (header band, zebra rows, currency / percent /
 // thousands formatting) but is intentionally light — this is a preview,
 // not a pixel-perfect viewer.
+//
+// Color note: the downloaded .xlsx keeps its tuned Excel palette
+// unchanged. The on-screen preview here remaps the well-known Excel
+// hexes to the app's TH.* theme tokens via mapExcelToAppPalette() so
+// the preview matches the rest of the app's UI. Domain-specific colors
+// (Neg-Inven red, Stock-Vs-SO triage colors, Aged-Inven cost bands)
+// fall through unchanged because their semantic meaning is the signal.
 
 import React, { useMemo } from "react";
+import XLSXStyle from "xlsx-js-style";
+import { mapExcelToAppPalette } from "../exportPreviewMapping";
+import { TH } from "../../utils/theme";
 
 interface Cell {
   v?: string | number;
@@ -16,14 +26,22 @@ interface Cell {
 
 interface Props {
   open: boolean;
-  aoa: Cell[][] | null;
-  filename: string;
-  rowCount: number;       // body rows (excludes header)
-  onDownload: () => void;
-  // Back to the options modal — operator can adjust selections + re-view.
+  // Report being previewed. null when the modal is closed.
+  payload: {
+    title: string;
+    aoa: Cell[][];
+    wb: any;
+    filename: string;
+  } | null;
+  // Header subtitle shows row count — preview reports the body row
+  // count (header row excluded). Caller computes this so it matches
+  // what the operator perceives as "data rows" for the report.
+  rowCount: number;
+  // Back / dismiss handlers. Back is only rendered when showBack is
+  // true — currently only the main-grid export's Options-modal flow
+  // uses it; the 4 simpler reports skip Back entirely.
+  showBack?: boolean;
   onClose: () => void;
-  // Full dismiss — used by the header X and the footer Close button.
-  // Closes everything (preview + options) without re-opening anything.
   onCloseAll: () => void;
 }
 
@@ -42,21 +60,44 @@ function formatCell(cell: Cell | undefined): string {
   return String(v);
 }
 
+// Walk the cell's fill.fgColor.rgb (if present) through the palette
+// remap, then return a CSS-ready "#XXXXXX" string. Returns undefined
+// when the cell has no fill (the caller picks a default).
 function cellFill(cell: Cell | undefined): string | undefined {
   const rgb: string | undefined = cell?.s?.fill?.fgColor?.rgb;
-  return rgb ? `#${rgb}` : undefined;
+  if (!rgb) return undefined;
+  return `#${mapExcelToAppPalette(rgb)}`;
 }
 
 function cellFontColor(cell: Cell | undefined): string | undefined {
   const rgb: string | undefined = cell?.s?.font?.color?.rgb;
-  return rgb ? `#${rgb}` : undefined;
+  if (!rgb) return undefined;
+  return `#${mapExcelToAppPalette(rgb)}`;
 }
 
 function isNumeric(cell: Cell | undefined): boolean {
   return cell?.t === "n" || typeof cell?.v === "number";
 }
 
-export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCount, onDownload, onClose, onCloseAll }) => {
+// Trigger the actual file download for the pre-built workbook the
+// payload carries. Kept inline so the modal doesn't have to import
+// XLSXStyle from anywhere else.
+function downloadFromPayload(wb: any, filename: string) {
+  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export const ExportPreviewModal: React.FC<Props> = ({ open, payload, rowCount, showBack = false, onClose, onCloseAll }) => {
+  const aoa = payload?.aoa ?? null;
+  const filename = payload?.filename ?? "";
+  const title = payload?.title ?? "Export";
+
   // Detect an optional title row at AOA index 0. The exporter writes
   // it when the operator narrows by customer (22pt, col A) AND/OR
   // picks a custom date range (20pt banner). Both, either, or neither
@@ -82,7 +123,12 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
   const headerRow = useMemo(() => aoa && aoa.length > titleSkip ? aoa[titleSkip] : null, [aoa, titleSkip]);
   const bodyRows  = useMemo(() => aoa && aoa.length > titleSkip + 1 ? aoa.slice(titleSkip + 1) : [], [aoa, titleSkip]);
 
-  if (!open || !aoa || !headerRow) return null;
+  if (!open || !payload || !aoa || !headerRow) return null;
+
+  const onDownload = () => {
+    downloadFromPayload(payload.wb, payload.filename);
+    onCloseAll();
+  };
 
   return (
     <div
@@ -103,17 +149,21 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
       >
         <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#10B981", textTransform: "uppercase", letterSpacing: "0.06em" }}>Export Preview</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#10B981", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {title} Preview
+            </div>
             <div style={{ fontSize: 11, color: "#94A3B8" }}>
               {filename} · {rowCount.toLocaleString()} row{rowCount === 1 ? "" : "s"} · {headerRow.length} column{headerRow.length === 1 ? "" : "s"}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-              onClick={onClose}
-              title="Back to export options"
-            >Back</button>
+            {showBack && (
+              <button
+                style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+                onClick={onClose}
+                title="Back to export options"
+              >Back</button>
+            )}
             <button
               style={{ background: "#10B981", border: "1px solid #10B981", borderRadius: 6, padding: "7px 16px", color: "#0F172A", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
               onClick={onDownload}
@@ -139,19 +189,19 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
           const dateRangeCell = titleRow.find(c => c?.s?.font?.sz === 20 && c?.v);
           return (
             <div style={{
-              padding: "12px 18px", background: "#fff", borderBottom: "1px solid #C7D2DE",
+              padding: "12px 18px", background: TH.surface, borderBottom: `1px solid ${TH.border}`,
               display: "flex", alignItems: "center", justifyContent: dateRangeCell && !customerCell ? "center" : "flex-start",
               gap: 24,
             }}>
               {customerCell && (
-                <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(customerCell) ?? "#1F497D", lineHeight: 1.1 }}>
+                <span style={{ fontSize: 22, fontWeight: 700, color: cellFontColor(customerCell) ?? TH.header, lineHeight: 1.1 }}>
                   {formatCell(customerCell)}
                 </span>
               )}
               {dateRangeCell && (
                 <span style={{
                   fontSize: 20, fontWeight: 700,
-                  color: cellFontColor(dateRangeCell) ?? "#1F497D",
+                  color: cellFontColor(dateRangeCell) ?? TH.header,
                   lineHeight: 1.1,
                   // When both customer and date range are present, the
                   // banner should center in the remaining space to the
@@ -168,8 +218,8 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
             </div>
           );
         })()}
-        <div style={{ flex: 1, overflow: "auto", padding: 0, background: "#fff" }}>
-          <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Calibri, Arial, sans-serif", color: "#1f2937", width: "100%" }}>
+        <div style={{ flex: 1, overflow: "auto", padding: 0, background: TH.surface }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 11, fontFamily: "Calibri, Arial, sans-serif", color: TH.text, width: "100%" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
               <tr>
                 {headerRow.map((cell, ci) => {
@@ -183,10 +233,10 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
                     <th
                       key={ci}
                       style={{
-                        background: cellFill(cell) ?? "#1F497D",
+                        background: cellFill(cell) ?? TH.header,
                         color: cellFontColor(cell) ?? "#fff",
                         padding: "6px 8px",
-                        border: "1px solid #1F497D",
+                        border: `1px solid ${TH.header}`,
                         whiteSpace: wraps ? "normal" : "nowrap",
                         // Cap wrapped header width so the wrap actually
                         // engages instead of expanding to the longest
@@ -212,7 +262,7 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
               {bodyRows.map((row, ri) => (
                 <tr key={ri}>
                   {row.map((cell, ci) => {
-                    const bg = cellFill(cell) ?? (ri % 2 === 0 ? "#EEF3FA" : "#FFFFFF");
+                    const bg = cellFill(cell) ?? (ri % 2 === 0 ? TH.surfaceHi : TH.surface);
                     const color = cellFontColor(cell);
                     const numeric = isNumeric(cell);
                     return (
@@ -222,7 +272,7 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
                           background: bg,
                           color: color,
                           padding: "4px 8px",
-                          border: "1px solid #C7D2DE",
+                          border: `1px solid ${TH.border}`,
                           whiteSpace: "nowrap",
                           textAlign: numeric ? "right" : "left",
                           fontWeight: cell?.s?.font?.bold ? 700 : 400,
@@ -237,13 +287,15 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, aoa, filename, rowCo
         </div>
 
         <div style={{ padding: "10px 18px", borderTop: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "#94A3B8" }}>
-          <span>Preview formatting is approximate — the downloaded Excel keeps every cell's exact styling.</span>
+          <span>Preview formatting uses the app's theme — the downloaded Excel keeps each cell's exact native styling.</span>
           <div style={{ display: "flex", gap: 8 }}>
-            <button
-              style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-              onClick={onClose}
-              title="Back to export options"
-            >Back</button>
+            {showBack && (
+              <button
+                style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+                onClick={onClose}
+                title="Back to export options"
+              >Back</button>
+            )}
             <button
               style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, padding: "7px 14px", color: "#CBD5E1", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
               onClick={onCloseAll}
