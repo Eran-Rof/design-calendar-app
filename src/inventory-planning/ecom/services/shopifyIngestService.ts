@@ -47,6 +47,31 @@ async function sbPatch(path: string, body: unknown): Promise<void> {
   if (!r.ok) throw new Error(`sbPatch ${path} failed: ${r.status} ${await r.text()}`);
 }
 
+// Pull every active item master row for reconciliation. PostgREST silently
+// caps any single response at db-max-rows=1000, so the previous
+// `?limit=20000` only returned the first ~1k items and the rest were
+// missed by reconcileItem — a correctness bug, not just a perf issue.
+// Cursor pagination by sku_code returns the full catalog and reads only
+// PAGE rows per round-trip regardless of depth. Explicit column list
+// keeps `attributes` (often-large JSONB) out of the response; `external_refs`
+// is required by reconcileItem.fromExternalRef so it stays in.
+async function fetchAllItemsForReconcile(): Promise<IpItem[]> {
+  const COLS = "id,sku_code,category_id,external_refs";
+  const PAGE = 1000;
+  const out: IpItem[] = [];
+  let lastSku: string | null = null;
+  for (let pageNo = 0; pageNo < 200; pageNo++) {
+    const cursor = lastSku ? `&sku_code=gt.${encodeURIComponent(lastSku)}` : "";
+    const chunk = await sbGet<IpItem>(
+      `ip_item_master?select=${COLS}&order=sku_code.asc&limit=${PAGE}${cursor}`,
+    );
+    out.push(...chunk);
+    if (chunk.length < PAGE) break;
+    lastSku = chunk[chunk.length - 1].sku_code;
+  }
+  return out;
+}
+
 export interface IngestShopifyOrdersResult {
   raw_payload_ids_processed: number;
   orders_considered: number;
@@ -62,7 +87,7 @@ export async function ingestShopifyOrders(opts: { limit?: number } = {}): Promis
     sbGet<{ id: string; storefront_code: string | null; payload: { orders?: ShopifyOrder[] } }>(
       `raw_shopify_payloads?select=id,storefront_code,payload&endpoint=eq.orders&normalized_at=is.null&order=ingested_at.asc&limit=${limit}`,
     ),
-    sbGet<IpItem>("ip_item_master?select=*&limit=20000"),
+    fetchAllItemsForReconcile(),
     sbGet<IpChannel>("ip_channel_master?select=*&limit=2000"),
   ]);
 
@@ -157,7 +182,7 @@ export async function ingestShopifyProducts(opts: { limit?: number } = {}): Prom
     sbGet<{ id: string; storefront_code: string | null; payload: { products?: ShopifyProduct[] } }>(
       `raw_shopify_payloads?select=id,storefront_code,payload&endpoint=eq.products&normalized_at=is.null&order=ingested_at.asc&limit=${limit}`,
     ),
-    sbGet<IpItem>("ip_item_master?select=*&limit=20000"),
+    fetchAllItemsForReconcile(),
     sbGet<IpChannel>("ip_channel_master?select=*&limit=2000"),
   ]);
 
