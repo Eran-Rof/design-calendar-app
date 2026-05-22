@@ -98,7 +98,27 @@ const S: Record<string, React.CSSProperties> = {
   // because they paint as part of the cell's background layer, not as
   // a separate border layer. Color matches the borderRight so the two
   // mechanisms are visually identical when both render.
-  stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #64748B", boxShadow: "inset -1px 0 0 #64748B, inset 0 -1px 0 #334155", overflow: "hidden" as const, textOverflow: "ellipsis" as const, boxSizing: "border-box" as const },
+  // borderRight + boxShadow + backgroundImage = THREE separators painted
+  // on the right edge, because Chrome's compositor culls borders AND
+  // shadows on sticky cells during horizontal scroll (verified across
+  // PRs #234, #236, #239, #243, #260). The backgroundImage gradient
+  // paints as part of the cell's background layer, which the compositor
+  // preserves more reliably than border/shadow layers.
+  //
+  // CRITICAL: every consumer of `S.stickyCol` MUST use `backgroundColor:`
+  // for the per-cell color, NOT the `background:` shorthand. The shorthand
+  // resets background-image to `none`, wiping the gradient stripe.
+  stickyCol:   {
+    position: "sticky" as const,
+    zIndex: 2,
+    borderRight: "1px solid #64748B",
+    boxShadow: "inset -1px 0 0 #64748B, inset 0 -1px 0 #334155",
+    backgroundImage: "linear-gradient(to right, transparent calc(100% - 1px), #64748B calc(100% - 1px))",
+    backgroundRepeat: "no-repeat" as const,
+    overflow: "hidden" as const,
+    textOverflow: "ellipsis" as const,
+    boxSizing: "border-box" as const,
+  },
   loadingState:{ textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   emptyState:  { textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   modalOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
