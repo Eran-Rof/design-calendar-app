@@ -366,3 +366,38 @@ export function downloadMultiSheet(filename: string, sheets: MultiSheetSpec[]) {
   }
   triggerDownload(wb, filename);
 }
+
+// ── Build-only variants (no download) ──────────────────────────────────
+// Same shape as downloadWorkbook / downloadMultiSheet but return the
+// styled workbook + filename instead of triggering a file download.
+// Used by the preview-modal flow: build the workbook once, render the
+// AOA in a preview, hand the same workbook to the modal so Download
+// flushes the exact same bytes the legacy path produced.
+export interface BuiltWorkbook {
+  wb: any;
+  filename: string;
+}
+
+export function buildWorkbook({ sheetName, filename, ...sheetSpec }: DownloadInput): BuiltWorkbook {
+  const wb = XLSXStyle.utils.book_new();
+  XLSXStyle.utils.book_append_sheet(wb, buildSheet(sheetSpec), sheetName);
+  return { wb, filename };
+}
+
+export function buildMultiSheetWorkbook(filename: string, sheets: MultiSheetSpec[]): BuiltWorkbook {
+  const wb = XLSXStyle.utils.book_new();
+  for (const sheet of sheets) {
+    const { sheetName, ...spec } = sheet;
+    const safe = sheetName.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
+    XLSXStyle.utils.book_append_sheet(wb, buildSheet(spec), safe);
+  }
+  return { wb, filename };
+}
+
+// Public trigger-download — same code path used by every exporter when
+// it doesn't go through the preview modal. Exported so the preview
+// modal (and any future caller) can flush a pre-built workbook to a
+// file without re-importing XLSXStyle directly.
+export function writeWorkbookToFile(wb: any, filename: string) {
+  triggerDownload(wb, filename);
+}

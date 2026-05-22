@@ -9,7 +9,10 @@ import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
-import { buildExportPayload, triggerXlsxDownload, type ExportPayload } from "../exportExcel";
+import { buildExportPayload, type ExportPayload } from "../exportExcel";
+import type { ReportPayload } from "../reportPayload";
+import type { IncompleteSkusResult } from "../exportIncompleteSkus";
+import type { StockVsSoResult } from "../exportStockVsSo";
 import { getItemMasterById } from "../itemMasterLookup";
 import { filterRows } from "../filter";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
@@ -477,10 +480,15 @@ interface NavBarProps {
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   viewMode: "ats" | "so" | "po";
   generalMarginPct: number;
-  onNegInven: () => void;
-  onAgedInven: (days: number, category: string) => "ok" | "empty";
-  onDownloadIncompleteSkus: () => void;
-  onDownloadStockVsSo: () => void;
+  // All four report handlers return a payload (or sentinel) that the
+  // NavBar feeds into the shared preview modal. Download is deferred
+  // to the modal's Download button so every ATS report gets a
+  // view-before-download flow with app-themed preview colors. The
+  // downloaded .xlsx keeps the Excel-native palette unchanged.
+  onNegInven: () => ReportPayload | null;
+  onAgedInven: (days: number, category: string) => "empty" | ReportPayload;
+  onDownloadIncompleteSkus: () => IncompleteSkusResult;
+  onDownloadStockVsSo: () => StockVsSoResult;
   categories: string[];
   // Full filter option lists from the broader dataset — used by Sales
   // Comps so the operator can broaden the report past the grid's
@@ -557,10 +565,35 @@ export const NavBar: React.FC<NavBarProps> = ({
   const exportCancelledRef = useRef(false);
   // Built workbook payload for the preview modal. null when preview
   // isn't open. Operator can click Download from inside the preview
-  // to flush the same payload to a file.
-  const [previewPayload, setPreviewPayload] = useState<ExportPayload | null>(null);
+  // to flush the same payload to a file. Uses the wider ReportPayload
+  // shape so every ATS export (main grid + the 4 special reports) can
+  // route through the same modal.
+  const [previewPayload, setPreviewPayload] = useState<ReportPayload | null>(null);
   // Body row count for the preview header (header row excluded).
   const [previewBodyCount, setPreviewBodyCount] = useState(0);
+  // When set, the preview's Back button returns to the matching options
+  // modal (currently only the main-grid export uses Back; the other 4
+  // reports don't have an options modal and so the modal hides Back).
+  const [previewBackTarget, setPreviewBackTarget] = useState<"exportOpts" | null>(null);
+
+  // Push a payload into the preview modal. Centralized so all 5 reports
+  // route through the same code path — opening the modal, computing the
+  // body-row count, and remembering which (if any) options modal Back
+  // should return to.
+  const openPreview = (payload: ReportPayload | ExportPayload, backTarget: "exportOpts" | null = null) => {
+    // ExportPayload doesn't require title; ReportPayload does. Fall
+    // back to a sensible default when the payload came from a legacy
+    // call site that hadn't set one yet.
+    const normalized: ReportPayload = {
+      title: payload.title ?? "Export",
+      aoa: payload.aoa,
+      wb: payload.wb,
+      filename: payload.filename,
+    };
+    setPreviewPayload(normalized);
+    setPreviewBodyCount(Math.max(0, payload.aoa.length - 1));
+    setPreviewBackTarget(backTarget);
+  };
   const [agedOpen, setAgedOpen] = useState(false);
   const [agedDays, setAgedDays] = useState("365");
   const [agedCategory, setAgedCategory] = useState(filterCategory);
@@ -1135,32 +1168,53 @@ export const NavBar: React.FC<NavBarProps> = ({
               {
                 key: "exportExcel",
                 label: "Export Excel…",
-                sub: "Pick subtotals / cost / trailing options, then download",
+                sub: "Pick subtotals / cost / trailing options, then view + download",
                 onClick: () => { setExportOptsOpen(true); setReportsOpen(false); },
               },
               {
                 key: "negInven",
                 label: "Neg Inven",
-                sub: "Select Neg ATS filter + download the negative-inventory report",
-                onClick: onNegInven,
+                sub: "Preview the negative-inventory report, then download",
+                onClick: () => {
+                  const payload = onNegInven();
+                  if (!payload) {
+                    alert("No negative-ATS rows in the current grid filter.");
+                    return;
+                  }
+                  openPreview(payload);
+                },
               },
               {
                 key: "agedInven",
                 label: "Aged Inven…",
-                sub: "Pick a days threshold + category, then download",
+                sub: "Pick a days threshold + category, then view + download",
                 onClick: () => { setAgedCategory(filterCategory); setAgedEmpty(false); setAgedOpen(true); },
               },
               {
                 key: "noMrgnData",
                 label: "NO Mrgn Data",
                 sub: "Styles with no open SO, no avg cost, no PO cost (the red Mrgn:* asterisks)",
-                onClick: onDownloadIncompleteSkus,
+                onClick: () => {
+                  const { payload } = onDownloadIncompleteSkus();
+                  openPreview(payload);
+                },
               },
               {
                 key: "stockVsSo",
                 label: "Stock Vs SO",
                 sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
-                onClick: onDownloadStockVsSo,
+                onClick: () => {
+                  const result = onDownloadStockVsSo();
+                  if (result.kind === "no-events") {
+                    alert("No event data loaded — open the ATS report and let the data finish loading first.");
+                    return;
+                  }
+                  if (result.kind === "no-orders") {
+                    alert("No open SOs in the filtered set to report on.");
+                    return;
+                  }
+                  openPreview(result.payload);
+                },
               },
               {
                 key: "salesComps",
@@ -1303,7 +1357,7 @@ export const NavBar: React.FC<NavBarProps> = ({
             min={1}
             value={agedDays}
             onChange={e => setAgedDays(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "ok") setAgedOpen(false); else setAgedEmpty(true); } } }}
+            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } } } }}
             autoFocus
             style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 15, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 16 }}
           />
@@ -1326,9 +1380,9 @@ export const NavBar: React.FC<NavBarProps> = ({
               Cancel
             </button>
             <button
-              onClick={() => { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "ok") setAgedOpen(false); else setAgedEmpty(true); } }}
+              onClick={() => { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } } }}
               style={{ background: "#1D6F42", border: "1px solid #155734", color: "#fff", borderRadius: 6, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              Download Report
+              View Report
             </button>
           </div>
         </div>
@@ -1371,8 +1425,10 @@ export const NavBar: React.FC<NavBarProps> = ({
           explodePpk,
         );
         if (!payload) return;
-        setPreviewPayload(payload);
-        setPreviewBodyCount(Math.max(0, payload.aoa.length - 1));
+        // Main-grid export remembers the options modal so the preview's
+        // Back button can return to it. The 4 simpler reports leave
+        // backTarget null — their modal hides the Back button.
+        openPreview(payload, "exportOpts");
         // Leave the options modal mounted but hidden behind the
         // preview — clicking Back returns to it without re-fetching.
         setExportOptsOpen(false);
@@ -1380,15 +1436,19 @@ export const NavBar: React.FC<NavBarProps> = ({
     />
     <ExportPreviewModal
       open={previewPayload !== null}
-      aoa={previewPayload?.aoa ?? null}
-      filename={previewPayload?.filename ?? ""}
+      payload={previewPayload}
       rowCount={previewBodyCount}
-      onDownload={() => {
-        if (!previewPayload) return;
-        triggerXlsxDownload(previewPayload.wb, previewPayload.filename);
-        setPreviewPayload(null);
+      showBack={previewBackTarget === "exportOpts"}
+      onClose={() => {
+        // Back: dismiss the preview and re-open the options modal it
+        // came from (currently only the main-grid export uses this).
+        if (previewBackTarget === "exportOpts") {
+          setPreviewPayload(null);
+          setExportOptsOpen(true);
+        } else {
+          setPreviewPayload(null);
+        }
       }}
-      onClose={() => { setPreviewPayload(null); setExportOptsOpen(true); }}
       onCloseAll={() => { setPreviewPayload(null); }}
     />
 

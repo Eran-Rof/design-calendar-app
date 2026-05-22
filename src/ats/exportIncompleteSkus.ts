@@ -8,15 +8,21 @@ import { fmtDate } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
-  autofitColumns, applyOutlines, downloadWorkbook, zebraFill, numOrBlank,
+  autofitColumns, applyOutlines, buildWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
+import type { ReportPayload } from "./reportPayload";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
+
+export interface IncompleteSkusResult {
+  count: number;
+  payload: ReportPayload;
+}
 
 export function exportIncompleteSkus(
   filtered: ATSRow[],
   eventIndex: EventIndex | null,
-): { count: number } {
+): IncompleteSkusResult {
   // Per-SKU presence flags from event index
   const hasSO = new Set<string>();
   const hasPOCost = new Set<string>();
@@ -125,13 +131,22 @@ export function exportIncompleteSkus(
     ...bodyRows.map(() => ({ hpt: ROW_HEIGHTS.BODY })),
   ];
 
-  downloadWorkbook({
+  const filename = `Incomplete_Styles_${fmtDate(new Date())}.xlsx`;
+  const { wb } = buildWorkbook({
     allRows,
     sheetName: "Incomplete Styles",
-    filename: `Incomplete_Styles_${fmtDate(new Date())}.xlsx`,
+    filename,
     cols,
     rowHeights,
   });
 
-  return { count: incomplete.length };
+  return {
+    count: incomplete.length,
+    payload: {
+      title: "Incomplete SKUs",
+      aoa: allRows,
+      wb,
+      filename,
+    },
+  };
 }

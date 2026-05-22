@@ -4,8 +4,9 @@ import { fmtDate } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, EXTRA_THICK,
   headerStyle, bodyTextStyle, bodyStyleStyle, bodyNumStyle,
-  autofitColumns, downloadWorkbook, zebraFill, numOrBlank,
+  autofitColumns, zebraFill, numOrBlank,
 } from "./exportTheme";
+import type { ReportPayload } from "./reportPayload";
 
 // Semantic accents (kept out of the theme — Neg Inven owns the meaning).
 const NEG_RED  = "C0392B";
@@ -38,7 +39,7 @@ export function exportNegInven(
   displayPeriods: Array<{ periodStart: string; endDate: string; label: string }>,
   atShip: boolean,
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null = null,
-) {
+): ReportPayload | null {
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
@@ -52,7 +53,7 @@ export function exportNegInven(
   const filtered = rows.filter(r =>
     filterPeriods.some(p => { const v = atsVal(r, p); return v !== null && v < 0; })
   );
-  if (filtered.length === 0) return;
+  if (filtered.length === 0) return null;
 
   // ── Step 2: per-row pipeline ──────────────────────────────────────────────
   const processed = filtered.map(r => {
@@ -296,12 +297,10 @@ export function exportNegInven(
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "Neg Inventory Report");
 
-  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `Neg_Inventory_${fmtDate(today)}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  return {
+    title: "Negative Inventory",
+    aoa,
+    wb,
+    filename: `Neg_Inventory_${fmtDate(today)}.xlsx`,
+  };
 }

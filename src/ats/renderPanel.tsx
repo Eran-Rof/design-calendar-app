@@ -19,6 +19,8 @@ import { GridErrorBoundary } from "./panels/GridErrorBoundary";
 import { UnmatchedBanner } from "./panels/UnmatchedBanner";
 import { exportIncompleteSkus } from "./exportIncompleteSkus";
 import { exportStockVsSo } from "./exportStockVsSo";
+import type { ReportPayload } from "./reportPayload";
+import type { AgedInvenResult } from "./exportAgedInven";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import type { NormChange } from "./normalize";
@@ -127,8 +129,11 @@ interface ATSDerivedCtx {
   saveMergeHistory: (history: Array<{ fromSku: string; toSku: string }>) => Promise<void>;
   toggleExpandGroup: (key: string) => void;
   expandedGroupSet: ReadonlySet<string>;
-  onNegInven: () => void;
-  onAgedInven: (days: number, category: string) => "ok" | "empty";
+  // Both report handlers now return a payload (or sentinel) so the
+  // NavBar can route them through the shared preview-before-download
+  // modal.
+  onNegInven: () => ReportPayload | null;
+  onAgedInven: (days: number, category: string) => AgedInvenResult;
   unreadNotifs: number;
   showingNotifications: boolean;
   onToggleNotifications: () => void;
@@ -322,6 +327,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         generalMarginPct={generalMarginPct ?? 21}
         onNegInven={onNegInven}
         onAgedInven={onAgedInven}
+        // Both report builders now return a payload (instead of
+        // downloading directly) so the NavBar can route them through
+        // the shared preview-before-download modal. Excel output is
+        // unchanged — the modal flushes the same workbook on Download.
         onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
         onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
         categories={categories}

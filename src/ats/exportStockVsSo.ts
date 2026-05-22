@@ -19,8 +19,9 @@ import {
   PALETTE, ROW_HEIGHTS, colLetter,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
   subtotalTextStyle, subtotalNumStyle,
-  autofitColumns, applyOutlines, downloadWorkbook, zebraFill, numOrBlank,
+  autofitColumns, applyOutlines, buildWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
+import type { ReportPayload } from "./reportPayload";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -49,13 +50,17 @@ function splitSku(sku: string): { base: string; color: string } {
   return { base: sku.slice(0, idx).trim(), color: sku.slice(idx + 3).trim() };
 }
 
+export type StockVsSoResult =
+  | { kind: "no-events" }
+  | { kind: "no-orders" }
+  | { kind: "ok"; rows: number; payload: ReportPayload };
+
 export function exportStockVsSo(
   filtered: ATSRow[],
   eventIndex: EventIndex | null,
-): { rows: number } {
+): StockVsSoResult {
   if (!eventIndex) {
-    alert("No event data loaded — open the ATS report and let the data finish loading first.");
-    return { rows: 0 };
+    return { kind: "no-events" };
   }
 
   const reports: SoLineReport[] = [];
@@ -141,8 +146,7 @@ export function exportStockVsSo(
   }
 
   if (reports.length === 0) {
-    alert("No open SOs in the filtered set to report on.");
-    return { rows: 0 };
+    return { kind: "no-orders" };
   }
 
   // Sort the report: status (worst first — Needs New PO), then customer, ship date.
@@ -316,15 +320,25 @@ export function exportStockVsSo(
   const lastDataAoaRow = 1 + reports.length;  // Excel 1-based: header row 1, data rows 2..N+1
   const lastColLetter = colLetter(headers.length);
 
-  downloadWorkbook({
+  const filename = `Stock_Vs_SO_${fmtDate(new Date())}.xlsx`;
+  const { wb } = buildWorkbook({
     allRows,
     sheetName: "Stock Vs SO",
-    filename: `Stock_Vs_SO_${fmtDate(new Date())}.xlsx`,
+    filename,
     cols,
     rowHeights,
     autofilter: `A1:${lastColLetter}${lastDataAoaRow}`,
     freeze: { xSplit: 0, ySplit: 1 },
   });
 
-  return { rows: reports.length };
+  return {
+    kind: "ok",
+    rows: reports.length,
+    payload: {
+      title: "Stock vs Sales Orders",
+      aoa: allRows,
+      wb,
+      filename,
+    },
+  };
 }
