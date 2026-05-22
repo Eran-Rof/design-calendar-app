@@ -324,7 +324,10 @@ export const GridTable: React.FC<GridTableProps> = ({
     height: TOTALS_ROW_HEIGHT,
     boxSizing: "border-box",
     padding: "4px 10px",
-    background: "#1E293B",
+    // backgroundColor (not shorthand) so S.stickyCol's gradient stripe
+    // survives when the totals cell is also a sticky-left cell. The
+    // shorthand `background:` would reset background-image to none.
+    backgroundColor: "#1E293B",
     // No borderBottom / no boxShadow divider here. Previous attempts to
     // draw the divider via cell-level styling kept failing because Chrome
     // culls borders/shadows on sticky <th> elements during scroll-stack
@@ -514,7 +517,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                     style={{
                       ...totalsThBase,
                       minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
-                      background: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
+                      backgroundColor: p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
                     }}
                   >
                     <TotalsCell qty={q} cost={c} sale={s} bInven={bInven} eInven={eInven} qtyColor={qtyColor} skipped={sk} />
@@ -572,7 +575,9 @@ export const GridTable: React.FC<GridTableProps> = ({
                     textAlign: ci >= 5 ? "center" : "left",
                     cursor: "pointer",
                     color: isActive ? "#F1F5F9" : "#6B7280",
-                    background: isActive ? "#243048" : "#1E293B",
+                    // backgroundColor (not shorthand) so S.stickyCol's
+                    // gradient stripe survives — see styles.ts:stickyCol.
+                    backgroundColor: isActive ? "#243048" : "#1E293B",
                     ...unfreezeStyle(c.key),
                   }}
                   onClick={() => handleThClick(c.key)}
@@ -592,7 +597,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                     top: headerRowTop,
                     minWidth: rangeUnit === "days" ? 68 : rangeUnit === "weeks" ? 120 : 100,
                     textAlign: "center",
-                    background: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
+                    backgroundColor: isActive ? "#243048" : p.isToday ? "#1a2a1e" : p.isWeekend ? "#141e2e" : "#1E293B",
                     color: isActive ? "#F1F5F9" : p.isToday ? "#10B981" : p.isWeekend ? "#475569" : "#6B7280",
                     borderBottom: p.isToday ? "2px solid #10B981" : "1px solid #334155",
                     whiteSpace: "pre-line",
@@ -681,7 +686,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 {/* Category */}
                 {!isHidden("category") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("category", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.category, background: stickyBg, color: "#9CA3AF", fontSize: 12, ...unfreezeStyle("category") }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("category", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.category, backgroundColor: stickyBg, color: "#9CA3AF", fontSize: 12, ...unfreezeStyle("category") }}
                   onClick={() => { if (!isAggregate) setPinnedSku(isPinned ? null : row.sku); }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -702,7 +707,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 )}
                 {/* Sub Cat */}
                 {!isHidden("subCategory") && (
-                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("subCategory", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.subCategory, background: stickyBg, color: "#9CA3AF", fontSize: 12, ...unfreezeStyle("subCategory") }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("subCategory", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.subCategory, backgroundColor: stickyBg, color: "#9CA3AF", fontSize: 12, ...unfreezeStyle("subCategory") }}>
                   {aggLevel === "category" ? "" : (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {aggLevel === "subCategory" && (
@@ -723,7 +728,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                    store badge stays here */}
                 {!isHidden("style") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("style", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.style, background: stickyBg, ...unfreezeStyle("style") }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("style", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.style, backgroundColor: stickyBg, ...unfreezeStyle("style") }}
                   title={isAggregate ? undefined : row.sku}
                 >
                   {(aggLevel === "category" || aggLevel === "subCategory") ? "" : (
@@ -754,20 +759,20 @@ export const GridTable: React.FC<GridTableProps> = ({
                     Xoro variant description, which packs SKU + color
                     + size into the field and reads as garbage. */}
                 {!isHidden("description") && (
-                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("description", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.description, background: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal", ...unfreezeStyle("description") }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("description", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.description, backgroundColor: stickyBg, color: isAggregate ? "#94A3B8" : "#D1D5DB", fontSize: 13, fontStyle: isAggregate ? "italic" : "normal", ...unfreezeStyle("description") }}>
                   {row.master_description ?? row.description}
                 </td>
                 )}
                 {/* Color */}
                 {!isHidden("color") && (
-                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("color", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.color, background: stickyBg, color: "#D1D5DB", fontSize: 12, ...unfreezeStyle("color") }}>
+                <td style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("color", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.color, backgroundColor: stickyBg, color: "#D1D5DB", fontSize: 12, ...unfreezeStyle("color") }}>
                   {isAggregate ? "" : (displayColor(row) || "—")}
                 </td>
                 )}
                 {/* On Hand */}
                 {!isHidden("onHand") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, background: stickyBg, textAlign: "center", cursor: "context-menu", ...unfreezeStyle("onHand") }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onHand", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onHand, backgroundColor: stickyBg, textAlign: "center", cursor: "context-menu", ...unfreezeStyle("onHand") }}
                   onContextMenu={e => openSummaryCtx(e, "onHand", row)}
                 >
                   {renderQty({ qty: row.onHand, mult: row.ppkMult ?? 1, explode: explodePpk, color: "#F1F5F9" })}
@@ -776,7 +781,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 {/* On Order (committed SOs) */}
                 {!isHidden("onOrder") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, background: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default", ...unfreezeStyle("onOrder") }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onOrder", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onOrder, backgroundColor: stickyBg, textAlign: "center", cursor: row.onOrder > 0 ? "context-menu" : "default", ...unfreezeStyle("onOrder") }}
                   onContextMenu={e => { if (row.onOrder > 0) openSummaryCtx(e, "onOrder", row); }}
                 >
                   {renderQty({ qty: row.onOrder, mult: row.ppkMult ?? 1, explode: explodePpk, color: "#F59E0B", zeroDisplay: "—" })}
@@ -785,7 +790,7 @@ export const GridTable: React.FC<GridTableProps> = ({
                 {/* On PO (open purchase orders) */}
                 {!isHidden("onPO") && (
                 <td
-                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, background: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default", ...unfreezeStyle("onPO") }}
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("onPO", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.onPO, backgroundColor: stickyBg, textAlign: "center", cursor: row.onPO > 0 ? "context-menu" : "default", ...unfreezeStyle("onPO") }}
                   onContextMenu={e => { if (row.onPO > 0) openSummaryCtx(e, "onPO", row); }}
                 >
                   {renderQty({ qty: row.onPO, mult: row.ppkMult ?? 1, explode: explodePpk, color: "#10B981", prefix: "+", zeroDisplay: "—" })}
