@@ -40,13 +40,13 @@ export function periodAvail(
  *  multiplier inside compute itself; never call this on rows from
  *  that path. */
 export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
-  // Snapshot/recovery-path multiplier. Mirrors the conditional rule in
-  // computeRowsFromExcelData: pack grain is signaled by the SIZE field
-  // (e.g. size=PPK24). The size column is authoritative because a
-  // single style+color can have a mix of sized variants in eaches grain
-  // and a PPK row in pack grain.
+  // CANONICAL grain rule (do not touch — see project_ppk_grain_rule_CANONICAL.md):
+  // pack grain iff style_code contains "PPK". Bare-style rows
+  // (RYB059430, even when their size column is "PPK24") are in eaches
+  // grain — no multiplication. Only style codes literally ending in
+  // "PPK" (e.g. RYB059430PPK) are reported in packs by Xoro.
   const masterHit = resolveStyle(row.sku, null);
-  const isPackGrain = /PPK/i.test(masterHit.size ?? "");
+  const isPackGrain = /PPK/i.test(masterHit.style ?? "");
   const mult = isPackGrain ? masterHit.pack_size : 1;
   if (mult === 1) return { ...row, ppkMult: 1 };
   const newDates: Record<string, number> = {};
@@ -99,20 +99,18 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     const poDates = poIdx[rowKey] ?? {};
     const soDates = soIdx[rowKey] ?? {};
 
-    // 2026-05-21 (rev 2): Pack grain is per-row, signaled by the SIZE
-    // column. Operator clarified: "if PPK in size, it's a PPK for that
-    // item-size qty only" — meaning a single style+color can have a
-    // mix of sized variants (size=31/32/33/... in eaches grain) AND a
-    // PPK row (size=PPK24, pack grain). The size field is authoritative
-    // regardless of whether style_code itself ends in "PPK".
+    // CANONICAL grain rule — see project_ppk_grain_rule_CANONICAL.md:
+    // pack grain iff style_code contains "PPK". The "PPK24" you see in
+    // the size column is a CLASSIFICATION signal (shows the chip), NOT
+    // a grain signal. Only style codes literally ending in "PPK"
+    // (e.g. RYB059430PPK) are reported in packs by Xoro.
     //
     // Examples:
-    //   - RYB059430-SALTLAKE-MEDWASH    size=PPK24, pack_size=24 → multiply
-    //   - RYB059430PPK-BARK-GREYWTINT   size=PPK24, pack_size=24 → multiply
-    //   - RYB059430-SALTLAKE-MEDWASH-32 size=32,    pack_size=1  → no-op
-    //   - RYB059430-BARK-GREYWTINT      size=null,  pack_size=1  → no-op
+    //   - RYB059430PPK-BARK-GREYWTINT   style has PPK → multiply
+    //   - RYB059430-SALTLAKE-MEDWASH    bare style, size=PPK24 → NO multiply
+    //   - RYB059430-SALTLAKE-MEDWASH-32 size=32, no PPK → NO multiply
     const masterHit = resolveStyle(s.sku, null);
-    const isPackGrain = /PPK/i.test(masterHit.size ?? "");
+    const isPackGrain = /PPK/i.test(masterHit.style ?? "");
     const mult = isPackGrain ? masterHit.pack_size : 1;
 
     let ats = s.onHand * mult;
