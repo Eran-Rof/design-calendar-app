@@ -8,8 +8,9 @@ import {
   PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, EXTRA_THICK,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
   subtotalTextStyle, subtotalNumStyle,
-  autofitColumns, downloadMultiSheet, zebraFill, numOrBlank,
+  autofitColumns, buildMultiSheetWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
+import type { ReportPayload } from "./reportPayload";
 
 // ── Semantic cost-group colors (operators read the workbook by group) ────
 // Kept out of the shared theme — these are domain-specific tier markers,
@@ -55,7 +56,9 @@ function fmtMMDDYYYY(iso: string): string {
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
-export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, category = "All"): "ok" | "empty" {
+export type AgedInvenResult = "empty" | ReportPayload;
+
+export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, category = "All"): AgedInvenResult {
   const today    = new Date();
   const todayStr = `${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
 
@@ -141,7 +144,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
   }
 
   // ── 4. Build sheet specs ──────────────────────────────────────────────
-  const sheets: Array<Parameters<typeof downloadMultiSheet>[1][number]> = [];
+  const sheets: Array<Parameters<typeof buildMultiSheetWorkbook>[1][number]> = [];
 
   // ── Summary sheet ─────────────────────────────────────────────────────
   {
@@ -470,6 +473,17 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
   }
 
   const catSlug = category !== "All" ? `_${category.replace(/[^a-zA-Z0-9]/g, "_")}` : "";
-  downloadMultiSheet(`Aged_Inventory_${ageDaysThreshold}days${catSlug}_${fmtDate(today)}.xlsx`, sheets);
-  return "ok";
+  const filename = `Aged_Inventory_${ageDaysThreshold}days${catSlug}_${fmtDate(today)}.xlsx`;
+  const { wb } = buildMultiSheetWorkbook(filename, sheets);
+
+  // Preview AOA = the Summary tab (first sheet). The downloaded
+  // workbook still includes every detail-store/gender tab unchanged;
+  // operators preview the at-a-glance summary, then click Download to
+  // get the full multi-sheet workbook.
+  return {
+    title: `Aged Inventory (${ageDaysThreshold}+ Days)`,
+    aoa: sheets[0].allRows,
+    wb,
+    filename,
+  };
 }

@@ -58,6 +58,10 @@ export interface ExportPayload {
   aoa: any[][];     // the array-of-arrays the worksheet was built from
   wb: any;          // XLSXStyle workbook ready to write
   filename: string; // download filename
+  // Display title used by the preview modal header. Kept optional so
+  // legacy code that built ExportPayload without one still type-checks
+  // — the preview default falls back to "Export".
+  title?: string;
 }
 
 // Same as exportToExcel but returns the workbook + AOA without
@@ -1601,5 +1605,5 @@ export function buildExportPayload(
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
 
-  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx` };
+  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid" };
 }
