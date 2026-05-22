@@ -3,7 +3,7 @@
 // same chunked upsert strategy for bulk writes.
 
 import { SB_HEADERS, SB_URL } from "../../../utils/supabase";
-import type { IpChannel, IpItem, IpCategory, IpSalesEcomRow } from "../../types/entities";
+import type { IpChannel, IpCategory, IpSalesEcomRow } from "../../types/entities";
 import type { IpProductChannelStatus } from "../../types/entities";
 import type {
   IpEcomForecast,
@@ -51,9 +51,6 @@ export const ecomRepo = {
   },
   async listCategories(): Promise<IpCategory[]> {
     return sbGet<IpCategory>(`ip_category_master?select=*&limit=5000`);
-  },
-  async listItems(): Promise<IpItem[]> {
-    return sbGet<IpItem>(`ip_item_master?select=*&limit=20000`);
   },
   async listEcomSales(sinceIso: string): Promise<IpSalesEcomRow[]> {
     return sbGet<IpSalesEcomRow>(
