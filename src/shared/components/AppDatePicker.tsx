@@ -59,6 +59,24 @@ export const AppDatePicker: React.FC<AppDatePickerProps> = ({ value, onCommit, s
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
+  // Mouse-leave close. Popover renders via createPortal so it's in
+  // a different DOM subtree from the button — register the handlers
+  // on BOTH and share a timer so darting between them doesn't close
+  // the picker. 200ms grace tolerates the small gap between the
+  // button and the floating calendar.
+  const leaveTimerRef = useRef<number | null>(null);
+  const cancelLeave = () => {
+    if (leaveTimerRef.current != null) {
+      window.clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelLeave();
+    leaveTimerRef.current = window.setTimeout(() => setOpen(false), 200);
+  };
+  useEffect(() => () => cancelLeave(), []);
+
   const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const display = parsed
     ? `${String(parsed.getMonth() + 1).padStart(2, "0")}/${String(parsed.getDate()).padStart(2, "0")}/${parsed.getFullYear()}`
@@ -108,7 +126,12 @@ export const AppDatePicker: React.FC<AppDatePickerProps> = ({ value, onCommit, s
   });
 
   return (
-    <div ref={wrapRef} style={{ position: "relative" }}>
+    <div
+      ref={wrapRef}
+      style={{ position: "relative" }}
+      onMouseLeave={open ? scheduleClose : undefined}
+      onMouseEnter={cancelLeave}
+    >
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -117,7 +140,7 @@ export const AppDatePicker: React.FC<AppDatePickerProps> = ({ value, onCommit, s
         {display}
       </button>
       {open && createPortal(
-        <div ref={popRef} style={popStyle}>
+        <div ref={popRef} style={popStyle} onMouseEnter={cancelLeave} onMouseLeave={scheduleClose}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
             <button type="button" onClick={() => navMonth(-1)} style={headerBtn}>‹</button>
             <div style={{ color: "#D1D5DB", fontSize: 12, fontWeight: 600 }}>{monthNames[view.m]} {view.y}</div>
