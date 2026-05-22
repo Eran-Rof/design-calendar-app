@@ -6,7 +6,44 @@ import { detectNormChanges, partitionNormChanges, applyNormChanges } from "../no
 import { dedupeExcelData, mergeExcelDataSkus } from "../merge";
 import { computeRowsFromExcelData } from "../compute";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
+import { canonSku } from "../../inventory-planning/utils/skuCanon";
 import type { MergeOp } from "./useMergeHistory";
+
+// Materialize the ATS avg-cost slice into the narrow ip_ats_avg_cost
+// table so the planning grid stops pulling the full 7.4MB ats_excel_data
+// blob just to look up cost-per-SKU. Best-effort: any failure here is
+// logged and swallowed — the ats_excel_data write at the call site is
+// the source of truth, and listAtsAvgCostBySku() will fall back to
+// reading the blob if this table is somehow stale.
+async function upsertAtsAvgCost(skus: Array<{ sku?: string; avgCost?: number }>): Promise<void> {
+  // Dedup by canonical sku_code (multiple raw SKUs can collapse to the
+  // same canonical key, e.g., "RYA1408 - Black" and "RYA1408-Black");
+  // take the max to match the SQL backfill's tiebreaker.
+  const byCanon = new Map<string, number>();
+  for (const s of skus) {
+    if (!s?.sku) continue;
+    if (typeof s.avgCost !== "number" || !(s.avgCost > 0)) continue;
+    const code = canonSku(s.sku);
+    if (!code) continue;
+    const prev = byCanon.get(code);
+    if (prev == null || s.avgCost > prev) byCanon.set(code, s.avgCost);
+  }
+  const rows = Array.from(byCanon, ([sku_code, avg_cost]) => ({ sku_code, avg_cost }));
+  if (rows.length === 0) return;
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/ip_ats_avg_cost`, {
+      method: "POST",
+      headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(rows),
+    });
+    if (!r.ok) {
+      const detail = await r.text().catch(() => "");
+      console.warn(`[ATS upload] ip_ats_avg_cost upsert failed (${r.status}): ${detail.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.warn(`[ATS upload] ip_ats_avg_cost upsert threw:`, e);
+  }
+}
 
 interface UseExcelUploadOpts {
   // External dependencies (from other hooks / state)
@@ -111,6 +148,10 @@ export async function runSaveUploadData(rawData: ExcelData, opts: UseExcelUpload
         throw new Error(msg);
       }
       console.warn(`[ATS upload] save OK (HTTP ${saveRes.status})`);
+      // Mirror the avg-cost slice into the narrow ip_ats_avg_cost table
+      // so the planning grid doesn't pull the full 7.4MB blob just to
+      // look up cost per SKU. Fire-and-forget; non-blocking on failure.
+      upsertAtsAvgCost(data.skus);
       // Overwrite the pre-merge base snapshot with the fresh upload so
       // undo replays against current data, not last week's. Merge history
       // is preserved — already applied above via the replay loop.
