@@ -40,14 +40,32 @@ export function periodAvail(
  *  multiplier inside compute itself; never call this on rows from
  *  that path. */
 export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
-  // 2026-05-21: Xoro now reports PPK SKUs in eaches (not packs). The
-  // historical pack→unit multiplication is no longer needed — the
-  // source value IS the eaches count. We still pin ppkMult to the
-  // master's pack_size so the grid can render the prepack chip + the
-  // EXPLODE PPK toggle (which divides qty by ppkMult to show packs).
+  // Snapshot/recovery-path multiplier. Mirrors the conditional rule in
+  // computeRowsFromExcelData: only PPK-suffixed style codes get the
+  // pack→unit explosion (those are reported in packs by Xoro). Bare-
+  // style rows whose pack_size>1 comes from the size column (e.g.
+  // RYB059430 with size=PPK24) are already in eaches grain — no math.
   const masterHit = resolveStyle(row.sku, null);
-  const mult = masterHit.pack_size;
-  return { ...row, ppkMult: mult };
+  const isPackGrain = /PPK/i.test(masterHit.style ?? "");
+  const mult = isPackGrain ? masterHit.pack_size : 1;
+  if (mult === 1) return { ...row, ppkMult: 1 };
+  const newDates: Record<string, number> = {};
+  for (const [date, qty] of Object.entries(row.dates)) newDates[date] = qty * mult;
+  let newFreeMap: Record<string, number> | undefined;
+  if (row.freeMap) {
+    newFreeMap = {};
+    for (const [date, qty] of Object.entries(row.freeMap)) newFreeMap[date] = qty * mult;
+  }
+  return {
+    ...row,
+    onHand: row.onHand * mult,
+    onPO: row.onPO * mult,
+    onOrder: row.onOrder * mult,
+    dates: newDates,
+    freeMap: newFreeMap,
+    avgCost: row.avgCost != null ? row.avgCost / mult : row.avgCost,
+    ppkMult: mult,
+  };
 }
 
 export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
@@ -81,26 +99,36 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     const poDates = poIdx[rowKey] ?? {};
     const soDates = soIdx[rowKey] ?? {};
 
-    // 2026-05-21: Xoro now reports inventory + PO/SO qtys in EACHES
-    // for prepack SKUs (previously packs). No multiplication needed —
-    // the source value IS the eaches count. masterHit is still used
-    // downstream for description/category resolution; ppkMult is
-    // pinned to 1 so the grid renders the number plainly without the
-    // (now misleading) "PPK24 × N" hint.
+    // 2026-05-21: Xoro's grain depends on the STYLE CODE shape, not
+    // just pack_size. There are two flavors of prepack rows:
+    //
+    //   1. style_code ends in "PPK" (e.g. RYB059430PPK) — Xoro reports
+    //      these at PACK grain. Right-click context confirms "144 packs
+    //      = 3,456 units" for RYB059430PPK Bark/Grey. Multiply by
+    //      pack_size to land in eaches.
+    //   2. Bare style_code with PPK only in the size column (e.g.
+    //      RYB059430 with size=PPK24) — Xoro reports these at EACHES
+    //      grain. The 3,627 the operator sees IS the eaches count;
+    //      don't multiply.
+    //
+    // Both share pack_size>1 in master, so we can't gate on that field.
+    // The grain signal is the literal "PPK" substring in style_code.
     const masterHit = resolveStyle(s.sku, null);
+    const isPackGrain = /PPK/i.test(masterHit.style ?? "");
+    const mult = isPackGrain ? masterHit.pack_size : 1;
 
-    let ats = s.onHand;
+    let ats = s.onHand * mult;
     for (const [date, qty] of Object.entries(poDates)) {
-      if (date < rangeStart) ats += qty;
+      if (date < rangeStart) ats += qty * mult;
     }
     for (const [date, qty] of Object.entries(soDates)) {
-      if (date < rangeStart) ats -= qty;
+      if (date < rangeStart) ats -= qty * mult;
     }
     if (ats < 0) ats = 0;
 
     const dateMap: Record<string, number> = {};
     for (const date of dates) {
-      ats += (poDates[date] ?? 0) - (soDates[date] ?? 0);
+      ats += ((poDates[date] ?? 0) - (soDates[date] ?? 0)) * mult;
       dateMap[date] = ats;
     }
 
@@ -110,10 +138,11 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     //
     // Example: PO in July, SO in June → July PO cannot cover the June SO,
     // so current stock must be reserved. Simple "totalPO - totalSO" would miss this.
-    // Source data is in eaches grain (2026-05-21 change); no multiplier needed.
+    // Event deltas multiplied by `mult` so the math runs in eaches grain
+    // (matches ats / dateMap above). mult=1 for bare-style rows.
     const allFutureEvents: [string, number][] = [
-      ...Object.entries(poDates).map(([d, q]): [string, number] => [d, q]),
-      ...Object.entries(soDates).map(([d, q]): [string, number] => [d, -q]),
+      ...Object.entries(poDates).map(([d, q]): [string, number] => [d, q * mult]),
+      ...Object.entries(soDates).map(([d, q]): [string, number] => [d, -q * mult]),
     ].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
     const freeMap: Record<string, number> = {};
@@ -134,25 +163,20 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
       freeMap[date] = Math.max(0, atsAtDate - reserveNeeded);
     }
 
-    // Aggregates already in eaches grain (2026-05-21 — Xoro report
-    // change). s.onPO / s.onOrder fallback paths come from the same
-    // inventory snapshot, also eaches now, so no multiplication.
-    const filteredOnOrder = Object.values(poDates).reduce((a, b) => a + b, 0);
-    const filteredOnCommitted = Object.values(soDates).reduce((a, b) => a + b, 0);
-    const onPO = filteredOnOrder > 0 ? filteredOnOrder : (s.onPO || 0);
-    const onOrder = filteredOnCommitted > 0 ? filteredOnCommitted : (s.onOrder || 0);
-    // Cost: Item Costing Report may still report at pack grain even
-    // after the 2026-05-21 inventory-grain switch. Divide by master
-    // pack_size to land at per-unit, matching the row contract. Safe
-    // to revisit (and remove this division) if cost grain is also
-    // confirmed eaches.
-    const mult = masterHit.pack_size;
+    // Multiplied aggregates so onPO/onOrder land in eaches grain
+    // alongside the per-date deltas. For bare-style rows mult=1 (no-op).
+    const filteredOnOrder = Object.values(poDates).reduce((a, b) => a + b, 0) * mult;
+    const filteredOnCommitted = Object.values(soDates).reduce((a, b) => a + b, 0) * mult;
+    const onPO = filteredOnOrder > 0 ? filteredOnOrder : (s.onPO || 0) * mult;
+    const onOrder = filteredOnCommitted > 0 ? filteredOnCommitted : (s.onOrder || 0) * mult;
+    // Cost grain matches qty grain: pack-grain rows have pack-priced
+    // avgCost (divide by pack_size); bare-style rows are per-unit
+    // already (mult=1, no division).
     const avgCost = s.avgCost != null && mult > 1 ? s.avgCost / mult : s.avgCost;
-    // ppkMult carries the pack_size so the grid can keep rendering the
-    // "PPK24 × N" hint + the EXPLODE PPK toggle. qty fields above are
-    // already in eaches grain (2026-05-21 — no longer multiplied),
-    // matching the grid's expectation that qty is unit-grain and
-    // pack count = qty / ppkMult.
-    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand, onPO, onOrder, dates: dateMap, freeMap, avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount, ppkMult: mult };
+    // ppkMult is the *applied* multiplier — pack_size for PPK-suffixed
+    // style rows (so the grid renders the chip + EXPLODE toggle works),
+    // 1 for bare-style rows (so they render plain, even though their
+    // master pack_size may be >1 from the size column).
+    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand * mult, onPO, onOrder, dates: dateMap, freeMap, avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount, ppkMult: mult };
   });
 }
