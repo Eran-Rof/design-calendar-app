@@ -314,41 +314,30 @@ export const wholesaleRepo = {
       return new Map();
     }
   },
-  // Read avg unit cost per SKU from the ATS app's persisted Excel snapshot.
-  // Stored as a JSON-stringified blob in app_data under key=ats_excel_data;
-  // the relevant slice is `skus[i] = { sku, avgCost }`. ATS only carries
-  // costs for in-stock SKUs — used as a fallback when ip_item_avg_cost
-  // has no row.
+  // Avg unit cost per SKU from the materialized ip_ats_avg_cost table
+  // (canonicalized at write time by useExcelUpload.upsertAtsAvgCost or
+  // the SQL backfill in 20260521010000_ip_ats_avg_cost.sql). Replaces
+  // the prior path that pulled the full 7.4MB app_data['ats_excel_data']
+  // blob on every forecast build. The blob path was also silently broken
+  // — it keyed the Map by raw `sku` ("RYA1408 - Black") and the grid
+  // looked it up by `item.sku_code` ("RYA1408-BLACK"), so 0/2241 lookups
+  // hit. The new table stores canonical sku_code, so matches actually
+  // land. Used as a fallback when ip_item_avg_cost has no row for a SKU.
   async listAtsAvgCostBySku(): Promise<Map<string, number>> {
-    let rows: Array<{ value: string }>;
     try {
-      rows = await withRetryOn57014("listAtsAvgCostBySku",
-        () => sbGet<{ value: string }>("app_data?key=eq.ats_excel_data&select=value"));
-    } catch {
-      // Cost lookup is auxiliary — failing to load it shouldn't
-      // block the whole grid build. Return an empty map so the
-      // caller can keep going.
-      return new Map();
-    }
-    const raw = rows[0]?.value;
-    if (!raw) return new Map();
-    // ATS now stores ats_excel_data as a gzip+base64 envelope to keep
-    // large uploads under Supabase's 8s statement timeout. unpackGzipEnvelope
-    // detects the envelope and falls back to plain JSON for legacy rows.
-    let parsed: unknown;
-    try {
-      const { unpackGzipEnvelope } = await import("../../utils/gzipBase64");
-      parsed = await unpackGzipEnvelope(raw);
+      const rows = await sbGet<{ sku_code: string; avg_cost: number }>(
+        "ip_ats_avg_cost?select=sku_code,avg_cost&limit=50000",
+      );
+      const out = new Map<string, number>();
+      for (const r of rows) {
+        if (r.sku_code && typeof r.avg_cost === "number" && r.avg_cost > 0) {
+          out.set(r.sku_code, r.avg_cost);
+        }
+      }
+      return out;
     } catch {
       return new Map();
     }
-    const skus = (parsed as { skus?: Array<{ sku?: string; avgCost?: number }> } | null)?.skus;
-    if (!Array.isArray(skus)) return new Map();
-    const out = new Map<string, number>();
-    for (const s of skus) {
-      if (s?.sku && typeof s.avgCost === "number" && s.avgCost > 0) out.set(s.sku, s.avgCost);
-    }
-    return out;
   },
   async listWholesaleSales(sinceIso: string): Promise<IpSalesWholesaleRow[]> {
     // Trimmed select — drops the unused order_number / invoice_number
