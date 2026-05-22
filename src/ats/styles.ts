@@ -54,7 +54,7 @@ const S: Record<string, React.CSSProperties> = {
   // inset box-shadows that paint as part of the background layer (less
   // susceptible to compositor optimization). Colors match the borders
   // so when both render they're visually identical.
-  th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "2px solid #334155", borderRight: "2px solid #2D3748", boxShadow: "inset -2px 0 0 #2D3748, inset 0 -2px 0 #334155", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
+  th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", boxShadow: "inset -1px 0 0 #2D3748, inset 0 -1px 0 #334155", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   // Row divider color bumped to slate-500 #64748B to match the
   // existing vertical borderRight. The previous slate-600 #475569
   // was rendering reliably enough on frozen sticky cells but reading
@@ -71,9 +71,16 @@ const S: Record<string, React.CSSProperties> = {
   // compositor cull on sticky cells under horizontal scroll.
   td:          {
     padding: "7px 10px",
-    borderBottom: "2px solid #334155",
-    borderRight: "2px solid #334155",
-    boxShadow: "inset -2px 0 0 #334155, inset 0 -2px 0 #334155",
+    borderBottom: "1px solid #334155",
+    borderRight: "1px solid #334155",
+    // Inset box-shadow backup for the right + bottom separators —
+    // matches the borders' color so when Chrome's compositor renders
+    // both they're identical, and when it culls the border on a
+    // sticky cell during scroll the shadow still paints (it's part
+    // of the background layer, not a separate border layer). This is
+    // what keeps the column / row gridlines visible across the data
+    // grid even as the operator scrolls.
+    boxShadow: "inset -1px 0 0 #334155, inset 0 -1px 0 #334155",
     whiteSpace: "nowrap" as const,
     verticalAlign: "middle" as const,
   },
@@ -104,15 +111,9 @@ const S: Record<string, React.CSSProperties> = {
   stickyCol:   {
     position: "sticky" as const,
     zIndex: 2,
-    // 2px separators (was 1px). Diagnostic on the operator's Windows
-    // monitor revealed display scaling at ~154% — every 1px CSS line
-    // became 0.65 device pixels, which Chrome antialiases into near-
-    // invisibility, especially after sticky re-composites during
-    // scroll. 2px CSS = ~1.3 device pixels at 154% scaling, always
-    // visible.
-    borderRight: "2px solid #64748B",
-    boxShadow: "inset -2px 0 0 #64748B, inset 0 -2px 0 #334155",
-    backgroundImage: "linear-gradient(to right, transparent calc(100% - 2px), #64748B calc(100% - 2px))",
+    borderRight: "1px solid #64748B",
+    boxShadow: "inset -1px 0 0 #64748B, inset 0 -1px 0 #334155",
+    backgroundImage: "linear-gradient(to right, transparent calc(100% - 1px), #64748B calc(100% - 1px))",
     backgroundRepeat: "no-repeat" as const,
     overflow: "hidden" as const,
     textOverflow: "ellipsis" as const,
