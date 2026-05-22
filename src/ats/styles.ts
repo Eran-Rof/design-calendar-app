@@ -49,7 +49,12 @@ const S: Record<string, React.CSSProperties> = {
   // visible area and the vertical bar pinned to the right.
   tableWrap:   { overflowX: "scroll" as const, overflowY: "scroll" as const, flex: 1, minHeight: 0, borderRadius: 10, border: "1px solid #334155", background: "#0F172A", scrollbarColor: "#475569 #0F172A", scrollbarWidth: "thin" as const },
   table:       { borderCollapse: "separate" as const, borderSpacing: 0, width: "100%", fontSize: 13 },
-  th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
+  // Chrome culls plain borders on sticky cells during scroll, so the
+  // bottom + right separators get drawn TWO ways: real CSS borders +
+  // inset box-shadows that paint as part of the background layer (less
+  // susceptible to compositor optimization). Colors match the borders
+  // so when both render they're visually identical.
+  th:          { background: "#1E293B", color: "#6B7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: "0.05em", padding: "10px 12px", borderBottom: "1px solid #334155", borderRight: "1px solid #2D3748", boxShadow: "inset -1px 0 0 #2D3748, inset 0 -1px 0 #334155", whiteSpace: "nowrap" as const, position: "sticky" as const, top: 0, zIndex: 2 },
   // Row divider color bumped to slate-500 #64748B to match the
   // existing vertical borderRight. The previous slate-600 #475569
   // was rendering reliably enough on frozen sticky cells but reading
@@ -66,13 +71,16 @@ const S: Record<string, React.CSSProperties> = {
   // compositor cull on sticky cells under horizontal scroll.
   td:          {
     padding: "7px 10px",
-    // Row separation now comes primarily from heavy row-bg alternation
-    // in GridTable.tsx (slate-900 vs slate-800). The borderBottom
-    // here is a cosmetic accent — if the compositor culls it on a
-    // sticky cell during scroll, the row is still clearly distinct
-    // because of its background.
     borderBottom: "1px solid #334155",
     borderRight: "1px solid #334155",
+    // Inset box-shadow backup for the right + bottom separators —
+    // matches the borders' color so when Chrome's compositor renders
+    // both they're identical, and when it culls the border on a
+    // sticky cell during scroll the shadow still paints (it's part
+    // of the background layer, not a separate border layer). This is
+    // what keeps the column / row gridlines visible across the data
+    // grid even as the operator scrolls.
+    boxShadow: "inset -1px 0 0 #334155, inset 0 -1px 0 #334155",
     whiteSpace: "nowrap" as const,
     verticalAlign: "middle" as const,
   },
@@ -90,7 +98,7 @@ const S: Record<string, React.CSSProperties> = {
   // because they paint as part of the cell's background layer, not as
   // a separate border layer. Color matches the borderRight so the two
   // mechanisms are visually identical when both render.
-  stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #64748B", boxShadow: "inset -1px 0 0 #64748B", overflow: "hidden" as const, textOverflow: "ellipsis" as const, boxSizing: "border-box" as const },
+  stickyCol:   { position: "sticky" as const, zIndex: 2, borderRight: "1px solid #64748B", boxShadow: "inset -1px 0 0 #64748B, inset 0 -1px 0 #334155", overflow: "hidden" as const, textOverflow: "ellipsis" as const, boxSizing: "border-box" as const },
   loadingState:{ textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   emptyState:  { textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   modalOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
