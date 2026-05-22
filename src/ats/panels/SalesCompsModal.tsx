@@ -606,6 +606,46 @@ export const SalesCompsModal: React.FC<Props> = ({
     return out;
   }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle]);
 
+  // Parallel diagnostic — same filter chain as soRows, but counts how
+  // many open SOs make it past each step. Surfaced above the SO table
+  // so the operator can see where their rows are being dropped. A
+  // common silent-fail is the modal inheriting the grid's store /
+  // style / category filters from defaultStoreFilter / defaultStyles
+  // — the diagnostic makes that obvious instead of leaving the user
+  // staring at an empty table wondering why.
+  const soDiag = useMemo(() => {
+    if (!excelData) return null;
+    const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
+    let total = 0, afterDate = 0, afterStore = 0, afterCustomer = 0, afterScope = 0;
+    for (const s of excelData.sos) {
+      total++;
+      const fd = s.cancelDate || s.date;
+      if (!fd || fd < start || fd > end) continue;
+      afterDate++;
+      if (!want(selStores, s.store)) continue;
+      afterStore++;
+      if (customer.length > 0 && !customer.includes(s.customerName)) continue;
+      afterCustomer++;
+      const ids = resolveItemMasterIds(s.sku);
+      let style: string | null = null, cat: string | null = null, subCat: string | null = null, gender: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (!rec) continue;
+        style = style ?? rec.style_code ?? null;
+        cat = cat ?? rec.attributes?.group_name ?? null;
+        subCat = subCat ?? rec.attributes?.category_name ?? null;
+        gender = gender ?? rec.attributes?.gender ?? null;
+        if (style && cat && subCat && gender) break;
+      }
+      if (!want(selCategories, cat))       continue;
+      if (!want(selSubCategories, subCat)) continue;
+      if (!want(selStyles, style))         continue;
+      if (!want(selGenders, gender))       continue;
+      afterScope++;
+    }
+    return { total, afterDate, afterStore, afterCustomer, afterScope };
+  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end]);
+
   // Per-customer rows for the Summary view. Sorted by TY revenue
   // descending so the biggest customers appear first. Dropped rows
   // where neither TY nor LY had any sales — they'd be noise.
@@ -943,6 +983,19 @@ export const SalesCompsModal: React.FC<Props> = ({
                     <div style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                       SO — open SOs (cancel in window) vs LY ship $ (same style, all colors)
                     </div>
+                    {soDiag && (
+                      <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4, padding: "6px 10px", background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+                        <strong style={{ color: C.text }}>Filter breakdown:</strong>{" "}
+                        {soDiag.total} SOs total
+                        {" → "}{soDiag.afterDate} in {start}…{end}
+                        {" → "}{soDiag.afterStore} after store{selStores.length > 0 ? ` (${selStores.join("/")})` : ""}
+                        {" → "}{soDiag.afterCustomer} after customer{customer.length > 0 ? ` (${customer.length === 1 ? customer[0] : `${customer.length} selected`})` : ""}
+                        {" → "}<strong style={{ color: soDiag.afterScope > 0 ? C.green : C.red }}>{soDiag.afterScope} final</strong>
+                        {(selCategories.length + selSubCategories.length + selStyles.length + selGenders.length) > 0 && (
+                          <span style={{ color: C.textDim }}> (after cat/sub-cat/style/gender)</span>
+                        )}
+                      </div>
+                    )}
                     <SoCompsTable rows={soRows} showSoMeta={showSoMeta} dimensionLabel={soDimLabel} />
                   </div>
                 );
