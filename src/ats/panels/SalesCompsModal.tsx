@@ -327,6 +327,60 @@ export const SalesCompsModal: React.FC<Props> = ({
     return [...set].sort();
   }, [excelData]);
 
+  // Per-customer + per-SKU aggregation of OPEN SOs in the picked
+  // window. Sourced from excelData.sos with the same scope filter
+  // chain as soRows. Folded into the per-customer + per-SKU summary
+  // tables below so that a forward-looking window (where TY shipped
+  // is empty by definition — those days haven't happened yet) still
+  // shows meaningful TY numbers from open commitments. For mostly-
+  // past windows the SOs all have cancel dates ≥ today so they
+  // contribute 0 to the window and this is a no-op.
+  //
+  // No margin contribution: ATSSoEvent doesn't carry a cost field,
+  // so TY margin stays sourced from shipped-only data. Margin% on
+  // the per-customer row will be empty for forward windows.
+  const openSoAggregates = useMemo(() => {
+    const byCustomer = new Map<string, { qty: number; rev: number }>();
+    const bySkuCode = new Map<string, { qty: number; rev: number }>();
+    if (!excelData) return { byCustomer, bySkuCode };
+    const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
+    for (const s of excelData.sos) {
+      const filterDate = s.cancelDate || s.date;
+      if (!filterDate || filterDate < start || filterDate > end) continue;
+      if (!want(selStores, s.store)) continue;
+      if (customer.length > 0 && !customer.includes(s.customerName)) continue;
+      const ids = resolveItemMasterIds(s.sku);
+      let style: string | null = null, cat: string | null = null, subCat: string | null = null, gender: string | null = null;
+      let skuCode: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (!rec) continue;
+        if (!skuCode) skuCode = rec.sku_code ?? null;
+        style = style ?? rec.style_code ?? null;
+        cat = cat ?? rec.attributes?.group_name ?? null;
+        subCat = subCat ?? rec.attributes?.category_name ?? null;
+        gender = gender ?? rec.attributes?.gender ?? null;
+        if (skuCode && style && cat && subCat && gender) break;
+      }
+      if (!want(selCategories, cat))       continue;
+      if (!want(selSubCategories, subCat)) continue;
+      if (!want(selStyles, style))         continue;
+      if (!want(selGenders, gender))       continue;
+
+      const custKey = s.customerName || "(no customer)";
+      const cc = byCustomer.get(custKey) ?? { qty: 0, rev: 0 };
+      cc.qty += s.qty; cc.rev += s.totalPrice;
+      byCustomer.set(custKey, cc);
+
+      if (skuCode) {
+        const ss = bySkuCode.get(skuCode) ?? { qty: 0, rev: 0 };
+        ss.qty += s.qty; ss.rev += s.totalPrice;
+        bySkuCode.set(skuCode, ss);
+      }
+    }
+    return { byCustomer, bySkuCode };
+  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end]);
+
   // Per-SKU aggregate, rolled up by sku_code (BASE-COLOR). Cross-grid
   // sku_ids are resolved via the item-master cache so the table shows
   // a real "RBB1438N-BLACK" instead of "[cross-grid] xxxxxxxx".
@@ -351,10 +405,18 @@ export const SalesCompsModal: React.FC<Props> = ({
       r.tyQty += e.t3Qty; r.tyRev += e.t3Total; r.tyMrgn += e.t3Margin;
       r.lyQty += e.lyQty; r.lyRev += e.lyTotal; r.lyMrgn += e.lyMargin;
     }
+    // Fold in open-SO contributions so a forward-looking window still
+    // shows non-zero TY in the per-SKU / Style / Category breakdowns.
+    for (const [skuCode, agg] of openSoAggregates.bySkuCode) {
+      const r = ensure(skuCode);
+      r.tyQty += agg.qty;
+      r.tyRev += agg.rev;
+      // No margin contribution from open SOs (cost not on the event).
+    }
     return [...map.values()]
       .filter(r => r.tyRev > 0 || r.lyRev > 0)
       .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
-  }, [result]);
+  }, [result, openSoAggregates]);
 
   // Totals across the rolled-up rows — basis for the summary table.
   const totals = useMemo(() => {
@@ -649,20 +711,42 @@ export const SalesCompsModal: React.FC<Props> = ({
   // Per-customer rows for the Summary view. Sorted by TY revenue
   // descending so the biggest customers appear first. Dropped rows
   // where neither TY nor LY had any sales — they'd be noise.
+  //
+  // TY here = shipped sales + open SO commits in the window. For a
+  // past window the open-SO contribution is 0 (all current SOs have
+  // cancel dates ≥ today). For a forward window the shipped
+  // contribution is 0 — so the merge surfaces meaningful TY numbers
+  // either way. Customers that exist only on the open-SO side (no
+  // historical LY) still appear via the second loop below.
   const customerRows = useMemo(() => {
-    if (!result?.byCustomer) return [];
     type CRow = { customer: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number };
-    const out: CRow[] = [];
-    for (const entry of result.byCustomer.values()) {
-      if (entry.t3.totalPrice <= 0 && entry.ly.totalPrice <= 0) continue;
-      out.push({
-        customer: entry.customerName,
-        tyQty: entry.t3.qty, tyRev: entry.t3.totalPrice, tyMrgn: entry.t3.marginAmount,
-        lyQty: entry.ly.qty, lyRev: entry.ly.totalPrice, lyMrgn: entry.ly.marginAmount,
-      });
+    const byName = new Map<string, CRow>();
+    const ensure = (name: string): CRow => {
+      const cur = byName.get(name);
+      if (cur) return cur;
+      const fresh: CRow = { customer: name, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
+      byName.set(name, fresh);
+      return fresh;
+    };
+    if (result?.byCustomer) {
+      for (const entry of result.byCustomer.values()) {
+        const row = ensure(entry.customerName);
+        row.tyQty += entry.t3.qty; row.tyRev += entry.t3.totalPrice; row.tyMrgn += entry.t3.marginAmount;
+        row.lyQty += entry.ly.qty; row.lyRev += entry.ly.totalPrice; row.lyMrgn += entry.ly.marginAmount;
+      }
     }
-    return out.sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
-  }, [result]);
+    // Merge open SO totals into TY. Includes customers that don't
+    // appear in result.byCustomer at all (e.g. brand-new wholesale
+    // accounts with no LY history).
+    for (const [name, agg] of openSoAggregates.byCustomer) {
+      const row = ensure(name);
+      row.tyQty += agg.qty;
+      row.tyRev += agg.rev;
+    }
+    return [...byName.values()]
+      .filter(r => r.tyRev > 0 || r.lyRev > 0)
+      .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
+  }, [result, openSoAggregates]);
 
   if (!open) return null;
 
