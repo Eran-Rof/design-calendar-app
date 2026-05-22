@@ -42,10 +42,12 @@ export function periodAvail(
 export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
   // 2026-05-21: Xoro now reports PPK SKUs in eaches (not packs). The
   // historical pack→unit multiplication is no longer needed — the
-  // source value IS the eaches count. Function kept for snapshot/
-  // recovery-path callers but is now a no-op other than pinning
-  // ppkMult=1 so downstream display logic treats the row as plain.
-  return { ...row, ppkMult: 1 };
+  // source value IS the eaches count. We still pin ppkMult to the
+  // master's pack_size so the grid can render the prepack chip + the
+  // EXPLODE PPK toggle (which divides qty by ppkMult to show packs).
+  const masterHit = resolveStyle(row.sku, null);
+  const mult = masterHit.pack_size;
+  return { ...row, ppkMult: mult };
 }
 
 export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
@@ -146,6 +148,11 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     // confirmed eaches.
     const mult = masterHit.pack_size;
     const avgCost = s.avgCost != null && mult > 1 ? s.avgCost / mult : s.avgCost;
-    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand, onPO, onOrder, dates: dateMap, freeMap, avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount, ppkMult: 1 };
+    // ppkMult carries the pack_size so the grid can keep rendering the
+    // "PPK24 × N" hint + the EXPLODE PPK toggle. qty fields above are
+    // already in eaches grain (2026-05-21 — no longer multiplied),
+    // matching the grid's expectation that qty is unit-grain and
+    // pack count = qty / ppkMult.
+    return { sku: s.sku, description: s.description, category: s.category, gender: s.gender, store: s.store, onHand: s.onHand, onPO, onOrder, dates: dateMap, freeMap, avgCost, lastReceiptDate: s.lastReceiptDate, totalAmount: s.totalAmount, ppkMult: mult };
   });
 }
