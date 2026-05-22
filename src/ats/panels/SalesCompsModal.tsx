@@ -173,8 +173,31 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.map(fmt).join(", ") : `${value.length} selected`;
   const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
 
+  // Mouse-leave close: a short grace period gives the operator room
+  // to dart between the button and the popover (the ~4px gap between
+  // them briefly leaves the wrap on the way through). 180ms is the
+  // sweet spot — long enough to feel forgiving, short enough that
+  // the dropdown still feels responsive when you walk away from it.
+  const leaveTimerRef = useRef<number | null>(null);
+  const cancelLeave = () => {
+    if (leaveTimerRef.current != null) {
+      window.clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelLeave();
+    leaveTimerRef.current = window.setTimeout(() => setOpen(false), 180);
+  };
+  useEffect(() => () => cancelLeave(), []);
+
   return (
-    <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }}>
+    <div
+      ref={wrapRef}
+      style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }}
+      onMouseLeave={open ? scheduleClose : undefined}
+      onMouseEnter={cancelLeave}
+    >
       <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
       {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
       <button ref={buttonRef} type="button" onClick={() => setOpen(o => !o)} style={{ ...inputStyle, textAlign: "left", cursor: "pointer" }}>
