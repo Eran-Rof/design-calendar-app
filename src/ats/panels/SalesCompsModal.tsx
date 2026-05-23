@@ -1061,11 +1061,23 @@ export const SalesCompsModal: React.FC<Props> = ({
 
         {result && (
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
+            {/* Section header — Totals block. 14pt bold, primary text
+                color. 16px top margin breathes from the modal header
+                above. */}
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>Totals</div>
             <SummaryBlock totals={totals} customerFacing={customerFacing} />
 
             <div style={{ fontSize: 11, color: C.textDim }}>
               Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
             </div>
+
+            {/* Section header — TY vs LY sales. Rendered ONCE before
+                the first non-SO dimension table (the individual table
+                headers below already say which dimension). Skipped when
+                no non-SO dim is selected. */}
+            {viewBy.some(d => d !== "so") && (
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>TY vs LY sales</div>
+            )}
 
             {/* Render one CompsTable per selected View By dimension.
                 The grouping logic for each dimension lives in
@@ -1087,9 +1099,11 @@ export const SalesCompsModal: React.FC<Props> = ({
                   "SO";
                 return (
                   <div key={dim} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ fontSize: 11, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      SO — open SOs (cancel in window) vs LY ship $ (same style, all colors)
-                    </div>
+                    {/* Section header — TY vs LY SOs. 14pt bold,
+                        primary text color. Replaces the prior 11pt
+                        uppercase mini-header. Diagnostics box + table
+                        remain unchanged. */}
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>TY vs LY SOs</div>
                     {soDiag && (
                       <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4, padding: "6px 10px", background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 6 }}>
                         <strong style={{ color: C.text }}>Filter breakdown:</strong>{" "}
