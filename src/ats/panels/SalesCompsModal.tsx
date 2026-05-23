@@ -242,7 +242,9 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
 }
 
 interface Props {
-  open: boolean;
+  // Parent is responsible for conditional-mounting this modal. Mount =
+  // open, unmount = closed. That way every open is a fresh React mount
+  // and the operator never sees stale results from a prior run.
   onClose: () => void;
   // Pre-selected scope from the grid's current filter state. Operator
   // can override any field via the dropdowns below.
@@ -296,7 +298,7 @@ type SoRow = {
 };
 
 export const SalesCompsModal: React.FC<Props> = ({
-  open, onClose,
+  onClose,
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
   allCategories, allSubCategories, allStyles, allStores,
   rows, excelData,
@@ -770,8 +772,6 @@ export const SalesCompsModal: React.FC<Props> = ({
       .filter(r => r.tyRev > 0 || r.lyRev > 0)
       .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
   }, [result, openSoAggregates]);
-
-  if (!open) return null;
 
   const run = async () => {
     setRangeWarn(false);

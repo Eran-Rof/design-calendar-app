@@ -1392,21 +1392,22 @@ export const NavBar: React.FC<NavBarProps> = ({
       onCloseAll={() => { setPreviewPayload(null); }}
     />
 
-    <SalesCompsModal
-      open={salesCompsOpen}
-      onClose={() => setSalesCompsOpen(false)}
-      defaultCustomer={customerFilter}
-      defaultCategories={exportFilterOpts.filterCategory}
-      defaultSubCategories={exportFilterOpts.filterSubCategory}
-      defaultStyles={exportFilterOpts.filterStyle}
-      defaultStoreFilter={exportFilterOpts.storeFilter}
-      allCategories={categories}
-      allSubCategories={subCategories}
-      allStyles={styles}
-      allStores={STORES}
-      rows={filtered}
-      excelData={excelData}
-    />
+    {salesCompsOpen && (
+      <SalesCompsModal
+        onClose={() => setSalesCompsOpen(false)}
+        defaultCustomer={customerFilter}
+        defaultCategories={exportFilterOpts.filterCategory}
+        defaultSubCategories={exportFilterOpts.filterSubCategory}
+        defaultStyles={exportFilterOpts.filterStyle}
+        defaultStoreFilter={exportFilterOpts.storeFilter}
+        allCategories={categories}
+        allSubCategories={subCategories}
+        allStyles={styles}
+        allStores={STORES}
+        rows={filtered}
+        excelData={excelData}
+      />
+    )}
     {exportLoading && (
       <div style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100,
