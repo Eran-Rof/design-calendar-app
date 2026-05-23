@@ -253,6 +253,14 @@ interface Props {
   defaultSubCategories: string[];
   defaultStyles: string[];
   defaultStoreFilter: string[];
+  // Gender filter — initial value for the Gender multi-select.
+  defaultGenders?: string[];
+  // Grid's current TY window. When provided, the Start / End date
+  // pickers initialize to these values so the modal opens on the same
+  // window the operator is looking at on the grid. Either undefined →
+  // fall back to YTD defaults.
+  defaultStart?: string;
+  defaultEnd?: string;
   // FULL option lists — sourced from the broader dataset (not just the
   // currently-filtered grid rows) so the operator can broaden the
   // selection beyond what's already on screen. Defaults above stay
@@ -300,6 +308,7 @@ type SoRow = {
 export const SalesCompsModal: React.FC<Props> = ({
   onClose,
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
+  defaultGenders, defaultStart, defaultEnd,
   allCategories, allSubCategories, allStyles, allStores,
   rows, excelData,
 }) => {
@@ -322,14 +331,14 @@ export const SalesCompsModal: React.FC<Props> = ({
     return [...s].sort();
   }, [rows]);
 
-  const [start, setStart] = useState(yearStartIso());
-  const [end,   setEnd]   = useState(todayIso());
+  const [start, setStart] = useState(defaultStart || yearStartIso());
+  const [end,   setEnd]   = useState(defaultEnd   || todayIso());
   const [customer, setCustomer]                 = useState<string[]>(defaultCustomer ? [defaultCustomer] : []);
   const [selCategories, setSelCategories]       = useState<string[]>(defaultCategories);
   const [selSubCategories, setSelSubCategories] = useState<string[]>(defaultSubCategories);
   const [selStyles, setSelStyles]               = useState<string[]>(defaultStyles);
   const [selStores, setSelStores]               = useState<string[]>(defaultStoreFilter);
-  const [selGenders, setSelGenders]             = useState<string[]>([]);
+  const [selGenders, setSelGenders]             = useState<string[]>(defaultGenders ?? []);
   // Multi-select for the results layout. Each selected dimension gets
   // its own CompsTable. Default is Customer (matches the old Summary
   // mode); operators can add Style/Category/etc. to stack additional
