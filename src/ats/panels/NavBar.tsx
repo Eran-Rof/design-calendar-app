@@ -522,6 +522,13 @@ interface NavBarProps {
   // past the totals row to find it on the toolbar.
   filteredCount: number;
   lastSync: string;
+  // Grid's current TY window (start = grid `startDate`, end = last day
+  // shown by the grid). Forwarded to Sales Comps so the modal opens
+  // pre-populated with the same window the operator is looking at on
+  // the grid. Either may be undefined if the grid has no dates yet —
+  // SalesCompsModal falls back to YTD in that case.
+  gridStart?: string;
+  gridEnd?: string;
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -534,6 +541,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   excelData, setExcelData,
   aiBuildContext, aiSetters,
   filteredCount, lastSync,
+  gridStart, gridEnd,
 }) => {
   const [aiOpen, setAiOpen] = useState(false);
   // PR 4/4: draft input pushed in from outside (e.g. right-click on a
@@ -1452,21 +1460,25 @@ export const NavBar: React.FC<NavBarProps> = ({
       onCloseAll={() => { setPreviewPayload(null); }}
     />
 
-    <SalesCompsModal
-      open={salesCompsOpen}
-      onClose={() => setSalesCompsOpen(false)}
-      defaultCustomer={customerFilter}
-      defaultCategories={exportFilterOpts.filterCategory}
-      defaultSubCategories={exportFilterOpts.filterSubCategory}
-      defaultStyles={exportFilterOpts.filterStyle}
-      defaultStoreFilter={exportFilterOpts.storeFilter}
-      allCategories={categories}
-      allSubCategories={subCategories}
-      allStyles={styles}
-      allStores={STORES}
-      rows={filtered}
-      excelData={excelData}
-    />
+    {salesCompsOpen && (
+      <SalesCompsModal
+        onClose={() => setSalesCompsOpen(false)}
+        defaultCustomer={customerFilter}
+        defaultCategories={exportFilterOpts.filterCategory}
+        defaultSubCategories={exportFilterOpts.filterSubCategory}
+        defaultStyles={exportFilterOpts.filterStyle}
+        defaultStoreFilter={exportFilterOpts.storeFilter}
+        defaultGenders={exportFilterOpts.filterGender}
+        defaultStart={gridStart}
+        defaultEnd={gridEnd}
+        allCategories={categories}
+        allSubCategories={subCategories}
+        allStyles={styles}
+        allStores={STORES}
+        rows={filtered}
+        excelData={excelData}
+      />
+    )}
     {exportLoading && (
       <div style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100,
