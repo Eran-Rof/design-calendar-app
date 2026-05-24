@@ -22,6 +22,7 @@ import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
+import { estimateSoMargin } from "../salesCompsSoMargin";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -370,13 +371,18 @@ export const SalesCompsModal: React.FC<Props> = ({
   // past windows the SOs all have cancel dates ≥ today so they
   // contribute 0 to the window and this is a no-op.
   //
-  // No margin contribution: ATSSoEvent doesn't carry a cost field,
-  // so TY margin stays sourced from shipped-only data. Margin% on
-  // the per-customer row will be empty for forward windows.
+  // Margin contribution: ATSSoEvent doesn't carry a cost field, so
+  // estimateSoMargin pulls per-each cost from the item-master cache
+  // (master.unit_cost / pack_size, with PPK-token routing matching
+  // sales-grain.js). When cost can't be resolved the row's margin
+  // contribution is 0 — the qty / revenue still merge, and
+  // coverage.withoutCost is bumped so the caveat line below the
+  // totals can surface "M had no resolvable cost".
   const openSoAggregates = useMemo(() => {
-    const byCustomer = new Map<string, { qty: number; rev: number }>();
-    const bySkuCode = new Map<string, { qty: number; rev: number }>();
-    if (!excelData) return { byCustomer, bySkuCode };
+    const byCustomer = new Map<string, { qty: number; rev: number; mrgn: number }>();
+    const bySkuCode = new Map<string, { qty: number; rev: number; mrgn: number }>();
+    const coverage = { contributing: 0, costResolved: 0, costMissing: 0 };
+    if (!excelData) return { byCustomer, bySkuCode, coverage };
     const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
     for (const s of excelData.sos) {
       const filterDate = s.cancelDate || s.date;
@@ -401,18 +407,27 @@ export const SalesCompsModal: React.FC<Props> = ({
       if (!want(selStyles, style))         continue;
       if (!want(selGenders, gender))       continue;
 
+      // Estimate per-row margin from master cost. costResolved feeds
+      // the caveat-line counter; the margin gets folded into the
+      // customer + sku rollups so downstream TY MRGN% is meaningful
+      // on forward windows.
+      const est = estimateSoMargin(s.sku, s.qty, s.totalPrice, resolveItemMasterIds, getItemMasterById);
+      coverage.contributing += 1;
+      if (est.costResolved) coverage.costResolved += 1;
+      else                  coverage.costMissing  += 1;
+
       const custKey = s.customerName || "(no customer)";
-      const cc = byCustomer.get(custKey) ?? { qty: 0, rev: 0 };
-      cc.qty += s.qty; cc.rev += s.totalPrice;
+      const cc = byCustomer.get(custKey) ?? { qty: 0, rev: 0, mrgn: 0 };
+      cc.qty += s.qty; cc.rev += s.totalPrice; cc.mrgn += est.margin;
       byCustomer.set(custKey, cc);
 
       if (skuCode) {
-        const ss = bySkuCode.get(skuCode) ?? { qty: 0, rev: 0 };
-        ss.qty += s.qty; ss.rev += s.totalPrice;
+        const ss = bySkuCode.get(skuCode) ?? { qty: 0, rev: 0, mrgn: 0 };
+        ss.qty += s.qty; ss.rev += s.totalPrice; ss.mrgn += est.margin;
         bySkuCode.set(skuCode, ss);
       }
     }
-    return { byCustomer, bySkuCode };
+    return { byCustomer, bySkuCode, coverage };
   }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end]);
 
   // Per-SKU aggregate, rolled up by sku_code (BASE-COLOR). Cross-grid
@@ -441,11 +456,14 @@ export const SalesCompsModal: React.FC<Props> = ({
     }
     // Fold in open-SO contributions so a forward-looking window still
     // shows non-zero TY in the per-SKU / Style / Category breakdowns.
+    // Margin is the estimated value from estimateSoMargin (cost from
+    // item-master) — caveat surfaced below the totals when coverage
+    // is partial.
     for (const [skuCode, agg] of openSoAggregates.bySkuCode) {
       const r = ensure(skuCode);
       r.tyQty += agg.qty;
       r.tyRev += agg.rev;
-      // No margin contribution from open SOs (cost not on the event).
+      r.tyMrgn += agg.mrgn;
     }
     return [...map.values()]
       .filter(r => r.tyRev > 0 || r.lyRev > 0)
@@ -518,7 +536,7 @@ export const SalesCompsModal: React.FC<Props> = ({
     // Resolve each open SO's master_style + master_category + master_sub_category
     // up front so we can apply scope filters without doing the lookup
     // multiple times per SO.
-    const enriched: Array<{ s: ATSSoEvent; style: string | null; category: string | null; subCategory: string | null; gender: string | null; cancelDate: string }> = [];
+    const enriched: Array<{ s: ATSSoEvent; style: string | null; category: string | null; subCategory: string | null; gender: string | null; cancelDate: string; tyMrgn: number }> = [];
     for (const s of excelData.sos) {
       // The SO view filters on cancel_date per the operator spec
       // ("comp open SOs against ship dollars for the same selection
@@ -549,7 +567,8 @@ export const SalesCompsModal: React.FC<Props> = ({
       if (!want(selSubCategories, subCat)) continue;
       if (!want(selStyles, style))         continue;
       if (!want(selGenders, gender))       continue;
-      enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: filterDate });
+      const tyMrgn = estimateSoMargin(s.sku, s.qty, s.totalPrice, resolveItemMasterIds, getItemMasterById).margin;
+      enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: filterDate, tyMrgn });
     }
 
     const groupBy: "style" | "customer" | "category" | "sub_category" | "so" =
@@ -575,6 +594,7 @@ export const SalesCompsModal: React.FC<Props> = ({
         if (existing) {
           existing.tyQty += e.s.qty;
           existing.tyRev += e.s.totalPrice;
+          existing.tyMrgn += e.tyMrgn;
           continue;
         }
         const lyEntry = lyRevByStyle.get(styleKey) ?? { qty: 0, rev: 0, mrgn: 0 };
@@ -588,7 +608,9 @@ export const SalesCompsModal: React.FC<Props> = ({
           cancelDate: e.cancelDate,
           tyQty: e.s.qty,
           tyRev: e.s.totalPrice,
-          tyMrgn: 0, // open SOs don't carry per-row cost here
+          // Estimated from item-master cost — see estimateSoMargin.
+          // Caveat surfaced below the totals when coverage is partial.
+          tyMrgn: e.tyMrgn,
           lyQty: lyEntry.qty,
           lyRev: lyEntry.rev,
           lyMrgn: lyEntry.mrgn,
@@ -617,7 +639,9 @@ export const SalesCompsModal: React.FC<Props> = ({
             label: `Subtotal — ${style}`,
             tyQty: rows.reduce((s, r) => s + r.tyQty, 0),
             tyRev: rows.reduce((s, r) => s + r.tyRev, 0),
-            tyMrgn: 0,
+            // Sum the estimated per-row margins — each row is its own
+            // SO, so margins are additive (no double-count).
+            tyMrgn: rows.reduce((s, r) => s + r.tyMrgn, 0),
             lyQty: rows[0].lyQty,    // same style → same LY (no double-count)
             lyRev: rows[0].lyRev,
             lyMrgn: rows[0].lyMrgn,
@@ -629,23 +653,25 @@ export const SalesCompsModal: React.FC<Props> = ({
       // on the same SO collapse — sum qty / totalPrice across them.
       // LY uses the SET of styles touched by the SO so the comp
       // covers every style on that order.
-      const perOrder = new Map<string, { e: typeof enriched[number]; tyQty: number; tyRev: number; styles: Set<string> }>();
+      const perOrder = new Map<string, { e: typeof enriched[number]; tyQty: number; tyRev: number; tyMrgn: number; styles: Set<string> }>();
       for (const e of enriched) {
         const cur = perOrder.get(e.s.orderNumber);
         if (cur) {
           cur.tyQty += e.s.qty;
           cur.tyRev += e.s.totalPrice;
+          cur.tyMrgn += e.tyMrgn;
           if (e.style) cur.styles.add(e.style);
         } else {
           perOrder.set(e.s.orderNumber, {
             e,
             tyQty: e.s.qty,
             tyRev: e.s.totalPrice,
+            tyMrgn: e.tyMrgn,
             styles: e.style ? new Set([e.style]) : new Set(),
           });
         }
       }
-      for (const { e, tyQty, tyRev, styles } of perOrder.values()) {
+      for (const { e, tyQty, tyRev, tyMrgn, styles } of perOrder.values()) {
         let lyQty = 0, lyRev = 0, lyMrgn = 0;
         for (const st of styles) {
           const ent = lyRevByStyle.get(st);
@@ -660,7 +686,8 @@ export const SalesCompsModal: React.FC<Props> = ({
           orderNumber: e.s.orderNumber,
           customer: e.s.customerName,
           cancelDate: e.cancelDate,
-          tyQty, tyRev, tyMrgn: 0,
+          // Estimated margin from item-master cost — see estimateSoMargin.
+          tyQty, tyRev, tyMrgn,
           lyQty, lyRev, lyMrgn,
         });
       }
@@ -672,12 +699,13 @@ export const SalesCompsModal: React.FC<Props> = ({
         if (groupBy === "category") return e.category || "(no category)";
         return e.subCategory || "(no sub-category)";
       };
-      const agg = new Map<string, { tyQty: number; tyRev: number; styles: Set<string> }>();
+      const agg = new Map<string, { tyQty: number; tyRev: number; tyMrgn: number; styles: Set<string> }>();
       for (const e of enriched) {
         const k = dimGet(e);
-        const cur = agg.get(k) ?? { tyQty: 0, tyRev: 0, styles: new Set<string>() };
+        const cur = agg.get(k) ?? { tyQty: 0, tyRev: 0, tyMrgn: 0, styles: new Set<string>() };
         cur.tyQty += e.s.qty;
         cur.tyRev += e.s.totalPrice;
+        cur.tyMrgn += e.tyMrgn;
         if (e.style) cur.styles.add(e.style);
         agg.set(k, cur);
       }
@@ -693,7 +721,8 @@ export const SalesCompsModal: React.FC<Props> = ({
         }
         out.push({
           kind: "row", key: label, label,
-          tyQty: v.tyQty, tyRev: v.tyRev, tyMrgn: 0,
+          // Estimated margin from item-master cost — see estimateSoMargin.
+          tyQty: v.tyQty, tyRev: v.tyRev, tyMrgn: v.tyMrgn,
           lyQty, lyRev, lyMrgn,
         });
       }
@@ -771,11 +800,13 @@ export const SalesCompsModal: React.FC<Props> = ({
     }
     // Merge open SO totals into TY. Includes customers that don't
     // appear in result.byCustomer at all (e.g. brand-new wholesale
-    // accounts with no LY history).
+    // accounts with no LY history). Margin is the estimated value
+    // from the openSoAggregates helper.
     for (const [name, agg] of openSoAggregates.byCustomer) {
       const row = ensure(name);
       row.tyQty += agg.qty;
       row.tyRev += agg.rev;
+      row.tyMrgn += agg.mrgn;
     }
     return [...byName.values()]
       .filter(r => r.tyRev > 0 || r.lyRev > 0)
@@ -1075,6 +1106,18 @@ export const SalesCompsModal: React.FC<Props> = ({
                 above. */}
             <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>Totals</div>
             <SummaryBlock totals={totals} customerFacing={customerFacing} />
+
+            {/* Open-SO margin-coverage caveat. Surfaced when any open
+                SOs contributed to TY so the operator knows the TY
+                MRGN% includes an estimate. Hidden when no open SOs
+                landed in the window (past windows where SOs all have
+                cancel dates ≥ today). Also hidden in customer-facing
+                mode — the margin columns are already suppressed there. */}
+            {!customerFacing && openSoAggregates.coverage.contributing > 0 && (
+              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>
+                TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from item master; {openSoAggregates.coverage.costMissing} had no resolvable cost).
+              </div>
+            )}
 
             <div style={{ fontSize: 11, color: C.textDim }}>
               Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
