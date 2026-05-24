@@ -6,6 +6,7 @@ import PlanningShell from "./inventory-planning/shared/components/PlanningShell"
 import { appConfig } from "./config/env";
 import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/planningAccess";
 import { installInternalApiAuth } from "./utils/internalApiAuth";
+import { installIdleLogout } from "./utils/installIdleLogout";
 
 // Inject Authorization: Bearer header on every /api/internal/* fetch
 // from the browser. Reads VITE_INTERNAL_API_TOKEN at build time.
@@ -14,6 +15,13 @@ installInternalApiAuth();
 
 // Simple path-based routing — no router library needed
 const path = window.location.pathname;
+
+// 1-hour idle auto-logout for every internal sub-app. Skips:
+//   /vendor  — Supabase Auth, separate session lifecycle.
+//   /design  — App.tsx mounts its own useIdleLogout with a 5-min warning banner.
+if (!path.startsWith("/vendor") && !path.startsWith("/design")) {
+  installIdleLogout();
+}
 
 // ── Planning access gate ───────────────────────────────────────────────────────
 // Evaluated once at mount. Beta-only mode reads the PLM session from
