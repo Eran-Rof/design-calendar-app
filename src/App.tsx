@@ -277,12 +277,12 @@ function App() {
     return () => window.removeEventListener("closeEmailView", handler);
   }, []);
 
-  // ── AUTO LOGOUT after 90 minutes of inactivity ──────────────────────────
+  // ── AUTO LOGOUT after 60 minutes of inactivity ──────────────────────────
   const idleWarning = s.idleWarning;
   const setIdleWarning = (v: boolean) => useAppStore.getState().setField("idleWarning", v);
   useIdleLogout({
     enabled: !!currentUser,
-    idleMs: 90 * 60 * 1000,
+    idleMs: 60 * 60 * 1000,
     onWarning: setIdleWarning,
     onLogout: () => {
       sessionStorage.removeItem("plm_user");
