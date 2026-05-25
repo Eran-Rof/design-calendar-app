@@ -253,6 +253,8 @@ import h247 from "./xoro-ap-sync.js";
 import h248 from "./parse-excel.js";
 import h249 from "./xoro-proxy.js";
 import h250 from "./sales/backfill-grain.js";
+import h251 from "./internal/style-master/index.js";
+import h252 from "./internal/style-master/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -461,6 +463,8 @@ export const ROUTES = [
   { pattern: "/api/cron/fx-rate-sync", handler: h203 },
   { pattern: "/api/internal/disputes", handler: h204 },
   { pattern: "/api/internal/entities", handler: h205 },
+  { pattern: "/api/internal/style-master/:id", handler: h252 },
+  { pattern: "/api/internal/style-master", handler: h251 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
