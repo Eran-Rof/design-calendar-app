@@ -104,7 +104,7 @@ const VIEW_BY_LABELS: Record<ViewByKey, string> = {
   category:     "Category",
   sub_category: "Sub-Category",
   style:        "Style",
-  sku:          "SKU",
+  sku:          "Style/Color",
   so:           "SO (open vs LY ship)",
 };
 const VIEW_BY_OPTIONS: ViewByKey[] = ["customer", "category", "sub_category", "style", "sku", "so"];
@@ -1099,7 +1099,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               first-class label rather than a dim caption. */}
           {result && (
             <div style={{ fontSize: 14, fontWeight: 500, color: C.text, lineHeight: 1.35 }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
+              Window: {start} → {end} (TY) · {tableRows.length} Style/Colors · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""} · Explode PPK: {explodePpk ? "ON" : "OFF"}
             </div>
           )}
         </div>
