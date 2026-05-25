@@ -255,6 +255,8 @@ import h249 from "./xoro-proxy.js";
 import h250 from "./sales/backfill-grain.js";
 import h251 from "./internal/style-master/index.js";
 import h252 from "./internal/style-master/[id].js";
+import h253 from "./internal/vendor-master/index.js";
+import h254 from "./internal/vendor-master/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -465,6 +467,8 @@ export const ROUTES = [
   { pattern: "/api/internal/entities", handler: h205 },
   { pattern: "/api/internal/style-master/:id", handler: h252 },
   { pattern: "/api/internal/style-master", handler: h251 },
+  { pattern: "/api/internal/vendor-master/:id", handler: h254 },
+  { pattern: "/api/internal/vendor-master", handler: h253 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
