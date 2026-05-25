@@ -23,6 +23,14 @@ import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
 import { estimateSoMargin, type SoCostInputs } from "../salesCompsSoMargin";
+import {
+  aggregateExplodeAware,
+  totalsForDimRows,
+  type DimKind,
+  type DimRow,
+  type DimTotals,
+  type RawSkuAgg,
+} from "../salesCompsAggregate";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -104,7 +112,7 @@ const VIEW_BY_LABELS: Record<ViewByKey, string> = {
   category:     "Category",
   sub_category: "Sub-Category",
   style:        "Style",
-  sku:          "SKU",
+  sku:          "Style/Color",
   so:           "SO (open vs LY ship)",
 };
 const VIEW_BY_OPTIONS: ViewByKey[] = ["customer", "category", "sub_category", "style", "sku", "so"];
@@ -272,13 +280,13 @@ interface Props {
   allStores: string[];
   rows: ATSRow[];
   excelData: ExcelData | null;
-}
-
-interface AggRow {
-  sku: string;
-  styleKey: string;       // BASE-COLOR — used to dedupe cross-grid hits
-  tyQty: number; tyRev: number; tyMrgn: number;
-  lyQty: number; lyRev: number; lyMrgn: number;
+  // Grid's current "Explode PPK" toggle. When true, Sales Comps
+  // multiplies PPK-grain qty by master.pack_size everywhere and
+  // collapses PPK + each siblings into one row per (style stem, color).
+  // When false, qty stays in master's native grain and dim rows split
+  // into one row per grain (with grain-labeled totals when mixed).
+  // See src/ats/salesCompsAggregate.ts for the full behavior contract.
+  explodePpk: boolean;
 }
 
 // One row in the SO view's table. Two shapes:
@@ -311,7 +319,7 @@ export const SalesCompsModal: React.FC<Props> = ({
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
   defaultGenders, defaultStart, defaultEnd,
   allCategories, allSubCategories, allStyles, allStores,
-  rows, excelData,
+  rows, excelData, explodePpk,
 }) => {
   // Option lists come from the FULL dataset (not the filtered rows) so
   // operators can broaden the report past the grid's current scope.
@@ -497,6 +505,12 @@ export const SalesCompsModal: React.FC<Props> = ({
       if (est.costResolved) coverage.costResolved += 1;
       else                  coverage.costMissing  += 1;
 
+      // Qty stays in master's native grain here — explodePpk
+      // multiplication is applied uniformly at the dim aggregation
+      // step (aggregateExplodeAware) so SKU/style/category dims share
+      // the same explode policy as the customer dim (and so we don't
+      // double-multiply when openSoAggregates feeds into the per-sku
+      // raw aggregate downstream).
       const custKey = s.customerName || "(no customer)";
       const cc = byCustomer.get(custKey) ?? { qty: 0, rev: 0, mrgn: 0 };
       cc.qty += s.qty; cc.rev += s.totalPrice; cc.mrgn += est.margin;
@@ -511,18 +525,22 @@ export const SalesCompsModal: React.FC<Props> = ({
     return { byCustomer, bySkuCode, coverage };
   }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, soCostInputs]);
 
-  // Per-SKU aggregate, rolled up by sku_code (BASE-COLOR). Cross-grid
-  // sku_ids are resolved via the item-master cache so the table shows
-  // a real "RBB1438N-BLACK" instead of "[cross-grid] xxxxxxxx".
+  // Raw per-SKU aggregate, keyed by sku_code (BASE-COLOR). qty stays
+  // in master's native grain (packs for PPK-grain SKUs, eaches for
+  // each-grain). Revenue and margin are always in dollars. This is the
+  // input to aggregateExplodeAware, which applies the explodePpk
+  // multiplication + sibling collapse (ON) or per-grain split (OFF)
+  // uniformly across every dimension downstream.
+  //
   // Entries we can't resolve to a real master record are dropped —
   // "only show styles" per the spec.
-  const tableRows = useMemo<AggRow[]>(() => {
+  const rawSkuAggs = useMemo<RawSkuAgg[]>(() => {
     if (!result) return [];
-    const map = new Map<string, AggRow>();
-    const ensure = (sku: string): AggRow => {
+    const map = new Map<string, RawSkuAgg>();
+    const ensure = (sku: string): RawSkuAgg => {
       const cur = map.get(sku);
       if (cur) return cur;
-      const fresh: AggRow = { sku, styleKey: sku, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
+      const fresh: RawSkuAgg = { sku, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
       map.set(sku, fresh);
       return fresh;
     };
@@ -546,23 +564,31 @@ export const SalesCompsModal: React.FC<Props> = ({
       r.tyRev += agg.rev;
       r.tyMrgn += agg.mrgn;
     }
-    return [...map.values()]
-      .filter(r => r.tyRev > 0 || r.lyRev > 0)
-      .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
+    return [...map.values()].filter(r => r.tyRev > 0 || r.lyRev > 0);
   }, [result, openSoAggregates]);
 
-  // Totals across the rolled-up rows — basis for the summary table.
-  const totals = useMemo(() => {
-    let tyQty = 0, tyRev = 0, tyMrgn = 0, lyQty = 0, lyRev = 0, lyMrgn = 0;
-    for (const r of tableRows) {
-      tyQty += r.tyQty; tyRev += r.tyRev; tyMrgn += r.tyMrgn;
-      lyQty += r.lyQty; lyRev += r.lyRev; lyMrgn += r.lyMrgn;
-    }
-    return {
-      tyQty, tyRev, tyMrgn, tyCogs: tyRev - tyMrgn,
-      lyQty, lyRev, lyMrgn, lyCogs: lyRev - lyMrgn,
-    };
-  }, [tableRows]);
+  // SKU-dim view: explode-aware rows. In explode-ON mode, PPK + each
+  // siblings collapse to one row per (style stem, color) with qty in
+  // eaches. In explode-OFF mode, each row stays per-sku in its native
+  // grain with a "(PPK packs)" or "(each)" suffix appended to the label.
+  const tableRows = useMemo<DimRow[]>(() =>
+    aggregateExplodeAware({
+      raw: rawSkuAggs, dim: "sku", explodePpk,
+      resolveIds: resolveItemMasterIds, getMaster: getItemMasterById,
+    }),
+    [rawSkuAggs, explodePpk],
+  );
+
+  // Totals for the SummaryBlock. In explode-OFF mode with mixed grain,
+  // we surface two totals rows (PPK packs vs each) so packs + eaches
+  // never sum into a single misleading number. In explode-ON mode or
+  // single-grain explode-OFF mode, one combined totals row is correct.
+  const dimTotals = useMemo<DimTotals>(() => totalsForDimRows(tableRows), [tableRows]);
+  // Combined totals — used by all explode-ON code paths + as the
+  // single-row totals when only one grain is present in explode-OFF
+  // mode. Mirrors the old `totals` shape so downstream consumers
+  // (SummaryBlock, Excel export rows) don't have to change shape.
+  const totals = dimTotals.combined;
 
   // LY ship $ keyed by master_style — used by the SO view to fetch
   // "same style all colors" comparison numbers. result.ly is keyed by
@@ -953,23 +979,41 @@ export const SalesCompsModal: React.FC<Props> = ({
       selSubCategories.length > 0 && `sub-cats ${selSubCategories.join("/")}`,
       selStyles.length > 0 && `styles ${selStyles.join("/")}`,
     ].filter(Boolean).join(" · ") || "all";
+    // Banner reflects the grid's Explode PPK toggle state so operators
+    // reading the Excel after the fact know which grain the qty
+    // numbers are in.
+    const explodeBanner = explodePpk
+      ? "Explode PPK: ON (qty in eaches, PPK + each siblings collapsed)"
+      : "Explode PPK: OFF (qty in master native grain, PPK and each split)";
     const aoa: (string | number)[][] = [
       ["Sales Comps"],
       [`TY window: ${start} → ${end}`],
       [`LY window: ${isoMinusMonths(start, 12)} → ${isoMinusMonths(end, 12)}`],
       [`Scope: ${scope}${customerFacing ? "  (customer-facing — margin hidden)" : ""}`],
+      [explodeBanner],
       [],
       ["", "TY", "LY", "Δ"],
-      ["Units",   totals.tyQty,   totals.lyQty,   fmtGrowth(totals.tyQty,  totals.lyQty).text],
-      ["Revenue", totals.tyRev,   totals.lyRev,   fmtGrowth(totals.tyRev,  totals.lyRev).text],
     ];
-    if (!customerFacing) {
-      aoa.push(["COGS",    totals.tyCogs,  totals.lyCogs,  fmtGrowth(totals.tyCogs, totals.lyCogs).text]);
-      aoa.push(["Margin $", totals.tyMrgn, totals.lyMrgn,  fmtGrowth(totals.tyMrgn, totals.lyMrgn).text]);
-      aoa.push(["Margin %",
-        totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
-        totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
-        fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text]);
+    // Helper to push the 5-row totals stack (Units/Revenue/COGS/Margin
+    // $/Margin %) — used once for combined totals or twice (PPK then
+    // each) when mixed grain is present in explode-OFF mode.
+    const pushTotalsStack = (label: string, t: DimTotals["combined"]) => {
+      aoa.push([`Units — ${label}`,   t.tyQty,   t.lyQty,   fmtGrowth(t.tyQty,  t.lyQty).text]);
+      aoa.push([`Revenue — ${label}`, t.tyRev,   t.lyRev,   fmtGrowth(t.tyRev,  t.lyRev).text]);
+      if (!customerFacing) {
+        aoa.push([`COGS — ${label}`,     t.tyCogs,  t.lyCogs,  fmtGrowth(t.tyCogs, t.lyCogs).text]);
+        aoa.push([`Margin $ — ${label}`, t.tyMrgn,  t.lyMrgn,  fmtGrowth(t.tyMrgn, t.lyMrgn).text]);
+        aoa.push([`Margin % — ${label}`,
+          t.tyRev > 0 ? t.tyMrgn / t.tyRev : 0,
+          t.lyRev > 0 ? t.lyMrgn / t.lyRev : 0,
+          fmtMarginPoints(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev).text]);
+      }
+    };
+    if (dimTotals.hasMixed) {
+      pushTotalsStack("PPK packs", dimTotals.ppk);
+      pushTotalsStack("each", dimTotals.each);
+    } else {
+      pushTotalsStack("TOTAL", dimTotals.combined);
     }
     aoa.push([]);
     // One table per selected View By dimension. SO emits the same
@@ -1023,7 +1067,11 @@ export const SalesCompsModal: React.FC<Props> = ({
         aoa.push([]);
         continue;
       }
-      const dataRows = groupedRowsFor(dim, tableRows, customerRows);
+      const dataRows = groupedRowsFor(dim, rawSkuAggs, customerRows, explodePpk);
+      // Per-dim totals — used for the TOTAL row(s) at the bottom of
+      // each section. Same shape as the summary block: split when mixed
+      // grain is present in explode-OFF mode, single otherwise.
+      const dataTotals = totalsForDimRows(dataRows);
       aoa.push([`-- ${VIEW_BY_LABELS[dim]} --`]);
       const header: string[] = customerFacing
         ? [VIEW_BY_LABELS[dim], "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
@@ -1044,22 +1092,30 @@ export const SalesCompsModal: React.FC<Props> = ({
           ]);
         }
       }
-      // Per-view TOTAL row — sums always equal the grand totals across
-      // dimensions, but repeating the row inside each section keeps each
-      // table self-contained in the spreadsheet.
-      if (dataRows.length > 0) {
+      // Per-view TOTAL row(s) — when mixed grain in explode-OFF mode,
+      // emit TWO totals rows (PPK packs vs each) so packs + eaches
+      // never sum into a single misleading number. Otherwise one row.
+      const pushSectionTotalsRow = (label: string, t: DimTotals["combined"]) => {
         if (customerFacing) {
-          aoa.push(["TOTAL", totals.tyQty, totals.tyRev, totals.lyQty, totals.lyRev, fmtGrowth(totals.tyRev, totals.lyRev).text]);
+          aoa.push([label, t.tyQty, t.tyRev, t.lyQty, t.lyRev, fmtGrowth(t.tyRev, t.lyRev).text]);
         } else {
           aoa.push([
-            "TOTAL",
-            totals.tyQty, totals.tyRev, totals.tyCogs, totals.tyMrgn,
-            totals.tyRev > 0 ? totals.tyMrgn / totals.tyRev : 0,
-            totals.lyQty, totals.lyRev, totals.lyCogs, totals.lyMrgn,
-            totals.lyRev > 0 ? totals.lyMrgn / totals.lyRev : 0,
-            fmtGrowth(totals.tyRev, totals.lyRev).text,
-            fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev).text,
+            label,
+            t.tyQty, t.tyRev, t.tyCogs, t.tyMrgn,
+            t.tyRev > 0 ? t.tyMrgn / t.tyRev : 0,
+            t.lyQty, t.lyRev, t.lyCogs, t.lyMrgn,
+            t.lyRev > 0 ? t.lyMrgn / t.lyRev : 0,
+            fmtGrowth(t.tyRev, t.lyRev).text,
+            fmtMarginPoints(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev).text,
           ]);
+        }
+      };
+      if (dataRows.length > 0) {
+        if (dataTotals.hasMixed) {
+          pushSectionTotalsRow("TOTAL (PPK packs)", dataTotals.ppk);
+          pushSectionTotalsRow("TOTAL (each)", dataTotals.each);
+        } else {
+          pushSectionTotalsRow("TOTAL", dataTotals.combined);
         }
       }
       aoa.push([]);
@@ -1099,7 +1155,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               first-class label rather than a dim caption. */}
           {result && (
             <div style={{ fontSize: 14, fontWeight: 500, color: C.text, lineHeight: 1.35 }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
+              Window: {start} → {end} (TY) · {tableRows.length} Style/Colors · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""} · Explode PPK: {explodePpk ? "ON" : "OFF"}
             </div>
           )}
         </div>
@@ -1201,7 +1257,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                 color. 16px top margin breathes from the modal header
                 above. */}
             <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>Totals</div>
-            <SummaryBlock totals={totals} customerFacing={customerFacing} />
+            <SummaryBlock dimTotals={dimTotals} customerFacing={customerFacing} />
 
             {/* Open-SO margin-coverage caveat. Surfaced when any open
                 SOs contributed to TY so the operator knows the TY
@@ -1212,6 +1268,19 @@ export const SalesCompsModal: React.FC<Props> = ({
             {!customerFacing && openSoAggregates.coverage.contributing > 0 && (
               <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>
                 TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from snapshot avg + in-window POs; {openSoAggregates.coverage.costMissing} had no resolvable cost).
+              </div>
+            )}
+
+            {/* Grain caveat — when the grid's Explode PPK toggle is OFF
+                and the result contains a mix of PPK + each grain, qty
+                cells stay in their master's native grain (packs vs
+                eaches). The summary + per-dim totals split into two
+                rows so the operator can read each grain's total
+                separately without packs and eaches getting summed into
+                a single misleading number. */}
+            {!explodePpk && dimTotals.hasMixed && (
+              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>
+                Explode PPK is OFF — qty is reported in each master's native grain. PPK rows show pack qty; each rows show unit qty. Totals split per grain to avoid summing packs and eaches.
               </div>
             )}
 
@@ -1265,13 +1334,17 @@ export const SalesCompsModal: React.FC<Props> = ({
                   </div>
                 );
               }
-              const built = groupedRowsFor(dim, tableRows, customerRows);
+              const built = groupedRowsFor(dim, rawSkuAggs, customerRows, explodePpk);
+              // Per-dim totals — used to decide whether to render two
+              // grain-split totals rows (mixed grain in explode-OFF
+              // mode) or a single combined totals row.
+              const builtTotals = totalsForDimRows(built);
               return (
                 <CompsTable
                   key={dim}
                   colLabel={VIEW_BY_LABELS[dim]}
                   rows={built}
-                  totals={totals}
+                  totals={builtTotals}
                   customerFacing={customerFacing}
                 />
               );
@@ -1292,44 +1365,40 @@ export const SalesCompsModal: React.FC<Props> = ({
 };
 
 // Build a CompsTable rows array for one of the simple View By
-// dimensions. SKU/customer pass through; style/category/sub_category
-// look the dimension value up via the item-master cache + group the
-// per-SKU rows. Rows without a resolvable dimension value land under
-// "(no <dim>)" so the operator can see how much money is unattributed.
+// dimensions. Delegates to aggregateExplodeAware so all dims share the
+// same explodePpk policy: ON collapses PPK + each siblings into one row
+// (qty in eaches); OFF splits dim rows by grain (qty stays in master's
+// native grain, with "(PPK packs)" / "(each)" suffix on the label).
+//
+// Customer dim is special: result.byCustomer is pre-aggregated by the
+// fetch (no per-sku breakdown) so we can't grain-split per customer.
+// We render single-row-per-customer and document the limitation in the
+// modal caveat line.
 function groupedRowsFor(
   dim: Exclude<ViewByKey, "so">,
-  skuRows: AggRow[],
+  rawSkuAggs: RawSkuAgg[],
   customerRows: Array<{ customer: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }>,
-): Array<{ key: string; label: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }> {
-  if (dim === "sku") {
-    return skuRows.map(r => ({ key: r.sku, label: r.sku, tyQty: r.tyQty, tyRev: r.tyRev, tyMrgn: r.tyMrgn, lyQty: r.lyQty, lyRev: r.lyRev, lyMrgn: r.lyMrgn }));
-  }
+  explodePpk: boolean,
+): DimRow[] {
   if (dim === "customer") {
-    return customerRows.map(c => ({ key: c.customer, label: c.customer, tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn, lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn }));
+    // Customer dim — single row per customer (no grain split). qty is
+    // a mix of grains for customers buying both PPK + each products;
+    // operator gets a caveat line in the modal when this happens.
+    return customerRows.map(c => ({
+      key: c.customer,
+      label: c.customer,
+      grain: "each" as const,
+      tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn,
+      lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn,
+    }));
   }
-  const acc = new Map<string, { tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }>();
-  for (const r of skuRows) {
-    // Look up the dimension value via the master cache. sku-keyed
-    // lookup — first variant id under that sku string.
-    const ids = resolveItemMasterIds(r.sku);
-    let label: string | null = null;
-    for (const id of ids) {
-      const rec = getItemMasterById(id);
-      if (!rec) continue;
-      if (dim === "style")        label = rec.style_code ?? null;
-      if (dim === "category")     label = rec.attributes?.group_name    ?? null;
-      if (dim === "sub_category") label = rec.attributes?.category_name ?? null;
-      if (label) break;
-    }
-    const key = label ?? `(no ${VIEW_BY_LABELS[dim].toLowerCase()})`;
-    const cur = acc.get(key) ?? { tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
-    cur.tyQty += r.tyQty; cur.tyRev += r.tyRev; cur.tyMrgn += r.tyMrgn;
-    cur.lyQty += r.lyQty; cur.lyRev += r.lyRev; cur.lyMrgn += r.lyMrgn;
-    acc.set(key, cur);
-  }
-  return [...acc.entries()]
-    .map(([k, v]) => ({ key: k, label: k, ...v }))
-    .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
+  return aggregateExplodeAware({
+    raw: rawSkuAggs,
+    dim: dim as DimKind,
+    explodePpk,
+    resolveIds: resolveItemMasterIds,
+    getMaster: getItemMasterById,
+  });
 }
 
 function th(align: "left" | "right" = "left"): React.CSSProperties {
@@ -1343,11 +1412,41 @@ function td(align: "left" | "right" = "left", color: string = C.text): React.CSS
 // Detailed (per-SKU) views. Same column shape; the only difference
 // is the leftmost dimension. Bottom TOTAL row is computed from the
 // `totals` prop so it matches the SummaryBlock at the top exactly.
-interface CompsRow { key: string; label: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }
-interface CompsTotals { tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }
-function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: string; rows: CompsRow[]; totals: CompsTotals; customerFacing: boolean }): React.ReactElement {
-  const totalGrowth = fmtGrowth(totals.tyRev, totals.lyRev);
-  const totalMp = fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev);
+// CompsTable accepts DimRow[] (output of aggregateExplodeAware) and
+// renders a comparison table with optional TWO totals rows when mixed
+// grain is present in explode-OFF mode. The totals prop carries the
+// per-grain + combined totals computed by totalsForDimRows so the
+// renderer can decide whether to split based on .hasMixed.
+interface CompsTotalsProp {
+  ppk: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
+  each: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
+  combined: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
+  hasMixed: boolean;
+}
+function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean }): React.ReactElement {
+  // Helper: render one totals row. Used three times below — once for
+  // the combined total (single-grain modes), or twice (one per grain
+  // when hasMixed is true and we're in explode-OFF mode).
+  const renderTotalRow = (
+    label: string,
+    t: CompsTotalsProp["combined"],
+  ): React.ReactElement => {
+    const growth = fmtGrowth(t.tyRev, t.lyRev);
+    const mp = fmtMarginPoints(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev);
+    return (
+      <tr key={label} style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
+        <td style={{ ...td(), fontWeight: 700, color: C.accent }}>{label}</td>
+        <td style={{ ...td("right"), fontWeight: 700 }}>{t.tyQty.toLocaleString()}</td>
+        <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(t.tyRev)}</td>
+        {!customerFacing && <td style={{ ...td("right"), fontWeight: 700 }}>{fmtPct(t.tyMrgn, t.tyRev)}</td>}
+        <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{t.lyQty.toLocaleString()}</td>
+        <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(t.lyRev)}</td>
+        {!customerFacing && <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtPct(t.lyMrgn, t.lyRev)}</td>}
+        <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 700 }}>{growth.text}</td>
+        {!customerFacing && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 700 }}>{mp.text}</td>}
+      </tr>
+    );
+  };
   return (
     <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -1385,20 +1484,13 @@ function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: stri
           {rows.length === 0 && (
             <tr><td colSpan={customerFacing ? 6 : 9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
           )}
-          {/* Bottom TOTAL row — sums match the per-row sums above. Sticky-ish bold styling so the operator can find it at a glance. */}
-          {rows.length > 0 && (
-            <tr style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
-              <td style={{ ...td(), fontWeight: 700, color: C.accent }}>TOTAL</td>
-              <td style={{ ...td("right"), fontWeight: 700 }}>{totals.tyQty.toLocaleString()}</td>
-              <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(totals.tyRev)}</td>
-              {!customerFacing && <td style={{ ...td("right"), fontWeight: 700 }}>{fmtPct(totals.tyMrgn, totals.tyRev)}</td>}
-              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{totals.lyQty.toLocaleString()}</td>
-              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(totals.lyRev)}</td>
-              {!customerFacing && <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtPct(totals.lyMrgn, totals.lyRev)}</td>}
-              <td style={{ ...td("right"), color: totalGrowth.positive ? C.green : C.red, fontWeight: 700 }}>{totalGrowth.text}</td>
-              {!customerFacing && <td style={{ ...td("right"), color: totalMp.positive ? C.green : C.red, fontWeight: 700 }}>{totalMp.text}</td>}
-            </tr>
-          )}
+          {/* Bottom TOTAL row(s) — when mixed grain is present in
+              explode-OFF mode, render TWO totals (one per grain) so
+              packs + eaches never sum into a single misleading number.
+              Otherwise render one combined totals row. */}
+          {rows.length > 0 && totals.hasMixed && renderTotalRow("TOTAL (PPK packs)", totals.ppk)}
+          {rows.length > 0 && totals.hasMixed && renderTotalRow("TOTAL (each)", totals.each)}
+          {rows.length > 0 && !totals.hasMixed && renderTotalRow("TOTAL", totals.combined)}
         </tbody>
       </table>
     </div>
@@ -1526,17 +1618,30 @@ function SoCompsTable({
 // mode renders the per-SKU table below this. When customerFacing is
 // true, COGS / Margin $ / Margin % are dropped so the report can be
 // shared externally.
-function SummaryBlock({ totals, customerFacing }: { totals: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number }; customerFacing: boolean }): React.ReactElement {
-  const allRows: Array<{ label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted"; internalOnly?: boolean }> = [
-    { label: "Units",    ty: totals.tyQty.toLocaleString(),       ly: totals.lyQty.toLocaleString(),       diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
-    { label: "Revenue",  ty: fmtUSD(totals.tyRev),                ly: fmtUSD(totals.lyRev),                diff: fmtGrowth(totals.tyRev,  totals.lyRev)  },
-    { label: "COGS",     ty: fmtUSD(totals.tyCogs),               ly: fmtUSD(totals.lyCogs),               diff: fmtGrowth(totals.tyCogs, totals.lyCogs), tone: "muted", internalOnly: true },
-    { label: "Margin $", ty: fmtUSD(totals.tyMrgn),               ly: fmtUSD(totals.lyMrgn),               diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn), internalOnly: true },
-    { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev), internalOnly: true },
-  ];
-  const rows = customerFacing ? allRows.filter(r => !r.internalOnly) : allRows;
-  return (
-    <div style={{ background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px" }}>
+//
+// When mixed grain is present in explode-OFF mode (dimTotals.hasMixed
+// === true), renders TWO stacks side-by-side (PPK packs vs each) so the
+// operator never sees packs + eaches summed into a single misleading
+// row. Otherwise renders the standard single-totals stack.
+function SummaryBlock({ dimTotals, customerFacing }: { dimTotals: DimTotals; customerFacing: boolean }): React.ReactElement {
+  type RowDef = { label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted"; internalOnly?: boolean };
+  const rowsFor = (totals: DimTotals["combined"]): RowDef[] => {
+    const all: RowDef[] = [
+      { label: "Units",    ty: totals.tyQty.toLocaleString(),       ly: totals.lyQty.toLocaleString(),       diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
+      { label: "Revenue",  ty: fmtUSD(totals.tyRev),                ly: fmtUSD(totals.lyRev),                diff: fmtGrowth(totals.tyRev,  totals.lyRev)  },
+      { label: "COGS",     ty: fmtUSD(totals.tyCogs),               ly: fmtUSD(totals.lyCogs),               diff: fmtGrowth(totals.tyCogs, totals.lyCogs), tone: "muted", internalOnly: true },
+      { label: "Margin $", ty: fmtUSD(totals.tyMrgn),               ly: fmtUSD(totals.lyMrgn),               diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn), internalOnly: true },
+      { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev), internalOnly: true },
+    ];
+    return customerFacing ? all.filter(r => !r.internalOnly) : all;
+  };
+  const renderTable = (rows: RowDef[], heading?: string): React.ReactElement => (
+    <div style={{ background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", flex: 1, minWidth: 0 }}>
+      {heading && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+          {heading}
+        </div>
+      )}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -1559,4 +1664,14 @@ function SummaryBlock({ totals, customerFacing }: { totals: { tyQty: number; tyR
       </table>
     </div>
   );
+
+  if (dimTotals.hasMixed) {
+    return (
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {renderTable(rowsFor(dimTotals.ppk),  "TOTAL (PPK packs)")}
+        {renderTable(rowsFor(dimTotals.each), "TOTAL (each)")}
+      </div>
+    );
+  }
+  return renderTable(rowsFor(dimTotals.combined));
 }

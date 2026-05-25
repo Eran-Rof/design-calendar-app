@@ -1477,6 +1477,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         allStores={STORES}
         rows={filtered}
         excelData={excelData}
+        explodePpk={explodePpk}
       />
     )}
     {exportLoading && (
