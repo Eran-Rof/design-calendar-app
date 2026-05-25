@@ -1082,11 +1082,26 @@ export const SalesCompsModal: React.FC<Props> = ({
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
+            </div>
+            <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
           </div>
-          <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
+          {/* Window/scope summary — promoted from the 11pt faded line
+              that previously sat below the caveat in the results pane.
+              One prominent line at the top of the modal so the operator
+              always sees the window + scope of what they're looking at
+              without scanning two faded lines in different spots. 14pt
+              matches the section labels (Totals / TY vs LY sales),
+              500 weight + primary text color so it reads as a
+              first-class label rather than a dim caption. */}
+          {result && (
+            <div style={{ fontSize: 14, fontWeight: 500, color: C.text, lineHeight: 1.35 }}>
+              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
+            </div>
+          )}
         </div>
 
         {/* Loading overlay shown during the 10–15s fetch. Sits inside
@@ -1196,13 +1211,9 @@ export const SalesCompsModal: React.FC<Props> = ({
                 mode — the margin columns are already suppressed there. */}
             {!customerFacing && openSoAggregates.coverage.contributing > 0 && (
               <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>
-                TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from item master; {openSoAggregates.coverage.costMissing} had no resolvable cost).
+                TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from snapshot avg + in-window POs; {openSoAggregates.coverage.costMissing} had no resolvable cost).
               </div>
             )}
-
-            <div style={{ fontSize: 11, color: C.textDim }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
-            </div>
 
             {/* Section header — TY vs LY sales. Rendered ONCE before
                 the first non-SO dimension table (the individual table
