@@ -1,0 +1,340 @@
+// src/tanda/InternalStyleMaster.tsx
+//
+// Tangerine P1 Chunk 7 — internal admin panel for style_master CRUD.
+// List + search + create + edit + soft-delete (and a toggle to view deleted).
+// Wraps /api/internal/style-master and /api/internal/style-master/:id.
+
+import { useEffect, useState } from "react";
+
+type Style = {
+  id: string;
+  style_code: string;
+  description: string;
+  category_id: string | null;
+  gender_code: string | null;
+  season: string | null;
+  design_year: number | null;
+  is_apparel: boolean;
+  launch_date: string | null;
+  lifecycle_status: string;
+  planning_class: string | null;
+  base_fabric: string | null;
+  attributes: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+const C = {
+  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
+  primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
+};
+
+const GENDER_OPTIONS    = ["", "M", "WMS", "B", "C", "G", "U"];
+const LIFECYCLE_OPTIONS = ["active", "phased_out", "discontinued", "core"];
+const PLANNING_OPTIONS  = ["", "core", "seasonal", "fashion"];
+
+const btnPrimary: React.CSSProperties = {
+  background: C.primary, color: "white", border: 0, padding: "8px 14px",
+  borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
+};
+const btnSecondary: React.CSSProperties = {
+  background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12,
+};
+const btnDanger: React.CSSProperties = {
+  ...btnSecondary, color: C.danger, borderColor: "#7f1d1d",
+};
+const inputStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+};
+const th: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
+  textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
+  textTransform: "uppercase", letterSpacing: 0.5,
+};
+const td: React.CSSProperties = {
+  padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
+  color: C.text, fontSize: 13,
+};
+
+export default function InternalStyleMaster() {
+  const [rows, setRows] = useState<Style[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<Style | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set("q", q.trim());
+      if (includeDeleted) params.set("include_deleted", "true");
+      const r = await fetch(`/api/internal/style-master?${params.toString()}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setRows(await r.json() as Style[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [includeDeleted]);
+
+  async function softDelete(id: string) {
+    if (!confirm("Soft-delete this style? Can be restored by an admin SQL update.")) return;
+    try {
+      const r = await fetch(`/api/internal/style-master/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await load();
+    } catch (e: unknown) {
+      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return (
+    <div style={{ color: C.text }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Style Master</h2>
+        <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+        <input
+          type="text"
+          placeholder="Search style_code or description…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void load()}
+          style={{ ...inputStyle, maxWidth: 360 }}
+        />
+        <button onClick={() => void load()} style={btnSecondary}>Search</button>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
+          <input
+            type="checkbox"
+            checked={includeDeleted}
+            onChange={(e) => setIncludeDeleted(e.target.checked)}
+          />
+          Show deleted
+        </label>
+      </div>
+
+      {err && (
+        <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
+          Error: {err}
+        </div>
+      )}
+
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No styles found.</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={th}>Code</th>
+                <th style={th}>Description</th>
+                <th style={th}>Gender</th>
+                <th style={th}>Season</th>
+                <th style={th}>Year</th>
+                <th style={th}>Lifecycle</th>
+                <th style={th}>Apparel</th>
+                <th style={{ ...th, width: 140 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} style={r.deleted_at ? { opacity: 0.4 } : {}}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                    {r.style_code}
+                  </td>
+                  <td style={td}>{r.description}</td>
+                  <td style={td}>{r.gender_code || "—"}</td>
+                  <td style={td}>{r.season || "—"}</td>
+                  <td style={td}>{r.design_year ?? "—"}</td>
+                  <td style={td}>{r.lifecycle_status}</td>
+                  <td style={td}>{r.is_apparel ? "yes" : "no"}</td>
+                  <td style={{ ...td, textAlign: "right" }}>
+                    {!r.deleted_at && (
+                      <>
+                        <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
+                        <button onClick={() => void softDelete(r.id)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {addOpen && <StyleFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+      {editing && <StyleFormModal mode="edit" style={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+    </div>
+  );
+}
+
+interface ModalProps {
+  mode: "add" | "edit";
+  style?: Style;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
+  const [form, setForm] = useState({
+    style_code:        style?.style_code        ?? "",
+    description:       style?.description       ?? "",
+    gender_code:       style?.gender_code       ?? "",
+    season:            style?.season            ?? "",
+    design_year:       style?.design_year       != null ? String(style.design_year) : "",
+    lifecycle_status:  style?.lifecycle_status  ?? "active",
+    planning_class:    style?.planning_class    ?? "",
+    is_apparel:        style?.is_apparel        ?? true,
+    base_fabric:       style?.base_fabric       ?? "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const body: Record<string, unknown> = {
+        description:      form.description.trim(),
+        gender_code:      form.gender_code || null,
+        season:           form.season || null,
+        design_year:      form.design_year ? parseInt(form.design_year, 10) : null,
+        lifecycle_status: form.lifecycle_status,
+        planning_class:   form.planning_class || null,
+        is_apparel:       form.is_apparel,
+        base_fabric:      form.base_fabric || null,
+      };
+      let url: string;
+      let method: string;
+      if (mode === "add") {
+        body.style_code = form.style_code.trim().toUpperCase();
+        url = "/api/internal/style-master";
+        method = "POST";
+      } else {
+        url = `/api/internal/style-master/${style!.id}`;
+        method = "PATCH";
+      }
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      onSaved();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 580, color: C.text }}
+      >
+        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
+          {mode === "add" ? "Add style" : `Edit ${style!.style_code}`}
+        </h3>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Style code">
+            {mode === "add" ? (
+              <input
+                type="text"
+                value={form.style_code}
+                onChange={(e) => setForm({ ...form, style_code: e.target.value })}
+                style={inputStyle}
+                placeholder="e.g. RY1234"
+                autoFocus
+              />
+            ) : (
+              <input type="text" value={form.style_code} disabled style={{ ...inputStyle, opacity: 0.6 }} />
+            )}
+          </Field>
+          <Field label="Description">
+            <input
+              type="text"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              style={inputStyle}
+              placeholder="Free-text description"
+            />
+          </Field>
+          <Field label="Gender">
+            <select value={form.gender_code} onChange={(e) => setForm({ ...form, gender_code: e.target.value })} style={inputStyle as React.CSSProperties}>
+              {GENDER_OPTIONS.map((g) => <option key={g} value={g}>{g || "(none)"}</option>)}
+            </select>
+          </Field>
+          <Field label="Season">
+            <input type="text" value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} style={inputStyle} placeholder="e.g. FW26" />
+          </Field>
+          <Field label="Design year">
+            <input type="number" value={form.design_year} onChange={(e) => setForm({ ...form, design_year: e.target.value })} style={inputStyle} placeholder="2026" />
+          </Field>
+          <Field label="Lifecycle">
+            <select value={form.lifecycle_status} onChange={(e) => setForm({ ...form, lifecycle_status: e.target.value })} style={inputStyle as React.CSSProperties}>
+              {LIFECYCLE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </Field>
+          <Field label="Planning class">
+            <select value={form.planning_class} onChange={(e) => setForm({ ...form, planning_class: e.target.value })} style={inputStyle as React.CSSProperties}>
+              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(none)"}</option>)}
+            </select>
+          </Field>
+          <Field label="Base fabric">
+            <input type="text" value={form.base_fabric} onChange={(e) => setForm({ ...form, base_fabric: e.target.value })} style={inputStyle} />
+          </Field>
+          <Field label="Apparel?">
+            <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
+              <input type="checkbox" checked={form.is_apparel} onChange={(e) => setForm({ ...form, is_apparel: e.target.checked })} />
+              Yes (enforce 5-dim matrix on linked items)
+            </label>
+          </Field>
+        </div>
+
+        {err && (
+          <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>
+            {err}
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
+            {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
