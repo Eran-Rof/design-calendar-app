@@ -22,7 +22,7 @@ import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
-import { estimateSoMargin } from "../salesCompsSoMargin";
+import { estimateSoMargin, type SoCostInputs } from "../salesCompsSoMargin";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -362,6 +362,87 @@ export const SalesCompsModal: React.FC<Props> = ({
     return [...set].sort();
   }, [excelData]);
 
+  // Cost-source maps for the SO margin estimator. Built ONCE per
+  // window+filter change and handed into every estimateSoMargin call
+  // below. Mirrors the ATS grid's own canonical cost chain
+  // (ATS.tsx:970-995 — the marginDollars useMemo): snapshot avgCost
+  // wins; PO weighted average across in-window POs (narrowed to the
+  // modal's style filter) is the fallback; master.unit_cost is NOT
+  // consulted.
+  //
+  // poWeightedAvgByStyle is keyed on master.style_code (not sku)
+  // so new styles with multiple color / size variants pick up the
+  // same PO cost across siblings — matches the operator's "covering
+  // the same filtered styles" expectation. Filter chain on each PO:
+  //   - p.unitCost > 0 (drops PO lines with no cost)
+  //   - p.date inside [start, end] window (or unfiltered when no PO
+  //     in the file carries a usable date — fallback noted in the
+  //     code below)
+  //   - resolved style passes the modal's selStyles filter (or all
+  //     styles when selStyles is empty)
+  // Weighted avg = Σ(qty × unitCost) / Σ(qty).
+  const avgCostBySku = useMemo<Map<string, number>>(() => {
+    const m = new Map<string, number>();
+    if (!excelData) return m;
+    for (const s of excelData.skus) {
+      if (s.avgCost && s.avgCost > 0) m.set(s.sku, s.avgCost);
+    }
+    return m;
+  }, [excelData]);
+
+  const poWeightedAvgByStyle = useMemo<Map<string, number>>(() => {
+    const m = new Map<string, number>();
+    if (!excelData) return m;
+    // Decide whether to enforce the date window. If NO PO in the
+    // file carries a usable date string, an in-window filter would
+    // produce an empty map and silently drop the fallback chain.
+    // Fall back to "all open POs" in that case so cost coverage
+    // doesn't disappear because of upstream data-quality gaps. The
+    // common path (PO WIP nightly + Expected-Delivery-Date populated)
+    // takes the strict in-window branch.
+    const anyDated = excelData.pos.some(p => typeof p.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(p.date));
+    const styleFilterActive = selStyles.length > 0;
+    type Acc = { qtyCost: number; qty: number };
+    const acc = new Map<string, Acc>();
+    for (const p of excelData.pos) {
+      if (!p.unitCost || p.unitCost <= 0) continue;
+      if (!(Number(p.qty) > 0)) continue;
+      if (anyDated) {
+        if (!p.date || p.date < start || p.date > end) continue;
+      }
+      // Resolve the PO sku's style. resolveItemMasterIds may return
+      // multiple ids on cross-grid hits; first record with a
+      // style_code wins.
+      const ids = resolveItemMasterIds(p.sku);
+      let style: string | null = null;
+      for (const id of ids) {
+        const rec = getItemMasterById(id);
+        if (rec?.style_code) { style = rec.style_code; break; }
+      }
+      if (!style) continue;
+      if (styleFilterActive && !selStyles.includes(style)) continue;
+      const cur = acc.get(style) ?? { qtyCost: 0, qty: 0 };
+      cur.qtyCost += p.qty * p.unitCost;
+      cur.qty += p.qty;
+      acc.set(style, cur);
+    }
+    for (const [style, a] of acc) {
+      if (a.qty > 0) m.set(style, a.qtyCost / a.qty);
+    }
+    return m;
+  }, [excelData, start, end, selStyles]);
+
+  // Pre-bind the cost-source inputs into one object that's reused
+  // across every estimator call in this render — keeps the per-row
+  // call sites compact and ensures the lookups stay in lockstep with
+  // the maps above.
+  const soCostInputs = useMemo<SoCostInputs>(() => ({
+    resolveIds: resolveItemMasterIds,
+    getMaster: getItemMasterById,
+    avgCostBySku,
+    poWeightedAvgByStyle,
+  }), [avgCostBySku, poWeightedAvgByStyle]);
+
   // Per-customer + per-SKU aggregation of OPEN SOs in the picked
   // window. Sourced from excelData.sos with the same scope filter
   // chain as soRows. Folded into the per-customer + per-SKU summary
@@ -372,12 +453,12 @@ export const SalesCompsModal: React.FC<Props> = ({
   // contribute 0 to the window and this is a no-op.
   //
   // Margin contribution: ATSSoEvent doesn't carry a cost field, so
-  // estimateSoMargin pulls per-each cost from the item-master cache
-  // (master.unit_cost / pack_size, with PPK-token routing matching
-  // sales-grain.js). When cost can't be resolved the row's margin
-  // contribution is 0 — the qty / revenue still merge, and
-  // coverage.withoutCost is bumped so the caveat line below the
-  // totals can surface "M had no resolvable cost".
+  // estimateSoMargin pulls per-each cost via soCostInputs (snapshot
+  // avgCost → in-window PO weighted avg; see the maps above).
+  // When cost can't be resolved the row's margin contribution is 0
+  // — the qty / revenue still merge, and coverage.costMissing is
+  // bumped so the caveat line below the totals can surface
+  // "M had no resolvable cost".
   const openSoAggregates = useMemo(() => {
     const byCustomer = new Map<string, { qty: number; rev: number; mrgn: number }>();
     const bySkuCode = new Map<string, { qty: number; rev: number; mrgn: number }>();
@@ -411,7 +492,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       // the caveat-line counter; the margin gets folded into the
       // customer + sku rollups so downstream TY MRGN% is meaningful
       // on forward windows.
-      const est = estimateSoMargin(s.sku, s.qty, s.totalPrice, resolveItemMasterIds, getItemMasterById);
+      const est = estimateSoMargin(s.sku, s.qty, s.totalPrice, soCostInputs);
       coverage.contributing += 1;
       if (est.costResolved) coverage.costResolved += 1;
       else                  coverage.costMissing  += 1;
@@ -428,7 +509,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       }
     }
     return { byCustomer, bySkuCode, coverage };
-  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end]);
+  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, soCostInputs]);
 
   // Per-SKU aggregate, rolled up by sku_code (BASE-COLOR). Cross-grid
   // sku_ids are resolved via the item-master cache so the table shows
@@ -567,7 +648,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       if (!want(selSubCategories, subCat)) continue;
       if (!want(selStyles, style))         continue;
       if (!want(selGenders, gender))       continue;
-      const tyMrgn = estimateSoMargin(s.sku, s.qty, s.totalPrice, resolveItemMasterIds, getItemMasterById).margin;
+      const tyMrgn = estimateSoMargin(s.sku, s.qty, s.totalPrice, soCostInputs).margin;
       enriched.push({ s, style, category: cat, subCategory: subCat, gender, cancelDate: filterDate, tyMrgn });
     }
 
@@ -729,7 +810,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       out.sort((a, b) => b.tyRev - a.tyRev);
     }
     return out;
-  }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle]);
+  }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle, soCostInputs]);
 
   // Parallel diagnostic — same filter chain as soRows, but counts how
   // many open SOs make it past each step. Surfaced above the SO table
@@ -1001,11 +1082,26 @@ export const SalesCompsModal: React.FC<Props> = ({
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Sales Comps {result && <span style={{ color: C.textMuted, fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— results · {viewBy.map(v => VIEW_BY_LABELS[v]).join(" + ")}</span>}
+            </div>
+            <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
           </div>
-          <button style={{ background: "none", border: "none", color: C.textDim, fontSize: 18, cursor: "pointer", padding: "2px 6px", borderRadius: 4 }} onClick={onClose} title="Close">✕</button>
+          {/* Window/scope summary — promoted from the 11pt faded line
+              that previously sat below the caveat in the results pane.
+              One prominent line at the top of the modal so the operator
+              always sees the window + scope of what they're looking at
+              without scanning two faded lines in different spots. 14pt
+              matches the section labels (Totals / TY vs LY sales),
+              500 weight + primary text color so it reads as a
+              first-class label rather than a dim caption. */}
+          {result && (
+            <div style={{ fontSize: 14, fontWeight: 500, color: C.text, lineHeight: 1.35 }}>
+              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
+            </div>
+          )}
         </div>
 
         {/* Loading overlay shown during the 10–15s fetch. Sits inside
@@ -1115,13 +1211,9 @@ export const SalesCompsModal: React.FC<Props> = ({
                 mode — the margin columns are already suppressed there. */}
             {!customerFacing && openSoAggregates.coverage.contributing > 0 && (
               <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>
-                TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from item master; {openSoAggregates.coverage.costMissing} had no resolvable cost).
+                TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from snapshot avg + in-window POs; {openSoAggregates.coverage.costMissing} had no resolvable cost).
               </div>
             )}
-
-            <div style={{ fontSize: 11, color: C.textDim }}>
-              Window: {start} → {end} (TY) · {tableRows.length} SKUs · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""}
-            </div>
 
             {/* Section header — TY vs LY sales. Rendered ONCE before
                 the first non-SO dimension table (the individual table

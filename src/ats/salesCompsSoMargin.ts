@@ -9,51 +9,86 @@
 // column at "0.0%" in any view dominated by open commitments
 // (forward windows, brand-new sub-categories with no shipped LY, etc.).
 //
-// This estimator mirrors the relevant slice of sales-grain.js using the
-// data the client actually has: per-row master.unit_cost + master.pack_size
-// from the item-master cache. ip_item_avg_cost is more authoritative but
-// lives server-side — adding a round-trip just for the margin column on
-// open SOs isn't justified for an estimate that flags itself as such in
-// the UI.
+// Cost chain (mirrors ATS.tsx:970-995 — the grid's own marginDollars
+// useMemo — narrowed to the modal's TY window for the PO fallback):
 //
-// Cost-resolution rule (mirror of resolvePerUnitCost in sales-grain.js):
+//   1. Snapshot avgCost: avgCostBySku.get(rawSku). The inventory
+//      snapshot's stored per-each average cost (ATSSkuData.avgCost) is
+//      the authoritative source — already-applied unit cost from the
+//      latest receiving/invoice events.
+//   2. PO weighted average across IN-WINDOW open POs sharing the same
+//      style as the SO's resolved master. Pre-built once by the caller
+//      via poWeightedAvgByStyle (key = master.style_code). Filtered to
+//      POs whose Expected-Delivery-Date date falls inside the modal's
+//      TY window AND whose style passes the modal's style filter.
+//      Style-keyed (not SKU-keyed) so a new style with multiple size /
+//      color SKUs gets PO coverage even when only one variant has a
+//      live PO. When the receive-date field is unavailable, the caller
+//      can hand in a date-unfiltered map — the estimator doesn't know
+//      the difference.
+//   3. No further fallback. master.unit_cost is intentionally NOT
+//      consulted — that source was dropped after PR #287 found that
+//      master cost is frequently stale or absent on new styles where
+//      the SO commitments live. When neither chain step yields a
+//      positive cost the row is marked "no_cost" and counted in the
+//      caveat line below the totals.
 //
-//   1. PPK-token routing (Pass 2a-pre semantics). If rawSku contains a
-//      "PPK<digits>" token AND the resolved master is each-grain
-//      (pack_size = 1), look up the PPK sibling via the same naming
-//      candidates findSiblingPpkMaster generates. Use the sibling's
-//      unit_cost + pack_size.
+// Pack-grain semantics (unchanged from the previous estimator and
+// kept in lockstep with sales-grain.js / resolvePerUnitCost):
 //
-//   2. Grain inference. PPK token in rawSku AND effective master
-//      pack_size > 1 → grain = "pack" (qty_units = qty × pack_size,
-//      master.unit_cost is per-pack so divide by pack_size for per-each
-//      cost). Otherwise → grain = "unit".
-//
-//   3. Unit-grain anomaly guard. If grain = "unit" but
-//      master.unit_cost > 2 × unit_price (totalPrice / qty), master cost
-//      is almost certainly stored at per-pack grain — divide by
-//      pack_size. Mirrors the 2× threshold in resolvePerUnitCost.
-//
-//   4. Otherwise master.unit_cost is per-each — use as-is.
+//   - PPK token in rawSku AND resolved master pack_size > 1 → grain =
+//     "pack". qtyUnits = qty × pack_size. The cost from steps 1 / 2 is
+//     treated as PER-PACK on the PPK master, so divide by pack_size
+//     for per-each cost. (Snapshot avgCost on a PPK SKU is the
+//     per-pack avg from the inventory snapshot; PO unitCost on a PPK
+//     master is per-pack since Xoro records cost at the master's
+//     grain.)
+//   - PPK token in rawSku but master is each-grain (pack_size = 1) →
+//     PPK-sibling routing finds the pack-grain sibling and uses its
+//     style + pack_size. Cost is still resolved against the ORIGINAL
+//     raw sku (snapshot path keys on rawSku); the style-keyed PO map
+//     uses the sibling's style for broader PO coverage.
+//   - Otherwise grain = "unit" and cost is per-each as-is.
 //
 // Failure modes (return null + reason for the caveat-count UI):
 //
-//   - "no_master": no item-master record resolves at all (sku unknown or
-//     cache not loaded). Margin contribution stays 0 — caller still
-//     folds qty + revenue.
-//   - "no_cost": master resolved but unit_cost is null/0. Same handling.
-//
-// Mirrored from api/_lib/sales-grain.js (parsePackSizeFromRaw,
-// findSiblingPpkMaster, resolvePerUnitCost) — keep the rules here in
-// lockstep with the server when sales-grain.js changes.
+//   - "no_master": no item-master record resolves at all (sku unknown
+//     or cache not loaded). Margin contribution stays 0 — caller still
+//     folds qty + revenue. Style resolution is required for the PO
+//     fallback chain so any sku that doesn't resolve a master returns
+//     this reason even if the snapshot map happens to have an entry.
+//   - "no_cost": master resolved but neither snapshot avgCost nor an
+//     in-window PO weighted avg yielded a positive value.
 
 import type { ItemMasterRecord } from "./itemMasterLookup";
 
 export type SoCostReason = "ok" | "no_master" | "no_cost";
+export type SoCostSource = "snapshot_avg" | "po_in_window" | "none";
+
+export interface SoCostInputs {
+  resolveIds: (sku: string) => string[];
+  getMaster: (id: string) => ItemMasterRecord | null;
+  /** Per-each snapshot avgCost keyed by rawSku — mirrors
+   *  ATSSkuData.avgCost. The ATS grid's canonical cost chain
+   *  (ATS.tsx:970-995) keys on the SO row's sku directly, so we do
+   *  the same here. Pack-grain divisor is applied downstream when
+   *  the resolved master is PPK + the raw sku carries a PPK token. */
+  avgCostBySku: Map<string, number>;
+  /** Weighted-avg PO unitCost keyed by master.style_code, built
+   *  ONCE by the modal across open POs that (a) have a receive date
+   *  inside the TY window AND (b) whose resolved style passes the
+   *  modal's style filter AND (c) have unitCost > 0. Weighted avg
+   *  per style = Σ(qty × unitCost) / Σ(qty). When excelData.pos
+   *  lacks a usable receive date the caller's recipe degrades to
+   *  "all open POs of matching styles" rather than an empty map. */
+  poWeightedAvgByStyle: Map<string, number>;
+}
 
 export interface SoUnitCostResult {
   /** Per-each cost in dollars. null when no usable cost is available. */
   unitCostEach: number | null;
+  /** Where the cost came from — used in unit tests + future telemetry. */
+  source: SoCostSource;
   reason: SoCostReason;
 }
 
@@ -63,6 +98,8 @@ export interface SoMarginResult {
   /** Per-each cost actually used (null when not resolved). Exposed for
    *  callers that want to log / accumulate average cost. */
   unitCostEach: number | null;
+  /** Where the cost came from — mirrors SoUnitCostResult.source. */
+  source: SoCostSource;
   /** Effective per-each qty (qty × pack_size when grain = "pack"). */
   qtyUnits: number;
   /** True when a cost was resolved and folded into margin. False
@@ -141,115 +178,115 @@ function findSiblingPpk(
   return null;
 }
 
+/** Walk the snapshot-avg → PO-weighted-avg chain for the given raw sku
+ *  and the resolved style. Returns the first positive cost found and a
+ *  source tag. Pure helper — no pack-grain divisor applied here; the
+ *  caller divides by pack_size when grain = "pack". */
+function resolveRawCost(
+  rawSku: string,
+  styleForPo: string | null,
+  inputs: SoCostInputs,
+): { rawCost: number; source: SoCostSource } {
+  const snap = inputs.avgCostBySku.get(rawSku);
+  if (Number.isFinite(snap) && snap !== undefined && snap > 0) {
+    return { rawCost: snap, source: "snapshot_avg" };
+  }
+  if (styleForPo) {
+    const po = inputs.poWeightedAvgByStyle.get(styleForPo);
+    if (Number.isFinite(po) && po !== undefined && po > 0) {
+      return { rawCost: po, source: "po_in_window" };
+    }
+  }
+  return { rawCost: 0, source: "none" };
+}
+
 /**
  * Estimate per-each cost for an open SO row.
  *
- * Returns `{ unitCostEach, reason }`:
+ * Returns `{ unitCostEach, source, reason }`:
  *   - `unitCostEach`: dollars per each (multiply by qty_units for COGS).
  *     null when no usable cost was found.
+ *   - `source`: which step of the chain produced the cost.
  *   - `reason`: "ok" when a cost was resolved, "no_master" when the sku
- *     doesn't resolve at all, "no_cost" when the master row exists but
- *     has no unit_cost.
+ *     doesn't resolve at all, "no_cost" when neither the snapshot map
+ *     nor the in-window PO weighted avg yielded a positive value.
  *
- * The function is pure — takes the cache lookups as dependencies so the
- * test suite can inject a synthetic cache without touching the module-
- * level singletons in itemMasterLookup.ts.
- *
- * Note: the unit-grain price-anomaly guard (master.unit_cost > 2 ×
- * unit_price) is NOT applied here — it needs qty + netAmount which only
- * estimateSoMargin has in scope. Use estimateSoMargin for the
- * end-to-end calculation.
+ * The function is pure — takes the cache lookups + cost maps as
+ * dependencies so the test suite can inject synthetic data without
+ * touching the module-level singletons in itemMasterLookup.ts.
  */
-export function estimateSoUnitCost(
-  rawSku: string,
-  resolveIds: ResolveIdsFn,
-  getMaster: GetMasterFn,
-): SoUnitCostResult {
-  let master = firstMaster(rawSku, resolveIds, getMaster);
-  if (!master) return { unitCostEach: null, reason: "no_master" };
+export function estimateSoUnitCost(rawSku: string, inputs: SoCostInputs): SoUnitCostResult {
+  let master = firstMaster(rawSku, inputs.resolveIds, inputs.getMaster);
+  if (!master) return { unitCostEach: null, source: "none", reason: "no_master" };
 
-  // PPK-token routing (Pass 2a-pre): when the raw sku carries a
-  // PPK<digits> token but we landed on an each-grain master, swap to
-  // the sibling PPK master so cost + pack_size are pack-grain.
+  // PPK-token routing (Pass 2a-pre): when the raw sku carries a PPK
+  // token but we landed on an each-grain master, swap to the sibling
+  // PPK master so pack_size is pack-grain.
   if (hasPpkToken(rawSku) && (Number(master.pack_size) || 1) <= 1) {
-    const sibling = findSiblingPpk(master, resolveIds, getMaster);
+    const sibling = findSiblingPpk(master, inputs.resolveIds, inputs.getMaster);
     if (sibling) master = sibling;
   }
 
-  const cost = Number(master.unit_cost);
-  if (!Number.isFinite(cost) || cost <= 0) return { unitCostEach: null, reason: "no_cost" };
+  const styleForPo = master.style_code ?? null;
+  const { rawCost, source } = resolveRawCost(rawSku, styleForPo, inputs);
+  if (rawCost <= 0) return { unitCostEach: null, source: "none", reason: "no_cost" };
 
   const packSize = Math.max(1, Number(master.pack_size) || 1);
   const grain: "pack" | "unit" = hasPpkToken(rawSku) && packSize > 1 ? "pack" : "unit";
 
+  // On a PPK master, both the snapshot avgCost (Xoro inventory grain)
+  // and the PO unitCost (Xoro PO grain) are recorded per-pack. Divide
+  // by pack_size for the per-each figure that pairs with qtyUnits.
   if (grain === "pack") {
-    // master.unit_cost is per-pack on PPK masters — divide for per-each.
-    return { unitCostEach: cost / packSize, reason: "ok" };
+    return { unitCostEach: rawCost / packSize, source, reason: "ok" };
   }
-  return { unitCostEach: cost, reason: "ok" };
+  return { unitCostEach: rawCost, source, reason: "ok" };
 }
 
 /**
  * Estimate margin for a single open SO row.
  *
- * Mirrors deriveSalesGrainFields → cogs_amount → margin_amount but uses
- * only the data the client has (master.unit_cost / pack_size, no
- * ip_item_avg_cost). Folds in the unit-grain anomaly guard from
- * resolvePerUnitCost (cost > 2 × unit_price → cost / pack_size).
- *
- * Returns margin = 0 when cost can't be resolved — caller still folds
- * the qty + revenue contribution. `costResolved` lets the caller
- * accumulate a coverage counter for the caveat line.
+ * Returns `{ margin, unitCostEach, source, qtyUnits, costResolved,
+ * reason }`. Margin = totalPrice − qtyUnits × unitCostEach. When cost
+ * can't be resolved, margin = 0 and `costResolved` = false — the
+ * caller still folds qty + revenue, and the caveat counter surfaces
+ * the unresolved row to the operator.
  */
 export function estimateSoMargin(
   rawSku: string,
   qty: number,
   totalPrice: number,
-  resolveIds: ResolveIdsFn,
-  getMaster: GetMasterFn,
+  inputs: SoCostInputs,
 ): SoMarginResult {
-  const initialMaster = firstMaster(rawSku, resolveIds, getMaster);
+  const initialMaster = firstMaster(rawSku, inputs.resolveIds, inputs.getMaster);
   if (!initialMaster) {
-    return { margin: 0, unitCostEach: null, qtyUnits: Number(qty) || 0, costResolved: false, reason: "no_master" };
+    return { margin: 0, unitCostEach: null, source: "none", qtyUnits: Number(qty) || 0, costResolved: false, reason: "no_master" };
   }
   let master = initialMaster;
 
   // PPK-token routing — re-bind master when we landed on an each-grain
   // row but the raw sku carries a PPK token.
   if (hasPpkToken(rawSku) && (Number(master.pack_size) || 1) <= 1) {
-    const sibling = findSiblingPpk(master, resolveIds, getMaster);
+    const sibling = findSiblingPpk(master, inputs.resolveIds, inputs.getMaster);
     if (sibling) master = sibling;
   }
 
-  const rawCost = Number(master.unit_cost);
-  if (!Number.isFinite(rawCost) || rawCost <= 0) {
-    return { margin: 0, unitCostEach: null, qtyUnits: Number(qty) || 0, costResolved: false, reason: "no_cost" };
-  }
+  const styleForPo = master.style_code ?? null;
+  const { rawCost, source } = resolveRawCost(rawSku, styleForPo, inputs);
 
   const packSize = Math.max(1, Number(master.pack_size) || 1);
   const grain: "pack" | "unit" = hasPpkToken(rawSku) && packSize > 1 ? "pack" : "unit";
   const qtyUnits = grain === "pack" ? (Number(qty) || 0) * packSize : (Number(qty) || 0);
 
-  let unitCostEach: number;
-  if (grain === "pack") {
-    // PPK master cost is per-pack (Xoro convention) — divide for per-each.
-    unitCostEach = rawCost / packSize;
-  } else {
-    // Unit-grain anomaly guard: when master.unit_cost looks like a
-    // per-pack figure stored on a pack_size=1 row, divide.
-    if (qtyUnits > 0 && Number.isFinite(totalPrice) && totalPrice > 0) {
-      const unitPrice = totalPrice / qtyUnits;
-      if (unitPrice > 0 && rawCost > unitPrice * 2 && packSize > 1) {
-        unitCostEach = rawCost / packSize;
-      } else {
-        unitCostEach = rawCost;
-      }
-    } else {
-      unitCostEach = rawCost;
-    }
+  if (rawCost <= 0) {
+    return { margin: 0, unitCostEach: null, source: "none", qtyUnits, costResolved: false, reason: "no_cost" };
   }
 
+  // Pack-grain divisor: snapshot avgCost on a PPK SKU is per-pack and
+  // PO unitCost on a PPK master is per-pack — both need / pack_size
+  // before pairing with qtyUnits (which is already in per-each).
+  const unitCostEach = grain === "pack" ? rawCost / packSize : rawCost;
   const cogs = qtyUnits * unitCostEach;
   const margin = (Number(totalPrice) || 0) - cogs;
-  return { margin, unitCostEach, qtyUnits, costResolved: true, reason: "ok" };
+  return { margin, unitCostEach, source, qtyUnits, costResolved: true, reason: "ok" };
 }
