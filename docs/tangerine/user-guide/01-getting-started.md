@@ -21,27 +21,29 @@ Direct URL: `https://<your-domain>/tanda`
 
 ## The Tanda nav layout
 
-Tanda groups its menu items by function. The Tangerine admin panels all live in the **Analytics & Admin** group, near the bottom of the left-side menu.
+Tanda uses a **horizontal top nav** (not a left sidebar). The Tangerine admin panels live inside the **Vendors ▾** dropdown flyout, in the **Analytics & Admin** column group at the right of the flyout.
 
 ```mermaid
-flowchart TB
-    Login["🔑 Login"] --> DC["📅 Design Calendar (home)"]
-    DC --> Tanda["/tanda — PO WIP"]
-    Tanda --> Tab["Analytics & Admin group"]
-    Tab --> Style["🎨 Style Master"]
-    Tab --> Vendor["🏭 Vendor Master"]
-    Tab --> Customer["🤝 Customer Master"]
-    Tab --> COA["📒 Chart of Accounts"]
-    Tab --> Periods["🗓️ Periods"]
-    Tab --> JE["📓 Journal Entries"]
+flowchart LR
+    Login["🔑 Login"] --> DC["📅 Design Calendar"]
+    DC --> Tanda["/tanda<br/>(Purchase Orders)"]
+    Tanda --> TopNav["Top nav row:<br/>Dashboard · All POs · Grid · Templates · Teams ·<br/>Email · Activity · <b>Vendors ▾</b> · Timeline · Archive · Bulk Update · Sync · Settings"]
+    TopNav -->|click| Flyout["Vendors ▾ flyout<br/>(6 column groups)"]
+    Flyout --> Vendors["Vendors"]
+    Flyout --> Ops["Operations"]
+    Flyout --> Comp["Compliance"]
+    Flyout --> Source["Sourcing"]
+    Flyout --> Fin["Finance"]
+    Flyout --> Admin["<b>Analytics &amp; Admin</b><br/>(this is where Tangerine lives)"]
 
-    Style -. covered in .-> MasterDoc["02-master-data.md"]
-    Vendor -. covered in .-> MasterDoc
-    Customer -. covered in .-> MasterDoc
-    COA -. covered in .-> AccDoc["03-accounting.md"]
-    Periods -. covered in .-> AccDoc
-    JE -. covered in .-> AccDoc
+    Admin --> Style["🎨 Style Master"]
+    Admin --> Vendor["🏭 Vendor Master"]
+    Admin --> Customer["🤝 Customer Master"]
+    Admin --> COA["📒 Chart of Accounts"]
+    Admin --> Periods["🗓️ Periods"]
+    Admin --> JE["📓 Journal Entries"]
 
+    style Admin fill:#fde68a,stroke:#f59e0b,stroke-width:2px
     style Style fill:#fbcfe8
     style Vendor fill:#fed7aa
     style Customer fill:#bbf7d0
@@ -50,7 +52,7 @@ flowchart TB
     style JE fill:#e9d5ff
 ```
 
-The full **Analytics & Admin** group:
+**To open it:** click (or hover) the **"Vendors ▾"** button in the top nav. A flyout panel opens showing 6 column groups: Vendors / Operations / Compliance / Sourcing / Finance / **Analytics & Admin**. The Tangerine entries are the last 6 items in the **Analytics & Admin** column:
 
 ```
 Analytics & Admin
@@ -67,8 +69,14 @@ Analytics & Admin
 └── 📓 Journal Entries    ← Tangerine
 ```
 
-![Tanda nav with Analytics & Admin group expanded](screenshots/01-tanda-nav-admin-group.png)
-<!-- screenshot needed: nav sidebar with Analytics & Admin expanded showing all 6 new entries -->
+> **If you don't see the 6 new entries:** hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) to bust the cached old bundle. The entries shipped in Tangerine Chunks 7 / 7b / 7c / 8a / 8b / 8c; if your deploy is older than 2026-05-26, none of them are there yet.
+
+![Tanda top nav with the Vendors flyout open, Analytics & Admin column highlighted](screenshots/01-tanda-vendors-flyout.png)
+<!-- screenshot needed: top nav showing the Vendors flyout open, with all 6 column groups visible and the Analytics & Admin column highlighted -->
+
+### Why "Vendors ▾" hosts the admin panels
+
+The Vendors button in the top nav is misnamed for historical reasons — it predates Tangerine and originally only held vendor-related screens. As the Tanda app grew, it became the catch-all flyout for every internal admin view (analytics, compliance, sourcing, finance, and now Tangerine masters + accounting). A future cleanup may rename this top-level entry to something like "Admin ▾" or split the master/accounting groups into their own top-nav button. For now, the 6 Tangerine entries live where the existing nav code put them.
 
 ## Reading these docs
 
@@ -84,6 +92,7 @@ Analytics & Admin
 
 If you've never opened Tangerine before, the fastest way to confirm everything works in your environment:
 
+0. **Open the flyout.** From `/tanda`, click **Vendors ▾** in the top nav, then look at the **Analytics & Admin** column on the right. The 6 emoji entries (🎨 🏭 🤝 📒 🗓️ 📓) are at the bottom of that column.
 1. **🎨 Style Master** — click the menu entry. The table should populate with hundreds of style codes from `ip_item_master`. Confirm search works.
 2. **🏭 Vendor Master** — same pattern; should populate with your existing portal vendors.
 3. **🤝 Customer Master** — same pattern; should populate with your existing planning customers (renamed from `ip_customer_master` in Chunk 6).
