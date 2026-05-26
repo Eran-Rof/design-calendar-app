@@ -113,7 +113,6 @@ interface ATSDerivedCtx {
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: import("./exportSalesFetch").SalesFetchResult,
     explodePpk?: boolean,
-    filterChips?: string[],
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
