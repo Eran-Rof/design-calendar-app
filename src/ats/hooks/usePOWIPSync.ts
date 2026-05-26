@@ -21,13 +21,51 @@ function inferStore(poNum: string, brandName: string): string {
   return "ROF";
 }
 
+// Paginate the tanda_pos fetch — Supabase / PostgREST silently caps every
+// response at `db-max-rows=1000` regardless of any `limit=N` we ask for,
+// per the cap documented in project_postgrest_1000_row_cap.md. Operators
+// who accumulate more than 1000 PO rows would silently lose every PO past
+// row 1000 on each ATS load — symptom: grid rows render but their on-hand
+// projections / new-receipt deltas under-count badly, and downstream filters
+// can narrow the visible set to a single page worth of SKUs (no pagination
+// shown, no way to navigate to the rows the operator expected).
+//
+// PAGE_SIZE 1000 matches Supabase's hard ceiling so each request is a full
+// page; the loop exits as soon as a page returns less than that.
+export const TANDA_POS_PAGE_SIZE = 1000;
+export async function fetchAllTandaPos(): Promise<Array<{ data: any }>> {
+  const out: Array<{ data: any }> = [];
+  for (let offset = 0; ; offset += TANDA_POS_PAGE_SIZE) {
+    const url = `${SB_URL}/rest/v1/tanda_pos?select=data&limit=${TANDA_POS_PAGE_SIZE}&offset=${offset}`;
+    const r = await fetch(url, { headers: SB_HEADERS });
+    if (!r.ok) {
+      // Surface the failure so callers can fall back to cached data
+      // instead of silently returning a partial set.
+      throw new Error(`tanda_pos fetch failed at offset ${offset}: ${r.status}`);
+    }
+    const chunk = (await r.json()) as Array<{ data: any }>;
+    out.push(...chunk);
+    if (chunk.length < TANDA_POS_PAGE_SIZE) break;
+    // Hard safety cap so an unexpected loop never hangs the browser.
+    if (offset > 500_000) break;
+  }
+  return out;
+}
+
 // Fetch tanda_pos from Supabase and fold the rows into an ExcelData blob.
 // Pure: returns a new ExcelData; never mutates the input. The work is done
 // against a sku lookup map so we don't rescan the skus array per item.
 export async function applyPOWIPDataToExcel(data: ExcelData): Promise<ExcelData> {
-  const poRes = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
-  if (!poRes.ok) return data;
-  const poRows = await poRes.json();
+  let poRows: Array<{ data: any }>;
+  try {
+    poRows = await fetchAllTandaPos();
+  } catch (e) {
+    // Match the prior !poRes.ok behavior — return the input data
+    // untouched rather than wiping POs and partial-applying. Caller's
+    // try/catch in ATS.tsx loadFromSupabase logs this.
+    console.warn("[ATS] tanda_pos fetch failed; keeping cached PO data:", e);
+    return data;
+  }
 
   // Work on a fresh copy of each sku entry so we can safely mutate inside
   // this function without touching the caller's data.
