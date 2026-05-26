@@ -259,6 +259,8 @@ import h253 from "./internal/vendor-master/index.js";
 import h254 from "./internal/vendor-master/[id].js";
 import h255 from "./internal/customer-master/index.js";
 import h256 from "./internal/customer-master/[id].js";
+import h257 from "./internal/gl-accounts/index.js";
+import h258 from "./internal/gl-accounts/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -473,6 +475,8 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-master", handler: h253 },
   { pattern: "/api/internal/customer-master/:id", handler: h256 },
   { pattern: "/api/internal/customer-master", handler: h255 },
+  { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
+  { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
