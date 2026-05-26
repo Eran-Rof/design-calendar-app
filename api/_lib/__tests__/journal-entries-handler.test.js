@@ -76,7 +76,7 @@ describe("validateManualPost", () => {
     expect(validateManualPost({
       basis: "ACCRUAL", posting_date: "2026-05-26", description: "x",
       lines: lines({ debit: "-10" }, { credit: "-10" }),
-    }).error).toMatch(/invalid money/);  // negative-sign regex rejection
+    }).error).toMatch(/negative amounts not allowed/);
   });
   it("rejects unbalanced", () => {
     expect(validateManualPost({
