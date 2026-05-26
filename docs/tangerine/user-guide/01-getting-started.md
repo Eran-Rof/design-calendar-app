@@ -7,76 +7,69 @@ Two personas:
 - **Internal operator** (CEO, ops manager) — maintains master data (styles, vendors, customers) and reviews period status. Uses Style/Vendor/Customer Master + Periods every week.
 - **External accountant** (contractor or CPA firm) — owns the Chart of Accounts, posts manual journal entries and adjustments, manages period close. Uses Chart of Accounts + Periods + Journal Entries every month.
 
-Both share the same login surface and the same `/tanda` URL — access is gated by role on the data itself (RLS + the `entity_users` junction).
+Both share the same login surface and the same `/tangerine` URL — access is gated by role on the data itself (RLS + the `entity_users` junction).
 
 ## Logging in
 
 1. Open your browser to the design-calendar-app URL (production: your Vercel domain; dev: `http://localhost:5173`).
-2. Sign in with your work email + password.
-3. You land on the Design Calendar home page by default. From there, navigate to **PO WIP** (the Tanda module).
+2. Navigate directly to `/tangerine` (or sign in via the standard app login first, then go to `/tangerine`).
 
-Direct URL: `https://<your-domain>/tanda`
+Direct URL: `https://<your-domain>/tangerine`
 
-> **Note.** If you bookmark `/tanda` and refresh inside one of the new panels, you'll bounce back to the Tanda dashboard. The 6 admin panels use internal state-based navigation, not URL routes — re-click the menu entry to return.
+> **Note (Chunk T1, 2026-05-26):** Tangerine is now its own top-level app at `/tangerine`. Previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout — that hosting is gone. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
 
-## The Tanda nav layout
+## The Tangerine nav layout
 
-Tanda uses a **horizontal top nav** (not a left sidebar). The Tangerine admin panels live inside the **Vendors ▾** dropdown flyout, in the **Analytics & Admin** column group at the right of the flyout.
+Tangerine has its own **independent top nav** with the 6 module buttons across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps.
 
 ```mermaid
 flowchart LR
-    Login["🔑 Login"] --> DC["📅 Design Calendar"]
-    DC --> Tanda["/tanda<br/>(Purchase Orders)"]
-    Tanda --> TopNav["Top nav row:<br/>Dashboard · All POs · Grid · Templates · Teams ·<br/>Email · Activity · <b>Vendors ▾</b> · Timeline · Archive · Bulk Update · Sync · Settings"]
-    TopNav -->|click| Flyout["Vendors ▾ flyout<br/>(6 column groups)"]
-    Flyout --> Vendors["Vendors"]
-    Flyout --> Ops["Operations"]
-    Flyout --> Comp["Compliance"]
-    Flyout --> Source["Sourcing"]
-    Flyout --> Fin["Finance"]
-    Flyout --> Admin["<b>Analytics &amp; Admin</b><br/>(this is where Tangerine lives)"]
+    Login["🔑 Login"] --> Tangerine["/tangerine<br/>(Tangerine ERP home)"]
+    Tangerine --> TopNav["Top nav:<br/>🎨 Style · 🏭 Vendor · 🤝 Customer ·<br/>📒 COA · 🗓️ Periods · 📓 JEs · 🧩 Apps ▾"]
 
-    Admin --> Style["🎨 Style Master"]
-    Admin --> Vendor["🏭 Vendor Master"]
-    Admin --> Customer["🤝 Customer Master"]
-    Admin --> COA["📒 Chart of Accounts"]
-    Admin --> Periods["🗓️ Periods"]
-    Admin --> JE["📓 Journal Entries"]
+    TopNav --> Style["🎨 Style Master"]
+    TopNav --> Vendor["🏭 Vendor Master"]
+    TopNav --> Customer["🤝 Customer Master"]
+    TopNav --> COA["📒 Chart of Accounts"]
+    TopNav --> Periods["🗓️ Periods"]
+    TopNav --> JE["📓 Journal Entries"]
+    TopNav --> Apps["🧩 Apps launcher"]
 
-    style Admin fill:#fde68a,stroke:#f59e0b,stroke-width:2px
+    Apps -->|click app| DC["📅 / Design Calendar"]
+    Apps --> POWIP["📦 /tanda PO WIP"]
+    Apps --> ATS["📊 /ats Planning"]
+    Apps --> TP["📐 /techpack Tech Packs"]
+    Apps --> GS1["🏷️ /gs1 Labels"]
+    Apps --> Plan["📈 /planning"]
+    Apps --> VP["🌐 /vendor Portal"]
+
+    style Tangerine fill:#fb923c,stroke:#c2410c,stroke-width:2px,color:#fff
     style Style fill:#fbcfe8
     style Vendor fill:#fed7aa
     style Customer fill:#bbf7d0
     style COA fill:#bfdbfe
     style Periods fill:#fde68a
     style JE fill:#e9d5ff
+    style Apps fill:#94a3b8,color:#fff
 ```
 
-**To open it:** click (or hover) the **"Vendors ▾"** button in the top nav. A flyout panel opens showing 6 column groups: Vendors / Operations / Compliance / Sourcing / Finance / **Analytics & Admin**. The Tangerine entries are the last 6 items in the **Analytics & Admin** column:
+**Layout:**
 
-```
-Analytics & Admin
-├── 📊 Analytics
-├── 💰 Spend
-├── ⚙️ Workflow Rules
-├── ✅ Approvals
-├── 🏛️ Entities
-├── 🎨 Style Master       ← Tangerine
-├── 🏭 Vendor Master      ← Tangerine
-├── 🤝 Customer Master    ← Tangerine
-├── 📒 Chart of Accounts  ← Tangerine
-├── 🗓️ Periods            ← Tangerine
-└── 📓 Journal Entries    ← Tangerine
-```
+- **Top-left:** Tangerine logo + "ERP" subtitle. Click anywhere on the logo to return to the home landing.
+- **Center:** 6 module buttons. Click any to open that panel. The active one is highlighted.
+- **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Vendor Portal). Clicking any link navigates the browser to that app's URL in the same tab.
 
-> **If you don't see the 6 new entries:** hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) to bust the cached old bundle. The entries shipped in Tangerine Chunks 7 / 7b / 7c / 8a / 8b / 8c; if your deploy is older than 2026-05-26, none of them are there yet.
+**Home landing** (when no module is selected, e.g. just after login): shows module cards grouped by **Master Data** (Style / Vendor / Customer) and **Accounting** (COA / Periods / JE), plus a "Other apps in the suite" grid at the bottom.
 
-![Tanda top nav with the Vendors flyout open, Analytics & Admin column highlighted](screenshots/01-tanda-vendors-flyout.png)
-<!-- screenshot needed: top nav showing the Vendors flyout open, with all 6 column groups visible and the Analytics & Admin column highlighted -->
+![Tangerine top nav and home landing](screenshots/01-tangerine-home.png)
+<!-- screenshot needed: /tangerine landing page showing top nav + module cards + apps grid -->
 
-### Why "Vendors ▾" hosts the admin panels
+![Tangerine Apps launcher dropdown open](screenshots/01-tangerine-apps-launcher.png)
+<!-- screenshot needed: Apps ▾ dropdown open showing the 7 app links -->
 
-The Vendors button in the top nav is misnamed for historical reasons — it predates Tangerine and originally only held vendor-related screens. As the Tanda app grew, it became the catch-all flyout for every internal admin view (analytics, compliance, sourcing, finance, and now Tangerine masters + accounting). A future cleanup may rename this top-level entry to something like "Admin ▾" or split the master/accounting groups into their own top-nav button. For now, the 6 Tangerine entries live where the existing nav code put them.
+### What happened to the old "Vendors ▾ flyout" location?
+
+Through Chunks 7/7b/7c/8a/8b/8c (May 25-26) the 6 admin panels temporarily lived in the Tanda PO WIP app's "Vendors ▾" dropdown — a poor architectural home for ERP master data. Chunk T1 (2026-05-26) moved them to their own `/tangerine` app and removed them from Tanda's menu entirely. If you have muscle memory pointing at Tanda, retrain it: **the panels are at `/tangerine`** now.
 
 ## Reading these docs
 
@@ -92,8 +85,8 @@ The Vendors button in the top nav is misnamed for historical reasons — it pred
 
 If you've never opened Tangerine before, the fastest way to confirm everything works in your environment:
 
-0. **Open the flyout.** From `/tanda`, click **Vendors ▾** in the top nav, then look at the **Analytics & Admin** column on the right. The 6 emoji entries (🎨 🏭 🤝 📒 🗓️ 📓) are at the bottom of that column.
-1. **🎨 Style Master** — click the menu entry. The table should populate with hundreds of style codes from `ip_item_master`. Confirm search works.
+0. **Open Tangerine.** Navigate to `https://<your-domain>/tangerine`. You'll see the home landing with module cards.
+1. **🎨 Style Master** — click the module button (or the card on the home landing). The table should populate with hundreds of style codes from `ip_item_master`. Confirm search works.
 2. **🏭 Vendor Master** — same pattern; should populate with your existing portal vendors.
 3. **🤝 Customer Master** — same pattern; should populate with your existing planning customers (renamed from `ip_customer_master` in Chunk 6).
 4. **📒 Chart of Accounts** — likely **empty** until your accountant supplies the COA list. To test, click "+ Add account" and create:

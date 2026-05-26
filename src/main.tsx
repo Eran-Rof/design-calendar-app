@@ -97,6 +97,10 @@ async function mount() {
     const { default: App } = await import("./App");
     root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><App /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/tangerine")) {
+    const { default: Tangerine } = await import("./Tangerine");
+    root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/tanda")) {
     const { default: TandA } = await import("./TandA");
     root.render(<StrictMode><ErrorBoundary appName="PO WIP"><TandA /></ErrorBoundary></StrictMode>);
