@@ -14,4 +14,14 @@ export interface ReportPayload {
   wb: any;
   /** Suggested download filename. */
   filename: string;
+  /** Filter chips for the preview header — same list that gets joined
+   *  into "Filters: …" in the xlsx's report-metadata banner. The modal
+   *  renders these as small chips next to the Run timestamp instead of
+   *  duplicating the banner as a wide column-spanning table row. */
+  filterChips?: string[];
+  /** Run timestamp ("YYYY-MM-DD HH:MM") that matches the xlsx banner's
+   *  Row 1, so the preview shows the same stamp the operator sees on
+   *  the downloaded file. Optional — modal falls back to omitting the
+   *  stamp when the payload predates this field. */
+  runStamp?: string;
 }

@@ -7,7 +7,7 @@ import {
   autofitColumns, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
-import { buildReportHeader } from "./reportHeader";
+import { buildReportHeader, fmtRunStamp } from "./reportHeader";
 
 // Semantic accents (kept out of the theme — Neg Inven owns the meaning).
 const NEG_RED  = "C0392B";
@@ -231,11 +231,14 @@ export function exportNegInven(
   // ── Prepend 3-row report-metadata banner ────────────────────────────
   // Name / Run timestamp / Filters — see reportHeader.ts. Spliced at
   // the front of the AOA; every downstream row-indexed reference
-  // shifts by BANNER.
+  // shifts by BANNER. runNow is captured once so the preview header's
+  // run stamp matches the xlsx banner exactly.
+  const runNow = new Date();
   const reportHdr = buildReportHeader({
     reportName: "ATS Negative Inventory Report",
     filterChips: [],
     totalColumns: TC,
+    now: runNow,
   });
   const BANNER = reportHdr.rows.length;
   aoa.unshift(...reportHdr.rows);
@@ -321,5 +324,7 @@ export function exportNegInven(
     aoa,
     wb,
     filename: `Neg_Inventory_${fmtDate(today)}.xlsx`,
+    filterChips: [],
+    runStamp: fmtRunStamp(runNow),
   };
 }

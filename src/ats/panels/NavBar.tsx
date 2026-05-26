@@ -596,9 +596,14 @@ export const NavBar: React.FC<NavBarProps> = ({
       aoa: payload.aoa,
       wb: payload.wb,
       filename: payload.filename,
+      filterChips: payload.filterChips,
+      runStamp: payload.runStamp,
     };
     setPreviewPayload(normalized);
-    setPreviewBodyCount(Math.max(0, payload.aoa.length - 1));
+    // Body row count for the preview header — the modal skips the 3
+    // banner rows (name / run / filters) when rendering, so subtract
+    // those AND the column-header row to get the true data-row count.
+    setPreviewBodyCount(Math.max(0, payload.aoa.length - 4));
     setPreviewBackTarget(backTarget);
   };
   const [agedOpen, setAgedOpen] = useState(false);

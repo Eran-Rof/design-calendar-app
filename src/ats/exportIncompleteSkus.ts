@@ -11,7 +11,7 @@ import {
   autofitColumns, applyOutlines, buildWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
-import { buildReportHeader } from "./reportHeader";
+import { buildReportHeader, fmtRunStamp } from "./reportHeader";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -130,10 +130,13 @@ export function exportIncompleteSkus(
   // AFTER outlines run, so the banner styles aren't overwritten by
   // the table-frame logic. Filter chips empty — this report is
   // unscoped (operates on all filtered SKUs the operator gave it).
+  // runNow captured once so preview header + xlsx banner agree.
+  const runNow = new Date();
   const reportHdr = buildReportHeader({
     reportName: "ATS Incomplete SKUs Report",
     filterChips: [],
     totalColumns: headers.length,
+    now: runNow,
   });
   const allRows = [...reportHdr.rows, ...tableRows];
 
@@ -161,6 +164,8 @@ export function exportIncompleteSkus(
       aoa: allRows,
       wb,
       filename,
+      filterChips: [],
+      runStamp: fmtRunStamp(runNow),
     },
   };
 }

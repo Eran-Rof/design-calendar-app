@@ -22,7 +22,7 @@ import {
   autofitColumns, applyOutlines, buildWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
-import { buildReportHeader, REPORT_HEADER_ROW_COUNT } from "./reportHeader";
+import { buildReportHeader, REPORT_HEADER_ROW_COUNT, fmtRunStamp } from "./reportHeader";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -300,11 +300,14 @@ export function exportStockVsSo(
   // Prepend the 3-row report-metadata banner (name / run / filters)
   // AFTER outlines run, so the banner styles aren't overwritten by
   // the table-frame logic. No filter chips — the report operates on
-  // every SO line in scope.
+  // every SO line in scope. runNow is captured once so the preview
+  // header's run stamp matches the xlsx banner exactly.
+  const runNow = new Date();
   const reportHdr = buildReportHeader({
     reportName: "ATS Stock vs Sales Orders Report",
     filterChips: [],
     totalColumns: headers.length,
+    now: runNow,
   });
   const allRows = [...reportHdr.rows, ...tableRows];
 
@@ -355,6 +358,8 @@ export function exportStockVsSo(
       aoa: allRows,
       wb,
       filename,
+      filterChips: [],
+      runStamp: fmtRunStamp(runNow),
     },
   };
 }

@@ -5,7 +5,7 @@ import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
 import type { ExportOptions } from "./panels/ExportOptionsModal";
 import type { SalesFetchResult, SalesAggregate } from "./exportSalesFetch";
-import { buildReportHeader } from "./reportHeader";
+import { buildReportHeader, fmtRunStamp } from "./reportHeader";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -66,6 +66,12 @@ export interface ExportPayload {
   // legacy code that built ExportPayload without one still type-checks
   // — the preview default falls back to "Export".
   title?: string;
+  // Filter chips + run timestamp — mirrors the same fields on
+  // ReportPayload so the preview modal renders them in its header
+  // instead of duplicating the xlsx banner as a wide column-spanning
+  // table row. Both optional; preview hides them when absent.
+  filterChips?: string[];
+  runStamp?: string;
 }
 
 // Same as exportToExcel but returns the workbook + AOA without
@@ -1523,10 +1529,14 @@ export function buildExportPayload(
   // Per operator: every ATS export gets a top banner with report name,
   // run timestamp, and the active filter chips. Built AFTER column
   // projection so the row merges span the FINAL kept column count.
+  // runNow captured once so the preview header's run stamp matches the
+  // xlsx banner exactly.
+  const runNow = new Date();
   const reportHdr = buildReportHeader({
     reportName: customerFilter ? `ATS Grid Export — ${customerFilter}` : "ATS Grid Export",
     filterChips,
     totalColumns: effectiveAllRows[0]?.length ?? totalColumnCount,
+    now: runNow,
   });
   for (const m of effectiveMerges) {
     m.s.r += reportHdr.rows.length;
@@ -1630,5 +1640,12 @@ export function buildExportPayload(
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
 
-  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid" };
+  return {
+    aoa,
+    wb,
+    filename: `ATS_Report_${fmtDate(new Date())}.xlsx`,
+    title: "ATS Grid",
+    filterChips,
+    runStamp: fmtRunStamp(runNow),
+  };
 }

@@ -11,7 +11,7 @@ import {
   autofitColumns, buildMultiSheetWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
-import { buildReportHeader } from "./reportHeader";
+import { buildReportHeader, fmtRunStamp } from "./reportHeader";
 
 // ── Semantic cost-group colors (operators read the workbook by group) ────
 // Kept out of the shared theme — these are domain-specific tier markers,
@@ -152,6 +152,9 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
   // report-metadata banner showing these.
   const reportFilterChips: string[] = [`Age=${ageDaysThreshold}+ days`];
   if (category && category !== "All") reportFilterChips.push(`Category=${category}`);
+  // Captured once so every sheet's banner + the preview header all
+  // show the same Run timestamp.
+  const runNow = new Date();
 
   // ── Summary sheet ─────────────────────────────────────────────────────
   {
@@ -312,6 +315,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
       reportName: `ATS Aged Inventory Report (${ageDaysThreshold}+ days)`,
       filterChips: reportFilterChips,
       totalColumns: TC,
+      now: runNow,
     });
     const BANNER = reportHdr.rows.length;
     const aoaWithBanner = [...reportHdr.rows, ...aoa];
@@ -474,6 +478,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
       reportName: `ATS Aged Inventory (${ageDaysThreshold}+ days) — ${store} ${gender}`,
       filterChips: reportFilterChips,
       totalColumns: TC,
+      now: runNow,
     });
     const BANNER = reportHdr.rows.length;
     const aoaWithBanner = [...reportHdr.rows, ...aoa];
@@ -517,5 +522,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
     aoa: sheets[0].allRows,
     wb,
     filename,
+    filterChips: reportFilterChips,
+    runStamp: fmtRunStamp(runNow),
   };
 }

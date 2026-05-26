@@ -28,7 +28,10 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function fmtRunStamp(now: Date): string {
+// Exported so each exporter's ReportPayload.runStamp uses the SAME format
+// as the xlsx banner — preview header + downloaded workbook show one
+// timestamp, no drift between them.
+export function fmtRunStamp(now: Date): string {
   return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 }
 

@@ -15,6 +15,7 @@
 import React, { useMemo } from "react";
 import XLSXStyle from "xlsx-js-style";
 import { mapExcelToAppPalette } from "../exportPreviewMapping";
+import { REPORT_HEADER_ROW_COUNT } from "../reportHeader";
 import { TH } from "../../utils/theme";
 
 interface Cell {
@@ -32,6 +33,12 @@ interface Props {
     aoa: Cell[][];
     wb: any;
     filename: string;
+    // Filter chips + run timestamp surfaced inline in the modal header
+    // instead of duplicating the xlsx banner as a wide column-spanning
+    // table row. Both optional so legacy callers still type-check; the
+    // modal hides each piece when its source value is empty.
+    filterChips?: string[];
+    runStamp?: string;
   } | null;
   // Header subtitle shows row count — preview reports the body row
   // count (header row excluded). Caller computes this so it matches
@@ -95,33 +102,47 @@ function downloadFromPayload(wb: any, filename: string) {
 
 export const ExportPreviewModal: React.FC<Props> = ({ open, payload, rowCount, showBack = false, onClose, onCloseAll }) => {
   const aoa = payload?.aoa ?? null;
-  const filename = payload?.filename ?? "";
   const title = payload?.title ?? "Export";
+  const filterChips = payload?.filterChips ?? [];
+  const runStamp = payload?.runStamp ?? "";
 
-  // Detect an optional title row at AOA index 0. The exporter writes
-  // it when the operator narrows by customer (22pt, col A) AND/OR
-  // picks a custom date range (20pt banner). Both, either, or neither
-  // may be present. A row qualifies as a title row when:
-  //   • At least one cell has a value AND a font size >= 16
-  //   • Every non-empty cell has a font size >= 16 (i.e. there are
-  //     no normal data cells; this is purely the title band)
-  const looksLikeTitleRow = (row: Cell[]): boolean => {
+  // Every ATS report's AOA starts with the 3-row report-metadata
+  // banner (name / "Run: …" / "Filters: …") built by reportHeader.ts.
+  // The modal hoists runStamp + filterChips into its own header strip,
+  // so those 3 banner rows MUST be skipped here — otherwise the
+  // banner Row 1 ("Run: 2026-05-26 15:41") gets rendered as the
+  // wide column-header row of the preview table. Detection: row index
+  // 1's first cell starts with "Run: " — unique to the banner and
+  // resilient to changes in report name styling.
+  const hasReportBanner = !!(aoa && aoa.length >= REPORT_HEADER_ROW_COUNT
+    && typeof aoa[1]?.[0]?.v === "string"
+    && (aoa[1][0].v as string).startsWith("Run: "));
+  const bannerSkip = hasReportBanner ? REPORT_HEADER_ROW_COUNT : 0;
+
+  // AFTER the banner, the main-grid export may still emit an OPTIONAL
+  // title row carrying up to two text values:
+  //   • Customer name at col 0 (font sz 22, left-aligned)
+  //   • Date range banner somewhere (font sz 20, centered)
+  // Both/either/neither may be present. Pre-banner code detected this
+  // at AOA index 0; now it lives at index = bannerSkip.
+  const looksLikeTitleRow = (row: Cell[] | undefined): boolean => {
     if (!row || row.length === 0) return false;
     let foundBigText = false;
     for (const cell of row) {
       if (!cell) continue;
       if (cell.v === undefined || cell.v === null || cell.v === "") continue;
       const sz = cell.s?.font?.sz;
-      if (typeof sz !== "number" || sz < 16) return false;
+      if (typeof sz !== "number" || sz < 20) return false;
       foundBigText = true;
     }
     return foundBigText;
   };
 
-  const titleRow  = useMemo(() => (aoa && aoa.length > 0 && looksLikeTitleRow(aoa[0])) ? aoa[0] : null, [aoa]);
+  const titleRow  = useMemo(() => (aoa && aoa.length > bannerSkip && looksLikeTitleRow(aoa[bannerSkip])) ? aoa[bannerSkip] : null, [aoa, bannerSkip]);
   const titleSkip = titleRow ? 1 : 0;
-  const headerRow = useMemo(() => aoa && aoa.length > titleSkip ? aoa[titleSkip] : null, [aoa, titleSkip]);
-  const bodyRows  = useMemo(() => aoa && aoa.length > titleSkip + 1 ? aoa.slice(titleSkip + 1) : [], [aoa, titleSkip]);
+  const tableStart = bannerSkip + titleSkip;
+  const headerRow = useMemo(() => aoa && aoa.length > tableStart ? aoa[tableStart] : null, [aoa, tableStart]);
+  const bodyRows  = useMemo(() => aoa && aoa.length > tableStart + 1 ? aoa.slice(tableStart + 1) : [], [aoa, tableStart]);
 
   if (!open || !payload || !aoa || !headerRow) return null;
 
@@ -147,14 +168,47 @@ export const ExportPreviewModal: React.FC<Props> = ({ open, payload, rowCount, s
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#10B981", textTransform: "uppercase", letterSpacing: "0.06em" }}>
               {title} Preview
             </div>
+            {/* Subtitle: Run timestamp (when the payload carries one) +
+                row / column counts. The filename ("…_2026-05-26.xlsx")
+                was dropped per operator request — the .xlsx surfaces on
+                the Download button + actual save dialog, no reason to
+                duplicate it in the modal header. */}
             <div style={{ fontSize: 11, color: "#94A3B8" }}>
-              {filename} · {rowCount.toLocaleString()} row{rowCount === 1 ? "" : "s"} · {headerRow.length} column{headerRow.length === 1 ? "" : "s"}
+              {runStamp && (<><span>Run: {runStamp}</span><span> · </span></>)}
+              <span>{rowCount.toLocaleString()} row{rowCount === 1 ? "" : "s"}</span>
+              <span> · </span>
+              <span>{headerRow.length} column{headerRow.length === 1 ? "" : "s"}</span>
             </div>
+            {/* Filter chips — same list that lands in the xlsx banner's
+                "Filters: …" row, surfaced here so the operator can
+                confirm scope before downloading without the banner
+                rendering as a wide column-spanning table row. Hidden
+                when empty so reports without scope (Neg Inven, Stock
+                vs SO, Incomplete SKUs) don't show "No filters" noise. */}
+            {filterChips.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+                {filterChips.map((chip, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      background: "rgba(16,185,129,0.12)",
+                      border: "1px solid rgba(16,185,129,0.4)",
+                      color: "#10B981",
+                      borderRadius: 999,
+                      padding: "2px 10px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                    }}
+                  >{chip}</span>
+                ))}
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {showBack && (
