@@ -600,7 +600,7 @@ export const SalesCompsModal: React.FC<Props> = ({
   // we surface two totals rows (PPK packs vs each) so packs + eaches
   // never sum into a single misleading number. In explode-ON mode or
   // single-grain explode-OFF mode, one combined totals row is correct.
-  const dimTotals = useMemo<DimTotals>(() => totalsForDimRows(tableRows), [tableRows]);
+  const dimTotals = useMemo<DimTotals>(() => totalsForDimRows(tableRows, explodePpk), [tableRows, explodePpk]);
   // Combined totals — used by all explode-ON code paths + as the
   // single-row totals when only one grain is present in explode-OFF
   // mode. Mirrors the old `totals` shape so downstream consumers
@@ -1028,7 +1028,7 @@ export const SalesCompsModal: React.FC<Props> = ({
         continue;
       }
       const dataRows = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
-      const dataTotals = totalsForDimRows(dataRows);
+      const dataTotals = totalsForDimRows(dataRows, explodePpk);
       viewSections.push({ kind: "dim", dim, dataRows, dataTotals });
     }
 
@@ -1260,8 +1260,10 @@ export const SalesCompsModal: React.FC<Props> = ({
               const built = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
               // Per-dim totals — used to decide whether to render two
               // grain-split totals rows (mixed grain in explode-OFF
-              // mode) or a single combined totals row.
-              const builtTotals = totalsForDimRows(built);
+              // mode) or a single combined totals row. With Explode ON,
+              // qty is uniformly in eaches and one TOTAL is correct;
+              // totalsForDimRows forces hasMixed=false in that mode.
+              const builtTotals = totalsForDimRows(built, explodePpk);
               return (
                 <CompsTable
                   key={dim}
