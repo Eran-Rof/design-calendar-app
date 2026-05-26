@@ -733,8 +733,11 @@ function pushSoSection(
     }
   }
 
-  // Grand-total row. LY dedup'd by style (same as the modal's TOTAL row)
-  // so multiple SOs sharing one style don't double-count the LY ship $.
+  // Grand-total row. Each row's LY is now a per-SO ±30d window (see the
+  // modal's soRows useMemo), so totals SUM across rows rather than
+  // de-duping by style key — overlapping windows on same-style nearby
+  // SOs do double-count their overlap days, but that's the tradeoff for
+  // keeping the per-row signal. Matches SoCompsTable in the modal.
   // The catch-all subtotal (SO_CATCHALL_KEY) carries LY ship $ for
   // styles with NO TY SO — added in explicitly so the SO TOTAL LY
   // reconciles with the other dim TOTALs.
@@ -742,12 +745,10 @@ function pushSoSection(
   const catchallRow = soRows.find((r): r is SoRowSubtotal =>
     r.kind === "subtotal" && r.key === SO_CATCHALL_KEY);
   if (dataRows.length > 0 || catchallRow) {
-    const seenStyles = new Set<string>();
     let tQ = 0, tR = 0, lQ = 0, lR = 0;
     for (const r of dataRows) {
       tQ += r.tyQty; tR += r.tyRev;
-      const sk = r.style ?? r.key;
-      if (!seenStyles.has(sk)) { lQ += r.lyQty; lR += r.lyRev; seenStyles.add(sk); }
+      lQ += r.lyQty; lR += r.lyRev;
     }
     if (catchallRow) {
       lQ += catchallRow.lyQty;

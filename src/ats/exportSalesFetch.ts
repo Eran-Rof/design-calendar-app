@@ -9,7 +9,7 @@
 
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import type { ATSRow } from "./types";
-import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds, getMatchingItemMasterIds } from "./itemMasterLookup";
+import { isItemMasterLoaded, loadItemMasterCache, resolveItemMasterIds, getMatchingItemMasterIds, getItemMasterById } from "./itemMasterLookup";
 
 interface SalesRow {
   sku_id: string;
@@ -98,6 +98,25 @@ export interface SalesFetchResult {
   // (needByCustomer:true). Keyed by customer_id; entry.customerName
   // is the display name from ip_customer_master.
   byCustomer?: CustomerRollup;
+  // Per-style daily LY breakdown. Present only when needLyDailyByStyle
+  // is set. Map<style_code, Array<{date, qty, totalPrice, marginAmount}>>
+  // sorted by date ascending. Multiple sales of the same style on the
+  // same date are summed into one entry. Used by the Sales Comps SO
+  // view to compute a per-SO LY window (cancel_date ± 30d shifted -12mo)
+  // instead of every SO row carrying the same full-window style total.
+  // The fetch's LY window is widened by ±30 days when this flag is set
+  // so every per-SO window is covered.
+  lyDailyByStyle?: Map<string, DailyStyleAgg[]>;
+}
+
+// One day of LY sales for a single style. Built from ip_sales_history_wholesale
+// during the same row scan that produces `t3` / `ly`. The array form (sorted
+// by date) lets the SO view scan a per-SO window with a single pass.
+export interface DailyStyleAgg {
+  date: string;        // YYYY-MM-DD
+  qty: number;
+  totalPrice: number;
+  marginAmount: number;
 }
 
 // ── Module-level cache of the wide (15-month) sales-history window ───
@@ -344,6 +363,12 @@ export interface FetchSalesArgs {
   // additional batched ip_customer_master lookup after the row scan
   // — no extra sales-history round trip.
   needByCustomer?: boolean;
+  // When true, the result includes `lyDailyByStyle` — a per-(style, day)
+  // breakdown of LY sales so callers can compute per-SO LY windows
+  // (e.g. cancel_date - 12mo ± 30d). Widens the LY fetch by 30 days
+  // on each side so every per-SO window is fully covered. Built in
+  // the same row scan as t3/ly — no extra DB round trip.
+  needLyDailyByStyle?: boolean;
 }
 
 export interface SalesFetchWindows {
@@ -455,7 +480,20 @@ function cacheCovers(start: string, end: string): boolean {
   return start >= salesCacheStart && end <= salesCacheEnd;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, filterGender, needByCustomer }: FetchSalesArgs): Promise<SalesFetchResult> {
+// LY widening for the per-style daily LY map. The Sales Comps SO view
+// compares each open SO against shipments of the same style in a ±30d
+// window around the SO's cancel date shifted -12mo — so the fetched
+// LY range must extend 30 days past each side of the strict LY window
+// to cover SOs that cancel right at the edges of the operator's TY range.
+const LY_DAILY_PADDING_DAYS = 30;
+
+function isoMinusDays(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, filterGender, needByCustomer, needLyDailyByStyle }: FetchSalesArgs): Promise<SalesFetchResult> {
   // Window resolution. Default: T3 = trailing 3 months from today;
   // LY = same window shifted back 12 months (== [today-15m, today-12m]).
   // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
@@ -466,6 +504,11 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   const lyStart = isoMinusMonths(t3Start, 12);
   const lyEnd   = isoMinusMonths(t3End,   12);
   const windows: SalesFetchWindows = { t3Start, t3End, lyStart, lyEnd };
+  // Widened LY range — only used to bucket per-style daily aggs for the
+  // per-SO window math. The summary `ly` aggregate still uses the strict
+  // [lyStart, lyEnd] gate so existing non-SO views are unaffected.
+  const lyDailyStart = needLyDailyByStyle ? isoMinusDays(lyStart, LY_DAILY_PADDING_DAYS) : lyStart;
+  const lyDailyEnd   = needLyDailyByStyle ? isoPlusDays(lyEnd,    LY_DAILY_PADDING_DAYS) : lyEnd;
 
   if (!needT3 && !needLY) return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   if (!SB_URL) {
@@ -485,11 +528,16 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
 
   // Pick the outer fetch window. We pull the union of both per-block
   // windows from the DB / cache, then bucket per-row in the loop below.
+  // When needLyDailyByStyle is set, use the padded LY range so each
+  // per-SO window (cancel_date - 12mo ± 30d) is fully covered even at
+  // the edges of the operator's TY window.
+  const effectiveLyStart = needLyDailyByStyle ? lyDailyStart : lyStart;
+  const effectiveLyEnd   = needLyDailyByStyle ? lyDailyEnd   : lyEnd;
   let fetchStart: string;
   let fetchEnd: string;
-  if (needT3 && needLY) { fetchStart = lyStart < t3Start ? lyStart : t3Start; fetchEnd = t3End > lyEnd ? t3End : lyEnd; }
+  if (needT3 && needLY) { fetchStart = effectiveLyStart < t3Start ? effectiveLyStart : t3Start; fetchEnd = t3End > effectiveLyEnd ? t3End : effectiveLyEnd; }
   else if (needT3)      { fetchStart = t3Start; fetchEnd = t3End; }
-  else                  { fetchStart = lyStart; fetchEnd = lyEnd; }
+  else                  { fetchStart = effectiveLyStart; fetchEnd = effectiveLyEnd; }
 
   // Resolve customer name(s) → union of matching ip_customer_master.ids
   // across every provided name. Empty input = "all customers"; non-empty
@@ -667,10 +715,20 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     return fresh;
   };
 
+  // Per-style daily LY accumulator. Only populated when the caller asked
+  // for it (needLyDailyByStyle). Inner map keyed by ISO date so multiple
+  // sales of the same style on the same day collapse into one entry —
+  // we flatten + sort into an array after the loop.
+  const lyDailyAcc: Map<string, Map<string, DailyStyleAgg>> | null = needLyDailyByStyle ? new Map() : null;
+
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
     const inLY = needLY && r.txn_date >= lyStart && r.txn_date <= lyEnd;
-    if (!inT3 && !inLY) continue;
+    // Widened LY gate for the per-style daily map. Catches sales that
+    // fall outside the strict LY window but inside the ±30d padding
+    // used by per-SO LY windows.
+    const inLyDaily = lyDailyAcc != null && r.txn_date >= lyDailyStart && r.txn_date <= lyDailyEnd;
+    if (!inT3 && !inLY && !inLyDaily) continue;
 
     // qty_units is the authoritative unit-grain qty written by the
     // nightly sync handler (since migration 20260517230000). Falls
@@ -736,6 +794,40 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
       ex.totalPrice += rev;
       ex.marginAmount += marg;
     }
+
+    // Per-(style, date) LY accumulator. Sized to the widened lyDaily
+    // window so the SO view's per-row ±30d lookup is always covered.
+    // Resolved through the in-memory master cache — `r.sku_id` is the
+    // ip_item_master uuid, and getItemMasterById is O(1).
+    if (lyDailyAcc && inLyDaily) {
+      const master = getItemMasterById(r.sku_id);
+      const style = master?.style_code;
+      if (style) {
+        let perDate = lyDailyAcc.get(style);
+        if (!perDate) { perDate = new Map(); lyDailyAcc.set(style, perDate); }
+        let agg = perDate.get(r.txn_date);
+        if (!agg) {
+          agg = { date: r.txn_date, qty: 0, totalPrice: 0, marginAmount: 0 };
+          perDate.set(r.txn_date, agg);
+        }
+        agg.qty += qty;
+        agg.totalPrice += rev;
+        agg.marginAmount += marg;
+      }
+    }
+  }
+
+  // Flatten the per-style daily LY accumulator into the result shape.
+  // Each style's array is sorted by date ascending so callers can scan
+  // a window in O(n) without re-sorting.
+  let lyDailyByStyle: Map<string, DailyStyleAgg[]> | undefined;
+  if (lyDailyAcc) {
+    lyDailyByStyle = new Map();
+    for (const [style, perDate] of lyDailyAcc) {
+      const arr = [...perDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+      lyDailyByStyle.set(style, arr);
+    }
+    console.info(`[ATS export] lyDailyByStyle → ${lyDailyByStyle.size} styles, window ${lyDailyStart}..${lyDailyEnd}`);
   }
 
   console.info(`[ATS export] aggregated → t3:${t3.size} SKUs, ly:${ly.size} SKUs, extras:${extraBySkuId.size} (customer=${customerNames.length === 0 ? "all" : customerNames.join("+")}, windows t3=${t3Start}..${t3End} ly=${lyStart}..${lyEnd})`);
@@ -777,7 +869,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     console.info(`[ATS export] byCustomer rollup → ${byCustomer.size} customers (${realIds.length - nameById.size} unresolved name${realIds.length - nameById.size === 1 ? "" : "s"})`);
   }
 
-  return { windows, t3, ly, extraBySkuId, byCustomer };
+  return { windows, t3, ly, extraBySkuId, byCustomer, lyDailyByStyle };
 }
 
 // Resolve sales aggregates for one ATS-row SKU, narrowed by customer
