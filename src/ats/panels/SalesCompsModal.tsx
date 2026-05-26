@@ -470,8 +470,14 @@ export const SalesCompsModal: React.FC<Props> = ({
   const openSoAggregates = useMemo(() => {
     const byCustomer = new Map<string, { qty: number; rev: number; mrgn: number }>();
     const bySkuCode = new Map<string, { qty: number; rev: number; mrgn: number }>();
+    // Per-(customer, sku_code) breakdown — required for grain-aware
+    // customer dim aggregation. SO qty/rev/mrgn folded per pair so the
+    // customer aggregator can classify grain via the SKU's master and
+    // split (or collapse) the customer's open-SO contribution along the
+    // same explodePpk policy used elsewhere.
+    const byCustomerSku = new Map<string, Map<string, { qty: number; rev: number; mrgn: number }>>();
     const coverage = { contributing: 0, costResolved: 0, costMissing: 0 };
-    if (!excelData) return { byCustomer, bySkuCode, coverage };
+    if (!excelData) return { byCustomer, bySkuCode, byCustomerSku, coverage };
     const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
     for (const s of excelData.sos) {
       const filterDate = s.cancelDate || s.date;
@@ -520,9 +526,20 @@ export const SalesCompsModal: React.FC<Props> = ({
         const ss = bySkuCode.get(skuCode) ?? { qty: 0, rev: 0, mrgn: 0 };
         ss.qty += s.qty; ss.rev += s.totalPrice; ss.mrgn += est.margin;
         bySkuCode.set(skuCode, ss);
+
+        // (customer, sku_code) folding — feeds the grain-aware
+        // customer dim aggregator. Unresolved sku_code (master miss)
+        // drops here; falls into the customer-totals slot via the
+        // first byCustomer write above so grand totals stay correct,
+        // it just can't contribute per-grain detail.
+        let perCust = byCustomerSku.get(custKey);
+        if (!perCust) { perCust = new Map(); byCustomerSku.set(custKey, perCust); }
+        const cs = perCust.get(skuCode) ?? { qty: 0, rev: 0, mrgn: 0 };
+        cs.qty += s.qty; cs.rev += s.totalPrice; cs.mrgn += est.margin;
+        perCust.set(skuCode, cs);
       }
     }
-    return { byCustomer, bySkuCode, coverage };
+    return { byCustomer, bySkuCode, byCustomerSku, coverage };
   }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, soCostInputs]);
 
   // Raw per-SKU aggregate, keyed by sku_code (BASE-COLOR). qty stays
@@ -878,46 +895,71 @@ export const SalesCompsModal: React.FC<Props> = ({
     return { total, afterDate, afterStore, afterCustomer, afterScope };
   }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end]);
 
-  // Per-customer rows for the Summary view. Sorted by TY revenue
-  // descending so the biggest customers appear first. Dropped rows
-  // where neither TY nor LY had any sales — they'd be noise.
+  // Per-(customer, sku) raw aggregates for the Customer dim view.
+  // Replaces the old "one row per customer" rollup with per-SKU detail
+  // so the grain-aware aggregator (aggregateExplodeAware, dim: customer)
+  // can classify each SKU's grain and split (or collapse) the
+  // customer's rows along the same explodePpk policy used by every
+  // other dim.
   //
-  // TY here = shipped sales + open SO commits in the window. For a
-  // past window the open-SO contribution is 0 (all current SOs have
-  // cancel dates ≥ today). For a forward window the shipped
-  // contribution is 0 — so the merge surfaces meaningful TY numbers
-  // either way. Customers that exist only on the open-SO side (no
-  // historical LY) still appear via the second loop below.
-  const customerRows = useMemo(() => {
-    type CRow = { customer: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number };
-    const byName = new Map<string, CRow>();
-    const ensure = (name: string): CRow => {
-      const cur = byName.get(name);
+  // Sources:
+  //   * result.byCustomer.bySku — per-(customer, sku_id) breakdown of
+  //     shipped sales for the TY + LY windows (added in #292; built
+  //     server-side from the same row scan as t3/ly with no extra DB
+  //     round trip). sku_id is a uuid — resolved to sku_code here via
+  //     the in-memory item-master cache. Unresolvable sku_ids fold
+  //     into a "(unknown sku)" bucket so the customer's totals stay
+  //     correct even if a per-grain split for them isn't possible.
+  //   * openSoAggregates.byCustomerSku — per-(customer, sku_code)
+  //     breakdown of open SOs in the picked window. Folded into TY
+  //     (qty + rev + estimated margin) so a forward-looking window
+  //     still surfaces meaningful TY numbers per customer.
+  //
+  // Output shape matches the aggregator's customerRaw arg: one entry
+  // per (customer, sku) pair with TY + LY qty/rev/mrgn.
+  const customerRawAggs = useMemo(() => {
+    type Entry = { customer: string; sku: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number };
+    // Key = `${customer}::${sku}` — same composite as the aggregator's
+    // internal buckets so duplicate (cust, sku) pairs across the two
+    // sources accumulate cleanly.
+    const byKey = new Map<string, Entry>();
+    const ensure = (customer: string, sku: string): Entry => {
+      const k = `${customer}::${sku}`;
+      const cur = byKey.get(k);
       if (cur) return cur;
-      const fresh: CRow = { customer: name, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
-      byName.set(name, fresh);
+      const fresh: Entry = { customer, sku, tyQty: 0, tyRev: 0, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 };
+      byKey.set(k, fresh);
       return fresh;
     };
     if (result?.byCustomer) {
       for (const entry of result.byCustomer.values()) {
-        const row = ensure(entry.customerName);
-        row.tyQty += entry.t3.qty; row.tyRev += entry.t3.totalPrice; row.tyMrgn += entry.t3.marginAmount;
-        row.lyQty += entry.ly.qty; row.lyRev += entry.ly.totalPrice; row.lyMrgn += entry.ly.marginAmount;
+        for (const [skuId, agg] of entry.bySku) {
+          const master = getItemMasterById(skuId);
+          // sku_code is what aggregateExplodeAware resolves back to a
+          // master via resolveItemMasterIds. Falling back to a synthetic
+          // "(unknown sku)" label keeps grand totals correct (the
+          // contribution still folds under the customer) while making
+          // the unresolved chunk visible as its own row in explode-OFF
+          // mode — operator can investigate without a silent drop.
+          const skuKey = master?.sku_code ?? `__unresolved:${skuId.slice(0, 8)}`;
+          const row = ensure(entry.customerName, skuKey);
+          row.tyQty += agg.t3.qty; row.tyRev += agg.t3.totalPrice; row.tyMrgn += agg.t3.marginAmount;
+          row.lyQty += agg.ly.qty; row.lyRev += agg.ly.totalPrice; row.lyMrgn += agg.ly.marginAmount;
+        }
       }
     }
-    // Merge open SO totals into TY. Includes customers that don't
-    // appear in result.byCustomer at all (e.g. brand-new wholesale
-    // accounts with no LY history). Margin is the estimated value
-    // from the openSoAggregates helper.
-    for (const [name, agg] of openSoAggregates.byCustomer) {
-      const row = ensure(name);
-      row.tyQty += agg.qty;
-      row.tyRev += agg.rev;
-      row.tyMrgn += agg.mrgn;
+    // Merge open SO contributions (per customer + sku_code). Brand-new
+    // accounts with no LY history still appear here — they have a
+    // (cust, sku) row from the SO side with non-zero TY.
+    for (const [customerName, perSku] of openSoAggregates.byCustomerSku) {
+      for (const [skuCode, agg] of perSku) {
+        const row = ensure(customerName, skuCode);
+        row.tyQty += agg.qty;
+        row.tyRev += agg.rev;
+        row.tyMrgn += agg.mrgn;
+      }
     }
-    return [...byName.values()]
-      .filter(r => r.tyRev > 0 || r.lyRev > 0)
-      .sort((a, b) => Math.max(b.tyRev, b.lyRev) - Math.max(a.tyRev, a.lyRev));
+    return [...byKey.values()].filter(r => r.tyRev > 0 || r.lyRev > 0);
   }, [result, openSoAggregates]);
 
   const run = async () => {
@@ -1067,7 +1109,7 @@ export const SalesCompsModal: React.FC<Props> = ({
         aoa.push([]);
         continue;
       }
-      const dataRows = groupedRowsFor(dim, rawSkuAggs, customerRows, explodePpk);
+      const dataRows = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
       // Per-dim totals — used for the TOTAL row(s) at the bottom of
       // each section. Same shape as the summary block: split when mixed
       // grain is present in explode-OFF mode, single otherwise.
@@ -1334,7 +1376,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                   </div>
                 );
               }
-              const built = groupedRowsFor(dim, rawSkuAggs, customerRows, explodePpk);
+              const built = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
               // Per-dim totals — used to decide whether to render two
               // grain-split totals rows (mixed grain in explode-OFF
               // mode) or a single combined totals row.
@@ -1370,27 +1412,26 @@ export const SalesCompsModal: React.FC<Props> = ({
 // (qty in eaches); OFF splits dim rows by grain (qty stays in master's
 // native grain, with "(PPK packs)" / "(each)" suffix on the label).
 //
-// Customer dim is special: result.byCustomer is pre-aggregated by the
-// fetch (no per-sku breakdown) so we can't grain-split per customer.
-// We render single-row-per-customer and document the limitation in the
-// modal caveat line.
+// Customer dim is grain-aware as of #292: result.byCustomer.bySku
+// carries the per-(customer, sku_id) breakdown so the aggregator can
+// classify each SKU's grain and split the customer's rows along the
+// explodePpk policy used by every other dim. customerRawAggs is the
+// pre-built (customer, sku) raw set the modal feeds in.
 function groupedRowsFor(
   dim: Exclude<ViewByKey, "so">,
   rawSkuAggs: RawSkuAgg[],
-  customerRows: Array<{ customer: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }>,
+  customerRawAggs: Array<{ customer: string; sku: string; tyQty: number; tyRev: number; tyMrgn: number; lyQty: number; lyRev: number; lyMrgn: number }>,
   explodePpk: boolean,
 ): DimRow[] {
   if (dim === "customer") {
-    // Customer dim — single row per customer (no grain split). qty is
-    // a mix of grains for customers buying both PPK + each products;
-    // operator gets a caveat line in the modal when this happens.
-    return customerRows.map(c => ({
-      key: c.customer,
-      label: c.customer,
-      grain: "each" as const,
-      tyQty: c.tyQty, tyRev: c.tyRev, tyMrgn: c.tyMrgn,
-      lyQty: c.lyQty, lyRev: c.lyRev, lyMrgn: c.lyMrgn,
-    }));
+    return aggregateExplodeAware({
+      raw: [],
+      dim: "customer",
+      explodePpk,
+      resolveIds: resolveItemMasterIds,
+      getMaster: getItemMasterById,
+      customerRaw: customerRawAggs,
+    });
   }
   return aggregateExplodeAware({
     raw: rawSkuAggs,
