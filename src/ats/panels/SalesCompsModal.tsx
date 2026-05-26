@@ -1029,8 +1029,8 @@ export const SalesCompsModal: React.FC<Props> = ({
       : "Explode PPK: OFF (qty in master native grain, PPK and each split)";
     const aoa: (string | number)[][] = [
       ["Sales Comps"],
-      [`TY window: ${start} → ${end}`],
-      [`LY window: ${isoMinusMonths(start, 12)} → ${isoMinusMonths(end, 12)}`],
+      [`TY window: ${fmtDateDisplay(start)} → ${fmtDateDisplay(end)}`],
+      [`LY window: ${fmtDateDisplay(isoMinusMonths(start, 12))} → ${fmtDateDisplay(isoMinusMonths(end, 12))}`],
       [`Scope: ${scope}${customerFacing ? "  (customer-facing — margin hidden)" : ""}`],
       [explodeBanner],
       [],
@@ -1197,7 +1197,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               first-class label rather than a dim caption. */}
           {result && (
             <div style={{ fontSize: 14, fontWeight: 500, color: C.text, lineHeight: 1.35 }}>
-              Window: {start} → {end} (TY) · {tableRows.length} Style/Colors · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""} · Explode PPK: {explodePpk ? "ON" : "OFF"}
+              Window: {fmtDateDisplay(start)} → {fmtDateDisplay(end)} (TY) · {tableRows.length} Style/Colors · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""} · Explode PPK: {explodePpk ? "ON" : "OFF"}
             </div>
           )}
         </div>
@@ -1243,7 +1243,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               </div>
             </div>
             <div style={{ fontSize: 11, color: C.textDim, marginTop: -8 }}>
-              LY window auto-computes: {isoMinusMonths(start, 12)} → {isoMinusMonths(end, 12)}
+              LY window auto-computes: {fmtDateDisplay(isoMinusMonths(start, 12))} → {fmtDateDisplay(isoMinusMonths(end, 12))}
             </div>
 
             {rangeWarn && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Start date must be on or before End date.</div>}
