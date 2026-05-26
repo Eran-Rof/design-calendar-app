@@ -5,6 +5,7 @@ import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
 import type { ExportOptions } from "./panels/ExportOptionsModal";
 import type { SalesFetchResult, SalesAggregate } from "./exportSalesFetch";
+import { buildReportHeader } from "./reportHeader";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -35,8 +36,12 @@ export function exportToExcel(
   // mirrors the grid so what the operator sees on screen is what the
   // download (and View preview) shows.
   explodePpk?: boolean,
+  // Toolbar filter snapshot at export time — rendered into the 3-row
+  // report-metadata banner (name / run / filters) prepended to every
+  // export. Empty array → "Filters: None". See reportHeader.ts.
+  filterChips?: string[],
 ) {
-  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk);
+  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, filterChips);
   if (!payload) return;
   triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -76,6 +81,7 @@ export function buildExportPayload(
   _eventIndex?: EventIndex | null,
   salesAggregates?: SalesFetchResult,
   explodePpk: boolean = true,
+  filterChips: string[] = [],
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -1513,6 +1519,22 @@ export function buildExportPayload(
     }
   }
 
+  // ── Prepend 3-row report-metadata header ────────────────────────────
+  // Per operator: every ATS export gets a top banner with report name,
+  // run timestamp, and the active filter chips. Built AFTER column
+  // projection so the row merges span the FINAL kept column count.
+  const reportHdr = buildReportHeader({
+    reportName: customerFilter ? `ATS Grid Export — ${customerFilter}` : "ATS Grid Export",
+    filterChips,
+    totalColumns: effectiveAllRows[0]?.length ?? totalColumnCount,
+  });
+  for (const m of effectiveMerges) {
+    m.s.r += reportHdr.rows.length;
+    m.e.r += reportHdr.rows.length;
+  }
+  effectiveAllRows = [...reportHdr.rows, ...effectiveAllRows];
+  effectiveMerges = [...reportHdr.merges, ...effectiveMerges];
+
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = effectiveAllRows;
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
@@ -1574,6 +1596,8 @@ export function buildExportPayload(
   const SUBTOTAL_HPT = 19;
   const TOTAL_HPT = 18;
   const rowsHeight: any[] = [];
+  // Report-metadata banner rows (name / run / filters) come first.
+  rowsHeight.push(...reportHdr.rowHeights);
   if (titleRow) rowsHeight.push({ hpt: 30 }); // taller for the 22pt customer name
   rowsHeight.push({ hpt: HEADER_HPT });
   // Walk the dataRows we actually built. A subtotal / bottom Total row
