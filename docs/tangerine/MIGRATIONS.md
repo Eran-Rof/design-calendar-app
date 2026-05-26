@@ -72,8 +72,81 @@ SELECT
 
 Every column should return `true`. If any returns `false`, that chunk's migrations haven't applied — run the bundle.
 
-## Going forward
+## Going forward — automated via GitHub Action
 
-For P2+ chunks, append the same workflow: every new migration in `supabase/migrations/` needs to be applied either via Option A (paste new files into dashboard) or Option B (`supabase db push`). The Option B path is strongly recommended — it tracks state automatically.
+Tangerine T1-fix-3 ships `.github/workflows/supabase-db-push.yml`. Every merge to `main` that touches `supabase/migrations/**` triggers it; the workflow runs `supabase db push --linked --include-all` against the project. Manual run via the Actions UI is also supported (with an optional dry-run mode).
 
-A future improvement (not yet built) is a GitHub Action that runs `supabase db push` on every merge to `main`, eliminating the manual step entirely.
+### One-time setup
+
+The workflow needs three repo secrets. Set them in **GitHub → repo → Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret name | Where to get it |
+|---|---|
+| `SUPABASE_ACCESS_TOKEN` | https://supabase.com/dashboard/account/tokens → **Generate new token** → copy. This is a personal access token, scoped to your user. |
+| `SUPABASE_PROJECT_REF` | Open your project in the Supabase dashboard → URL is `https://supabase.com/dashboard/project/<ref>/...` — copy the `<ref>` segment. |
+| `SUPABASE_DB_PASSWORD` | Supabase dashboard → your project → **Project Settings → Database → Connection string** → reveal the password. (Or reset it there if you don't have it.) |
+
+### Bootstrap (run-once on the existing prod DB)
+
+Your prod DB currently has migrations applied via the one-shot bundle (Option A above) but Supabase's CLI doesn't know about it — its `supabase_migrations.schema_migrations` tracking table is empty / out-of-sync. Before the GitHub Action's first run can succeed, you need to tell the CLI that the 18 P1 migrations are already applied:
+
+```bash
+# One-time, from your dev machine. Install CLI first:
+npm install -g supabase
+supabase login   # opens browser, paste your access token
+
+# Link to the project:
+supabase link --project-ref <your-ref>
+
+# Mark each existing migration as already applied (idempotent):
+for v in 20260521010000 20260521010100 20260521010200 20260521010300 \
+         20260521020000 20260521020100 20260521020200 20260521020300 20260521020400 \
+         20260521030000 \
+         20260521040000 20260521040100 20260521040200 \
+         20260522010000 \
+         20260522020000 20260522020100 20260522020200 \
+         20260526010000; do
+  supabase migration repair --status applied "$v"
+done
+
+# Verify:
+supabase migration list --linked
+# All 18 should show ✓ Applied
+```
+
+After bootstrap completes, the GitHub Action takes over: future Tangerine migration PRs auto-apply on merge.
+
+### What the Action does on each merge
+
+```mermaid
+flowchart LR
+    Merge["Merge to main<br/>touching supabase/migrations/**"] --> Trigger["GitHub Action fires"]
+    Trigger --> Install["Install Supabase CLI"]
+    Install --> Verify["Verify 3 secrets present"]
+    Verify --> Link["supabase link --project-ref"]
+    Link --> ListBefore["List migration state (before)"]
+    ListBefore --> Push["supabase db push --linked --include-all"]
+    Push --> ListAfter["List migration state (after)"]
+    ListAfter --> Done["✓ Done"]
+
+    Push -.if fails.-> Fail["Job fails<br/>(GitHub notifies)"]
+
+    style Done fill:#bbf7d0
+    style Fail fill:#fecaca
+```
+
+### Manual trigger (for testing or out-of-band runs)
+
+GitHub → **Actions** tab → "Supabase DB push" → **Run workflow** → optionally check "Dry run" → Run. Dry-run mode lists pending migrations without applying.
+
+### Failure recovery
+
+If the Action fails mid-push (e.g. a migration's syntax has a bug, or it conflicts with prod state):
+
+1. Inspect the workflow logs to see which migration failed.
+2. Fix the migration in a follow-up PR (still under `supabase/migrations/`).
+3. The repair step (idempotent) can also be invoked from your dev machine if a migration was partially applied:
+   ```bash
+   supabase migration repair --status applied <version>     # mark as done
+   supabase migration repair --status reverted <version>    # mark as needing re-run
+   ```
