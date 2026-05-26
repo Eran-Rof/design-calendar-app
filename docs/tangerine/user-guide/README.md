@@ -1,6 +1,6 @@
 # Tangerine ERP — User Guide (P1)
 
-The operator + accountant guide for the 6 admin panels shipped in Tangerine Phase 1: **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries**. All panels live in the `/tanda` app: click **Vendors ▾** in the top nav, then look at the **Analytics & Admin** column of the dropdown flyout.
+The operator + accountant guide for the 6 admin panels shipped in Tangerine Phase 1: **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries**. Tangerine has its own URL and top nav at **`/tangerine`** — separate from the Tanda PO WIP app.
 
 ## Who this is for
 
@@ -22,9 +22,10 @@ Login is the same for both; access to the data inside each panel is gated by Row
 
 ## 30-second quickstart
 
-1. **URL:** `https://<your-domain>/tanda`
-2. **Menu:** top nav → click **Vendors ▾** → in the flyout, look at the **Analytics & Admin** column → 6 emoji entries (🎨 🏭 🤝 📒 🗓️ 📓) at the bottom
-3. **First time?** Run the smoke test in [01-getting-started.md § Quickstart smoke test](01-getting-started.md#quickstart-smoke-test-10-minutes)
+1. **URL:** `https://<your-domain>/tangerine`
+2. **Top nav:** 6 module buttons across the top — 🎨 Style · 🏭 Vendor · 🤝 Customer · 📒 COA · 🗓️ Periods · 📓 Journal Entries. Click any one to open that panel.
+3. **Other apps:** click the **🧩 Apps ▾** button on the right of the top nav to launch Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, or Vendor Portal.
+4. **First time?** Run the smoke test in [01-getting-started.md § Quickstart smoke test](01-getting-started.md#quickstart-smoke-test-10-minutes)
 
 ## Conventions in this guide
 

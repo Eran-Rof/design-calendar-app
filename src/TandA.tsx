@@ -33,12 +33,6 @@ import InternalRfqs from "./tanda/InternalRfqs";
 import InternalWorkflowRules from "./tanda/InternalWorkflowRules";
 import InternalWorkflowExecutions from "./tanda/InternalWorkflowExecutions";
 import InternalEntities from "./tanda/InternalEntities";
-import InternalStyleMaster from "./tanda/InternalStyleMaster";
-import InternalVendorMaster from "./tanda/InternalVendorMaster";
-import InternalCustomerMaster from "./tanda/InternalCustomerMaster";
-import InternalCOA from "./tanda/InternalCOA";
-import InternalPeriods from "./tanda/InternalPeriods";
-import InternalJournalEntry from "./tanda/InternalJournalEntry";
 import InternalInsights from "./tanda/InternalInsights";
 import InternalWorkspaces from "./tanda/InternalWorkspaces";
 import InternalSustainability from "./tanda/InternalSustainability";
@@ -173,12 +167,6 @@ const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
     { view: "workflow_rules",     label: "Workflow Rules",  emoji: "⚙️" },
     { view: "workflow_executions",label: "Approvals",       emoji: "✅" },
     { view: "entities",           label: "Entities",        emoji: "🏛️" },
-    { view: "style_master",       label: "Style Master",    emoji: "🎨" },
-    { view: "vendor_master",      label: "Vendor Master",   emoji: "🏭" },
-    { view: "customer_master",    label: "Customer Master", emoji: "🤝" },
-    { view: "gl_accounts",        label: "Chart of Accounts", emoji: "📒" },
-    { view: "gl_periods",         label: "Periods",         emoji: "🗓️" },
-    { view: "journal_entries",    label: "Journal Entries", emoji: "📓" },
   ]},
 ];
 const VENDOR_MENU: MenuItem[] = VENDOR_MENU_GROUPS.flatMap((g) => g.items);
@@ -1687,12 +1675,10 @@ function TandAApp() {
 
         {/* ── ENTITIES ── */}
         {view === "entities" && <InternalEntities />}
-        {view === "style_master" && <InternalStyleMaster />}
-        {view === "vendor_master" && <InternalVendorMaster />}
-        {view === "customer_master" && <InternalCustomerMaster />}
-        {view === "gl_accounts" && <InternalCOA />}
-        {view === "gl_periods" && <InternalPeriods />}
-        {view === "journal_entries" && <InternalJournalEntry />}
+        {/* Tangerine ERP modules (style_master / vendor_master / customer_master /
+            gl_accounts / gl_periods / journal_entries) moved to /tangerine in
+            Chunk T1. The View union still includes these keys (in tandaTypes.ts)
+            but they're unreachable from Tanda's menu now. */}
 
         {/* ── INSIGHTS ── */}
         {view === "insights" && <InternalInsights />}
