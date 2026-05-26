@@ -3,19 +3,23 @@ import { dedupeSkuEntries } from "./merge";
 import { resolveStyle } from "./itemMasterLookup";
 
 // Per-period qty resolver shared by the grid, the export, and totals.
-// FIRST period: cumulative free-to-sell as-is. SUBSEQUENT periods:
-// only the additional qty that became available since the prior
-// period (typically new PO receipts). Negative deltas (more
-// reservations stealing earlier free stock) clamp to 0 — those
-// aren't "new availability". This was previously gated behind an
-// "Avail to Ship" toggle; the toggle was removed and this is now the
-// permanent behavior (planner: "the toggle is not needed; data should
-// always show as if AT SHIP was on").
+// In Avail-to-Ship mode the FIRST period shows the cumulative
+// free-to-sell as-is; each SUBSEQUENT period shows only the
+// additional qty that became available since the prior period
+// (typically new PO receipts). Negative deltas (more reservations
+// stealing earlier free stock) clamp to 0 — those aren't "new
+// availability". When atShip is off, every period shows the running
+// ATS balance straight from row.dates (existing behavior).
 export function periodAvail(
   row: ATSRow,
   periods: Array<{ endDate: string }>,
   i: number,
+  atShip: boolean,
 ): number {
+  if (!atShip) {
+    const v = row.dates[periods[i].endDate];
+    return typeof v === "number" ? v : 0;
+  }
   const free = (date: string): number => {
     const v = row.freeMap?.[date] ?? row.dates[date];
     return typeof v === "number" ? v : 0;

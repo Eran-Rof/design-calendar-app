@@ -433,6 +433,7 @@ interface NavBarProps {
   exportToExcel: (
     rows: ATSRow[],
     periods: Array<{ endDate: string; label: string }>,
+    atShip: boolean,
     hiddenColumns: string[],
     totals?: import("../computeTotals").GridTotals | null,
     options?: ExportOptions,
@@ -469,6 +470,7 @@ interface NavBarProps {
   // computeGridTotals. The exporter itself only needs endDate + label,
   // so we ship the wider shape and let each consumer pick.
   displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string }>;
+  atShip: boolean;
   hiddenColumns: string[];
   // When TOTALS toggle is on, the export drops the right-side Total
   // column + simple bottom Total row and emits a 5-row Cost/Sale/Mrgn
@@ -532,7 +534,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, subCategories, styles, STORES, filterCategory,
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
@@ -774,6 +776,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       ? computeGridTotals({
           filtered: rowsForExport,
           displayPeriods,
+          atShip,
           viewMode,
           eventIndex,
           generalMarginPct,
@@ -1405,6 +1408,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         exportToExcel(
           prep.rowsForExport,
           prep.periods,
+          atShip,
           hiddenColumns,
           prep.totals,
           opts,
@@ -1420,6 +1424,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         const payload = buildExportPayload(
           prep.rowsForExport,
           prep.periods,
+          atShip,
           hiddenColumns,
           prep.totals,
           opts,

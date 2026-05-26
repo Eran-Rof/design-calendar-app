@@ -77,7 +77,7 @@ function ATSReport() {
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
     syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
-    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, viewMode, showTotalsRow, showStatsCards, explodePpk, freezeKey, hiddenColumns, generalMarginPct,
+    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip, viewMode, showTotalsRow, showStatsCards, explodePpk, freezeKey, hiddenColumns, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
   } = st;
@@ -121,6 +121,7 @@ function ATSReport() {
   const setSortCol           = mk("sortCol");
   const setSortDir           = mk("sortDir");
   const setMergeHistory      = mk("mergeHistory");
+  const setAtShip            = mk("atShip");
   const setViewMode          = mk("viewMode");
   const setShowTotalsRow     = mk("showTotalsRow");
   const setShowStatsCards    = mk("showStatsCards");
@@ -761,8 +762,8 @@ function ATSReport() {
     setActiveSort("negATS");
     // Return the report payload to NavBar so it can route it through
     // the preview modal. null = nothing to preview (no negative rows).
-    return exportNegInven(rows, displayPeriods, eventIndex);
-  }, [rows, displayPeriods, eventIndex]);
+    return exportNegInven(rows, displayPeriods, atShip, eventIndex);
+  }, [rows, displayPeriods, atShip, eventIndex]);
 
   const onAgedInven = useCallback((days: number, category: string) => {
     // Returns "empty" when no rows qualify, otherwise a ReportPayload
@@ -1058,7 +1059,7 @@ function ATSReport() {
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
-    viewMode, setViewMode, onNegInven, onAgedInven,
+    atShip, setAtShip, viewMode, setViewMode, onNegInven, onAgedInven,
     showTotalsRow, setShowTotalsRow,
     showStatsCards, setShowStatsCards,
     explodePpk, setExplodePpk,
