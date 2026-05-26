@@ -26,6 +26,7 @@ import {
 } from "../salesCompsGrain";
 import {
   aggregateExplodeAware,
+  totalsForDimRows,
   type RawSkuAgg,
 } from "../salesCompsAggregate";
 import type { ItemMasterRecord } from "../itemMasterLookup";
@@ -117,9 +118,15 @@ describe("explodeMultiplier", () => {
 });
 
 describe("grainLabelSuffix", () => {
-  it("uses '(PPK packs)' for PPK and '(each)' for each", () => {
+  it("uses '(PPK packs)' for PPK and '(each)' for each (default / explode OFF)", () => {
     expect(grainLabelSuffix("ppk")).toBe("(PPK packs)");
     expect(grainLabelSuffix("each")).toBe("(each)");
+    expect(grainLabelSuffix("ppk", false)).toBe("(PPK packs)");
+    expect(grainLabelSuffix("each", false)).toBe("(each)");
+  });
+  it("returns empty string when explodePpk is ON (qty is uniformly in eaches, suffix would mislead)", () => {
+    expect(grainLabelSuffix("ppk", true)).toBe("");
+    expect(grainLabelSuffix("each", true)).toBe("");
   });
 });
 
@@ -366,5 +373,123 @@ describe("aggregateExplodeAware — totals", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].grain).toBe("each");
+  });
+});
+
+// ── Explode-ON: never split TOTAL rows by grain ─────────────────────
+//
+// Regression suite for the sub-category bug: when Explode PPK is ON,
+// the per-dim aggregator can still produce rows of mixed grain
+// (different sub-cats / categories / etc. that the sibling-collapse
+// can't bridge). totalsForDimRows must force hasMixed=false in that
+// mode so callers emit ONE combined TOTAL row — qty is uniformly in
+// eaches and summing is correct.
+//
+// Also: under Explode ON, per-row labels must NOT carry a grain
+// suffix (the suffix implies pack-vs-each, but with Explode ON
+// every qty is already in eaches).
+
+// Cross-sub-cat cache: a PPK family ("Shorts") and an each-only
+// family ("Pants"). Under sub_category dim with Explode ON, these
+// can't collapse into a single bucket (different sub-cat values),
+// so the dim row set is mixed-grain.
+function makeCrossSubCatCache(): ReturnType<typeof makeCache> & {
+  ppkShorts: ItemMasterRecord; eachPants: ItemMasterRecord;
+} {
+  const ppkShorts = makeRecord({
+    sku_code: "PPKSHORT-BLACK",
+    style_code: "PPKSHORTPPK",
+    color: "BLACK",
+    pack_size: 24,
+    attributes: { group_name: "Bottoms", category_name: "Cargo Shorts", gender: "MENS" },
+  });
+  const eachPants = makeRecord({
+    sku_code: "PLAINPANT-NAVY",
+    style_code: "PLAINPANT",
+    color: "NAVY",
+    pack_size: 1,
+    attributes: { group_name: "Bottoms", category_name: "Twill Shorts", gender: "MENS" },
+  });
+  return { ...makeCache([ppkShorts, eachPants]), ppkShorts, eachPants };
+}
+
+describe("aggregateExplodeAware — explode ON, never split TOTAL row by grain", () => {
+  it("sub_category dim with cross-sub-cat mixed grain emits one combined TOTAL (hasMixed=false)", () => {
+    const cache = makeCrossSubCatCache();
+    const raw: RawSkuAgg[] = [
+      // PPK style: 2 packs × 24 = 48 eaches after explode
+      { sku: "PPKSHORT-BLACK",  tyQty: 2, tyRev: 600, tyMrgn: 200, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+      // each style: 30 eaches as-is
+      { sku: "PLAINPANT-NAVY",  tyQty: 30, tyRev: 900, tyMrgn: 300, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+    ];
+    const rows = aggregateExplodeAware({
+      raw, dim: "sub_category", explodePpk: true,
+      resolveIds: cache.resolveIds, getMaster: cache.getMaster,
+    });
+    expect(rows).toHaveLength(2);
+    // Two different sub-cats — can't collapse. One row is ppk-grain,
+    // the other is each-grain.
+    const grains = rows.map(r => r.grain).sort();
+    expect(grains).toEqual(["each", "ppk"]);
+    // Critically: totals must NOT split, because qty is uniformly
+    // in eaches and summing across grains is correct.
+    const totals = totalsForDimRows(rows, true);
+    expect(totals.hasMixed).toBe(false);
+    expect(totals.combined.tyQty).toBe(48 + 30);
+    expect(totals.combined.tyRev).toBe(600 + 900);
+    expect(totals.combined.tyMrgn).toBe(200 + 300);
+  });
+
+  it("per-row labels in mixed-grain dim under Explode ON carry NO '(PPK packs)' / '(each)' suffix", () => {
+    const cache = makeCrossSubCatCache();
+    const raw: RawSkuAgg[] = [
+      { sku: "PPKSHORT-BLACK", tyQty: 1, tyRev: 100, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+      { sku: "PLAINPANT-NAVY", tyQty: 5, tyRev: 200, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+    ];
+    const rows = aggregateExplodeAware({
+      raw, dim: "sub_category", explodePpk: true,
+      resolveIds: cache.resolveIds, getMaster: cache.getMaster,
+    });
+    for (const r of rows) {
+      expect(r.label).not.toMatch(/\(PPK packs\)/);
+      expect(r.label).not.toMatch(/\(each\)/);
+    }
+  });
+
+  it("single-grain dim under Explode ON still emits one TOTAL (unchanged behavior)", () => {
+    const cache = makeStandaloneCache();
+    const raw: RawSkuAgg[] = [
+      { sku: "SOLO-BLACK", tyQty: 5, tyRev: 100, tyMrgn: 50, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+    ];
+    const rows = aggregateExplodeAware({
+      raw, dim: "category", explodePpk: true,
+      resolveIds: cache.resolveIds, getMaster: cache.getMaster,
+    });
+    expect(rows).toHaveLength(1);
+    // Single-grain row should carry no suffix in either mode under
+    // Explode ON.
+    expect(rows[0].label).not.toMatch(/\(PPK packs\)/);
+    expect(rows[0].label).not.toMatch(/\(each\)/);
+    const totals = totalsForDimRows(rows, true);
+    expect(totals.hasMixed).toBe(false);
+    expect(totals.combined.tyQty).toBe(5);
+  });
+
+  it("explode OFF + mixed-grain dim still splits TOTAL (existing behavior preserved)", () => {
+    const cache = makeFamilyCache();
+    const raw: RawSkuAgg[] = [
+      { sku: "RBB1440N-PPK-BLACK", tyQty: 2, tyRev: 528, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+      { sku: "RBB1440N-BLACK",     tyQty: 10, tyRev: 200, tyMrgn: 0, lyQty: 0, lyRev: 0, lyMrgn: 0 },
+    ];
+    const rows = aggregateExplodeAware({
+      raw, dim: "sku", explodePpk: false,
+      resolveIds: cache.resolveIds, getMaster: cache.getMaster,
+    });
+    const totals = totalsForDimRows(rows, false);
+    // Mixed grain in OFF mode — totals MUST split so packs + eaches
+    // never sum into a single misleading number.
+    expect(totals.hasMixed).toBe(true);
+    expect(totals.ppk.tyQty).toBe(2);
+    expect(totals.each.tyQty).toBe(10);
   });
 });

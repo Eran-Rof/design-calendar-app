@@ -179,7 +179,14 @@ export function explodeMultiplier(master: ItemMasterRecord | null): number {
 /** Display label suffix for the explode-OFF split. Renders "(PPK packs)"
  *  for PPK-grain rows and "(each)" for each-grain rows. Mixed dim rows
  *  use this to disambiguate which grain a sub-row represents so the
- *  operator never reads pack qty as eaches. */
-export function grainLabelSuffix(grain: SkuGrain): string {
+ *  operator never reads pack qty as eaches.
+ *
+ *  When explodePpk is ON, qty is uniformly in eaches (PPK × pack_size
+ *  applied upstream) and the suffix is misleading — return "" so call
+ *  sites don't append anything. Defensive guard: today the per-row
+ *  label call sites only fire in the explode-OFF branch, but threading
+ *  the flag here keeps the policy in one place. */
+export function grainLabelSuffix(grain: SkuGrain, explodePpk: boolean = false): string {
+  if (explodePpk) return "";
   return grain === "ppk" ? "(PPK packs)" : "(each)";
 }

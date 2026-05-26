@@ -212,8 +212,11 @@ export function aggregateExplodeAware(args: AggregateExplodeAwareArgs): DimRow[]
       const key = `${dimValue}::${grain}`;
       // Label appends the grain suffix; the caller knows mixed-vs-single
       // doesn't change the per-row rendering (always suffixed in
-      // explode-OFF mode for clarity).
-      const label = `${dimValue} ${grainLabelSuffix(grain)}`;
+      // explode-OFF mode for clarity). Suffix-with-empty-string when
+      // explodePpk is ON keeps the label clean — qty is already in
+      // eaches and "(PPK packs)" / "(each)" would be misleading.
+      const suffix = grainLabelSuffix(grain, explodePpk);
+      const label = suffix ? `${dimValue} ${suffix}` : dimValue;
       const bucket = ensure(key, label, grain);
       bucket.tyQty += tyQty;
       bucket.tyRev += r.tyRev;
@@ -271,7 +274,8 @@ function aggregateCustomerDim(
       bucket.lyMrgn += r.lyMrgn;
     } else {
       const key = `${r.customer}::${grain}`;
-      const label = `${r.customer} ${grainLabelSuffix(grain)}`;
+      const suffix = grainLabelSuffix(grain, explodePpk);
+      const label = suffix ? `${r.customer} ${suffix}` : r.customer;
       const bucket = ensure(key, label, grain);
       bucket.tyQty += tyQty;
       bucket.tyRev += r.tyRev;
@@ -315,7 +319,7 @@ const ZERO_TOTAL = (): GrainTotal => ({
   lyQty: 0, lyRev: 0, lyMrgn: 0, lyCogs: 0,
 });
 
-export function totalsForDimRows(rows: DimRow[]): DimTotals {
+export function totalsForDimRows(rows: DimRow[], explodePpk: boolean = false): DimTotals {
   const ppk = ZERO_TOTAL();
   const each = ZERO_TOTAL();
   const combined = ZERO_TOTAL();
@@ -334,5 +338,12 @@ export function totalsForDimRows(rows: DimRow[]): DimTotals {
   each.lyCogs = each.lyRev - each.lyMrgn;
   combined.tyCogs = combined.tyRev - combined.tyMrgn;
   combined.lyCogs = combined.lyRev - combined.lyMrgn;
-  return { ppk, each, combined, hasMixed: sawPpk && sawEach };
+  // With Explode ON, every qty is already in eaches (PPK × pack_size
+  // applied upstream) and the combined sum IS the correct grand total.
+  // Force hasMixed=false so callers emit ONE combined TOTAL row even
+  // when the dim happens to span both grains (e.g. Sub-Category, where
+  // PPK styles and each styles live under different sub-cats and the
+  // sibling-collapse can't bridge the boundary).
+  const hasMixed = explodePpk ? false : (sawPpk && sawEach);
+  return { ppk, each, combined, hasMixed };
 }
