@@ -1041,6 +1041,7 @@ export const NavBar: React.FC<NavBarProps> = ({
             const filteredSynthetic = filterRows(dedupedSynthetic, {
               ...exportFilterOpts,
               customerSkuSet: null,
+              displayPeriods,
             });
             finalRows = [...rowsForExport, ...filteredSynthetic];
             console.info(`[ATS export] cross-grid: added ${filteredSynthetic.length} synthetic rows (of ${synthetic.length} candidates) by (style, color) from ${salesAggregates.extraBySkuId.size} unmapped sku_ids (${unresolved} unresolved, ${synthetic.length - filteredSynthetic.length} dropped by grid filters)`);
