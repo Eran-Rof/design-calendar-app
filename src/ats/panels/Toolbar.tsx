@@ -237,12 +237,10 @@ interface ToolbarProps {
   collapseLevel: "none" | "category" | "subCategory" | "style";
   setCollapseLevel: (v: "none" | "category" | "subCategory" | "style") => void;
 
-  // AT SHIP + status line
-  atShip: boolean;
-  setAtShip: (v: boolean) => void;
-  // Grid view mode — what each cell shows. "ats" = running on-hand
-  // (current behavior + AT SHIP free-to-sell when atShip is on);
-  // "so" / "po" = SO or PO qty bucketed into the column's period.
+  // Grid view mode — what each cell shows. "ats" = per-period
+  // availability (cumulative free at period 0; new-receipt delta
+  // after, via periodAvail). "so" / "po" = SO or PO qty bucketed
+  // into the column's period.
   viewMode: "ats" | "so" | "po";
   setViewMode: (v: "ats" | "so" | "po") => void;
   // TOTALS row (sticky header above column labels with Qty / Cost /
@@ -279,7 +277,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   excelData, customerFilter, setCustomerFilter,
   customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
   collapseLevel, setCollapseLevel,
-  atShip, setAtShip,
   viewMode, setViewMode,
   showTotalsRow, setShowTotalsRow,
   explodePpk, setExplodePpk,
@@ -318,7 +315,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setMinATS("");
     setCustomerFilter("");
     setCollapseLevel("none");
-    setAtShip(false);
   };
 
   // Column visibility dropdown state. Anchored ref + open flag follow
@@ -356,7 +352,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   <div style={S.toolbar}>
     <button
       onClick={handleClearFilters}
-      title="Reset search, all filters (category, sub cat, gender, status, stores, customer, min ATS, AT SHIP), and collapse mode. Date range / units are preserved."
+      title="Reset search, all filters (category, sub cat, gender, status, stores, customer, min ATS), and collapse mode. Date range / units are preserved."
       style={{ ...S.select, padding: "6px 12px", color: "#FCA5A5", borderColor: "#7F1D1D", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 600 }}
     >
       ✕ Clear all
@@ -537,7 +533,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </div>
 
     {/* VIEW mode selector — switches what the date cells show.
-       ATS  → running on-hand balance (current behavior, paired with AT SHIP)
+       ATS  → per-period availability (cumulative free at period 0;
+              per-period new-receipt delta after, via periodAvail)
        SO   → sum of SO qty whose order date falls in the cell's period
        PO   → sum of PO qty whose receipt date falls in the cell's period */}
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -552,15 +549,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <option value="po">On PO Receipt</option>
       </select>
     </div>
-
-    {/* AT SHIP toggle */}
-    <label
-      title="Show only qty free to ship — not reserved for future uncovered SOs"
-      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${atShip ? "#10B981" : "#334155"}`, background: atShip ? "rgba(16,185,129,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
-    >
-      <input type="checkbox" checked={atShip} onChange={e => setAtShip(e.target.checked)} style={{ accentColor: "#10B981", cursor: "pointer", width: 14, height: 14 }} />
-      <span style={{ color: atShip ? "#6EE7B7" : "#9CA3AF", fontSize: 12, fontWeight: atShip ? 700 : 400 }}>Avail to Ship</span>
-    </label>
 
     {/* TOTALS row toggle */}
     <label
