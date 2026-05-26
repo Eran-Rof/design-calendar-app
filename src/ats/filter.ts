@@ -26,7 +26,9 @@ export interface RowFilterOpts {
   // calendar-date qty (which can be empty when the picked startDate is
   // in the future). A row passes Min ATS if ANY visible period's qty
   // meets or exceeds the threshold (per operator spec 2026-05-26).
-  displayPeriods: Array<{ endDate: string }>;
+  // Optional: when omitted, Min ATS falls back to r.onHand only —
+  // existing tests + callers that predate this prop keep working.
+  displayPeriods?: Array<{ endDate: string }>;
 }
 
 // Splits the search string into whitespace-delimited tokens and returns true
@@ -132,9 +134,11 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
     if (opts.minATS !== "") {
       const min = opts.minATS;
       let pass = false;
-      for (const p of opts.displayPeriods) {
-        const q = r.dates[p.endDate];
-        if (typeof q === "number" && q >= min) { pass = true; break; }
+      if (opts.displayPeriods) {
+        for (const p of opts.displayPeriods) {
+          const q = r.dates[p.endDate];
+          if (typeof q === "number" && q >= min) { pass = true; break; }
+        }
       }
       if (!pass && typeof r.onHand === "number" && r.onHand >= min) pass = true;
       if (!pass) return false;
