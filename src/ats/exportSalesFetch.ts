@@ -57,10 +57,23 @@ export type SalesAggMap = Map<string, SalesAggregate>;
 // resolved post-aggregation via a single batched ip_customer_master
 // lookup. NULL customer_id (rare; legacy / Xoro-side data gap) is
 // bucketed under the magic key "__unknown".
+//
+// bySku is the per-(customer, sku_id) breakdown of the same TY+LY
+// windows. Required by the customer dim's grain-aware aggregator —
+// a customer's qty can mix PPK and each grains, and the modal needs
+// per-SKU detail to classify + split (or collapse) per the explodePpk
+// toggle. Built in the same row scan as t3/ly (no extra DB round
+// trip). Keyed by ip_item_master.id (uuid) — the caller resolves
+// id → sku_code via the in-memory item-master cache.
+export interface CustomerSkuAgg {
+  t3: SalesAggregate;
+  ly: SalesAggregate;
+}
 export interface CustomerRollupEntry {
   customerName: string;
   t3: SalesAggregate;
   ly: SalesAggregate;
+  bySku: Map<string, CustomerSkuAgg>;
 }
 export type CustomerRollup = Map<string, CustomerRollupEntry>;
 
@@ -624,7 +637,13 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   // Per-customer accumulator. Populated alongside the per-sku maps so
   // the byCustomer rollup uses the same filtered row set + the same
   // T3/LY windows — no second pass, no extra fetch.
-  type CustAcc = { t3: SalesAggregate; ly: SalesAggregate };
+  //
+  // bySku carries the per-(customer, sku_id) breakdown used by the
+  // customer dim's grain-aware aggregator. Built in the same row scan
+  // (no extra DB query) — every (cust, sku) pair seen in the filtered
+  // row set gets its own t3/ly slot.
+  type CustSkuAcc = { t3: SalesAggregate; ly: SalesAggregate };
+  type CustAcc = { t3: SalesAggregate; ly: SalesAggregate; bySku: Map<string, CustSkuAcc> };
   const byCustomerAcc: Map<string, CustAcc> = new Map();
   const ensureCust = (custId: string): CustAcc => {
     const cur = byCustomerAcc.get(custId);
@@ -632,8 +651,19 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     const fresh: CustAcc = {
       t3: { qty: 0, totalPrice: 0, marginAmount: 0 },
       ly: { qty: 0, totalPrice: 0, marginAmount: 0 },
+      bySku: new Map(),
     };
     byCustomerAcc.set(custId, fresh);
+    return fresh;
+  };
+  const ensureCustSku = (cust: CustAcc, skuId: string): CustSkuAcc => {
+    const cur = cust.bySku.get(skuId);
+    if (cur) return cur;
+    const fresh: CustSkuAcc = {
+      t3: { qty: 0, totalPrice: 0, marginAmount: 0 },
+      ly: { qty: 0, totalPrice: 0, marginAmount: 0 },
+    };
+    cust.bySku.set(skuId, fresh);
     return fresh;
   };
 
@@ -666,11 +696,16 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
 
     // Per-customer rollup. Same qty / rev / margin numbers we just
     // computed above, bucketed under the row's customer_id (or
-    // "__unknown" when the row has no customer linkage).
+    // "__unknown" when the row has no customer linkage). bySku also
+    // gets the per-(customer, sku_id) split so the customer-dim
+    // aggregator can classify grain per sku and split/collapse rows.
     if (needByCustomer) {
       const acc = ensureCust(r.customer_id ?? "__unknown");
       if (inT3) { acc.t3.qty += qty; acc.t3.totalPrice += rev; acc.t3.marginAmount += marg; }
       if (inLY) { acc.ly.qty += qty; acc.ly.totalPrice += rev; acc.ly.marginAmount += marg; }
+      const cs = ensureCustSku(acc, r.sku_id);
+      if (inT3) { cs.t3.qty += qty; cs.t3.totalPrice += rev; cs.t3.marginAmount += marg; }
+      if (inLY) { cs.ly.qty += qty; cs.ly.totalPrice += rev; cs.ly.marginAmount += marg; }
     }
 
     const atsSku = idToSku.get(r.sku_id);
@@ -736,6 +771,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
         customerName: custId === "__unknown" ? "(unknown / no customer)" : (nameById.get(custId) ?? custId.slice(0, 8)),
         t3: acc.t3,
         ly: acc.ly,
+        bySku: acc.bySku,
       });
     }
     console.info(`[ATS export] byCustomer rollup → ${byCustomer.size} customers (${realIds.length - nameById.size} unresolved name${realIds.length - nameById.size === 1 ? "" : "s"})`);
