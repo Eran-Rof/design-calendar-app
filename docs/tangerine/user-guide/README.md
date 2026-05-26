@@ -1,6 +1,6 @@
 # Tangerine ERP — User Guide (P1)
 
-The operator + accountant guide for the 6 admin panels shipped in Tangerine Phase 1: **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries**. All panels live in the `/tanda` app under the **"Analytics & Admin"** sidebar group.
+The operator + accountant guide for the 6 admin panels shipped in Tangerine Phase 1: **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries**. All panels live in the `/tanda` app: click **Vendors ▾** in the top nav, then look at the **Analytics & Admin** column of the dropdown flyout.
 
 ## Who this is for
 
@@ -23,7 +23,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 ## 30-second quickstart
 
 1. **URL:** `https://<your-domain>/tanda`
-2. **Menu:** left sidebar → **Analytics & Admin** group → scroll to the 6 emoji entries (🎨 🏭 🤝 📒 🗓️ 📓)
+2. **Menu:** top nav → click **Vendors ▾** → in the flyout, look at the **Analytics & Admin** column → 6 emoji entries (🎨 🏭 🤝 📒 🗓️ 📓) at the bottom
 3. **First time?** Run the smoke test in [01-getting-started.md § Quickstart smoke test](01-getting-started.md#quickstart-smoke-test-10-minutes)
 
 ## Conventions in this guide

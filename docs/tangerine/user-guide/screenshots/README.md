@@ -4,7 +4,7 @@ Capture target list (14 PNGs, ~1920×1080 or 1280×800 for modal views). Drop ca
 
 | Filename | Where it's referenced | Captures |
 |---|---|---|
-| `01-tanda-nav-admin-group.png` | 01-getting-started.md | Tanda left sidebar with "Analytics & Admin" group expanded, all 6 new entries visible |
+| `01-tanda-vendors-flyout.png` | 01-getting-started.md | Tanda top nav with **Vendors ▾** flyout open; Analytics & Admin column highlighted; all 6 Tangerine entries visible at the bottom of that column |
 | `02-style-master-list.png` | 02-master-data.md | Style Master list view with search box + show-deleted toggle + several rows |
 | `02-style-master-add-modal.png` | 02-master-data.md | Style Master + Add modal with all fields populated |
 | `02-vendor-master-list.png` | 02-master-data.md | Vendor Master list with several rows |
