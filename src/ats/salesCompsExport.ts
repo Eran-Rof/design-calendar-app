@@ -20,6 +20,7 @@ import {
   autofitColumns,
 } from "./exportTheme";
 import type { DimRow, DimTotals } from "./salesCompsAggregate";
+import { buildReportHeader, REPORT_HEADER_ROW_COUNT } from "./reportHeader";
 
 // ── SO row shape (kept in sync with SalesCompsModal's SoRow) ───────────
 export type SoRowDetail = {
@@ -358,6 +359,21 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
     return [...row, ...Array(maxCols - row.length).fill(null).map(() => ({ ...padFill }))];
   };
 
+  // ── Report-metadata banner (name / run / filters) ────────────────────
+  // Prepended first so all downstream `aoa.length - 1` merge anchors
+  // self-track and the existing title / window / scope rows naturally
+  // sit below.
+  const reportFilterChips: string[] = [`Window=${start}..${end}`];
+  if (customerFacing) reportFilterChips.push("Customer-facing");
+  if (explodePpk) reportFilterChips.push("Explode PPK");
+  const reportHdr = buildReportHeader({
+    reportName: "ATS Sales Comps Report",
+    filterChips: reportFilterChips,
+    totalColumns: maxCols,
+  });
+  for (const row of reportHdr.rows) aoa.push(row);
+  for (const m of reportHdr.merges) merges.push(m);
+
   // ── Title row ────────────────────────────────────────────────────────
   const titleStyle = titleBannerStyle();
   aoa.push([{ v: "Sales Comps", t: "s", s: titleStyle }]);
@@ -601,15 +617,19 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
     ws["!cols"] = autofitColumns({ headerRow: aoa[0], bodyRows: aoa.slice(1) });
   }
 
-  // Row heights — title taller, header band heavier, body standard.
-  // Mark each row by walking the AOA shape: row index 0 = title banner;
-  // row 1-2 = window banners; row 3-4 = scope/explode; everything after
-  // is body with the column header / totals interspersed.
+  // Row heights — report banner first (3 rows), then title taller,
+  // header band heavier, body standard. After the report-metadata
+  // banner: row BANNER+0 = title; BANNER+1..BANNER+2 = window banners;
+  // BANNER+3..BANNER+4 = scope/explode; everything after is body with
+  // the column header / totals interspersed.
+  const BANNER = REPORT_HEADER_ROW_COUNT;
   const rows: any[] = [];
   for (let r = 0; r <= lastAoaRow; r++) {
-    if (r === 0) { rows.push({ hpt: 32 }); continue; }
-    if (r === 1 || r === 2) { rows.push({ hpt: 22 }); continue; }
-    if (r === 3 || r === 4) { rows.push({ hpt: 18 }); continue; }
+    if (r < BANNER) { rows.push(reportHdr.rowHeights[r]); continue; }
+    const tr = r - BANNER;
+    if (tr === 0) { rows.push({ hpt: 32 }); continue; }
+    if (tr === 1 || tr === 2) { rows.push({ hpt: 22 }); continue; }
+    if (tr === 3 || tr === 4) { rows.push({ hpt: 18 }); continue; }
     // Heuristic: a row whose first cell carries a wrapped header style
     // is a column header (give it the HEADER height). Bumped to 34 if
     // any header in the row wraps (mirrors exportExcel.ts convention).

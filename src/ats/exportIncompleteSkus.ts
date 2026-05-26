@@ -11,6 +11,7 @@ import {
   autofitColumns, applyOutlines, buildWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
+import { buildReportHeader } from "./reportHeader";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -122,11 +123,23 @@ export function exportIncompleteSkus(
     });
   }
 
-  const allRows = [headerRow, ...bodyRows];
-  applyOutlines({ allRows, totalColCount: headers.length });
+  const tableRows = [headerRow, ...bodyRows];
+  applyOutlines({ allRows: tableRows, totalColCount: headers.length });
+
+  // Prepend the 3-row report-metadata banner (name / run / filters)
+  // AFTER outlines run, so the banner styles aren't overwritten by
+  // the table-frame logic. Filter chips empty — this report is
+  // unscoped (operates on all filtered SKUs the operator gave it).
+  const reportHdr = buildReportHeader({
+    reportName: "ATS Incomplete SKUs Report",
+    filterChips: [],
+    totalColumns: headers.length,
+  });
+  const allRows = [...reportHdr.rows, ...tableRows];
 
   const cols = autofitColumns({ headerRow, bodyRows });
   const rowHeights = [
+    ...reportHdr.rowHeights,
     { hpt: ROW_HEIGHTS.HEADER },
     ...bodyRows.map(() => ({ hpt: ROW_HEIGHTS.BODY })),
   ];
@@ -138,6 +151,7 @@ export function exportIncompleteSkus(
     filename,
     cols,
     rowHeights,
+    merges: reportHdr.merges,
   });
 
   return {
