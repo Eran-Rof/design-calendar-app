@@ -22,6 +22,7 @@ import {
   autofitColumns, applyOutlines, buildWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
+import { buildReportHeader, REPORT_HEADER_ROW_COUNT } from "./reportHeader";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -293,12 +294,23 @@ export function exportStockVsSo(
   // ── Outlines ──────────────────────────────────────────────────────────
   // Outer rectangle around the whole sheet; no style-group outlining
   // (each report row is its own thing — no aggregation).
-  const allRows = [headerRow, ...bodyRows];
-  applyOutlines({ allRows, totalColCount: headers.length });
+  const tableRows = [headerRow, ...bodyRows];
+  applyOutlines({ allRows: tableRows, totalColCount: headers.length });
+
+  // Prepend the 3-row report-metadata banner (name / run / filters)
+  // AFTER outlines run, so the banner styles aren't overwritten by
+  // the table-frame logic. No filter chips — the report operates on
+  // every SO line in scope.
+  const reportHdr = buildReportHeader({
+    reportName: "ATS Stock vs Sales Orders Report",
+    filterChips: [],
+    totalColumns: headers.length,
+  });
+  const allRows = [...reportHdr.rows, ...tableRows];
 
   // ── Cols + row heights ────────────────────────────────────────────────
   const cols = autofitColumns({ headerRow, bodyRows });
-  const rowHeights: Array<{ hpt: number }> = [{ hpt: ROW_HEIGHTS.HEADER }];
+  const rowHeights: Array<{ hpt: number }> = [...reportHdr.rowHeights, { hpt: ROW_HEIGHTS.HEADER }];
   for (let i = 0; i < bodyRows.length; i++) {
     // Summary block lines (after the blank row + summary header) get
     // SUBTOTAL height for the value rows; the summary header itself
@@ -316,8 +328,11 @@ export function exportStockVsSo(
   // Autofilter spans only the report table (header + data rows), not
   // the summary block — applying filter past the table boundary in
   // Excel produces awkward dropdown behavior on the summary key/value
-  // rows.
-  const lastDataAoaRow = 1 + reports.length;  // Excel 1-based: header row 1, data rows 2..N+1
+  // rows. Shift by REPORT_HEADER_ROW_COUNT to account for the prepended
+  // report-metadata banner; freeze pane also shifts so the header row
+  // stays sticky.
+  const lastDataAoaRow = REPORT_HEADER_ROW_COUNT + 1 + reports.length;
+  const headerRowExcel = REPORT_HEADER_ROW_COUNT + 1;
   const lastColLetter = colLetter(headers.length);
 
   const filename = `Stock_Vs_SO_${fmtDate(new Date())}.xlsx`;
@@ -327,8 +342,9 @@ export function exportStockVsSo(
     filename,
     cols,
     rowHeights,
-    autofilter: `A1:${lastColLetter}${lastDataAoaRow}`,
-    freeze: { xSplit: 0, ySplit: 1 },
+    autofilter: `A${headerRowExcel}:${lastColLetter}${lastDataAoaRow}`,
+    freeze: { xSplit: 0, ySplit: headerRowExcel },
+    merges: reportHdr.merges,
   });
 
   return {
