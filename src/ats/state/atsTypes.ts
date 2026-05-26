@@ -71,11 +71,11 @@ export interface ATSState {
   sortCol: string | null;
   sortDir: "asc" | "desc";
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
-  atShip: boolean;
-  // Grid cell content selector. "ats" renders the daily on-hand + PO − SO
-  // running balance (current behavior, including AT SHIP free-to-sell when
-  // atShip is on). "so" / "po" render the SO / PO qty whose date falls
-  // within each column's period. Switches the totals-row Qty sum to match.
+  // Grid cell content selector. "ats" renders per-period availability
+  // (cumulative free at period 0; per-period new-receipt delta after,
+  // via periodAvail). "so" / "po" render the SO / PO qty whose date
+  // falls within each column's period. Switches the totals-row Qty
+  // sum to match.
   viewMode: "ats" | "so" | "po";
   // Toggles the totals row above the column headers (Qty / Cost / Sale
   // / Mrgn% summed across the filtered set). Defaults off — operator
@@ -198,7 +198,6 @@ export function createInitialState(startDate: string): ATSState {
     sortCol: "style",
     sortDir: "asc",
     mergeHistory: [],
-    atShip: true,
     viewMode: "ats",
     showTotalsRow: false,
     showStatsCards: true,
