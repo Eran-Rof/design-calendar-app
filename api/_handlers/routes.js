@@ -263,6 +263,9 @@ import h257 from "./internal/gl-accounts/index.js";
 import h258 from "./internal/gl-accounts/[id].js";
 import h259 from "./internal/gl-periods/index.js";
 import h260 from "./internal/gl-periods/[id].js";
+import h261 from "./internal/journal-entries/index.js";
+import h262 from "./internal/journal-entries/[id].js";
+import h263 from "./internal/journal-entries/reverse.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -481,6 +484,9 @@ export const ROUTES = [
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
   { pattern: "/api/internal/gl-periods", handler: h259 },
+  { pattern: "/api/internal/journal-entries/:id/reverse", handler: h263 },
+  { pattern: "/api/internal/journal-entries/:id", handler: h262 },
+  { pattern: "/api/internal/journal-entries", handler: h261 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
