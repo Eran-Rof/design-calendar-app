@@ -30,7 +30,13 @@ import {
   type DimTotals,
   type RawSkuAgg,
 } from "../salesCompsAggregate";
-import { downloadSalesCompsWorkbook, type SalesCompsExportInput, type SoRow as ExportSoRow } from "../salesCompsExport";
+import {
+  downloadSalesCompsWorkbook,
+  computeSoCatchallRow,
+  SO_CATCHALL_KEY,
+  type SalesCompsExportInput,
+  type SoRow as ExportSoRow,
+} from "../salesCompsExport";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -852,6 +858,22 @@ export const SalesCompsModal: React.FC<Props> = ({
       }
       out.sort((a, b) => b.tyRev - a.tyRev);
     }
+
+    // Catch-all row: any style in lyRevByStyle that is NOT covered by
+    // a TY SO in the current scope. Without this, the SO TOTAL LY
+    // would silently undercount vs the Customer / Style / Sub-Cat
+    // TOTALs (which already include those styles via the per-style
+    // ship-history match). Pushed between the last meaningful row and
+    // the grand TOTAL in every groupBy variant. Detected by
+    // SO_CATCHALL_KEY in the TOTAL emitters so its LY contribution
+    // folds into the bottom TOTAL row.
+    const tyStyles = new Set<string>();
+    for (const e of enriched) {
+      if (e.style) tyStyles.add(e.style);
+    }
+    const catchall = computeSoCatchallRow(tyStyles, lyRevByStyle);
+    if (catchall) out.push(catchall);
+
     return out;
   }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle, soCostInputs]);
 
@@ -1442,7 +1464,12 @@ function SoCompsTable({
   // already sum the rows above them — adding them would double-count).
   // LY is deduped by style key so a single style spanning N SOs only
   // contributes once, matching the per-style subtotal math.
+  // EXCEPTION: the catch-all subtotal (SO_CATCHALL_KEY) carries LY ship
+  // $ for styles with NO TY SO — its LY is added explicitly so the
+  // TOTAL reconciles with the other dim sections.
   const dataRows = rows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
+  const catchallRow = rows.find((r): r is Extract<SoRow, { kind: "subtotal" }> =>
+    r.kind === "subtotal" && r.key === SO_CATCHALL_KEY);
   const seenStylesLy = new Set<string>();
   let totalTyQty = 0, totalTyRev = 0, totalLyQty = 0, totalLyRev = 0;
   for (const r of dataRows) {
@@ -1454,6 +1481,10 @@ function SoCompsTable({
       totalLyRev += r.lyRev;
       seenStylesLy.add(styleKey);
     }
+  }
+  if (catchallRow) {
+    totalLyQty += catchallRow.lyQty;
+    totalLyRev += catchallRow.lyRev;
   }
   const totalGrowth = fmtGrowth(totalTyRev, totalLyRev);
 
@@ -1514,12 +1545,12 @@ function SoCompsTable({
               </tr>
             );
           })}
-          {dataRows.length === 0 && (
+          {dataRows.length === 0 && !catchallRow && (
             <tr><td colSpan={showSoMeta ? 9 : 6} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>
               No open SOs match this scope.
             </td></tr>
           )}
-          {dataRows.length > 0 && (
+          {(dataRows.length > 0 || catchallRow) && (
             <tr style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
               <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), fontWeight: 700, color: C.accent }}>TOTAL</td>
               <td style={{ ...td("right"), fontWeight: 700 }}>{totalTyQty.toLocaleString()}</td>
