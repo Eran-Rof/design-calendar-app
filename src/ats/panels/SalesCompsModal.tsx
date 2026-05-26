@@ -18,7 +18,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
-import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
+import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
 import { estimateSoMargin, type SoCostInputs } from "../salesCompsSoMargin";
@@ -52,6 +52,41 @@ function isoMinusMonths(iso: string, months: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setMonth(d.getMonth() - months);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function isoShiftDays(iso: string, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Per-SO LY window: ±30 days centered on the SO's cancel date shifted
+// back 12 months. Each SO row in the TY-vs-LY-SOs table compares its
+// open commitment against shipments of the same style inside this
+// window, so two SOs of the same style with different cancel dates
+// produce different LY numbers (instead of every row showing the same
+// full-window style total).
+const SO_LY_WINDOW_DAYS = 30;
+function lyWindowForCancelDate(cancelDate: string): { start: string; end: string } {
+  const anchor = isoMinusMonths(cancelDate, 12);
+  return { start: isoShiftDays(anchor, -SO_LY_WINDOW_DAYS), end: isoShiftDays(anchor, SO_LY_WINDOW_DAYS) };
+}
+// Sum a style's daily LY entries that fall within [winStart, winEnd].
+// The arr is pre-sorted by date so we can break early when we pass the
+// upper bound; a linear scan is fine — per-style arrays carry only the
+// LY-window days for that style and are small in practice.
+function sumLyInWindow(
+  arr: DailyStyleAgg[] | undefined,
+  winStart: string,
+  winEnd: string,
+): { qty: number; rev: number; mrgn: number } {
+  if (!arr) return { qty: 0, rev: 0, mrgn: 0 };
+  let qty = 0, rev = 0, mrgn = 0;
+  for (const e of arr) {
+    if (e.date < winStart) continue;
+    if (e.date > winEnd) break;
+    qty += e.qty; rev += e.totalPrice; mrgn += e.marginAmount;
+  }
+  return { qty, rev, mrgn };
 }
 function fmtUSD(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "—";
@@ -713,10 +748,13 @@ export const SalesCompsModal: React.FC<Props> = ({
       // One row per (style, SO). An SO with multiple SKUs of the
       // same style (e.g. 3 colors of RYO0658 on the same order)
       // collapses to ONE row — sum qty / totalPrice across the
-      // matching SKUs. LY comes from lyRevByStyle (shared across
-      // all SOs of the same style — that's intentional, the user
-      // asked for "same style all colors" matching).
+      // matching SKUs. LY is scoped to a ±30d window around the SO's
+      // cancel date shifted -12mo (per the operator spec): two SOs of
+      // the same style with different cancel dates produce different
+      // LY numbers, rather than every row carrying the same full-window
+      // style total.
       const perStyleSo = new Map<string, SoRow>();
+      const lyDaily = result?.lyDailyByStyle;
       for (const e of enriched) {
         const styleKey = e.style ?? "(no style)";
         const composite = `${styleKey}::${e.s.orderNumber}`;
@@ -727,7 +765,10 @@ export const SalesCompsModal: React.FC<Props> = ({
           existing.tyMrgn += e.tyMrgn;
           continue;
         }
-        const lyEntry = lyRevByStyle.get(styleKey) ?? { qty: 0, rev: 0, mrgn: 0 };
+        const win = lyWindowForCancelDate(e.cancelDate);
+        const lyEntry = e.style
+          ? sumLyInWindow(lyDaily?.get(e.style), win.start, win.end)
+          : { qty: 0, rev: 0, mrgn: 0 };
         perStyleSo.set(composite, {
           kind: "row",
           key: composite,
@@ -772,17 +813,26 @@ export const SalesCompsModal: React.FC<Props> = ({
             // Sum the estimated per-row margins — each row is its own
             // SO, so margins are additive (no double-count).
             tyMrgn: rows.reduce((s, r) => s + r.tyMrgn, 0),
-            lyQty: rows[0].lyQty,    // same style → same LY (no double-count)
-            lyRev: rows[0].lyRev,
-            lyMrgn: rows[0].lyMrgn,
+            // Per-SO LY windows: each row carries its own ±30d slice of
+            // LY shipments for this style. SOs with cancel dates >60d
+            // apart have non-overlapping windows, so the subtotal must
+            // SUM across rows (the old "same style → same LY → take
+            // first" was correct only under the full-window LY rule).
+            // Same-day-or-near-same SOs DO double-count overlapping LY
+            // days here — acceptable tradeoff vs. losing per-row signal.
+            lyQty: rows.reduce((s, r) => s + r.lyQty, 0),
+            lyRev: rows.reduce((s, r) => s + r.lyRev, 0),
+            lyMrgn: rows.reduce((s, r) => s + r.lyMrgn, 0),
           });
         }
       }
     } else if (groupBy === "so") {
       // Default: one row per SO order_number. Multiple SKUs / styles
       // on the same SO collapse — sum qty / totalPrice across them.
-      // LY uses the SET of styles touched by the SO so the comp
-      // covers every style on that order.
+      // LY uses the SET of styles touched by the SO, scoped to a ±30d
+      // window around the SO's cancel date shifted -12mo: two SOs of
+      // the same style with different cancel dates produce different
+      // LY (instead of every row carrying the same full-window total).
       const perOrder = new Map<string, { e: typeof enriched[number]; tyQty: number; tyRev: number; tyMrgn: number; styles: Set<string> }>();
       for (const e of enriched) {
         const cur = perOrder.get(e.s.orderNumber);
@@ -801,11 +851,12 @@ export const SalesCompsModal: React.FC<Props> = ({
           });
         }
       }
+      const lyDaily = result?.lyDailyByStyle;
       for (const { e, tyQty, tyRev, tyMrgn, styles } of perOrder.values()) {
+        const win = lyWindowForCancelDate(e.cancelDate);
         let lyQty = 0, lyRev = 0, lyMrgn = 0;
         for (const st of styles) {
-          const ent = lyRevByStyle.get(st);
-          if (!ent) continue;
+          const ent = sumLyInWindow(lyDaily?.get(st), win.start, win.end);
           lyQty += ent.qty; lyRev += ent.rev; lyMrgn += ent.mrgn;
         }
         out.push({
@@ -1005,6 +1056,11 @@ export const SalesCompsModal: React.FC<Props> = ({
         // Cheap — one extra batched ip_customer_master lookup, no
         // extra sales-history round trip.
         needByCustomer:    true,
+        // Pull per-(style, day) LY breakdown so the SO view can scope
+        // each row's LY column to a ±30d window around that SO's
+        // cancel date shifted back 12 months — instead of every row
+        // showing the same full-window style total.
+        needLyDailyByStyle: true,
       });
       setResult(r);
     } catch (e: any) {
@@ -1464,25 +1520,22 @@ function SoCompsTable({
 }): React.ReactElement {
   // Grand total across the data rows. Subtotal rows are skipped (they
   // already sum the rows above them — adding them would double-count).
-  // LY is deduped by style key so a single style spanning N SOs only
-  // contributes once, matching the per-style subtotal math.
+  // Each row's LY is now a per-SO ±30d window, so totals SUM across
+  // rows rather than de-duping by style key. Overlapping windows (same
+  // style, near-same cancel dates) double-count their overlapping LY
+  // days — acceptable tradeoff vs. losing per-row signal in the table.
   // EXCEPTION: the catch-all subtotal (SO_CATCHALL_KEY) carries LY ship
   // $ for styles with NO TY SO — its LY is added explicitly so the
   // TOTAL reconciles with the other dim sections.
   const dataRows = rows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
   const catchallRow = rows.find((r): r is Extract<SoRow, { kind: "subtotal" }> =>
     r.kind === "subtotal" && r.key === SO_CATCHALL_KEY);
-  const seenStylesLy = new Set<string>();
   let totalTyQty = 0, totalTyRev = 0, totalLyQty = 0, totalLyRev = 0;
   for (const r of dataRows) {
     totalTyQty += r.tyQty;
     totalTyRev += r.tyRev;
-    const styleKey = r.style ?? r.key;
-    if (!seenStylesLy.has(styleKey)) {
-      totalLyQty += r.lyQty;
-      totalLyRev += r.lyRev;
-      seenStylesLy.add(styleKey);
-    }
+    totalLyQty += r.lyQty;
+    totalLyRev += r.lyRev;
   }
   if (catchallRow) {
     totalLyQty += catchallRow.lyQty;
