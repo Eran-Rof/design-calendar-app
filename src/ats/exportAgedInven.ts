@@ -11,6 +11,7 @@ import {
   autofitColumns, buildMultiSheetWorkbook, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
+import { buildReportHeader, REPORT_HEADER_ROW_COUNT } from "./reportHeader";
 
 // ── Semantic cost-group colors (operators read the workbook by group) ────
 // Kept out of the shared theme — these are domain-specific tier markers,
@@ -145,6 +146,12 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
   // ── 4. Build sheet specs ──────────────────────────────────────────────
   const sheets: Array<Parameters<typeof buildMultiSheetWorkbook>[1][number]> = [];
+
+  // Filter chips shared by every sheet in this workbook: age threshold +
+  // category narrow (when not "All"). Each sheet prepends a 3-row
+  // report-metadata banner showing these.
+  const reportFilterChips: string[] = [`Age=${ageDaysThreshold}+ days`];
+  if (category && category !== "All") reportFilterChips.push(`Category=${category}`);
 
   // ── Summary sheet ─────────────────────────────────────────────────────
   {
@@ -299,12 +306,23 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
       }
     }
 
+    // Prepend the 3-row report-metadata banner. Shift every static
+    // row-indexed reference downstream by REPORT_HEADER_ROW_COUNT.
+    const reportHdr = buildReportHeader({
+      reportName: `ATS Aged Inventory Report (${ageDaysThreshold}+ days)`,
+      filterChips: reportFilterChips,
+      totalColumns: TC,
+    });
+    const BANNER = reportHdr.rows.length;
+    const aoaWithBanner = [...reportHdr.rows, ...aoa];
+
     const merges = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: TC - 1 } },  // title
-      { s: { r: 1, c: 0 }, e: { r: 1, c: TC - 1 } },  // subtitle
-      { s: { r: 3, c: 7 }, e: { r: 3, c: 9 } },       // Interest group
-      { s: { r: 3, c: 10}, e: { r: 3, c: 12 } },      // Storage group
-      { s: { r: 3, c: 13}, e: { r: 3, c: 14 } },      // Combined group
+      ...reportHdr.merges,
+      { s: { r: BANNER + 0, c: 0 }, e: { r: BANNER + 0, c: TC - 1 } },  // title
+      { s: { r: BANNER + 1, c: 0 }, e: { r: BANNER + 1, c: TC - 1 } },  // subtitle
+      { s: { r: BANNER + 3, c: 7 }, e: { r: BANNER + 3, c: 9 } },       // Interest group
+      { s: { r: BANNER + 3, c: 10}, e: { r: BANNER + 3, c: 12 } },      // Storage group
+      { s: { r: BANNER + 3, c: 13}, e: { r: BANNER + 3, c: 14 } },      // Combined group
     ];
 
     const headerForFit = aoa[4]; // col header row
@@ -312,6 +330,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
     const cols = autofitColumns({ headerRow: headerForFit, bodyRows: bodyForFit });
 
     const rowHeights = [
+      ...reportHdr.rowHeights,
       { hpt: ROW_HEIGHTS.HEADER + 4 }, // title — a touch taller
       { hpt: ROW_HEIGHTS.HEADER },      // subtitle
       { hpt: 8 },                       // separator
@@ -322,11 +341,11 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     sheets.push({
       sheetName: "Summary",
-      allRows: aoa,
+      allRows: aoaWithBanner,
       cols,
       rowHeights,
       merges,
-      freeze: { xSplit: 0, ySplit: 5 },
+      freeze: { xSplit: 0, ySplit: BANNER + 5 },
     });
   }
 
@@ -450,13 +469,26 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
       }
     }
 
-    const merges = [{ s: { r: 1, c: 0 }, e: { r: 1, c: TC - 1 } }];
+    // Prepend the 3-row report-metadata banner to this detail sheet.
+    const reportHdr = buildReportHeader({
+      reportName: `ATS Aged Inventory (${ageDaysThreshold}+ days) — ${store} ${gender}`,
+      filterChips: reportFilterChips,
+      totalColumns: TC,
+    });
+    const BANNER = reportHdr.rows.length;
+    const aoaWithBanner = [...reportHdr.rows, ...aoa];
+
+    const merges = [
+      ...reportHdr.merges,
+      { s: { r: BANNER + 1, c: 0 }, e: { r: BANNER + 1, c: TC - 1 } },
+    ];
 
     const headerForFit = aoa[0];
     const bodyForFit = aoa.slice(2);
     const cols = autofitColumns({ headerRow: headerForFit, bodyRows: bodyForFit });
 
     const rowHeights: Array<{ hpt: number }> = [
+      ...reportHdr.rowHeights,
       { hpt: ROW_HEIGHTS.HEADER + 14 }, // col headers — wrapped text
       { hpt: ROW_HEIGHTS.HEADER },      // banner
       ...Array(aoa.length - 2).fill({ hpt: ROW_HEIGHTS.BODY }),
@@ -464,11 +496,11 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     sheets.push({
       sheetName: `${store} - ${gender}`,
-      allRows: aoa,
+      allRows: aoaWithBanner,
       cols,
       rowHeights,
       merges,
-      freeze: { xSplit: 0, ySplit: 2 },
+      freeze: { xSplit: 0, ySplit: BANNER + 2 },
     });
   }
 
