@@ -433,13 +433,13 @@ interface NavBarProps {
   exportToExcel: (
     rows: ATSRow[],
     periods: Array<{ endDate: string; label: string }>,
+    atShip: boolean,
     hiddenColumns: string[],
     totals?: import("../computeTotals").GridTotals | null,
     options?: ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: SalesFetchResult,
     explodePpk?: boolean,
-    filterChips?: string[],
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -470,6 +470,7 @@ interface NavBarProps {
   // computeGridTotals. The exporter itself only needs endDate + label,
   // so we ship the wider shape and let each consumer pick.
   displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string }>;
+  atShip: boolean;
   hiddenColumns: string[];
   // When TOTALS toggle is on, the export drops the right-side Total
   // column + simple bottom Total row and emits a 5-row Cost/Sale/Mrgn
@@ -533,7 +534,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, subCategories, styles, STORES, filterCategory,
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
@@ -678,41 +679,6 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   // Shared pre-flight for both Export and View. Drops collapsed rows,
   // optionally builds GridTotals, and fetches sales aggregates from the
-  // Build the toolbar filter snapshot rendered into the 3-row report
-  // header banner at the top of every Excel export. Empty array →
-  // "Filters: None". Chips are formatted as "<label>=<value>" with
-  // multi-selects joined by + (so "Category=DENIM+TOPS"). Only includes
-  // filters that are actively narrowing — defaults are skipped to keep
-  // the line short.
-  function buildToolbarFilterChips(opts: ExportOptions): string[] {
-    const chips: string[] = [];
-    const o = exportFilterOpts;
-    if (o.search?.trim()) chips.push(`Search="${o.search.trim()}"`);
-    if (o.filterCategory?.length) chips.push(`Category=${o.filterCategory.join("+")}`);
-    if (o.filterSubCategory?.length) chips.push(`Sub Cat=${o.filterSubCategory.join("+")}`);
-    if (o.filterStyle?.length) chips.push(`Style=${o.filterStyle.join("+")}`);
-    if (o.filterGender?.length) {
-      const labels = { M: "Mens", B: "Boys", C: "Child", Wms: "Women's", G: "Girls" } as Record<string, string>;
-      chips.push(`Gender=${o.filterGender.map(g => labels[g] ?? g).join("+")}`);
-    }
-    if (o.filterStatus && o.filterStatus !== "All") chips.push(`Status=${o.filterStatus}`);
-    if (o.minATS !== "" && o.minATS != null) chips.push(`Min ATS=${o.minATS}`);
-    // storeFilter default is ["ROF"] — only chip when narrower or wider.
-    if (o.storeFilter?.length && !(o.storeFilter.length === 1 && o.storeFilter[0] === "ROF")) {
-      chips.push(`Stores=${o.storeFilter.join("+")}`);
-    }
-    if (opts.customerEnabled && opts.customer) chips.push(`Customer=${opts.customer}`);
-    if (opts.customSalesRangeEnabled && opts.customSalesRangeStart && opts.customSalesRangeEnd) {
-      chips.push(`Sales window=${opts.customSalesRangeStart}..${opts.customSalesRangeEnd}`);
-    }
-    if (opts.trailing3) chips.push("Trailing 3");
-    if (opts.spLY) chips.push("SP LY");
-    if (opts.avgCost) chips.push("Avg Cost shown");
-    if (opts.hideZeroColumns) chips.push("Hide zero cols");
-    if (opts.hideATSData) chips.push("Hide ATS data");
-    return chips;
-  }
-
   // nightly DB when trailing3 / SP-LY is on. Returns null when the
   // sales pre-fetch failed catastrophically (the modal stays open so
   // the operator can retry or adjust).
@@ -810,6 +776,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       ? computeGridTotals({
           filtered: rowsForExport,
           displayPeriods,
+          atShip,
           viewMode,
           eventIndex,
           generalMarginPct,
@@ -1441,13 +1408,13 @@ export const NavBar: React.FC<NavBarProps> = ({
         exportToExcel(
           prep.rowsForExport,
           prep.periods,
+          atShip,
           hiddenColumns,
           prep.totals,
           opts,
           eventIndex,
           prep.salesAggregates,
           explodePpk,
-          buildToolbarFilterChips(opts),
         );
         setExportOptsOpen(false);
       }}
@@ -1457,13 +1424,13 @@ export const NavBar: React.FC<NavBarProps> = ({
         const payload = buildExportPayload(
           prep.rowsForExport,
           prep.periods,
+          atShip,
           hiddenColumns,
           prep.totals,
           opts,
           eventIndex,
           prep.salesAggregates,
           explodePpk,
-          buildToolbarFilterChips(opts),
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's

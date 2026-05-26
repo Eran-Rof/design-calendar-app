@@ -7,7 +7,6 @@ import {
   autofitColumns, zebraFill, numOrBlank,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
-import { buildReportHeader } from "./reportHeader";
 
 // Semantic accents (kept out of the theme — Neg Inven owns the meaning).
 const NEG_RED  = "C0392B";
@@ -38,13 +37,14 @@ function poQtyInPeriod(
 export function exportNegInven(
   rows: ATSRow[],
   displayPeriods: Array<{ periodStart: string; endDate: string; label: string }>,
+  atShip: boolean,
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null = null,
 ): ReportPayload | null {
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
   function atsVal(r: ATSRow, p: { endDate: string }): number | null {
-    const v = r.freeMap?.[p.endDate] ?? r.dates[p.endDate];
+    const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
     return v ?? null;
   }
 
@@ -228,29 +228,16 @@ export function exportNegInven(
     }
   });
 
-  // ── Prepend 3-row report-metadata banner ────────────────────────────
-  // Name / Run timestamp / Filters — see reportHeader.ts. Spliced at
-  // the front of the AOA, with every downstream row-indexed reference
-  // shifted by BANNER below.
-  const reportHdr = buildReportHeader({
-    reportName: "ATS Negative Inventory Report",
-    filterChips: [],
-    totalColumns: TC,
-  });
-  const BANNER = reportHdr.rows.length;
-  aoa.unshift(...reportHdr.rows);
-
   // ── Build worksheet ──────────────────────────────────────────────────────
   const ws: any = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
-  // ── Merges (banner + title + group label spans) ──────────────────────────
+  // ── Merges (title banner + group label spans) ────────────────────────────
   ws["!merges"] = [
-    ...reportHdr.merges,
-    { s: { r: BANNER + 0, c: 0 }, e: { r: BANNER + 0, c: TC - 1 } },              // title
-    { s: { r: BANNER + 1, c: COL.sku },     e: { r: BANNER + 1, c: COL.store } }, // SKU group span
-    { s: { r: BANNER + 1, c: COL.onHand },  e: { r: BANNER + 1, c: COL.onPO } },  // INVENTORY span
+    { s: { r: 0, c: 0 }, e: { r: 0, c: TC - 1 } },              // title
+    { s: { r: 1, c: COL.sku },     e: { r: 1, c: COL.store } }, // SKU group span
+    { s: { r: 1, c: COL.onHand },  e: { r: 1, c: COL.onPO } },  // INVENTORY span
     ...(livePeriods.length > 1
-      ? [{ s: { r: BANNER + 1, c: COL.firstPeriod }, e: { r: BANNER + 1, c: COL.lastPeriod } }]
+      ? [{ s: { r: 1, c: COL.firstPeriod }, e: { r: 1, c: COL.lastPeriod } }]
       : []),
   ];
 
@@ -284,7 +271,7 @@ export function exportNegInven(
       }
       // Thick bottom under the column header row (visually closes the
       // 3-row header band).
-      if (r === BANNER + HEADER_ROW_COUNT - 1) border.bottom = EXTRA_THICK;
+      if (r === HEADER_ROW_COUNT - 1) border.bottom = EXTRA_THICK;
       cell.s = { ...cell.s, border };
     }
   }
@@ -292,24 +279,20 @@ export function exportNegInven(
   // ── Col widths + row heights ────────────────────────────────────────────
   // Run autofit so newly-introduced theme padding doesn't truncate
   // existing labels (e.g. "ATS BY MONTH" + period names).
-  const headerForFit = aoa[BANNER + 2];          // col-headers row drives most widths
-  const bodyForFit = aoa.slice(BANNER + 3);
+  const headerForFit = aoa[2];          // col-headers row drives most widths
+  const bodyForFit = aoa.slice(3);
   ws["!cols"] = autofitColumns({ headerRow: headerForFit, bodyRows: bodyForFit });
 
-  // poSubRowIndexes was captured against the PRE-banner aoa indexes
-  // (data rows pushed after the original 3 header rows), so the
-  // i + HEADER_ROW_COUNT lookup still matches what was recorded.
   ws["!rows"] = [
-    ...reportHdr.rowHeights,
     { hpt: ROW_HEIGHTS.HEADER },
     { hpt: ROW_HEIGHTS.BODY },
     { hpt: ROW_HEIGHTS.HEADER },
-    ...Array(aoa.length - BANNER - HEADER_ROW_COUNT).fill(null).map((_, i) =>
+    ...Array(aoa.length - HEADER_ROW_COUNT).fill(null).map((_, i) =>
       poSubRowIndexes.includes(i + HEADER_ROW_COUNT) ? { hpt: ROW_HEIGHTS.PPK } : { hpt: ROW_HEIGHTS.BODY }
     ),
   ];
 
-  ws["!freeze"] = { xSplit: 0, ySplit: BANNER + HEADER_ROW_COUNT };
+  ws["!freeze"] = { xSplit: 0, ySplit: HEADER_ROW_COUNT };
 
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "Neg Inventory Report");

@@ -2,27 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import S from "../styles";
 import type { ExcelData } from "../types";
 
-// Mouse-off auto-close for filter dropdowns. 600ms grace timer mirrors
-// the planning grid's MultiSelectDropdown so a brief cursor flicker
-// between trigger and popover doesn't dismiss before the operator can
-// pick. Attach onMouseEnter={cancel} + onMouseLeave={schedule} to BOTH
-// the trigger AND the popover (each lives in a separate subtree).
-function useCloseOnMouseLeave(setOpen: (v: boolean) => void) {
-  const timerRef = useRef<number | null>(null);
-  const cancel = () => {
-    if (timerRef.current != null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-  const schedule = () => {
-    cancel();
-    timerRef.current = window.setTimeout(() => setOpen(false), 600);
-  };
-  useEffect(() => () => cancel(), []);
-  return { cancel, schedule };
-}
-
 // Reusable searchable dropdown built to match the existing Customer/Vendor
 // dropdown pattern. Single-select; "All" entry always at the top.
 interface SearchableDropdownProps {
@@ -55,7 +34,6 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-  const { cancel, schedule } = useCloseOnMouseLeave(setOpen);
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
@@ -81,7 +59,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
     }
   };
   return (
-    <div ref={ref} style={{ position: "relative" }} onMouseEnter={cancel} onMouseLeave={schedule}>
+    <div ref={ref} style={{ position: "relative" }}>
       <button
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth, justifyContent: "space-between" }}
         onClick={() => setOpen(o => !o)}
@@ -259,10 +237,12 @@ interface ToolbarProps {
   collapseLevel: "none" | "category" | "subCategory" | "style";
   setCollapseLevel: (v: "none" | "category" | "subCategory" | "style") => void;
 
-  // Grid view mode — what each cell shows. "ats" = per-period
-  // availability (cumulative free at period 0; new-receipt delta
-  // after, via periodAvail). "so" / "po" = SO or PO qty bucketed
-  // into the column's period.
+  // AT SHIP + status line
+  atShip: boolean;
+  setAtShip: (v: boolean) => void;
+  // Grid view mode — what each cell shows. "ats" = running on-hand
+  // (current behavior + AT SHIP free-to-sell when atShip is on);
+  // "so" / "po" = SO or PO qty bucketed into the column's period.
   viewMode: "ats" | "so" | "po";
   setViewMode: (v: "ats" | "so" | "po") => void;
   // TOTALS row (sticky header above column labels with Qty / Cost /
@@ -299,6 +279,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   excelData, customerFilter, setCustomerFilter,
   customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
   collapseLevel, setCollapseLevel,
+  atShip, setAtShip,
   viewMode, setViewMode,
   showTotalsRow, setShowTotalsRow,
   explodePpk, setExplodePpk,
@@ -337,6 +318,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setMinATS("");
     setCustomerFilter("");
     setCollapseLevel("none");
+    setAtShip(false);
   };
 
   // Column visibility dropdown state. Anchored ref + open flag follow
@@ -352,13 +334,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [colDropOpen]);
-
-  // Mouse-off auto-close handlers for the 3 inline dropdowns (Store,
-  // Cust/Vend, Columns). Each gets its own timer so closing one
-  // doesn't race with another. See useCloseOnMouseLeave above.
-  const storeClose = useCloseOnMouseLeave((v) => setPoDropOpen(v));
-  const customerClose = useCloseOnMouseLeave(setCustomerDropOpen);
-  const columnsClose = useCloseOnMouseLeave(setColDropOpen);
   const COLUMN_OPTIONS: Array<{ key: string; label: string }> = [
     { key: "category",    label: "Category" },
     { key: "subCategory", label: "Sub Cat" },
@@ -381,7 +356,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   <div style={S.toolbar}>
     <button
       onClick={handleClearFilters}
-      title="Reset search, all filters (category, sub cat, gender, status, stores, customer, min ATS), and collapse mode. Date range / units are preserved."
+      title="Reset search, all filters (category, sub cat, gender, status, stores, customer, min ATS, AT SHIP), and collapse mode. Date range / units are preserved."
       style={{ ...S.select, padding: "6px 12px", color: "#FCA5A5", borderColor: "#7F1D1D", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 600 }}
     >
       ✕ Clear all
@@ -430,7 +405,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </select>
     </div>
     {/* Store filter */}
-    <div ref={poDropRef} style={{ position: "relative" }} onMouseEnter={storeClose.cancel} onMouseLeave={storeClose.schedule}>
+    <div ref={poDropRef} style={{ position: "relative" }}>
       <button
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
         onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
@@ -507,7 +482,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </div>
 
     {/* Customer / vendor dropdown */}
-    <div style={{ position: "relative" }} onMouseEnter={customerClose.cancel} onMouseLeave={customerClose.schedule}>
+    <div style={{ position: "relative" }}>
       <button
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 160, justifyContent: "space-between" }}
         onClick={() => setCustomerDropOpen(!customerDropOpen)}
@@ -562,8 +537,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </div>
 
     {/* VIEW mode selector — switches what the date cells show.
-       ATS  → per-period availability (cumulative free at period 0;
-              per-period new-receipt delta after, via periodAvail)
+       ATS  → running on-hand balance (current behavior, paired with AT SHIP)
        SO   → sum of SO qty whose order date falls in the cell's period
        PO   → sum of PO qty whose receipt date falls in the cell's period */}
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -578,6 +552,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <option value="po">On PO Receipt</option>
       </select>
     </div>
+
+    {/* AT SHIP toggle */}
+    <label
+      title="Show only qty free to ship — not reserved for future uncovered SOs"
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${atShip ? "#10B981" : "#334155"}`, background: atShip ? "rgba(16,185,129,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <input type="checkbox" checked={atShip} onChange={e => setAtShip(e.target.checked)} style={{ accentColor: "#10B981", cursor: "pointer", width: 14, height: 14 }} />
+      <span style={{ color: atShip ? "#6EE7B7" : "#9CA3AF", fontSize: 12, fontWeight: atShip ? 700 : 400 }}>Avail to Ship</span>
+    </label>
 
     {/* TOTALS row toggle */}
     <label
@@ -621,7 +604,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     {/* Columns visibility dropdown — toggle individual sticky-left
         columns on/off (Category through On PO). Hidden count appears
         as a badge so the operator knows when the grid is narrowed. */}
-    <div ref={colDropRef} style={{ position: "relative" }} onMouseEnter={columnsClose.cancel} onMouseLeave={columnsClose.schedule}>
+    <div ref={colDropRef} style={{ position: "relative" }}>
       <button
         onClick={() => setColDropOpen(o => !o)}
         title="Show / hide grid columns"

@@ -153,12 +153,12 @@ interface GridTableProps {
 
   // cell behavior
   todayKey: string;
-  // Grid cell content selector. "ats" = per-period availability via
-  // periodAvail (cumulative free at period 0; per-period new-receipt
-  // delta after). "so" / "po" = sum of SO/PO qty within each period
-  // via getEventsInPeriod, so the column labelled e.g. "Mar 2026"
-  // shows the SO (or PO receipt) qty falling in March across the
-  // filtered SKUs. The totals-row Qty mirrors this.
+  atShip: boolean;
+  // Grid cell content selector. "ats" = running on-hand balance (uses
+  // row.dates / row.freeMap depending on atShip). "so" / "po" = sum of
+  // SO/PO qty within each period via getEventsInPeriod, so the column
+  // labelled e.g. "Mar 2026" shows the SO (or PO receipt) qty falling
+  // in March across the filtered SKUs. The totals-row Qty mirrors this.
   viewMode: "ats" | "so" | "po";
   showTotalsRow: boolean;
   // Whether to render prepack qtys as units (exploded) or as packs.
@@ -193,7 +193,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, viewMode, showTotalsRow, explodePpk, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, atShip, viewMode, showTotalsRow, explodePpk, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
@@ -230,10 +230,11 @@ export const GridTable: React.FC<GridTableProps> = ({
   const sums = useMemo(() => computeGridTotals({
     filtered,
     displayPeriods,
+    atShip,
     viewMode,
     eventIndex,
     generalMarginPct: generalMarginPct ?? 50,
-  }), [filtered, displayPeriods, viewMode, eventIndex, generalMarginPct]);
+  }), [filtered, displayPeriods, atShip, viewMode, eventIndex, generalMarginPct]);
 
   // Per-column widths. Auto-fit columns (numeric: onHand/onOrder/onPO)
   // compute width from the largest content + 2 char-widths padding on
@@ -800,15 +801,20 @@ export const GridTable: React.FC<GridTableProps> = ({
                   const ev = eventIndex ? getEventsInPeriod(row.sku, p.periodStart, p.endDate, row.store) : null;
                   const hasPO = (ev?.pos.length ?? 0) > 0;
                   const hasSO = (ev?.sos.length ?? 0) > 0;
-                  // viewMode "ats" → per-period availability via
-                  // periodAvail (cumulative free at period 0; new-
-                  // receipt delta after). "so" / "po" → bucketed event
-                  // qty for this period. Aggregate rows skip SO/PO mode
-                  // (no sku/store to query) and fall back to undefined →
-                  // renders as "—".
+                  // viewMode "ats" → running on-hand balance (existing).
+                  // "so" / "po" → bucketed event qty for this period.
+                  // Aggregate rows skip SO/PO mode (no sku/store to query)
+                  // and fall back to undefined → renders as "—".
                   let qty: number | undefined;
                   if (viewMode === "ats") {
-                    qty = periodAvail(row, displayPeriods, periodIdx);
+                    if (atShip) {
+                      // First period: cumulative free-to-sell. Subsequent
+                      // periods: only the additional qty available since
+                      // the prior period (delta from new receipts).
+                      qty = periodAvail(row, displayPeriods, periodIdx, true);
+                    } else {
+                      qty = row.dates[p.endDate];
+                    }
                   } else if (!row.__collapsed && ev) {
                     const list = viewMode === "so" ? ev.sos : ev.pos;
                     qty = list.reduce((a, e) => a + (e.qty || 0), 0);

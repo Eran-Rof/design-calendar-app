@@ -14,6 +14,7 @@ const EMPTY_AGG: SalesAggregate = { qty: 0, totalPrice: 0, marginAmount: 0 };
 export function exportToExcel(
   rows: ATSRow[],
   periods: Array<{ endDate: string; label: string }>,
+  atShip = false,
   // Kept for signature compatibility with the existing call sites.
   // The fixed 18-col layout doesn't honor hiddenColumns — drop the
   // arg if the planner's intent shifts.
@@ -35,12 +36,8 @@ export function exportToExcel(
   // mirrors the grid so what the operator sees on screen is what the
   // download (and View preview) shows.
   explodePpk?: boolean,
-  // Toolbar filter snapshot at export time — rendered into the 3-row
-  // report-metadata banner (name / run / filters) prepended to every
-  // export. Empty array → "Filters: None". See reportHeader.ts.
-  filterChips?: string[],
 ) {
-  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, filterChips);
+  const payload = buildExportPayload(rows, periods, atShip, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk);
   if (!payload) return;
   triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -73,6 +70,7 @@ export interface ExportPayload {
 export function buildExportPayload(
   rows: ATSRow[],
   periods: Array<{ endDate: string; label: string }>,
+  atShip = false,
   _hiddenColumns: string[] = [],
   _totals: GridTotals | null = null,
   options?: ExportOptions,
@@ -80,7 +78,6 @@ export function buildExportPayload(
   _eventIndex?: EventIndex | null,
   salesAggregates?: SalesFetchResult,
   explodePpk: boolean = true,
-  filterChips: string[] = [],
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -154,13 +151,13 @@ export function buildExportPayload(
   });
   // Skip rows whose availability is zero across every visible period.
   // Negatives (shortages) and positives are kept. Uses periodAvail so
-  // the "any availability" test honors the same delta semantic the
-  // cells render with — a row whose only non-zero free is carried-over
-  // (no new receipts) still counts as having availability because
-  // period-0 is cumulative under that helper.
+  // the "any availability" test honors the same delta-when-atShip
+  // semantic the cells render with — a row whose only non-zero free is
+  // carried-over (no new receipts) still counts as having availability
+  // because period-0 is cumulative under that helper.
   const hasAnyAvailability = (r: ATSRow): boolean => {
     for (let i = 0; i < periods.length; i++) {
-      const v = periodAvail(r, periods, i);
+      const v = periodAvail(r, periods, i, atShip);
       if (v !== 0) return true;
     }
     return false;
@@ -462,10 +459,10 @@ export function buildExportPayload(
   const lyOf = (sku: string): SalesAggregate => lyMap.get(sku) ?? EMPTY_AGG;
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  // Index-aware accessor — periodAvail returns cumulative free at
-  // period 0 and per-period new-receipt delta after.
+  // Index-aware accessor — periodAvail handles the atShip=delta case
+  // (cumulative free at period 0; per-period new-receipt delta after).
   const periodValueOf = (r: ATSRow, i: number): number => {
-    return periodAvail(r, periods, i);
+    return periodAvail(r, periods, i, atShip);
   };
   const sumStartLetter = colLetter(COL.spacerL);   // L (empty spacer)
   const sumEndLetter = colLetter(COL.lastPeriod);  // last period letter
@@ -1515,22 +1512,6 @@ export function buildExportPayload(
     }
   }
 
-  // ── Prepend 3-row report-metadata header ────────────────────────────
-  // Per operator: every ATS export gets a top banner with report name,
-  // run timestamp, and the active filter chips. Built AFTER column
-  // projection so the row merges span the FINAL kept column count.
-  const reportHdr = buildReportHeader({
-    reportName: customerFilter ? `ATS Grid Export — ${customerFilter}` : "ATS Grid Export",
-    filterChips,
-    totalColumns: effectiveAllRows[0]?.length ?? totalColumnCount,
-  });
-  for (const m of effectiveMerges) {
-    m.s.r += reportHdr.rows.length;
-    m.e.r += reportHdr.rows.length;
-  }
-  effectiveAllRows = [...reportHdr.rows, ...effectiveAllRows];
-  effectiveMerges = [...reportHdr.merges, ...effectiveMerges];
-
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = effectiveAllRows;
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
@@ -1592,8 +1573,6 @@ export function buildExportPayload(
   const SUBTOTAL_HPT = 19;
   const TOTAL_HPT = 18;
   const rowsHeight: any[] = [];
-  // Report-metadata banner rows (name / run / filters) come first.
-  rowsHeight.push(...reportHdr.rowHeights);
   if (titleRow) rowsHeight.push({ hpt: 30 }); // taller for the 22pt customer name
   rowsHeight.push({ hpt: HEADER_HPT });
   // Walk the dataRows we actually built. A subtotal / bottom Total row

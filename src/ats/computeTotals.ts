@@ -34,6 +34,7 @@ export interface GridTotals {
 export interface ComputeTotalsOpts {
   filtered: ATSRow[];
   displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string }>;
+  atShip: boolean;
   viewMode: "ats" | "so" | "po";
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   generalMarginPct: number;
@@ -50,7 +51,7 @@ export interface ComputeTotalsOpts {
 //   skip: SKU with no SO, no avgCost, AND no PO cost → ignored
 //         and counted in `skipped` so the grid label can show a `*`.
 export function computeGridTotals(opts: ComputeTotalsOpts): GridTotals {
-  const { filtered, displayPeriods, viewMode, eventIndex } = opts;
+  const { filtered, displayPeriods, atShip, viewMode, eventIndex } = opts;
   const m = Math.max(0, Math.min(99, opts.generalMarginPct ?? 50)) / 100;
   const oneMinusM = 1 - m;
 
@@ -165,7 +166,7 @@ export function computeGridTotals(opts: ComputeTotalsOpts): GridTotals {
     for (const r of filtered) {
       let v: number | undefined;
       if (viewMode === "ats") {
-        v = periodAvail(r, displayPeriods, pi);
+        v = periodAvail(r, displayPeriods, pi, atShip);
       } else if (!r.__collapsed && eventIndex) {
         const skuIdx = eventIndex[r.sku];
         if (skuIdx) {
