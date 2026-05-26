@@ -2,6 +2,27 @@ import React, { useState, useEffect, useRef } from "react";
 import S from "../styles";
 import type { ExcelData } from "../types";
 
+// Mouse-off auto-close for filter dropdowns. 600ms grace timer mirrors
+// the planning grid's MultiSelectDropdown so a brief cursor flicker
+// between trigger and popover doesn't dismiss before the operator can
+// pick. Attach onMouseEnter={cancel} + onMouseLeave={schedule} to BOTH
+// the trigger AND the popover (each lives in a separate subtree).
+function useCloseOnMouseLeave(setOpen: (v: boolean) => void) {
+  const timerRef = useRef<number | null>(null);
+  const cancel = () => {
+    if (timerRef.current != null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const schedule = () => {
+    cancel();
+    timerRef.current = window.setTimeout(() => setOpen(false), 600);
+  };
+  useEffect(() => () => cancel(), []);
+  return { cancel, schedule };
+}
+
 // Reusable searchable dropdown built to match the existing Customer/Vendor
 // dropdown pattern. Single-select; "All" entry always at the top.
 interface SearchableDropdownProps {
@@ -34,6 +55,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const { cancel, schedule } = useCloseOnMouseLeave(setOpen);
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
@@ -59,7 +81,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
     }
   };
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative" }} onMouseEnter={cancel} onMouseLeave={schedule}>
       <button
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth, justifyContent: "space-between" }}
         onClick={() => setOpen(o => !o)}
@@ -334,6 +356,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [colDropOpen]);
+
+  // Mouse-off auto-close handlers for the 3 inline dropdowns (Store,
+  // Cust/Vend, Columns). Each gets its own timer so closing one
+  // doesn't race with another. See useCloseOnMouseLeave at top of file.
+  const storeClose = useCloseOnMouseLeave((v) => setPoDropOpen(v));
+  const customerClose = useCloseOnMouseLeave(setCustomerDropOpen);
+  const columnsClose = useCloseOnMouseLeave(setColDropOpen);
   const COLUMN_OPTIONS: Array<{ key: string; label: string }> = [
     { key: "category",    label: "Category" },
     { key: "subCategory", label: "Sub Cat" },
@@ -405,7 +434,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </select>
     </div>
     {/* Store filter */}
-    <div ref={poDropRef} style={{ position: "relative" }}>
+    <div ref={poDropRef} style={{ position: "relative" }} onMouseEnter={storeClose.cancel} onMouseLeave={storeClose.schedule}>
       <button
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
         onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
@@ -482,7 +511,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </div>
 
     {/* Customer / vendor dropdown */}
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }} onMouseEnter={customerClose.cancel} onMouseLeave={customerClose.schedule}>
       <button
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 160, justifyContent: "space-between" }}
         onClick={() => setCustomerDropOpen(!customerDropOpen)}
@@ -604,7 +633,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     {/* Columns visibility dropdown — toggle individual sticky-left
         columns on/off (Category through On PO). Hidden count appears
         as a badge so the operator knows when the grid is narrowed. */}
-    <div ref={colDropRef} style={{ position: "relative" }}>
+    <div ref={colDropRef} style={{ position: "relative" }} onMouseEnter={columnsClose.cancel} onMouseLeave={columnsClose.schedule}>
       <button
         onClick={() => setColDropOpen(o => !o)}
         title="Show / hide grid columns"
