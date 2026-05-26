@@ -17,7 +17,6 @@
 // data so it can live alongside the existing ATS reports folder.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
@@ -31,6 +30,7 @@ import {
   type DimTotals,
   type RawSkuAgg,
 } from "../salesCompsAggregate";
+import { downloadSalesCompsWorkbook, type SalesCompsExportInput, type SoRow as ExportSoRow } from "../salesCompsExport";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -1014,160 +1014,41 @@ export const SalesCompsModal: React.FC<Props> = ({
 
   const downloadExcel = () => {
     if (!result) return;
-    const scope = [
-      customer.length > 0 && `customer ${customer.join("/")}`,
-      selStores.length > 0 && `stores ${selStores.join("/")}`,
-      selCategories.length > 0 && `categories ${selCategories.join("/")}`,
-      selSubCategories.length > 0 && `sub-cats ${selSubCategories.join("/")}`,
-      selStyles.length > 0 && `styles ${selStyles.join("/")}`,
-    ].filter(Boolean).join(" · ") || "all";
-    // Banner reflects the grid's Explode PPK toggle state so operators
-    // reading the Excel after the fact know which grain the qty
-    // numbers are in.
-    const explodeBanner = explodePpk
-      ? "Explode PPK: ON (qty in eaches, PPK + each siblings collapsed)"
-      : "Explode PPK: OFF (qty in master native grain, PPK and each split)";
-    const aoa: (string | number)[][] = [
-      ["Sales Comps"],
-      [`TY window: ${fmtDateDisplay(start)} → ${fmtDateDisplay(end)}`],
-      [`LY window: ${fmtDateDisplay(isoMinusMonths(start, 12))} → ${fmtDateDisplay(isoMinusMonths(end, 12))}`],
-      [`Scope: ${scope}${customerFacing ? "  (customer-facing — margin hidden)" : ""}`],
-      [explodeBanner],
-      [],
-      ["", "TY", "LY", "Δ"],
-    ];
-    // Helper to push the 5-row totals stack (Units/Revenue/COGS/Margin
-    // $/Margin %) — used once for combined totals or twice (PPK then
-    // each) when mixed grain is present in explode-OFF mode.
-    const pushTotalsStack = (label: string, t: DimTotals["combined"]) => {
-      aoa.push([`Units — ${label}`,   t.tyQty,   t.lyQty,   fmtGrowth(t.tyQty,  t.lyQty).text]);
-      aoa.push([`Revenue — ${label}`, t.tyRev,   t.lyRev,   fmtGrowth(t.tyRev,  t.lyRev).text]);
-      if (!customerFacing) {
-        aoa.push([`COGS — ${label}`,     t.tyCogs,  t.lyCogs,  fmtGrowth(t.tyCogs, t.lyCogs).text]);
-        aoa.push([`Margin $ — ${label}`, t.tyMrgn,  t.lyMrgn,  fmtGrowth(t.tyMrgn, t.lyMrgn).text]);
-        aoa.push([`Margin % — ${label}`,
-          t.tyRev > 0 ? t.tyMrgn / t.tyRev : 0,
-          t.lyRev > 0 ? t.lyMrgn / t.lyRev : 0,
-          fmtMarginPoints(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev).text]);
-      }
-    };
-    if (dimTotals.hasMixed) {
-      pushTotalsStack("PPK packs", dimTotals.ppk);
-      pushTotalsStack("each", dimTotals.each);
-    } else {
-      pushTotalsStack("TOTAL", dimTotals.combined);
-    }
-    aoa.push([]);
-    // One table per selected View By dimension. SO emits the same
-    // column set the on-screen SoCompsTable shows (per-order metadata
-    // when style is co-selected or SO is alone; collapsed to a single
-    // dimension column otherwise).
+    // Build per-View By dim sections in the same order the operator
+    // selected. Numbers / shape / row-splits are computed here so the
+    // export-side file stays purely about styling (preview-parity rule).
+    const viewSections: SalesCompsExportInput["viewSections"] = [];
     for (const dim of viewBy) {
       if (dim === "so") {
-        const showSoMeta = viewBy.includes("style") || !(viewBy.includes("customer") || viewBy.includes("category") || viewBy.includes("sub_category"));
-        const soDimLabel =
-          viewBy.includes("customer")     ? "Customer" :
-          viewBy.includes("category")     ? "Category" :
-          viewBy.includes("sub_category") ? "Sub-Category" :
-          "SO";
-        aoa.push([`-- ${VIEW_BY_LABELS[dim]} --`]);
-        const header: (string | number)[] = showSoMeta
-          ? ["Style", "Order #", "Cancel", "Customer", "TY Qty", "TY Open SO $", "LY Qty", "LY Ship $", "Δ Rev"]
-          : [soDimLabel, "TY Qty", "TY Open SO $", "LY Qty", "LY Ship $", "Δ Rev"];
-        aoa.push(header);
-        for (const r of soRows) {
-          if (r.kind === "subtotal") {
-            const subRow: (string | number)[] = showSoMeta
-              ? [r.label, "", "", "", r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]
-              : [r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text];
-            aoa.push(subRow);
-            continue;
-          }
-          const growth = fmtGrowth(r.tyRev, r.lyRev).text;
-          const detailRow: (string | number)[] = showSoMeta
-            ? [r.style ?? "", r.orderNumber ?? "", r.cancelDate ?? "", r.customer ?? "", r.tyQty, r.tyRev, r.lyQty, r.lyRev, growth]
-            : [r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, growth];
-          aoa.push(detailRow);
-        }
-        // Grand-total row for the SO block — LY dedup'd by style so
-        // multiple SOs sharing one style don't double-count the LY
-        // ship dollars (matches the on-screen TOTAL row).
-        const dataRows = soRows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
-        if (dataRows.length > 0) {
-          const seenStyles = new Set<string>();
-          let tQ = 0, tR = 0, lQ = 0, lR = 0;
-          for (const r of dataRows) {
-            tQ += r.tyQty; tR += r.tyRev;
-            const sk = r.style ?? r.key;
-            if (!seenStyles.has(sk)) { lQ += r.lyQty; lR += r.lyRev; seenStyles.add(sk); }
-          }
-          const totalRow: (string | number)[] = showSoMeta
-            ? ["TOTAL", "", "", "", tQ, tR, lQ, lR, fmtGrowth(tR, lR).text]
-            : ["TOTAL", tQ, tR, lQ, lR, fmtGrowth(tR, lR).text];
-          aoa.push(totalRow);
-        }
-        aoa.push([]);
+        viewSections.push({
+          kind: "so",
+          viewBy,
+          soRows: soRows as ExportSoRow[],
+        });
         continue;
       }
       const dataRows = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
-      // Per-dim totals — used for the TOTAL row(s) at the bottom of
-      // each section. Same shape as the summary block: split when mixed
-      // grain is present in explode-OFF mode, single otherwise.
       const dataTotals = totalsForDimRows(dataRows);
-      aoa.push([`-- ${VIEW_BY_LABELS[dim]} --`]);
-      const header: string[] = customerFacing
-        ? [VIEW_BY_LABELS[dim], "TY Qty", "TY Rev", "LY Qty", "LY Rev", "Δ Rev"]
-        : [VIEW_BY_LABELS[dim], "TY Qty", "TY Rev", "TY Cogs", "TY Mrgn $", "TY Mrgn %", "LY Qty", "LY Rev", "LY Cogs", "LY Mrgn $", "LY Mrgn %", "Δ Rev", "Δ Margin pp"];
-      aoa.push(header);
-      for (const r of dataRows) {
-        if (customerFacing) {
-          aoa.push([r.label, r.tyQty, r.tyRev, r.lyQty, r.lyRev, fmtGrowth(r.tyRev, r.lyRev).text]);
-        } else {
-          aoa.push([
-            r.label,
-            r.tyQty, r.tyRev, r.tyRev - r.tyMrgn, r.tyMrgn,
-            r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0,
-            r.lyQty, r.lyRev, r.lyRev - r.lyMrgn, r.lyMrgn,
-            r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0,
-            fmtGrowth(r.tyRev, r.lyRev).text,
-            fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev).text,
-          ]);
-        }
-      }
-      // Per-view TOTAL row(s) — when mixed grain in explode-OFF mode,
-      // emit TWO totals rows (PPK packs vs each) so packs + eaches
-      // never sum into a single misleading number. Otherwise one row.
-      const pushSectionTotalsRow = (label: string, t: DimTotals["combined"]) => {
-        if (customerFacing) {
-          aoa.push([label, t.tyQty, t.tyRev, t.lyQty, t.lyRev, fmtGrowth(t.tyRev, t.lyRev).text]);
-        } else {
-          aoa.push([
-            label,
-            t.tyQty, t.tyRev, t.tyCogs, t.tyMrgn,
-            t.tyRev > 0 ? t.tyMrgn / t.tyRev : 0,
-            t.lyQty, t.lyRev, t.lyCogs, t.lyMrgn,
-            t.lyRev > 0 ? t.lyMrgn / t.lyRev : 0,
-            fmtGrowth(t.tyRev, t.lyRev).text,
-            fmtMarginPoints(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev).text,
-          ]);
-        }
-      };
-      if (dataRows.length > 0) {
-        if (dataTotals.hasMixed) {
-          pushSectionTotalsRow("TOTAL (PPK packs)", dataTotals.ppk);
-          pushSectionTotalsRow("TOTAL (each)", dataTotals.each);
-        } else {
-          pushSectionTotalsRow("TOTAL", dataTotals.combined);
-        }
-      }
-      aoa.push([]);
+      viewSections.push({ kind: "dim", dim, dataRows, dataTotals });
     }
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws, "Sales Comps");
-    const cfSuffix = customerFacing ? "_customer" : "";
-    XLSX.writeFile(wb, `SalesComps_${start}_to_${end}${cfSuffix}.xlsx`);
+
+    downloadSalesCompsWorkbook({
+      start,
+      end,
+      scope: {
+        customer,
+        selStores,
+        selCategories,
+        selSubCategories,
+        selStyles,
+      },
+      customerFacing,
+      explodePpk,
+      dimTotals,
+      viewSections,
+    });
   };
+
 
   const scopeLine = [
     customer.length > 0 && `customer ${customer.length === 1 ? customer[0] : `${customer.length} selected`}`,
@@ -1197,7 +1078,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               first-class label rather than a dim caption. */}
           {result && (
             <div style={{ fontSize: 14, fontWeight: 500, color: C.text, lineHeight: 1.35 }}>
-              Window: {fmtDateDisplay(start)} → {fmtDateDisplay(end)} (TY) · {tableRows.length} Style/Colors · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""} · Explode PPK: {explodePpk ? "ON" : "OFF"}
+              Window: {start} → {end} (TY) · {tableRows.length} Style/Colors · {viewBy.length} view{viewBy.length === 1 ? "" : "s"} · scope: {scopeLine}{customerFacing ? " · customer-facing (margin hidden)" : ""} · Explode PPK: {explodePpk ? "ON" : "OFF"}
             </div>
           )}
         </div>
@@ -1243,7 +1124,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               </div>
             </div>
             <div style={{ fontSize: 11, color: C.textDim, marginTop: -8 }}>
-              LY window auto-computes: {fmtDateDisplay(isoMinusMonths(start, 12))} → {fmtDateDisplay(isoMinusMonths(end, 12))}
+              LY window auto-computes: {isoMinusMonths(start, 12)} → {isoMinusMonths(end, 12)}
             </div>
 
             {rangeWarn && <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Start date must be on or before End date.</div>}
