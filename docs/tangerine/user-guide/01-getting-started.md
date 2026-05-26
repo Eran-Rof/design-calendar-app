@@ -11,12 +11,43 @@ Both share the same login surface and the same `/tangerine` URL — access is ga
 
 ## Logging in
 
-1. Open your browser to the design-calendar-app URL (production: your Vercel domain; dev: `http://localhost:5173`).
-2. Navigate directly to `/tangerine` (or sign in via the standard app login first, then go to `/tangerine`).
+1. Open your browser to `https://<your-domain>/tangerine` (or local dev: `http://localhost:5173/tangerine`).
+2. If you don't have a Microsoft sign-in session yet, you'll see the **Tangerine-branded login screen** — orange "T" logo, "Sign in to continue," and a "Sign in with Microsoft" button.
+3. Click the button. A Microsoft popup opens — sign in with your work account (same one you use for Design Calendar / Tanda / etc.).
+4. The popup closes; the page reloads; you land on the Tangerine home dashboard.
 
 Direct URL: `https://<your-domain>/tangerine`
 
-> **Note (Chunk T1, 2026-05-26):** Tangerine is now its own top-level app at `/tangerine`. Previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout — that hosting is gone. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
+> **Note (Chunk T2, 2026-05-26):** Tangerine has its own auth gate — even though the underlying Microsoft OAuth is shared with the other PLM-suite apps, you must explicitly sign in to use Tangerine. If you've already signed in via Design Calendar / Tanda in this browser, Tangerine reuses that session and skips the login screen entirely. The signed-in email appears in the top-right of the top nav with a "Sign out" button next to it.
+>
+> **Earlier note (Chunk T1, 2026-05-26):** Tangerine is its own top-level app at `/tangerine` — previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
+
+### The login screen
+
+```mermaid
+flowchart TB
+    Visit["Visit /tangerine"] --> Check{"MS token<br/>in localStorage?"}
+    Check -->|yes, valid| Dashboard["Tangerine dashboard<br/>(home or last module)"]
+    Check -->|no / expired| Login["Branded login screen<br/>(orange T logo + button)"]
+    Login -->|click 'Sign in with Microsoft'| Popup["MS OAuth popup<br/>(work-account sign-in)"]
+    Popup -->|success| SaveTokens["Tokens saved to<br/>localStorage (ms_tokens_v1)"]
+    SaveTokens --> Reload["Page reloads"]
+    Reload --> Dashboard
+    Popup -->|cancel / fail| Login
+
+    style Login fill:#fb923c,color:#fff
+    style Dashboard fill:#bbf7d0
+    style Popup fill:#0078d4,color:#fff
+```
+
+![Tangerine branded login screen](screenshots/01-tangerine-login.png)
+<!-- screenshot needed: /tangerine when not signed in, showing the orange-T logo card with the Microsoft sign-in button -->
+
+### Signing out
+
+In the top-right of the Tangerine top nav, you'll see your signed-in email with a "Sign out" button next to it. Click "Sign out" → confirm → tokens are cleared and you're returned to the login screen.
+
+Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. They share the same MS token but each has its own session lifecycle.
 
 ## The Tangerine nav layout
 

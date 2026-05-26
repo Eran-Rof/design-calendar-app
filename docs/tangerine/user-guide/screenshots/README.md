@@ -4,7 +4,8 @@ Capture target list (14 PNGs, ~1920×1080 or 1280×800 for modal views). Drop ca
 
 | Filename | Where it's referenced | Captures |
 |---|---|---|
-| `01-tangerine-home.png` | 01-getting-started.md | `/tangerine` landing page: top nav with 6 module buttons + 🧩 Apps ▾ on the right + module cards grouped Master Data / Accounting + "Other apps in the suite" grid at the bottom |
+| `01-tangerine-login.png` | 01-getting-started.md | `/tangerine` when not signed in: orange-T logo card centered on dark gradient background, "Sign in with Microsoft" white button visible |
+| `01-tangerine-home.png` | 01-getting-started.md | `/tangerine` landing page (signed in): top nav with 6 module buttons + 🧩 Apps ▾ + signed-in email + Sign out button on the right + module cards grouped Master Data / Accounting + "Other apps in the suite" grid at the bottom |
 | `01-tangerine-apps-launcher.png` | 01-getting-started.md | Apps ▾ dropdown open showing the 7 app links (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Vendor Portal) |
 | `02-style-master-list.png` | 02-master-data.md | Style Master list view with search box + show-deleted toggle + several rows |
 | `02-style-master-add-modal.png` | 02-master-data.md | Style Master + Add modal with all fields populated |
