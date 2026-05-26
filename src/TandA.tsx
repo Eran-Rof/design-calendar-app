@@ -36,6 +36,7 @@ import InternalEntities from "./tanda/InternalEntities";
 import InternalStyleMaster from "./tanda/InternalStyleMaster";
 import InternalVendorMaster from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster from "./tanda/InternalCustomerMaster";
+import InternalCOA from "./tanda/InternalCOA";
 import InternalInsights from "./tanda/InternalInsights";
 import InternalWorkspaces from "./tanda/InternalWorkspaces";
 import InternalSustainability from "./tanda/InternalSustainability";
@@ -173,6 +174,7 @@ const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
     { view: "style_master",       label: "Style Master",    emoji: "🎨" },
     { view: "vendor_master",      label: "Vendor Master",   emoji: "🏭" },
     { view: "customer_master",    label: "Customer Master", emoji: "🤝" },
+    { view: "gl_accounts",        label: "Chart of Accounts", emoji: "📒" },
   ]},
 ];
 const VENDOR_MENU: MenuItem[] = VENDOR_MENU_GROUPS.flatMap((g) => g.items);
@@ -1684,6 +1686,7 @@ function TandAApp() {
         {view === "style_master" && <InternalStyleMaster />}
         {view === "vendor_master" && <InternalVendorMaster />}
         {view === "customer_master" && <InternalCustomerMaster />}
+        {view === "gl_accounts" && <InternalCOA />}
 
         {/* ── INSIGHTS ── */}
         {view === "insights" && <InternalInsights />}
