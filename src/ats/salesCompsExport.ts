@@ -42,6 +42,42 @@ export type SoRowSubtotal = {
 };
 export type SoRow = SoRowDetail | SoRowSubtotal;
 
+// Catch-all subtotal row appended to the SO section: aggregates LY ship
+// $ for styles that exist in the LY ship history but have ZERO open TY
+// SOs in the current scope. Without this, the SO TOTAL LY would
+// systematically undercount vs the Customer / Style / Sub-Cat sections
+// (which already include those styles via the per-style ship-history
+// match). The row is detected by SO_CATCHALL_KEY in the TOTAL emitters
+// so its LY contribution is folded into the bottom TOTAL row.
+export const SO_CATCHALL_KEY = "__catchall::no_ty_so";
+export const SO_CATCHALL_LABEL = "LY shipped, no TY SO";
+
+// Pure helper — returns a catch-all subtotal row (or null) for every
+// style in lyRevByStyle that is NOT covered by a TY SO in the current
+// scope. Exported for unit tests and called from the modal's soRows
+// useMemo for each groupBy variant.
+export function computeSoCatchallRow(
+  tyStyles: Set<string>,
+  lyRevByStyle: Map<string, { qty: number; rev: number; mrgn: number }>,
+): SoRowSubtotal | null {
+  let qty = 0, rev = 0, mrgn = 0;
+  for (const [style, agg] of lyRevByStyle) {
+    if (tyStyles.has(style)) continue;
+    if (agg.qty <= 0 && agg.rev <= 0) continue;
+    qty += agg.qty;
+    rev += agg.rev;
+    mrgn += agg.mrgn;
+  }
+  if (qty === 0 && rev === 0 && mrgn === 0) return null;
+  return {
+    kind: "subtotal",
+    key: SO_CATCHALL_KEY,
+    label: SO_CATCHALL_LABEL,
+    tyQty: 0, tyRev: 0, tyMrgn: 0,
+    lyQty: qty, lyRev: rev, lyMrgn: mrgn,
+  };
+}
+
 export type ViewByKey = "customer" | "category" | "sub_category" | "style" | "sku" | "so";
 
 const VIEW_BY_LABELS: Record<ViewByKey, string> = {
@@ -699,14 +735,23 @@ function pushSoSection(
 
   // Grand-total row. LY dedup'd by style (same as the modal's TOTAL row)
   // so multiple SOs sharing one style don't double-count the LY ship $.
+  // The catch-all subtotal (SO_CATCHALL_KEY) carries LY ship $ for
+  // styles with NO TY SO — added in explicitly so the SO TOTAL LY
+  // reconciles with the other dim TOTALs.
   const dataRows = soRows.filter((r): r is SoRowDetail => r.kind === "row");
-  if (dataRows.length > 0) {
+  const catchallRow = soRows.find((r): r is SoRowSubtotal =>
+    r.kind === "subtotal" && r.key === SO_CATCHALL_KEY);
+  if (dataRows.length > 0 || catchallRow) {
     const seenStyles = new Set<string>();
     let tQ = 0, tR = 0, lQ = 0, lR = 0;
     for (const r of dataRows) {
       tQ += r.tyQty; tR += r.tyRev;
       const sk = r.style ?? r.key;
       if (!seenStyles.has(sk)) { lQ += r.lyQty; lR += r.lyRev; seenStyles.add(sk); }
+    }
+    if (catchallRow) {
+      lQ += catchallRow.lyQty;
+      lR += catchallRow.lyRev;
     }
     const lblS = totalLabelStyle();
     const numS = totalNumStyle();
