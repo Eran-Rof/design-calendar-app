@@ -13,7 +13,7 @@
 // now (they're reusable; importing across folders is fine). A future cleanup
 // can rename them to src/tangerine/*Panel.tsx for clarity but it's cosmetic.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import InternalStyleMaster    from "./tanda/InternalStyleMaster";
 import InternalVendorMaster   from "./tanda/InternalVendorMaster";
@@ -21,6 +21,7 @@ import InternalCustomerMaster from "./tanda/InternalCustomerMaster";
 import InternalCOA            from "./tanda/InternalCOA";
 import InternalPeriods        from "./tanda/InternalPeriods";
 import InternalJournalEntry   from "./tanda/InternalJournalEntry";
+import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme — match the dark Tanda palette so the admin panels (which use the
@@ -86,9 +87,76 @@ const APPS: AppLink[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
+type AuthState = "loading" | "signed_out" | "signed_in";
+
 export default function Tangerine() {
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(null);
   const [appsOpen, setAppsOpen] = useState(false);
+  const [authState, setAuthState] = useState<AuthState>("loading");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // Auth gate: on mount, check for an MS token. If present + non-expired, fetch
+  // the signed-in user's email from Graph (User.Read is already in MS_SCOPES).
+  // No token → render the branded login screen.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const tokens = loadMsTokens();
+      if (!tokens) {
+        if (!cancelled) setAuthState("signed_out");
+        return;
+      }
+      try {
+        const token = await getMsAccessToken();
+        if (cancelled) return;
+        if (!token) {
+          setAuthState("signed_out");
+          return;
+        }
+        const r = await fetch("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error(`Graph /me HTTP ${r.status}`);
+        const me = await r.json();
+        if (cancelled) return;
+        setUserEmail(me.mail || me.userPrincipalName || me.displayName || null);
+        setAuthState("signed_in");
+      } catch (err) {
+        console.error("[Tangerine] auth check failed:", err);
+        if (!cancelled) setAuthState("signed_out");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleSignIn() {
+    try {
+      await msSignIn();
+      // Re-run the auth check by reloading; simpler than re-deriving state.
+      window.location.reload();
+    } catch (err) {
+      console.error("[Tangerine] sign-in failed:", err);
+      alert("Sign-in failed. See console for details.");
+    }
+  }
+
+  function handleSignOut() {
+    if (!confirm("Sign out of Tangerine?")) return;
+    clearMsTokens();
+    window.location.reload();
+  }
+
+  if (authState === "loading") {
+    return (
+      <div style={{ background: C.bg, color: C.textMuted, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+        Checking authentication…
+      </div>
+    );
+  }
+
+  if (authState === "signed_out") {
+    return <LoginScreen onSignIn={handleSignIn} />;
+  }
 
   return (
     <div style={{ background: C.bg, color: C.text, minHeight: "100vh" }}>
@@ -99,6 +167,8 @@ export default function Tangerine() {
         onToggleApps={() => setAppsOpen((v) => !v)}
         onCloseApps={() => setAppsOpen(false)}
         onGoHome={() => setActiveModule(null)}
+        userEmail={userEmail}
+        onSignOut={handleSignOut}
       />
 
       <main style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
@@ -115,6 +185,101 @@ export default function Tangerine() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Branded login screen — shown when no MS token is present. Tangerine logo +
+// "Sign in with Microsoft" button + a brief framing. Mirrors the rest of the
+// design-calendar-app suite: same MS OAuth flow, different branded entry.
+// ─────────────────────────────────────────────────────────────────────────────
+function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <div
+      style={{
+        background: `radial-gradient(ellipse at top left, ${C.tangerineDim}33 0%, ${C.bg} 50%)`,
+        color: C.text,
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 440,
+          background: C.card,
+          border: `1px solid ${C.cardBdr}`,
+          borderRadius: 16,
+          padding: 32,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 14,
+              background: `linear-gradient(135deg, ${C.tangerine}, ${C.tangerineDim})`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 28,
+              fontWeight: 800,
+              color: "white",
+              boxShadow: `0 8px 24px ${C.tangerineDim}66`,
+            }}
+          >
+            T
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
+            <span style={{ fontSize: 24, fontWeight: 700, color: C.text }}>Tangerine</span>
+            <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 2 }}>ERP</span>
+          </div>
+        </div>
+
+        <h1 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 600 }}>Sign in to continue</h1>
+        <p style={{ margin: "0 0 24px", fontSize: 13, color: C.textMuted, lineHeight: 1.5 }}>
+          Tangerine is the ERP shell for the design-calendar-app PLM suite. Sign in with your work Microsoft account to access master data + accounting.
+        </p>
+
+        <button
+          type="button"
+          onClick={onSignIn}
+          style={{
+            width: "100%",
+            background: "white",
+            color: "#1f1f1f",
+            border: 0,
+            padding: "12px 16px",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontSize: 14,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+          </svg>
+          Sign in with Microsoft
+        </button>
+
+        <p style={{ margin: "20px 0 0", fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
+          Uses the same Microsoft 365 account that signs you into the other PLM-suite apps (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning). The popup may be blocked by some browsers — allow pop-ups for this domain if it doesn't open.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Top nav
 // ─────────────────────────────────────────────────────────────────────────────
 interface TopNavProps {
@@ -124,9 +289,11 @@ interface TopNavProps {
   onToggleApps: () => void;
   onCloseApps: () => void;
   onGoHome: () => void;
+  userEmail: string | null;
+  onSignOut: () => void;
 }
 
-function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome }: TopNavProps) {
+function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, onSignOut }: TopNavProps) {
   return (
     <header
       style={{
@@ -231,6 +398,33 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           <span style={{ fontSize: 10 }}>{appsOpen ? "▴" : "▾"}</span>
         </button>
         {appsOpen && <AppsLauncher onClose={onCloseApps} />}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
+        {userEmail && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, fontSize: 11 }}>
+            <span style={{ color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Signed in</span>
+            <span style={{ color: C.text, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={userEmail}>
+              {userEmail}
+            </span>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onSignOut}
+          style={{
+            background: "transparent",
+            border: `1px solid ${C.cardBdr}`,
+            color: C.textSub,
+            padding: "6px 10px",
+            borderRadius: 6,
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+          title="Sign out"
+        >
+          Sign out
+        </button>
       </div>
     </header>
   );
