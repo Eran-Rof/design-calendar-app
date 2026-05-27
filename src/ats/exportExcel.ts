@@ -505,6 +505,12 @@ export function buildExportPayload(
       const cur = bpMaxSlsPrc.get(styleKey);
       if (cur === undefined || rPrice > cur) bpMaxSlsPrc.set(styleKey, rPrice);
     }
+    // Diagnostic: print bpMaxSlsPrc state so we can verify the BP-uniform
+    // rule is actually applying. Read-only — no behavior change.
+    const sample = [...bpMaxSlsPrc.entries()].slice(0, 8)
+      .map(([k, v]) => `${JSON.stringify(k)}:$${v.toFixed(2)}`)
+      .join(", ");
+    console.info(`[ATS export] bpMaxSlsPrc → ${bpMaxSlsPrc.size} styles, slsMarginPct=${opts.slsMarginPct}, explodePpk=${explodePpk}${bpMaxSlsPrc.size ? `, sample: ${sample}` : ""}`);
   }
 
   // ── Data rows ──────────────────────────────────────────────────────────
