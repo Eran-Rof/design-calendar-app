@@ -9,6 +9,8 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 | 🔁 Inventory Transfers | **Read-only skeleton** | P3-7 (2026-05-27) |
 | 📐 Inventory Adjustments | **Live** | P3-5 (2026-05-27) |
 | 🧮 Cycle Counts | Not shipped yet | P3-6 (planned) |
+| 🛠️ Inventory Adjustments | In flight | P3-5 (planned) |
+| 📋 Cycle Counts | **Shipped** | P3-6 (2026-05-27) |
 
 ---
 
@@ -104,6 +106,11 @@ Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (te
 **Where:** Tangerine top nav → **📐 Inventory Adjustments** (Inventory group).
 
 **Purpose:** records ad-hoc inventory deltas (damage, shrinkage, found, correction, write-off, return-to-vendor) and posts them to the GL plus the FIFO ledger.
+## 11.4 Cycle Counts
+
+**Where:** Tangerine top nav → **📋 Cycle Counts** (Inventory group).
+
+**Purpose:** the operator periodically walks the warehouse and physically recounts items. Where the system says "100 units" but only 95 are on the shelf, the cycle count surfaces a **variance** of `-5` and rolls it forward to an inventory adjustment draft. Reverse case (count > system) → `+5` "found" variance → positive adjustment draft.
 
 ### Lifecycle
 
@@ -200,6 +207,76 @@ Same FIFO flow as shrinkage. **Additionally**, an `inventory_write_off_posted` n
 Drafts (no `posted_je_id`) are fully editable: you can change `qty_delta`, `unit_cost_cents`, and `reason`. Locking applies to `adjustment_type`, `item_id`, and `gl_account_id` — delete the draft and create a new one if those need to change.
 
 Posted rows refuse PATCH (409) and DELETE (409). To undo a posted adjustment: reverse the JE via the **Journal Entries** panel (chapter 3), which auto-reverses both accrual and cash twins. The FIFO ledger keeps its history — a positive adjustment's layer remains as a "phantom" with whatever `remaining_qty` the subsequent consumption left it at; a negative adjustment's consumption rows stay in `inventory_consumption` for audit. File a corrective adjustment in the opposite direction if the physical truth changed.
+  start([Start new count]) --> snapshot[Snapshot system_qty<br/>per item from inventory_layers]
+  snapshot --> in_progress[(status='in_progress')]
+  in_progress --> enter[Operator enters<br/>counted_qty per line]
+  enter --> finalize{Finalize?}
+  finalize -- "yes" --> fanout[Generate 1 inventory_adjustments row<br/>per non-zero variance line]
+  fanout --> completed[(status='completed')]
+  completed --> review[Operator reviews + posts<br/>each draft via Adjustments panel]
+  review --> ledger[(JE posted to GL)]
+  in_progress --> cancel{Cancel?}
+  cancel -- "yes" --> cancelled[(status='cancelled')]
+```
+
+### Start a count
+
+Click **+ Start new count**. The modal asks for:
+
+- **Count date** — defaults to today.
+- **Location** — defaults to `main` (single-location launch). Multi-warehouse populates this dropdown later.
+- **Notes** — optional free-form text.
+- **Scope filter** — optional list of item UUIDs (newline or comma separated). Blank = snapshot *every* item with an open FIFO layer in this entity.
+
+Submitting triggers the snapshot:
+
+1. Read every open `inventory_layers` row (`remaining_qty > 0`) for the entity.
+2. SUM `remaining_qty` per `item_id` → that's `system_qty`.
+3. Apply the scope filter if supplied. Items in the filter that have **no** open layer are still included with `system_qty=0` — counting "should-be-zero" items is a valid scenario.
+4. Insert one `inventory_cycle_count_lines` row per item with `counted_qty=NULL`.
+
+### Enter counts
+
+Click a row to open the detail modal. The lines table shows every snapshotted item:
+
+| Column | Source |
+|---|---|
+| **Item** | `item_id` (uuid) |
+| **System** | `system_qty` — snapshot at start, **never changes** during the count |
+| **Counted** | editable number input (only when status='in_progress') |
+| **Variance** | `variance_qty` — server-computed STORED column (`counted - system`). Green for positive, red for negative, muted dash if not yet counted. |
+| **Adj** | First 8 chars of the linked `inventory_adjustments.id`. Empty until finalize. |
+
+Counts auto-save on blur (or click the explicit **Save** button next to the row). Variance updates on save.
+
+### Finalize
+
+Click **Finalize**. For every line where `counted_qty IS NOT NULL` and `variance_qty != 0`:
+
+- `qty_delta = variance_qty` (signed)
+- `adjustment_type = variance > 0 ? 'found' : 'shrinkage'`
+- For positive variance: the system needs a `unit_cost_cents` for the new FIFO layer.
+  - **Resolution order:** request body `positive_unit_costs[line_id]` override → `ip_item_avg_cost.avg_cost_dollars × 100` (rounded) → fail with `missing_cost_line_ids`.
+  - The Web UI does not yet expose the per-line override; positive variance lines must have an avg-cost row. Negative variance does not need a cost (FIFO consumes).
+- `gl_account_id`: from request `gl_account_id` if supplied, otherwise the first expense `gl_accounts` row whose `name ILIKE 'shrinkage%'`, otherwise the first expense account.
+- `reason = "Cycle count {short_id} variance"`.
+
+**The generated adjustments land as DRAFTS** (`posted_je_id` NULL). They do **not** auto-post. The operator reviews + posts each one individually via the Adjustments panel (P3-5). This is a deliberate safety choice — auto-posting from a cycle count would bypass GL approval gates.
+
+Zero-variance lines are skipped. Uncounted lines (`counted_qty=NULL`) are skipped.
+
+### Cancel
+
+Click **Cancel count** (only on `in_progress`). Sets `status='cancelled'`. The snapshot lines stay for audit. No adjustments are generated.
+
+### Notifications
+
+If any single line's variance exceeds **10%** of its `system_qty` (configurable via `threshold_pct` in the finalize body, 0–100), a `inventory_variance_exceeds_threshold` notification is enqueued to `recipient_roles=['admin']`. The denominator is `max(1, system_qty)` so a 5-unit found on a 0-system isn't infinite-percent.
+
+### Deletion vs cancellation
+
+- **Cancel** keeps the snapshot + any partial counts for audit. Always reversible to "this happened."
+- **Delete** is allowed only when `status='in_progress'` AND no line has `counted_qty` set. A clean abort of an empty count.
 
 ### API surface
 
@@ -211,10 +288,19 @@ Posted rows refuse PATCH (409) and DELETE (409). To undo a posted adjustment: re
 | `PATCH` | `/api/internal/inventory-adjustments/:id` | Update mutable fields on draft only. 409 if posted. |
 | `DELETE` | `/api/internal/inventory-adjustments/:id` | Delete draft only. 409 if posted. |
 | `POST` | `/api/internal/inventory-adjustments/:id/post` | Run the full post flow (resolve inventory account → approval gate → postEvent → stamp → notification). Returns `{requires_approval:true, request_id}` with 202 if a rule matched; the row stays draft. Returns the updated row + `accrual_je_id` + `cash_je_id` + `consume_results` + `inventory_layer_ids` otherwise. |
+| `GET` | `/api/internal/inventory-cycle-counts` | List (filters: `status`, `from`, `to`, `limit` 1-500). |
+| `POST` | `/api/internal/inventory-cycle-counts` | Start a new count. Body: `{count_date?, location?, notes?, scope_filter?}`. |
+| `GET` | `/api/internal/inventory-cycle-counts/:id` | Header + embedded `lines` array. |
+| `PATCH` | `/api/internal/inventory-cycle-counts/:id` | Only `{status:'cancelled'}` accepted. |
+| `DELETE` | `/api/internal/inventory-cycle-counts/:id` | 409 unless `in_progress` and no counts entered. |
+| `PATCH` | `/api/internal/inventory-cycle-counts/:id/lines/:line_id` | Update a single line. Body: `{counted_qty, notes?}`. |
+| `POST` | `/api/internal/inventory-cycle-counts/:id/finalize` | Fan out variance → adjustment drafts. Returns `{adjustments_created, lines_with_variance, lines_skipped_zero, lines_skipped_not_counted, threshold_breaches}`. |
 
 ---
 
 ## 11.5 Roadmap
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.
+- **P3-5 — Inventory Adjustments:** add `🛠️ Adjustments` panel under this same Inventory group. Posts to GL via M37 / M5 logic per architecture §5.
 - **M37 full UX (post-P3):** enable create + edit + post on Inventory Transfers. The disabled `+ Add` button activates; the schema doesn't change.
+- **Positive-variance cost capture in UI:** the finalize flow currently relies on `ip_item_avg_cost` for positive variances; a future iteration adds an inline cost prompt for items that have no avg-cost row.
