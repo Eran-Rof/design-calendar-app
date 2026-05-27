@@ -299,6 +299,10 @@ import h294 from "./internal/style-fabric-codes/[id].js";
 import h295 from "./internal/inventory-adjustments/index.js";
 import h296 from "./internal/inventory-adjustments/[id].js";
 import h297 from "./internal/inventory-adjustments/post.js";
+import h298 from "./internal/inventory-cycle-counts/index.js";
+import h299 from "./internal/inventory-cycle-counts/[id].js";
+import h300 from "./internal/inventory-cycle-counts/lines.js";
+import h301 from "./internal/inventory-cycle-counts/finalize.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -558,6 +562,11 @@ export const ROUTES = [
   { pattern: "/api/internal/fabric-codes", handler: h291 },
   { pattern: "/api/internal/style-fabric-codes/:id", handler: h294 },
   { pattern: "/api/internal/style-fabric-codes", handler: h293 },
+  // Cycle Counts (P3-6) — subpaths BEFORE /:id (first-match-wins)
+  { pattern: "/api/internal/inventory-cycle-counts/:id/finalize", handler: h301 },
+  { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: h300 },
+  { pattern: "/api/internal/inventory-cycle-counts/:id", handler: h299 },
+  { pattern: "/api/internal/inventory-cycle-counts", handler: h298 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
