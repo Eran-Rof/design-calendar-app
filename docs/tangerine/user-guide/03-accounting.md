@@ -247,6 +247,44 @@ flowchart TB
 ![Manual JE post modal with out-of-balance footer](screenshots/03-je-post-modal-unbalanced.png)
 <!-- screenshot needed: post modal with red unbalanced footer -->
 
+### Viewing a JE (detail modal)
+
+Click any row in the JE list to open the read-only **JE detail modal**. The header carries the JE id; the body is divided into four sections.
+
+```mermaid
+flowchart TB
+    Row["Click row in JE list"] --> Fetch["GET /api/internal/journal-entries/:id<br/>(returns header + lines)"]
+    Fetch --> Lookup["GET /api/internal/gl-accounts<br/>(code+name lookup for lines)"]
+    Fetch --> Approvals["GET /api/internal/approval-requests<br/>?context_table=journal_entries<br/>&context_id=:id"]
+    Fetch --> Docs["GET /api/internal/documents<br/>?context_table=journal_entries<br/>&context_id=:id<br/>(DocumentAttachmentList widget)"]
+    Approvals -.->|empty / error| NoHistory["'No approval history' line<br/>(modal still renders)"]
+
+    style NoHistory fill:#fef3c7
+```
+
+**Sections** (top to bottom):
+
+1. **Header** — posting_date, journal_type, basis, source_module, source_table/source_id, posted_at, sibling_je_id (for ACCRUAL↔CASH pairs), and reverses_je_id / reversed_by_je_id cross-links. All read-only.
+2. **Description** — the free-text label entered at post time.
+3. **Lines** — full line table with account code+name (joined from the COA lookup), debit, credit, memo, and subledger pairing. Totals row at the bottom shows Σ debit and Σ credit (which match by construction for any posted JE).
+4. **Approval history** — best-effort lookup against `approval_requests` where `context_table='journal_entries' AND context_id=<this JE>`. Renders each request's status, kind, and step decisions. If no matching approval exists (or the lookup fails), shows **"No approval history"** — the rest of the modal still renders.
+5. **Supporting documents** — the reusable `<DocumentAttachmentList>` widget bound to this JE. **This is the only writable area of the modal.** Documents can be uploaded, downloaded (via short-lived signed URL), or archived (soft-delete). Seeded kinds dropdown: `supporting_doc`, `approval_correspondence`, `receipt`, `other`.
+
+```tsx
+<DocumentAttachmentList
+  contextTable="journal_entries"
+  contextId={je.id}
+  kinds={["supporting_doc","approval_correspondence","receipt","other"]}
+/>
+```
+
+The modal has two footer buttons:
+
+- **Close** — dismiss without any change.
+- **Reverse** — only enabled when `status='posted'` AND `reversed_by_je_id` is null. Delegates to the same reverse flow as the row-level Reverse button (prompt for posting_date, then `POST /api/internal/journal-entries/:id/reverse`).
+
+> Why is the rest of the modal read-only? Posted JEs are immutable by design (see the next section). The detail modal is intentionally a **viewer** — the only thing that can be changed about a posted JE after the fact is the set of supporting documents pinned to it.
+
 ### Reversing a posted JE
 
 Click **Reverse** on any `status=posted` row.
