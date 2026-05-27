@@ -31,7 +31,7 @@ export default async function handler(req, res, params) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const id = params?.id;
+  const id = params?.id || req.query?.id;
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
     return res.status(400).json({ error: "Invalid id" });
   }
