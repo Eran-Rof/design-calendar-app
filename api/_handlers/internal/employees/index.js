@@ -90,6 +90,14 @@ export default async function handler(req, res) {
   return res.status(405).json({ error: "Method not allowed" });
 }
 
+// Strict UUID format: 8-4-4-4-12 hex chars with dashes at exact positions.
+// The loose `[0-9a-f-]{36}` regex used previously accepted strings the
+// Postgres uuid type then rejected with 22P02 invalid input syntax.
+function isUuid(s) {
+  return typeof s === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
 export function validateInsert(body) {
   if (!body.code || !String(body.code).trim()) return { error: "code required" };
   if (!body.first_name || !String(body.first_name).trim()) return { error: "first_name required" };
@@ -106,11 +114,13 @@ export function validateInsert(body) {
   if (body.hire_date && body.termination_date && body.termination_date < body.hire_date) {
     return { error: "termination_date cannot precede hire_date" };
   }
-  if (body.auth_user_id && !/^[0-9a-f-]{36}$/i.test(body.auth_user_id)) {
-    return { error: "auth_user_id (when set) must be uuid" };
+  const auth_user_id_trimmed = typeof body.auth_user_id === "string" ? body.auth_user_id.trim() : body.auth_user_id;
+  if (auth_user_id_trimmed && !isUuid(auth_user_id_trimmed)) {
+    return { error: `auth_user_id must be a uuid (got: ${JSON.stringify(body.auth_user_id)})` };
   }
-  if (body.manager_employee_id && !/^[0-9a-f-]{36}$/i.test(body.manager_employee_id)) {
-    return { error: "manager_employee_id (when set) must be uuid" };
+  const manager_id_trimmed = typeof body.manager_employee_id === "string" ? body.manager_employee_id.trim() : body.manager_employee_id;
+  if (manager_id_trimmed && !isUuid(manager_id_trimmed)) {
+    return { error: `manager_employee_id must be a uuid (got: ${JSON.stringify(body.manager_employee_id)})` };
   }
 
   return {
@@ -125,8 +135,8 @@ export function validateInsert(body) {
       termination_date: body.termination_date || null,
       is_active: body.is_active !== false,
       phone: body.phone ? String(body.phone).trim() : null,
-      auth_user_id: body.auth_user_id || null,
-      manager_employee_id: body.manager_employee_id || null,
+      auth_user_id: auth_user_id_trimmed || null,
+      manager_employee_id: manager_id_trimmed || null,
       metadata: body.metadata || {},
     },
   };

@@ -90,6 +90,14 @@ export default async function handler(req, res, params) {
   return res.status(405).json({ error: "Method not allowed" });
 }
 
+// Strict UUID format: 8-4-4-4-12 hex chars with dashes at exact positions.
+// Permissive enough for any standard v1/v4 UUID, strict enough that the DB
+// won't reject with 22P02.
+function isUuid(s) {
+  return typeof s === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
 export function validatePatch(body) {
   const data = {};
 
@@ -124,12 +132,20 @@ export function validatePatch(body) {
   }
   if ("phone" in body) data.phone = body.phone ? String(body.phone).trim() : null;
   if ("auth_user_id" in body) {
-    if (body.auth_user_id && !/^[0-9a-f-]{36}$/i.test(body.auth_user_id)) return { error: "auth_user_id must be uuid or null" };
-    data.auth_user_id = body.auth_user_id || null;
+    const v = body.auth_user_id;
+    const trimmed = typeof v === "string" ? v.trim() : v;
+    if (trimmed && !isUuid(trimmed)) {
+      return { error: `auth_user_id must be a uuid (got: ${JSON.stringify(v)})` };
+    }
+    data.auth_user_id = trimmed || null;
   }
   if ("manager_employee_id" in body) {
-    if (body.manager_employee_id && !/^[0-9a-f-]{36}$/i.test(body.manager_employee_id)) return { error: "manager_employee_id must be uuid or null" };
-    data.manager_employee_id = body.manager_employee_id || null;
+    const v = body.manager_employee_id;
+    const trimmed = typeof v === "string" ? v.trim() : v;
+    if (trimmed && !isUuid(trimmed)) {
+      return { error: `manager_employee_id must be a uuid (got: ${JSON.stringify(v)})` };
+    }
+    data.manager_employee_id = trimmed || null;
   }
   if ("metadata" in body) data.metadata = body.metadata || {};
 
