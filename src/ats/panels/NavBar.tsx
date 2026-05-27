@@ -498,7 +498,15 @@ export const NavBar: React.FC<NavBarProps> = ({
 
     let salesAggregates: SalesFetchResult | undefined;
     let finalRows = rowsForExport;
-    if (opts.trailing3 || opts.spLY) {
+    // Sls Prc Mrgn % column needs T3-by-style (always) + customer-last-
+    // price (only when a customer is selected). Both ride on the same
+    // sales-history scan, so toggling Sls Prc @ extends the fetch trigger
+    // even when neither T3 nor LY column is checked.
+    const customerSelected = Array.isArray(opts.customer)
+      ? opts.customer.length > 0
+      : !!opts.customer && opts.customer.trim().length > 0;
+    const needMrgnPctFetch = !!opts.slsPrcAtMrgn;
+    if (opts.trailing3 || opts.spLY || needMrgnPctFetch) {
       // Reset the cancel flag at the start of each export attempt so a
       // prior cancel doesn't poison the next run.
       exportCancelledRef.current = false;
@@ -508,6 +516,8 @@ export const NavBar: React.FC<NavBarProps> = ({
           rows: rowsForExport,
           needT3: opts.trailing3,
           needLY: opts.spLY,
+          needT3ByStyle: needMrgnPctFetch,
+          needLastCustomerPriceBySku: needMrgnPctFetch && customerSelected,
           customer: opts.customer,
           // Honour the grid's store filter so T3/LY revenue matches
           // the visible-row scope. Without this, ROF wholesale sales
