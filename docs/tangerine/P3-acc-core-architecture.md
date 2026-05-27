@@ -634,7 +634,6 @@ In dependency order:
 
 - **(M39 mobile app implementation is a separate stream of work — Swift/Kotlin or RN — owned by mobile, not part of this back-end pass.)**
 
-<<<<<<< HEAD
 - **P3-11 — Fabric Code Master (added 2026-05-27)**
   - Migration: `fabric_codes` + `style_fabric_codes` junction + RLS + 9-fabric seed (ROF entity)
   - `api/_handlers/internal/fabric-codes/` (index.js + [id].js)
@@ -644,7 +643,6 @@ In dependency order:
   - 15 + 10 test cases (validateInsert + validatePatch for both tables)
   - User-guide chapter 15
   - Inserted out of dependency order (no dependency on P3-1…P3-8). Operator flagged the gap on 2026-05-27 evening: M34 Style Master shipped without structured fabric data, M42 PIM is in P8 (months away), but textile-specific fabric reference is needed NOW for tech packs + GS1 care labels + M48 customs.
-=======
 - **P3-9 — Payment Terms Master (added 2026-05-27)**
   - Migration: `payment_terms` table + `compute_due_date()` helper function + FK columns on vendors / customers / invoices + 9 seeded defaults + best-effort text → FK backfill
   - `api/_handlers/internal/payment-terms/` (index.js + [id].js — standard list/create/get/patch/hard-delete pattern with reference-count guard on DELETE)
@@ -653,7 +651,6 @@ In dependency order:
   - **Existing handlers updated:** vendor-master + customer-master accept `payment_terms_id` (UUID, validated) in addition to the legacy text column
   - User-guide chapter 14 (`14-payment-terms.md`)
   - ~50 new tests covering validators on all 5 handlers
->>>>>>> 402da48 (Tangerine P3-9 - Payment Terms Master (arch §3.9))
 
 Each chunk lands as its own PR. Isolated worktree pattern per [[feedback-isolated-worktree-for-tangerine]]. Per [[feedback-memorize-each-chunk]], memory + user-guide update in the same PR.
 
