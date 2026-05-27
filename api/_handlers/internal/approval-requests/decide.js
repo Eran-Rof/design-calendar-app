@@ -10,8 +10,9 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { decide as decideLib, ApprovalsError } from "../../../_lib/approvals/index.js";
+import { postInvoice as postApInvoice } from "../ap-invoices/post.js";
 
-export const config = { maxDuration: 15 };
+export const config = { maxDuration: 30 };
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -54,7 +55,50 @@ export default async function handler(req, res, params) {
     const out = await decideLib(admin,
       { request_id: id, step_id: v.data.step_id, decision: v.data.decision, notes: v.data.notes },
       { actor_user_id: v.data.actor_user_id });
-    return res.status(200).json(out);
+
+    // Post-decision side-effect: when an ap_invoice approval finalizes as
+    // approved, re-run the post path against the still-pending invoice.
+    // Per P3 arch §3.6 ("when the approval flips to approved, a small webhook
+    // handler re-runs the post path"). Option (a) in P3-2: wire it here as a
+    // best-effort side-effect — failures don't block the decide response.
+    let postedHook = null;
+    if (out?.finalized && out?.request?.status === "approved") {
+      try {
+        const { data: reqRow } = await admin
+          .from("approval_requests")
+          .select("id, kind, context_table, context_id, entity_id")
+          .eq("id", id)
+          .maybeSingle();
+        if (reqRow && reqRow.kind === "ap_invoice" && reqRow.context_table === "invoices") {
+          const { data: invoice } = await admin
+            .from("invoices")
+            .select("*")
+            .eq("id", reqRow.context_id)
+            .maybeSingle();
+          if (invoice && invoice.gl_status === "pending_approval") {
+            const { data: vendor } = await admin
+              .from("vendors")
+              .select("id, vendor_code, name, created_at")
+              .eq("id", invoice.vendor_id)
+              .maybeSingle();
+            const result = await postApInvoice(admin, {
+              invoice,
+              vendor,
+              vendor_new: false,
+              created_by_user_id: v.data.actor_user_id,
+              fromApprovalHook: true,
+            });
+            postedHook = result.body || { status: result.status, error: result.error };
+          }
+        }
+      } catch (hookErr) {
+        // Hook failures don't fail the decide call. Surface in the response
+        // so the UI can show a warning if needed.
+        postedHook = { error: hookErr instanceof Error ? hookErr.message : String(hookErr) };
+      }
+    }
+
+    return res.status(200).json({ ...out, post_hook: postedHook });
   } catch (err) {
     if (err instanceof ApprovalsError) {
       const status = mapApprovalsErrorStatus(err.code);

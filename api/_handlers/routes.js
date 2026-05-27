@@ -286,6 +286,12 @@ import h281 from "./internal/scanner/sessions/submit.js";
 import h282 from "./internal/scanner/sessions/cancel.js";
 import h283 from "./internal/scanner/sessions/[id].js";
 import h284 from "./internal/scanner/sessions/index.js";
+import h285 from "./internal/ap-invoices/index.js";
+import h286 from "./internal/ap-invoices/[id].js";
+import h287 from "./internal/ap-invoices/post.js";
+import h288 from "./internal/ap-invoices/pay.js";
+import h289 from "./internal/ap-invoices/void.js";
+import h290 from "./internal/ap-payments/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -529,6 +535,13 @@ export const ROUTES = [
   { pattern: "/api/internal/scanner/sessions/:id/cancel", handler: h282 },
   { pattern: "/api/internal/scanner/sessions/:id", handler: h283 },
   { pattern: "/api/internal/scanner/sessions", handler: h284 },
+  // AP — subpaths BEFORE /:id parent (first-match-wins dispatcher)
+  { pattern: "/api/internal/ap-invoices/:id/post", handler: h287 },
+  { pattern: "/api/internal/ap-invoices/:id/pay", handler: h288 },
+  { pattern: "/api/internal/ap-invoices/:id/void", handler: h289 },
+  { pattern: "/api/internal/ap-invoices/:id", handler: h286 },
+  { pattern: "/api/internal/ap-invoices", handler: h285 },
+  { pattern: "/api/internal/ap-payments", handler: h290 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
