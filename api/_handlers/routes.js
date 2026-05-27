@@ -281,6 +281,11 @@ import h276 from "./internal/employees/index.js";
 import h277 from "./internal/employees/[id].js";
 import h278 from "./internal/auth/provision.js";
 import h279 from "./internal/inventory-transfers/index.js";
+import h280 from "./internal/scanner/events/batch.js";
+import h281 from "./internal/scanner/sessions/submit.js";
+import h282 from "./internal/scanner/sessions/cancel.js";
+import h283 from "./internal/scanner/sessions/[id].js";
+import h284 from "./internal/scanner/sessions/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -518,6 +523,12 @@ export const ROUTES = [
   { pattern: "/api/internal/employees", handler: h276 },
   { pattern: "/api/internal/auth/provision", handler: h278 },
   { pattern: "/api/internal/inventory-transfers", handler: h279 },
+  // Scanner — subpaths BEFORE /:id parent (first-match-wins dispatcher)
+  { pattern: "/api/internal/scanner/events/batch", handler: h280 },
+  { pattern: "/api/internal/scanner/sessions/:id/submit", handler: h281 },
+  { pattern: "/api/internal/scanner/sessions/:id/cancel", handler: h282 },
+  { pattern: "/api/internal/scanner/sessions/:id", handler: h283 },
+  { pattern: "/api/internal/scanner/sessions", handler: h284 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
