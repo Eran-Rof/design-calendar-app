@@ -515,7 +515,16 @@ export function buildExportPayload(
   // the pair so the qty value sits vertically centered in the taller
   // merged cell. Matches the planner's reference image exactly.
   const dataRows: any[][] = [];
-  let nextExcelRow = 2; // header is row 1
+  // Title row gets prepended to the AOA when the operator narrows by customer
+  // OR picks a custom date range. Both signals are knowable now, well before
+  // the title-row block actually constructs the cell. The per-row Total has
+  // a `SUM(L<r>:Q<r>)` formula keyed off this row counter — if we start at 2
+  // when the title shifts data down by 1, every row's Total formula refers
+  // to the row above it (View shows correct static `v:`; Excel opens the
+  // file and recalculates → wrong totals).
+  const willHaveTitleRow = !!customerFilter
+    || !!(opts.customSalesRangeEnabled && salesAggregates?.windows);
+  let nextExcelRow = willHaveTitleRow ? 3 : 2;
   // Merge ranges accumulated as we emit prepack pairs.
   const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = [];
   // Cols that get merged across the qty+PPK pair when the input row
