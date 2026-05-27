@@ -35,6 +35,7 @@
     { "path": "/api/cron/anomalies-nightly", "schedule": "0 8 * * *" },
     { "path": "/api/cron/health-scores-monthly", "schedule": "0 7 1 * *" },
     { "path": "/api/cron/push-delivery", "schedule": "*/2 * * * *" },
+    { "path": "/api/cron/notifications-email-drain", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/ip-freshness-refresh", "schedule": "0 */4 * * *" },
     { "path": "/api/cron/ip-integration-health", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/insights-weekly", "schedule": "0 6 * * 1" },

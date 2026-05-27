@@ -21,8 +21,10 @@ import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalCOA                from "./tanda/InternalCOA";
 import InternalPeriods            from "./tanda/InternalPeriods";
 import InternalJournalEntry       from "./tanda/InternalJournalEntry";
-import InternalApprovalRules      from "./tanda/InternalApprovalRules";
-import InternalApprovalRequests   from "./tanda/InternalApprovalRequests";
+import InternalApprovalRules           from "./tanda/InternalApprovalRules";
+import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
+import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
+import InternalNotificationPreferences from "./tanda/InternalNotificationPreferences";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,13 +56,15 @@ type ModuleKey =
   | "gl_periods"
   | "journal_entries"
   | "approval_rules"
-  | "approval_requests";
+  | "approval_requests"
+  | "notifications"
+  | "notification_prefs";
 
 type ModuleDef = {
   key: ModuleKey;
   label: string;
   emoji: string;
-  group: "Master Data" | "Accounting" | "Approvals";
+  group: "Master Data" | "Accounting" | "Approvals" | "Notifications";
 };
 
 const MODULES: ModuleDef[] = [
@@ -72,6 +76,8 @@ const MODULES: ModuleDef[] = [
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
+  { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
+  { key: "notification_prefs",label: "Notif. Preferences",emoji: "🎚️", group: "Notifications" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,8 +191,10 @@ export default function Tangerine() {
         {activeModule === "gl_accounts"       && <InternalCOA />}
         {activeModule === "gl_periods"        && <InternalPeriods />}
         {activeModule === "journal_entries"   && <InternalJournalEntry />}
-        {activeModule === "approval_rules"    && <InternalApprovalRules />}
-        {activeModule === "approval_requests" && <InternalApprovalRequests />}
+        {activeModule === "approval_rules"     && <InternalApprovalRules />}
+        {activeModule === "approval_requests"  && <InternalApprovalRequests />}
+        {activeModule === "notifications"      && <InternalNotificationCenter />}
+        {activeModule === "notification_prefs" && <InternalNotificationPreferences />}
       </main>
     </div>
   );
@@ -508,6 +516,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const masterModules = MODULES.filter((m) => m.group === "Master Data");
   const acctModules = MODULES.filter((m) => m.group === "Accounting");
   const approvalsModules = MODULES.filter((m) => m.group === "Approvals");
+  const notifModules = MODULES.filter((m) => m.group === "Notifications");
 
   return (
     <div>
@@ -533,6 +542,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Approvals (P2)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {approvalsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Notifications (P2)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {notifModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 

@@ -271,6 +271,9 @@ import h266 from "./internal/approval-requests/index.js";
 import h267 from "./internal/approval-requests/[id].js";
 import h268 from "./internal/approval-requests/decide.js";
 import h269 from "./internal/approval-requests/cancel.js";
+import h270 from "./internal/notifications/index.js";
+import h271 from "./internal/notifications/mark-read.js";
+import h272 from "./internal/notification-preferences/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -498,6 +501,9 @@ export const ROUTES = [
   { pattern: "/api/internal/approval-requests", handler: h266 },
   { pattern: "/api/internal/approval-rules/:id", handler: h265 },
   { pattern: "/api/internal/approval-rules", handler: h264 },
+  { pattern: "/api/internal/notifications/:id/mark-read", handler: h271 },
+  { pattern: "/api/internal/notifications", handler: h270 },
+  { pattern: "/api/internal/notification-preferences", handler: h272 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
