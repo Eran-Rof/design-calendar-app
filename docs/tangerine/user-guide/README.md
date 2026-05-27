@@ -23,6 +23,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 8. [Notifications (M28)](08-notifications.md) — P2: in-app inbox + email channel; preferences per (kind, channel)
 9. [Documents (M29)](09-documents.md) — P2: attach files to vendors / customers; signed-URL downloads
 10. [Employees (M30)](10-employees.md) — P2: HR/identity layer + v_audit_user_resolved view for display names
+11. [Inventory operations (M37)](11-inventory-operations.md) — P3: read-only Inventory Transfers panel (skeleton); grows as P3-5 / P3-6 ship
 
 ## 30-second quickstart
 

@@ -280,6 +280,7 @@ import h275 from "./internal/documents/archive.js";
 import h276 from "./internal/employees/index.js";
 import h277 from "./internal/employees/[id].js";
 import h278 from "./internal/auth/provision.js";
+import h279 from "./internal/inventory-transfers/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -516,6 +517,7 @@ export const ROUTES = [
   { pattern: "/api/internal/employees/:id", handler: h277 },
   { pattern: "/api/internal/employees", handler: h276 },
   { pattern: "/api/internal/auth/provision", handler: h278 },
+  { pattern: "/api/internal/inventory-transfers", handler: h279 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
