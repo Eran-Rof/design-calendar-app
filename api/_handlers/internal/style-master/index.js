@@ -57,13 +57,13 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("style_master")
-      .select("id, style_code, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric, attributes, created_at, updated_at, deleted_at")
+      .select("id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric, attributes, created_at, updated_at, deleted_at")
       .eq("entity_id", entityId)
       .order("style_code", { ascending: true })
       .limit(limit);
 
     if (!includeDeleted) query = query.is("deleted_at", null);
-    if (q) query = query.or(`style_code.ilike.%${q}%,description.ilike.%${q}%`);
+    if (q) query = query.or(`style_code.ilike.%${q}%,style_name.ilike.%${q}%,description.ilike.%${q}%`);
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
@@ -82,6 +82,7 @@ export default async function handler(req, res) {
     const row = {
       entity_id: entityId,
       style_code: v.data.style_code.toUpperCase(),
+      style_name: v.data.style_name || null,
       description: v.data.description,
       category_id: v.data.category_id || null,
       gender_code: v.data.gender_code || null,

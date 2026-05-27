@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 type Style = {
   id: string;
   style_code: string;
+  style_name: string | null;
   description: string;
   category_id: string | null;
   gender_code: string | null;
@@ -59,6 +60,9 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  // Freeze the header row when the list scrolls (the table is wrapped in a
+  // scrolling container below; sticky positions relative to that ancestor).
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -114,7 +118,7 @@ export default function InternalStyleMaster() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
         <input
           type="text"
-          placeholder="Search style_code or description…"
+          placeholder="Search style number, name or description…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void load()}
@@ -137,7 +141,7 @@ export default function InternalStyleMaster() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: "calc(100vh - 220px)", overflowY: "auto", overflowX: "auto" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -146,7 +150,8 @@ export default function InternalStyleMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
+                <th style={th}>Style Number</th>
+                <th style={th}>Style Name</th>
                 <th style={th}>Description</th>
                 <th style={th}>Gender</th>
                 <th style={th}>Season</th>
@@ -162,6 +167,7 @@ export default function InternalStyleMaster() {
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
                     {r.style_code}
                   </td>
+                  <td style={td}>{r.style_name || "—"}</td>
                   <td style={td}>{r.description}</td>
                   <td style={td}>{r.gender_code || "—"}</td>
                   <td style={td}>{r.season || "—"}</td>
@@ -199,6 +205,7 @@ interface ModalProps {
 function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     style_code:        style?.style_code        ?? "",
+    style_name:        style?.style_name        ?? "",
     description:       style?.description       ?? "",
     gender_code:       style?.gender_code       ?? "",
     season:            style?.season            ?? "",
@@ -216,6 +223,7 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
     setErr(null);
     try {
       const body: Record<string, unknown> = {
+        style_name:       form.style_name.trim() || null,
         description:      form.description.trim(),
         gender_code:      form.gender_code || null,
         season:           form.season || null,
@@ -256,14 +264,14 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 580, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 24, width: "min(92vw, 760px)", maxHeight: "90vh", overflowY: "auto", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add style" : `Edit ${style!.style_code}`}
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Style code">
+          <Field label="Style Number">
             {mode === "add" ? (
               <input
                 type="text"
@@ -276,6 +284,15 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
             ) : (
               <input type="text" value={form.style_code} disabled style={{ ...inputStyle, opacity: 0.6 }} />
             )}
+          </Field>
+          <Field label="Style Name">
+            <input
+              type="text"
+              value={form.style_name}
+              onChange={(e) => setForm({ ...form, style_name: e.target.value })}
+              style={inputStyle}
+              placeholder="Short marketing/internal name"
+            />
           </Field>
           <Field label="Description">
             <input
