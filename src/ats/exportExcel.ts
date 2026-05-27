@@ -1566,19 +1566,6 @@ export function buildExportPayload(
       COL.category, COL.subCat, COL.style, COL.description, COL.color,
       COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
     ]);
-    // Any optional column the operator explicitly opted into via the
-    // export modal is alwaysKeep — hideZeroColumns must not drop a
-    // header the operator asked for just because the body cells are
-    // empty (e.g. T3 columns when the visible BPs had no trailing-3
-    // sales, customer filter resolved to zero rows, etc.).
-    for (const ci of [
-      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT,
-      COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN,
-      COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN,
-      COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN,
-    ]) {
-      if (ci !== undefined) alwaysKeep.add(ci);
-    }
     // Build forced-drop set up-front. hideATSData drops period range
     // + Total; even if hideZeroColumns disagrees (e.g. a period column
     // has data), the forced drop wins because the user explicitly

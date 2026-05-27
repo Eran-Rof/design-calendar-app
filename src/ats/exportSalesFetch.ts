@@ -235,12 +235,15 @@ async function resolveCustomerIds(name: string): Promise<string[]> {
 
   // Pull a candidate pool with a generous ILIKE on the first
   // meaningful token (Xoro often appends ", Inc." or "DC #..." to
-  // the same logical customer). limit=50 is plenty — duplicate
-  // names in the master rarely exceed a handful.
+  // the same logical customer). Big-box retailers can have 50+
+  // separate DC rows — Burlington at 80+ live entries silently
+  // truncated under the old limit=50 and sales tied to the missed
+  // IDs vanished from T3/LY. Use sbGetAll so PostgREST's
+  // db-max-rows=1000 cap can't truncate us either.
   const firstWord = trimmed.split(/\s+/)[0] || trimmed;
   const enc = encodeURIComponent(`${firstWord}%`);
-  const rows = await sbGet<{ id: string; name: string }>(
-    `ip_customer_master?select=id,name&name=ilike.${enc}&limit=50`,
+  const rows = await sbGetAll<{ id: string; name: string }>(
+    `ip_customer_master?select=id,name&name=ilike.${enc}&order=name.asc`,
   );
 
   const out: string[] = [];
