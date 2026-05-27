@@ -4,6 +4,24 @@
 //
 // Accrual: DR ar_account / CR revenue_account
 // Cash:    none (cash basis recognizes revenue at payment receipt)
+//
+// TODO P4 (FIFO COGS on AR side, arch §4.5 row 2):
+//   For each line with inventory_item_id set, call
+//   inventoryFifoAPI.consume(supabase, { entity_id, item_id, qty,
+//   consumer_kind: 'ar_invoice', consumer_ref_id: invoice_id, user_id }).
+//   The returned cogs_cents per line is summed and emitted as an
+//   ADDITIONAL JE pair on the same accrual entry:
+//     DR cogs_account_id (subledger_type='item', subledger_id=item_id)
+//     CR inventory_account_id (subledger_type='item', subledger_id=item_id)
+//   On insufficient_inventory the rule throws PostingError('out_of_stock',...)
+//   so the AR invoice handler can surface it to the operator before the JE
+//   commits. The COGS-side persist runs inside the same postEvent flow so
+//   the GL stays balanced.
+//
+//   Cash-twin handling: the cash basis posts COGS at AR PAYMENT receipt
+//   (arPaymentReceived), not here. See arch §4.7. We'll add an
+//   inventoryConsumption[] field to the cash branch at that time, mirroring
+//   the inventoryLayers[] pattern P3-4 uses on the AP side.
 
 /**
  * @param {import('../types.js').PostingEvent} event

@@ -36,6 +36,7 @@ import { checkAccountExistsInEntity } from "./guards/accountExistsInEntity.js";
 
 import { persistRuleOutput } from "./persist.js";
 import { reverseJournalEntry } from "./reverse.js";
+import { createLayer as createInventoryLayer } from "../../inventory/fifo.js";
 
 export { reverseJournalEntry } from "./reverse.js";
 
@@ -116,7 +117,49 @@ export async function postEvent(supabase, event) {
   }
 
   // 3. Persist transactionally
-  return persistRuleOutput(supabase, ruleOutput);
+  const result = await persistRuleOutput(supabase, ruleOutput);
+
+  // 4. P3-4 (arch §4.5): after the JE persists, create one inventory_layers
+  //    row per pending layer. This fires AFTER the JE so a failed JE does NOT
+  //    leave orphan layers. The reverse risk — JE posts but layer-create fails
+  //    — is logged + surfaced on the result (`inventory_layer_errors`); the
+  //    operator can backfill manually. We deliberately do NOT roll back the JE
+  //    on layer failure because the GL truth (DR inventory / CR AP) is already
+  //    correct; the FIFO ledger is a downstream audit trail that can be
+  //    reconciled out-of-band.
+  if (Array.isArray(ruleOutput.inventoryLayers) && ruleOutput.inventoryLayers.length > 0) {
+    const layerIds = [];
+    const layerErrors = [];
+    for (const pending of ruleOutput.inventoryLayers) {
+      try {
+        const { layer } = await createInventoryLayer(supabase, {
+          entity_id: event.entity_id,
+          item_id: pending.item_id,
+          qty: pending.qty,
+          unit_cost_cents: pending.unit_cost_cents,
+          source_kind: "ap_invoice",
+          source_invoice_id: pending.source_invoice_id,
+          received_at: pending.received_at || null,
+          notes: pending.notes || null,
+          created_by_user_id: event.created_by_user_id ?? null,
+        });
+        layerIds.push(layer?.id);
+      } catch (err) {
+        const message = err?.message || String(err);
+        // eslint-disable-next-line no-console
+        console.error(
+          `[posting] AP invoice ${event.data?.invoice_id ?? "(?)"}: FIFO layer create failed for item ${pending.item_id}: ${message}`,
+        );
+        layerErrors.push({ item_id: pending.item_id, error: message });
+      }
+    }
+    result.inventory_layer_ids = layerIds;
+    if (layerErrors.length > 0) {
+      result.inventory_layer_errors = layerErrors;
+    }
+  }
+
+  return result;
 }
 
 async function runGuards(candidate, ctx, side) {

@@ -55,6 +55,31 @@ This is the expected state during P3 until M37 ships its full UX or a cross-enti
 
 ---
 
+## 11.1.x FIFO layers on AP receipt (P3-4)
+
+**When an AP invoice with inventory lines posts, FIFO layers are created automatically.**
+
+Each AP invoice line that carries an `inventory_item_id` together with **both** a `qty` and a `unit_cost_cents` triggers the creation of one `inventory_layers` row at posting time:
+
+- `entity_id` — from the invoice
+- `item_id` — from the line
+- `original_qty` and `remaining_qty` — both set to the line's `qty`
+- `unit_cost_cents` — per-unit landed cost from the line
+- `source_kind` — `'ap_invoice'`
+- `source_invoice_id` — the invoice id (FK back to `invoices`)
+- `received_at` — defaults to the invoice's `invoice_date`
+- `created_by_user_id` — propagated from the posting event
+
+**Sequencing:** the layer rows are inserted **after** the journal entry persists successfully. If the JE fails (period locked, unbalanced, period closed, etc.), the layer step is skipped entirely — there will never be an orphan layer without a matching GL impact.
+
+**Soft-fail on layer side:** if the JE posts but a layer insert fails (e.g. transient DB error), the JE is **not** rolled back. The failure is logged and the offending item id is returned in the posting result under `inventory_layer_errors`. The GL truth (DR inventory / CR AP) is already correct; the operator can backfill the missing layer via a manual adjustment or contact the dev team.
+
+**Lines without qty + unit_cost_cents:** legacy / partial AP invoices that mark a line `inventory_item_id` but omit one of `qty` / `unit_cost_cents` post the JE as before but create **no** layer. This is intentional — those rows pre-date the FIFO wiring and the operator may not yet know the per-unit cost. Subsequent receipts can be properly costed.
+
+**Void behaviour:** voiding an AP invoice via the `ap_invoice_voided` event **does not** delete or zero its FIFO layers. The layers represent inventory that physically arrived; if the operator wants to remove the received quantity from the on-hand picture they must file a separate inventory adjustment (P3-5).
+
+---
+
 ## 11.2 GL impact policy
 
 Internal transfers between owned locations within a single entity **do not hit the General Ledger**. The `posted_je_id` column on the underlying table stays NULL for those rows. The inventory simply moves between layers (consume one layer at the source, create a new layer at the destination with the same `unit_cost_cents`).
