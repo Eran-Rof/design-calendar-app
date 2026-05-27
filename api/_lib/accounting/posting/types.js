@@ -34,13 +34,25 @@
  * @property {string|null}     [created_by_user_id]
  * @property {JournalLine[]}   lines
  *
+ * @typedef {Object} PendingInventoryLayer
+ * @property {string}                     item_id            UUID of ip_item_master(id).
+ * @property {number|string}              qty                Positive numeric — units received.
+ * @property {number|string|bigint}       unit_cost_cents    Non-negative integer cents (per-unit landed cost).
+ * @property {string}                     source_invoice_id  UUID of the originating AP invoice.
+ * @property {string|null}                [received_at]      ISO date/datetime; defaults to now() if omitted.
+ * @property {string|null}                [notes]            Per-line memo, optional.
+ *
  * @typedef {Object} PostingRuleOutput
  * @property {JournalEntryCandidate|null} accrual
  * @property {JournalEntryCandidate|null} cash
+ * @property {string[]}                   [reversals]        Reversal JE ids (apInvoiceVoided shape).
+ * @property {PendingInventoryLayer[]}    [inventoryLayers]  Layers to create after JE persists (P3-4).
  *
  * @typedef {Object} PostingResult
- * @property {string|null} accrual_je_id   UUID of the ACCRUAL JE persisted (or null).
- * @property {string|null} cash_je_id      UUID of the CASH JE persisted (or null).
+ * @property {string|null} accrual_je_id        UUID of the ACCRUAL JE persisted (or null).
+ * @property {string|null} cash_je_id           UUID of the CASH JE persisted (or null).
+ * @property {string[]}    [inventory_layer_ids] UUIDs of FIFO layers created (P3-4). Empty when no inventory lines.
+ * @property {Array<{item_id:string, error:string}>} [inventory_layer_errors] Layer-create failures, if any.
  *
  * @typedef {Object} GuardContext
  * @property {Object}  supabase    Supabase service-role client.

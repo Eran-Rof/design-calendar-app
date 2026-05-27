@@ -13,8 +13,15 @@
 //      expense_account_id, inventory_item_id?, inventory_account_id?, memo? }].
 //      Produces one DR line per input line + one CR AP line for the total.
 //      Lines with inventory_item_id MUST also carry inventory_account_id
-//      (the gl_accounts.id for inventory; the FIFO layer row is written
-//      separately in P3-4).
+//      (the gl_accounts.id for inventory).
+//
+// P3-4 (FIFO ↔ AP integration, arch §4.5): inventory lines that ALSO carry
+// `qty` + `unit_cost_cents` produce a pending `inventoryLayers[]` entry on the
+// rule output. The posting service consumes this list AFTER the JE persists
+// successfully and calls fifo.createLayer() for each one. If a line has
+// inventory_item_id but no qty/unit_cost_cents, no layer is queued (the JE
+// still posts) — this preserves backwards compatibility with the multi-line
+// path that pre-dates the FIFO wiring.
 
 /**
  * @param {import('../types.js').PostingEvent} event
@@ -33,10 +40,14 @@
  *       expense_account_id: string,
  *       inventory_item_id?: string,    // when set, this is an inventory line
  *       inventory_account_id?: string, // required when inventory_item_id set
+ *       qty?: number|string,           // optional — when set with inventory_item_id + unit_cost_cents, queues a FIFO layer (P3-4)
+ *       unit_cost_cents?: number|string|bigint, // optional — see qty
  *       memo?: string,
  *     }>,
  *   }
- * @returns {import('../types.js').PostingRuleOutput}
+ * @returns {import('../types.js').PostingRuleOutput} also carries optional
+ *   `inventoryLayers: Array<{item_id, qty, unit_cost_cents, source_invoice_id, received_at, ...}>`
+ *   when any line had inventory_item_id + qty + unit_cost_cents (P3-4).
  */
 export function apInvoiceReceived(event) {
   const d = event.data;
@@ -47,6 +58,7 @@ export function apInvoiceReceived(event) {
 
   let drLines;
   let totalCents;
+  const inventoryLayers = [];
 
   if (useMultiLine) {
     drLines = [];
@@ -79,6 +91,23 @@ export function apInvoiceReceived(event) {
         subledger_id: subId,
       });
       totalCents += toCents(ln.amount);
+
+      // P3-4: queue a FIFO layer for any inventory line that supplied qty +
+      // unit_cost_cents. Lines without these stay JE-only (legacy behavior).
+      if (
+        ln.inventory_item_id &&
+        ln.qty != null && ln.qty !== "" &&
+        ln.unit_cost_cents != null && ln.unit_cost_cents !== ""
+      ) {
+        inventoryLayers.push({
+          item_id: ln.inventory_item_id,
+          qty: ln.qty,
+          unit_cost_cents: ln.unit_cost_cents,
+          source_invoice_id: d.invoice_id,
+          received_at: d.invoice_date, // YYYY-MM-DD — fifo.createLayer accepts ISO; PG casts to timestamptz
+          notes: ln.memo || null,
+        });
+      }
     }
 
     // CR AP total
@@ -129,6 +158,11 @@ export function apInvoiceReceived(event) {
     lines: drLines,
   };
 
+  // inventoryLayers is omitted when empty to keep parity with rules that don't
+  // emit them (manualEntry, apInvoicePaid, etc).
+  if (inventoryLayers.length > 0) {
+    return { accrual, cash: null, inventoryLayers };
+  }
   return { accrual, cash: null };
 }
 

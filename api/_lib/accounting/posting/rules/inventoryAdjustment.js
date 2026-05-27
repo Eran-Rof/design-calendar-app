@@ -7,6 +7,25 @@
 //
 // Direction = 'up' (positive amount): DR inventory / CR adjustment_account
 // Direction = 'down':                 DR adjustment_account / CR inventory
+//
+// TODO P3-5 (FIFO wire-point, arch §4.5 row 3):
+//   Positive ('up') adjustments must INSERT a new inventory_layers row:
+//     inventoryFifoAPI.createLayer(supabase, {
+//       entity_id, item_id, qty, unit_cost_cents, source_kind: 'adjustment',
+//       source_adjustment_id: adjustment_id, received_at: adjustment_date,
+//       created_by_user_id,
+//     })
+//   To support this the rule should accept qty + unit_cost_cents on
+//   event.data (or per-line) and pass them through on
+//   PostingRuleOutput.inventoryLayers[] — same pattern P3-4 introduced for
+//   apInvoiceReceived. postEvent already drains inventoryLayers; we just need
+//   the per-rule data to flow through.
+//
+//   Negative ('down') adjustments must call inventoryFifoAPI.consume() with
+//   consumer_kind='adjustment_decrease' and source_adjustment_id=adjustment_id,
+//   then use the returned cogs_cents as the JE amount (overriding the
+//   operator-supplied amount, which is descriptive only). This is the
+//   FIFO-derived dollar value of inventory removed.
 
 /**
  * @param {import('../types.js').PostingEvent} event
