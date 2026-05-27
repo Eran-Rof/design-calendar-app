@@ -38,7 +38,12 @@ Login is the same for both; access to the data inside each panel is gated by Row
 ## Related docs
 
 - [`../P1-foundation-architecture.md`](../P1-foundation-architecture.md) — the full architectural spec for P1 (schemas, RLS, posting service, trigger semantics). Reference when you need to understand *why* a behavior exists.
+- [`../P2-cross-cutters-architecture.md`](../P2-cross-cutters-architecture.md) — P2 (Approvals · Notifications · Documents · HR/Employees) architecture pass. Implementation in progress; user-guide chapters land alongside each chunk's UI.
 - [`../accountant-coa-request-email.md`](../accountant-coa-request-email.md) — forwardable email template asking the accountant for the canonical COA list (gates the first Chart of Accounts seeding).
+
+## P2 in flight (cross-cutters)
+
+- **Chunk P2-1 (this PR):** M27 Workflow/Approvals schema + `api/_lib/approvals/` library + `journal_entries` pending-approval posting guard. No UI yet — UI lands in Chunk P2-2 and a full Approvals chapter will be added then. The library is dormant: callable but no rules are seeded, so no posting flow blocks today.
 
 ## How this guide stays current
 
