@@ -935,17 +935,28 @@ export function buildExportPayload(
     // costMul / qtyDiv (inverses); the product is grain-invariant.
     const totalCostV = avgCostV > 0 ? avgCostV * rowPeriodTotal : 0;
     // Implied sale price needed to hit `slsMarginPct` against avgCost.
-    // price = avgCost / (1 - margin). Guard against margin >= 100.
-    // Rounded UP to the nearest $0.05 so prices always end in 0 or 5.
-    // Per-BP unification: every row of the same master_style shows the
-    // HIGHEST formula-derived price across the BP's variants — pulled
-    // from bpMaxSlsPrc. Falls through to the per-row formula when the
-    // row has no master_style match.
+    // Priority (highest first):
+    //   1. If a customer is selected AND that customer has T3 sales for
+    //      THIS variant, use the customer's actual T3 avg sale price
+    //      (t3.totalPrice / t3.qty). Reflects what the customer paid;
+    //      no rounding (it's a real number).
+    //   2. BP-uniform: every row of the same master_style shows the
+    //      HIGHEST formula-derived price across the BP's variants —
+    //      from bpMaxSlsPrc.
+    //   3. Per-row formula: avgCost / (1 - margin), rounded UP to $0.05.
     const styleKeyForSlsPrc = r.master_style ?? "";
+    const custT3VariantPrice = (() => {
+      if (!customerFilter) return 0;
+      const t3 = t3Of(r.sku);
+      if (t3.qty <= 0 || t3.totalPrice <= 0) return 0;
+      return t3.totalPrice / t3.qty;
+    })();
     const slsPrcV = (avgCostV > 0 && slsMargin < 1)
-      ? (styleKeyForSlsPrc && bpMaxSlsPrc.has(styleKeyForSlsPrc)
-          ? bpMaxSlsPrc.get(styleKeyForSlsPrc)!
-          : Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20)
+      ? (custT3VariantPrice > 0
+          ? custT3VariantPrice
+          : (styleKeyForSlsPrc && bpMaxSlsPrc.has(styleKeyForSlsPrc)
+              ? bpMaxSlsPrc.get(styleKeyForSlsPrc)!
+              : Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20))
       : 0;
     if (COL_AVG_COST) qtyRow[COL_AVG_COST - 1] = avgCostV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
@@ -1625,6 +1636,22 @@ export function buildExportPayload(
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = effectiveAllRows;
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
+  // Diagnostic: print the aoa dimensions + the resulting !ref. The view
+  // preview renders the aoa directly; if View shows all columns but the
+  // downloaded XLSX truncates, !ref is too narrow.
+  {
+    const rowLens = aoa.map(r => Array.isArray(r) ? r.length : 0);
+    const maxLen = Math.max(0, ...rowLens);
+    const minLen = rowLens.length ? Math.min(...rowLens) : 0;
+    let lastDefinedCol = -1;
+    for (const r of aoa) {
+      if (!Array.isArray(r)) continue;
+      for (let c = r.length - 1; c > lastDefinedCol; c--) {
+        if (r[c] !== undefined && r[c] !== null) { lastDefinedCol = c; break; }
+      }
+    }
+    console.info(`[ATS export] aoa: ${aoa.length} rows, lens min=${minLen} max=${maxLen}, lastDefinedCol=${lastDefinedCol}, totalColumnCount=${totalColumnCount}, ws['!ref']=${ws["!ref"]}`);
+  }
 
   // ── Auto-fit column widths ──────────────────────────────────────────────
   const SPACER_WCH = 1.57;
