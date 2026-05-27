@@ -672,8 +672,9 @@ export function buildExportPayload(
         totalCostSum += xAvg * xRowTotal;
       }
       const weightedAvgCost = totalQtyForCost > 0 ? totalCostSum / totalQtyForCost : 0;
+      // Round UP to the nearest $0.05 to match the per-row Sls Prc rule.
       const slsPrcW = (weightedAvgCost > 0 && slsMargin < 1)
-        ? weightedAvgCost / (1 - slsMargin)
+        ? Math.ceil((weightedAvgCost / (1 - slsMargin)) * 20) / 20
         : 0;
       if (COL_AVG_COST) r2[COL_AVG_COST - 1] = subCurr(weightedAvgCost);
       if (COL_TOT_COST) r2[COL_TOT_COST - 1] = subCurr(totalCostSum);
@@ -873,8 +874,9 @@ export function buildExportPayload(
     const totalCostV = avgCostV > 0 ? avgCostV * rowPeriodTotal : 0;
     // Implied sale price needed to hit `slsMarginPct` against avgCost.
     // price = avgCost / (1 - margin). Guard against margin >= 100.
+    // Rounded UP to the nearest $0.05 so prices always end in 0 or 5.
     const slsPrcV = (avgCostV > 0 && slsMargin < 1)
-      ? avgCostV / (1 - slsMargin)
+      ? Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20
       : 0;
     if (COL_AVG_COST) qtyRow[COL_AVG_COST - 1] = avgCostV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
