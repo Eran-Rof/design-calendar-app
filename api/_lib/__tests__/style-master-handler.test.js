@@ -45,6 +45,11 @@ describe("validateInsert", () => {
     });
     expect(v.error).toBeUndefined();
   });
+  it("accepts optional style_name", () => {
+    const v = validateInsert({ style_code: "RY1234", description: "x", style_name: "Delano Cargo Short" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.style_name).toBe("Delano Cargo Short");
+  });
 });
 
 describe("validatePatch", () => {
@@ -74,5 +79,9 @@ describe("validatePatch", () => {
   });
   it("rejects design_year out of range", () => {
     expect(validatePatch({ design_year: 1500 }).error).toMatch(/design_year/);
+  });
+  it("accepts style_name patch and normalizes empty string to null", () => {
+    expect(validatePatch({ style_name: "Delano" }).data.style_name).toBe("Delano");
+    expect(validatePatch({ style_name: "" }).data.style_name).toBeNull();
   });
 });

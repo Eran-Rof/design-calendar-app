@@ -15,7 +15,7 @@ const LIFECYCLE_VALUES = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_VALUES  = ["core", "seasonal", "fashion"];
 
 const MUTABLE_FIELDS = new Set([
-  "description", "category_id", "gender_code", "season", "design_year",
+  "style_name", "description", "category_id", "gender_code", "season", "design_year",
   "is_apparel", "launch_date", "lifecycle_status", "planning_class",
   "base_fabric", "attributes",
 ]);
@@ -121,7 +121,7 @@ export function validatePatch(body) {
     out.design_year = y;
   }
   // Normalize empty strings to null for nullable fields
-  for (const k of ["gender_code", "season", "planning_class", "base_fabric", "category_id"]) {
+  for (const k of ["style_name", "gender_code", "season", "planning_class", "base_fabric", "category_id"]) {
     if (out[k] === "") out[k] = null;
   }
   return { data: out };
