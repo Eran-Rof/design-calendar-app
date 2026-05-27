@@ -177,3 +177,144 @@ This chapter will be extended in P4-5 with:
 - [13-accounts-payable.md](13-accounts-payable.md) — the AP-side analogue this chapter mirrors
 - [07-approvals.md](07-approvals.md) — the M27 approval-rule gate `ar_invoice` and `customer_credit_extension` rule kinds
 - [08-notifications.md](08-notifications.md) — the `ar_invoice_posted`, `ar_invoice_voided`, and `ar_invoice_approval_requested` notification kinds
+
+---
+
+## Customer Receipts (P4-5)
+
+A **receipt** is the record of a customer payment. One receipt may be applied across one or more invoices via the `ar_receipt_applications` junction table; any unapplied portion shows in `v_ar_unapplied_receipts` (an on-account credit).
+
+### Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft : Add Receipt
+    Draft --> Posted : Post (emits accrual + cash JEs)
+    Draft --> Voided : Void (no JE; flips is_void)
+    Posted --> Voided : Void (reverses both JEs)
+    Voided --> [*]
+```
+
+**Three terminal-or-near-terminal states:**
+
+| State | Triggers | What you can do |
+|---|---|---|
+| **Draft** | Created via the Add Receipt modal; no JEs emitted yet | Edit header fields, add/remove applications, delete (if no applications), post, void |
+| **Posted** | `Post` button creates the accrual JE and the cash JE (sibling-linked) | Header is locked; void (which reverses both JEs); no further header edits |
+| **Voided** | `Void` button — also fires when posted receipts are reversed | Terminal; applications stay in the DB as audit history; the `paid_amount_cents` maintainer on invoices ignores `is_void=true` so paid totals automatically back out |
+
+### Add Receipt — the multi-application UX
+
+1. **Pick customer.** As soon as a customer is selected the modal fetches their open AR invoices (`gl_status IN ('sent','partial_paid')` AND balance > 0), sorted by `due_date` ascending (oldest first — standard FIFO collection logic).
+2. **Enter receipt header.** Amount, date, payment method (ach / wire / check / credit_card / cash / paypal / stripe / other), bank account, and optional reference (check #, wire confirmation, Stripe charge id).
+3. **Check rows to apply.** Each checked row auto-fills the apply amount = invoice's outstanding balance (capped at remaining receipt amount). You can override each amount manually.
+4. **Live sums** at the bottom show *Receipt / Applied / Unapplied*. Behavior:
+   - **Applied ≤ Receipt** — allowed; if Applied < Receipt the difference is on-account (visible in `v_ar_unapplied_receipts`).
+   - **Applied > Receipt** — UI shows in red; submit is rejected client-side AND by the DB over-application guard (`ar_receipt_applications_amount_positive`).
+   - **Applied = 0** — allowed; creates a fully-unapplied on-account receipt.
+5. **Save** creates the receipt as **Draft**. JEs are NOT emitted until you click **Post** in the detail modal.
+
+### Post → JE emission
+
+Posting a receipt invokes the `arPaymentReceived` posting rule in **multi-application mode** (see `api/_lib/accounting/posting/rules/arPaymentReceived.js`). Each posting emits TWO journal entries:
+
+| JE | Side | Shape |
+|---|---|---|
+| **Accrual JE** | `basis=ACCRUAL`, `journal_type=ar_receipt` | Header: `DR bank_account` (full receipt total). Then one `CR ar_account` line per application (per-invoice). Clears the customer's AR balance proportionally. |
+| **Cash JE** | `basis=CASH`, `journal_type=ar_receipt` | Header: `DR bank_account` (full receipt total). Then one `CR revenue_account` line per application. Recognizes revenue on cash basis (deferred from invoice send). |
+
+The two JEs are **sibling-linked** via the `gl_link_sibling_je` RPC inside `persistRuleOutput` — reports can navigate accrual↔cash from either side. The receipt header is then stamped with both `accrual_je_id` and `cash_je_id`.
+
+> **Per-line revenue routing:** if an applied invoice has a per-invoice `revenue_account_id` (set when the invoice was created/sent), the cash JE will credit that revenue account specifically rather than the entity default. This supports e.g. wholesale-vs-ecom revenue split per customer.
+
+### Trigger-driven invoice updates
+
+Two DB triggers do work for you when applications are inserted, updated, or deleted:
+
+1. **`ar_receipt_apps_maintain_paid`** — recomputes `ar_invoices.paid_amount_cents` = SUM of `amount_applied_cents` across all non-voided receipt applications.
+2. **`ar_invoices_status_from_paid`** — when `paid_amount_cents` changes, auto-flips `gl_status`:
+   - `paid_amount_cents >= total_amount_cents` → **paid**
+   - `0 < paid_amount_cents < total_amount_cents` → **partial_paid**
+   - `paid_amount_cents = 0` (after voiding all receipts) → back to **sent**
+
+Posting and voiding receipts therefore drive invoice gl_status changes automatically; you don't manually transition invoices through partial_paid → paid → reopened.
+
+### Void → reversal of BOTH JEs
+
+When you void a posted receipt:
+
+1. `reverseJournalEntry()` is invoked for the accrual JE → emits a new accrual JE with negated lines (`reverses_je_id` set).
+2. `reverseJournalEntry()` is invoked for the cash JE → same, on the cash side.
+3. The receipt is stamped with `is_void=true` + `voided_at=now()` + `voided_by_user_id` + (optional) `void_reason`.
+4. **Applications stay in the DB.** They're audit history. The `is_void=false` filter in the paid-amount maintainer ignores voided receipts, so the parent invoices' `paid_amount_cents` automatically back out and the status-from-paid trigger flips them back from `paid` → `partial_paid` → `sent`.
+
+> Voiding a Draft (un-posted) receipt skips steps 1+2 (no JEs to reverse) but still flips `is_void` and notifies the accounting team.
+
+### Unapply (delete a single application)
+
+`DELETE /api/internal/ar-receipt-applications/:id` removes a single application row. Allowed only when the parent receipt is Draft. Posted or Voided parents return 409 — to undo a posted receipt's application, void the entire receipt and create a new one.
+
+### Documents
+
+The receipt detail modal embeds `<DocumentAttachmentList contextTable="ar_receipts">` with these document kinds:
+
+- `customer_payment_proof` — generic
+- `check_image` — scanned check
+- `wire_confirmation` — wire transfer PDF
+- `other`
+
+Documents persist independently of the receipt lifecycle (still accessible after void).
+
+### Notifications
+
+| Event | Kind | Severity | Recipients |
+|---|---|---|---|
+| Receipt posted | `ar_receipt_posted` | `info` | `admin`, `accountant` |
+| Receipt voided | `ar_receipt_voided` | `warn` | `admin`, `accountant` |
+
+### API surfaces
+
+| Endpoint | Methods | Purpose |
+|---|---|---|
+| `/api/internal/ar-receipts` | GET, POST | List receipts (filter by customer / method / date range / include_void; paginated via `?offset=N`); create draft with applications |
+| `/api/internal/ar-receipts/:id` | GET, PATCH, DELETE | Fetch one with applications + customer name; edit header fields (Draft only); delete (Draft + no applications only) |
+| `/api/internal/ar-receipts/:id/post` | POST | Emit accrual + cash JEs; stamp the receipt |
+| `/api/internal/ar-receipts/:id/void` | POST | Reverse JEs (if any) + flip is_void |
+| `/api/internal/ar-receipt-applications/:id` | DELETE | Unapply a single application (Draft parents only) |
+
+### Schema cheat sheet
+
+```
+ar_receipts
+  id (uuid, PK)
+  entity_id, customer_id
+  receipt_date (date)
+  amount_cents (bigint > 0)
+  bank_account_id (uuid → gl_accounts)
+  customer_payment_method (ach|wire|check|credit_card|cash|paypal|stripe|other)
+  reference, notes (text)
+  accrual_je_id, cash_je_id (uuid → journal_entries)
+  is_void (bool), voided_at, voided_by_user_id, void_reason
+
+ar_receipt_applications
+  id (uuid, PK)
+  ar_receipt_id (uuid → ar_receipts, ON DELETE CASCADE)
+  ar_invoice_id (uuid → ar_invoices, ON DELETE RESTRICT)
+  amount_applied_cents (bigint > 0)
+  UNIQUE (ar_receipt_id, ar_invoice_id)
+```
+
+### Reporting views
+
+- **`v_cash_receipts_journal`** — every cash event impacting AR, joined to applications and invoices. Useful for monthly bank-statement reconciliation. Excludes voided receipts.
+- **`v_ar_unapplied_receipts`** — receipts with an unapplied balance (on-account credits). Each row exposes `applied_cents` and `unapplied_cents`.
+
+### Operator runbook — common scenarios
+
+| Scenario | Steps |
+|---|---|
+| Wire payment of $5,000 covering one open $5,000 invoice | Add Receipt → pick customer → enter $5,000 → check the one invoice (auto-fills $5,000) → Save → Post |
+| ACH for $10,000 paying off three small invoices ($2k + $3k + $4k = $9k) with $1k overpay | Add Receipt → enter $10,000 → check all three → live unapplied shows $1,000 → Save → Post. The receipt's $1k stays as on-account credit in `v_ar_unapplied_receipts` until applied to a future invoice. |
+| Customer's check bounced after posting | Open receipt → enter void reason ("NSF bounce") → Void posted receipt. Both JEs reverse; the parent invoices auto-flip from `paid` back to `sent` via the trigger chain. |
+| Misapplied a payment to wrong invoice (still draft) | Open the draft receipt → click × next to the wrong application → re-apply via the apply-more action (or void + recreate). |
+| Misapplied a payment to wrong invoice (already posted) | Void the entire posted receipt → create a new one. (Unapply on posted receipts is blocked — audit-trail rule.) |

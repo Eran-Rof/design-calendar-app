@@ -26,6 +26,7 @@ import InternalJournalEntry       from "./tanda/InternalJournalEntry";
 import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
+import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -70,6 +71,8 @@ type ModuleKey =
   | "journal_entries"
   | "ap_invoices"
   | "ap_payments"
+  | "ar_invoices"
+  | "ar_receipts"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -99,6 +102,9 @@ const MODULES: ModuleDef[] = [
   { key: "ap_invoices",       label: "AP Invoices",       emoji: "🧾", group: "Accounting" },
   { key: "ap_payments",       label: "AP Payments",       emoji: "💸", group: "Accounting" },
   { key: "ar_invoices",       label: "AR Invoices",       emoji: "🧮", group: "Accounting" },
+  // P4-5: AR Receipts (customer payments + applications). Sibling to AR
+  // Invoices above (P4-4).
+  { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -251,6 +257,7 @@ export default function Tangerine() {
         {activeModule === "ap_invoices"       && <InternalAPInvoices />}
         {activeModule === "ap_payments"       && <InternalAPPayments />}
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
+        {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}
