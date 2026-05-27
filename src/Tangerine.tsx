@@ -27,6 +27,7 @@ import InternalNotificationCenter      from "./tanda/InternalNotificationCenter"
 import InternalNotificationPreferences from "./tanda/InternalNotificationPreferences";
 import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
+import InternalScannerSessions         from "./tanda/InternalScannerSessions";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 
@@ -63,13 +64,14 @@ type ModuleKey =
   | "notifications"
   | "notification_prefs"
   | "employees"
-  | "inventory_transfers";
+  | "inventory_transfers"
+  | "scanner_sessions";
 
 type ModuleDef = {
   key: ModuleKey;
   label: string;
   emoji: string;
-  group: "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory";
+  group: "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations";
 };
 
 const MODULES: ModuleDef[] = [
@@ -85,6 +87,7 @@ const MODULES: ModuleDef[] = [
   { key: "notification_prefs",label: "Notif. Preferences",emoji: "🎚️", group: "Notifications" },
   { key: "employees",         label: "Employees",         emoji: "👥", group: "HR" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
+  { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Operations" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -229,6 +232,7 @@ export default function Tangerine() {
         {activeModule === "notification_prefs" && <InternalNotificationPreferences />}
         {activeModule === "employees"          && <InternalEmployees />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
+        {activeModule === "scanner_sessions"    && <InternalScannerSessions />}
       </main>
     </div>
   );
@@ -553,6 +557,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const notifModules = MODULES.filter((m) => m.group === "Notifications");
   const hrModules = MODULES.filter((m) => m.group === "HR");
   const inventoryModules = MODULES.filter((m) => m.group === "Inventory");
+  const opsModules = MODULES.filter((m) => m.group === "Operations");
 
   return (
     <div>
@@ -596,6 +601,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Inventory (P3)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {inventoryModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Operations (P3)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {opsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
