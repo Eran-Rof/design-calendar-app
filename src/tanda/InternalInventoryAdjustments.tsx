@@ -1,0 +1,581 @@
+// src/tanda/InternalInventoryAdjustments.tsx
+//
+// Tangerine P3 Chunk 5 - M37 Inventory Adjustments admin panel.
+//
+// List + filter (type / item / date range / posted status) + Add modal
+// (positive => layer creation; negative => FIFO consume) + Edit modal for
+// unposted + Post button for unposted. Mirrors the dark-theme aesthetic of
+// the other Internal* panels.
+
+import { useEffect, useMemo, useState } from "react";
+import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+
+type Adjustment = {
+  id: string;
+  entity_id: string;
+  item_id: string;
+  adjustment_type: string;
+  qty_delta: number;
+  unit_cost_cents: number | null;
+  reason: string;
+  gl_account_id: string;
+  posted_je_id: string | null;
+  posted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_user_id: string | null;
+};
+
+type Item = { id: string; sku_code: string | null; description?: string | null };
+type GlAccount = { id: string; code: string; name: string; is_postable: boolean; account_type?: string };
+
+const TYPES = [
+  "damage", "shrinkage", "found", "correction", "write_off", "return_to_vendor",
+] as const;
+type AdjustmentType = (typeof TYPES)[number];
+
+const C = {
+  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
+  primary: "#3B82F6", success: "#10B981", danger: "#EF4444", warn: "#F59E0B",
+};
+
+const btnPrimary: React.CSSProperties = {
+  background: C.primary, color: "white", border: 0, padding: "8px 14px",
+  borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
+};
+const btnSecondary: React.CSSProperties = {
+  background: "transparent", color: C.text, border: `1px solid ${C.cardBdr}`,
+  padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12,
+};
+const btnDanger: React.CSSProperties = {
+  background: "transparent", color: C.danger, border: `1px solid ${C.danger}`,
+  padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 11,
+};
+const btnSuccess: React.CSSProperties = {
+  background: C.success, color: "white", border: 0, padding: "4px 10px",
+  borderRadius: 4, cursor: "pointer", fontSize: 11, fontWeight: 600,
+};
+const inputStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
+};
+const th: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
+  textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
+  textTransform: "uppercase", letterSpacing: 0.5,
+};
+const td: React.CSSProperties = {
+  padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
+  color: C.text, fontSize: 13,
+};
+const modalBg: React.CSSProperties = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+  display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+};
+const modalCard: React.CSSProperties = {
+  background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+  padding: 24, width: 560, maxWidth: "90vw", maxHeight: "90vh", overflow: "auto",
+};
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtMoneyCents(cents: number | null): string {
+  if (cents == null) return "-";
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  return `${sign}$${(abs / 100).toFixed(2)}`;
+}
+
+export default function InternalInventoryAdjustments() {
+  const [rows, setRows] = useState<Adjustment[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Filters
+  const [filterType, setFilterType] = useState<string>("");
+  const [filterItem, setFilterItem] = useState("");
+  const [filterPosted, setFilterPosted] = useState<"" | "true" | "false">("");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+
+  // Modal
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<Adjustment | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const params = new URLSearchParams();
+      if (filterType) params.set("adjustment_type", filterType);
+      if (filterItem.trim()) params.set("item_id", filterItem.trim());
+      if (filterPosted) params.set("posted", filterPosted);
+      if (filterFrom) params.set("from", filterFrom);
+      if (filterTo) params.set("to", filterTo);
+      const r = await fetch(`/api/internal/inventory-adjustments?${params.toString()}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setRows(await r.json());
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { void load(); }, [filterType, filterItem, filterPosted, filterFrom, filterTo]);
+
+  // Side-load items (for SKU display + picker) + gl_accounts (for picker).
+  useEffect(() => {
+    (async () => {
+      try {
+        const itemsRes = await fetch(`/api/internal/style-master?limit=500`);
+        if (itemsRes.ok) {
+          const data = await itemsRes.json();
+          // style-master shape: depends on handler; fall back to flatMap-friendly
+          const list: Item[] = Array.isArray(data)
+            ? data.map((s: any) => ({ id: s.id, sku_code: s.sku_code || s.style_code || null, description: s.description }))
+            : [];
+          setItems(list);
+        }
+      } catch { /* non-fatal */ }
+      try {
+        const glRes = await fetch(`/api/internal/gl-accounts`);
+        if (glRes.ok) setGlAccounts(await glRes.json());
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  const itemById = useMemo(() => {
+    const m = new Map<string, Item>();
+    for (const it of items) m.set(it.id, it);
+    return m;
+  }, [items]);
+  const glById = useMemo(() => {
+    const m = new Map<string, GlAccount>();
+    for (const g of glAccounts) m.set(g.id, g);
+    return m;
+  }, [glAccounts]);
+
+  function itemLabel(id: string): string {
+    const it = itemById.get(id);
+    if (it) return it.sku_code || id.slice(0, 8);
+    return id.slice(0, 8);
+  }
+  function glLabel(id: string): string {
+    const g = glById.get(id);
+    if (g) return `${g.code} - ${g.name}`;
+    return id.slice(0, 8);
+  }
+
+  async function handleDelete(row: Adjustment) {
+    if (!window.confirm(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`)) return;
+    const r = await fetch(`/api/internal/inventory-adjustments/${row.id}`, { method: "DELETE" });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      alert(`Delete failed: ${e.error || r.status}`);
+      return;
+    }
+    void load();
+  }
+
+  async function handlePost(row: Adjustment) {
+    if (!window.confirm(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`)) return;
+    const actor_user_id = getCachedAuthUserId();
+    const r = await fetch(`/api/internal/inventory-adjustments/${row.id}/post`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actor_user_id }),
+    });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok && r.status !== 202) {
+      alert(`Post failed: ${out.error || r.status}`);
+      return;
+    }
+    if (out.requires_approval) {
+      alert(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`);
+    } else {
+      alert(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`);
+    }
+    void load();
+  }
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.text }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Inventory Adjustments</h1>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>
+          Damage / shrinkage / found / correction / write-off / return-to-vendor. Positive creates a FIFO layer; negative consumes via FIFO.
+        </span>
+        <button
+          type="button"
+          style={{ ...btnPrimary, marginLeft: "auto" }}
+          onClick={() => { setEditingRow(null); setModalOpen(true); }}
+        >
+          + Add
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <select
+          style={{ ...inputStyle, width: 180 }}
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+        >
+          <option value="">All types</option>
+          {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input
+          style={{ ...inputStyle, width: 320 }}
+          placeholder="Item ID (uuid)"
+          value={filterItem}
+          onChange={(e) => setFilterItem(e.target.value)}
+        />
+        <select
+          style={{ ...inputStyle, width: 140 }}
+          value={filterPosted}
+          onChange={(e) => setFilterPosted(e.target.value as "" | "true" | "false")}
+        >
+          <option value="">All statuses</option>
+          <option value="false">Draft (unposted)</option>
+          <option value="true">Posted</option>
+        </select>
+        <input
+          type="date"
+          style={{ ...inputStyle, width: 140 }}
+          value={filterFrom}
+          onChange={(e) => setFilterFrom(e.target.value)}
+          placeholder="From"
+        />
+        <input
+          type="date"
+          style={{ ...inputStyle, width: 140 }}
+          value={filterTo}
+          onChange={(e) => setFilterTo(e.target.value)}
+          placeholder="To"
+        />
+      </div>
+
+      {err && (
+        <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
+          {err}
+        </div>
+      )}
+
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={th}>When</th>
+              <th style={th}>Type</th>
+              <th style={th}>Item</th>
+              <th style={th}>Qty</th>
+              <th style={th}>Cost (cents)</th>
+              <th style={th}>Counter Account</th>
+              <th style={th}>Reason</th>
+              <th style={th}>Status</th>
+              <th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td style={td} colSpan={9}>Loading…</td></tr>
+            )}
+            {!loading && rows.length === 0 && (
+              <tr><td style={td} colSpan={9}>
+                <span style={{ color: C.textMuted }}>No adjustments. Use "+ Add" above.</span>
+              </td></tr>
+            )}
+            {rows.map((row) => {
+              const isPositive = row.qty_delta > 0;
+              return (
+                <tr key={row.id}>
+                  <td style={td}>{fmtDate(row.created_at)}</td>
+                  <td style={td}>{row.adjustment_type}</td>
+                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{itemLabel(row.item_id)}</td>
+                  <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }}>
+                    {isPositive ? "+" : ""}{row.qty_delta}
+                  </td>
+                  <td style={{ ...td, fontFamily: "monospace" }}>{fmtMoneyCents(row.unit_cost_cents)}</td>
+                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{glLabel(row.gl_account_id)}</td>
+                  <td style={{ ...td, color: C.textSub, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.reason}</td>
+                  <td style={td}>
+                    {row.posted_je_id
+                      ? <span style={{ color: C.success }}>POSTED</span>
+                      : <span style={{ color: C.warn }}>DRAFT</span>}
+                  </td>
+                  <td style={{ ...td, whiteSpace: "nowrap" }}>
+                    {!row.posted_je_id && (
+                      <>
+                        <button style={btnSecondary} onClick={() => { setEditingRow(row); setModalOpen(true); }}>Edit</button>
+                        {" "}
+                        <button style={btnSuccess} onClick={() => void handlePost(row)}>Post</button>
+                        {" "}
+                        <button style={btnDanger} onClick={() => void handleDelete(row)}>Del</button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {modalOpen && (
+        <AdjustmentModal
+          glAccounts={glAccounts}
+          items={items}
+          existing={editingRow}
+          onClose={() => { setModalOpen(false); setEditingRow(null); }}
+          onSaved={() => { setModalOpen(false); setEditingRow(null); void load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AdjustmentModal({
+  glAccounts, items, existing, onClose, onSaved,
+}: {
+  glAccounts: GlAccount[];
+  items: Item[];
+  existing: Adjustment | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isEdit = !!existing;
+  const [itemId, setItemId] = useState(existing?.item_id || "");
+  const [itemQuery, setItemQuery] = useState("");
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
+    (existing?.adjustment_type as AdjustmentType) || "shrinkage"
+  );
+  const [qtyDelta, setQtyDelta] = useState<string>(
+    existing != null ? String(existing.qty_delta) : "-1"
+  );
+  const [unitCostCents, setUnitCostCents] = useState<string>(
+    existing?.unit_cost_cents != null ? String(existing.unit_cost_cents) : ""
+  );
+  const [glAccountId, setGlAccountId] = useState(existing?.gl_account_id || "");
+  const [reason, setReason] = useState(existing?.reason || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const qtyNum = Number(qtyDelta);
+  const isPositive = Number.isFinite(qtyNum) && qtyNum > 0;
+  const isNegative = Number.isFinite(qtyNum) && qtyNum < 0;
+
+  const itemMatches = useMemo(() => {
+    const q = itemQuery.trim().toLowerCase();
+    if (!q) return items.slice(0, 20);
+    return items.filter((it) =>
+      (it.sku_code || "").toLowerCase().includes(q) ||
+      (it.description || "").toLowerCase().includes(q),
+    ).slice(0, 20);
+  }, [items, itemQuery]);
+
+  const selectedItem = items.find((it) => it.id === itemId) || null;
+
+  async function save() {
+    setErr(null);
+    setSaving(true);
+    try {
+      // For edits, only send the fields the [id] handler accepts.
+      let url: string;
+      let method: "POST" | "PATCH";
+      let body: any;
+
+      if (isEdit) {
+        url = `/api/internal/inventory-adjustments/${existing!.id}`;
+        method = "PATCH";
+        body = {
+          reason,
+          qty_delta: qtyNum,
+        };
+        if (isPositive) {
+          body.unit_cost_cents = Number(unitCostCents);
+        } else {
+          body.unit_cost_cents = null;
+        }
+      } else {
+        if (!itemId) throw new Error("Pick an item first");
+        if (!glAccountId) throw new Error("Pick a counter GL account");
+        if (!reason.trim()) throw new Error("Reason required");
+        if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("qty_delta must be a non-zero number");
+        if (isPositive && !unitCostCents) throw new Error("unit_cost_cents required for positive qty_delta");
+
+        url = `/api/internal/inventory-adjustments`;
+        method = "POST";
+        body = {
+          item_id: itemId,
+          adjustment_type: adjustmentType,
+          qty_delta: qtyNum,
+          reason,
+          gl_account_id: glAccountId,
+        };
+        if (isPositive) body.unit_cost_cents = Number(unitCostCents);
+        const actorUid = getCachedAuthUserId();
+        if (actorUid) body.created_by_user_id = actorUid;
+      }
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error || `HTTP ${r.status}`);
+      }
+      onSaved();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>
+          {isEdit ? "Edit Inventory Adjustment" : "New Inventory Adjustment"}
+        </h2>
+
+        {err && (
+          <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
+            {err}
+          </div>
+        )}
+
+        {!isEdit && (
+          <>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Item</label>
+            {selectedItem ? (
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || selectedItem.id.slice(0, 8)}</span>{" "}
+                <button type="button" style={{ ...btnSecondary, fontSize: 11 }} onClick={() => setItemId("")}>change</button>
+              </div>
+            ) : (
+              <>
+                <input
+                  style={{ ...inputStyle, marginBottom: 6 }}
+                  placeholder="Search by SKU or description..."
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                />
+                <div style={{ maxHeight: 200, overflow: "auto", border: `1px solid ${C.cardBdr}`, borderRadius: 4, marginBottom: 12 }}>
+                  {itemMatches.length === 0 ? (
+                    <div style={{ padding: 8, color: C.textMuted, fontSize: 12 }}>No matches. (Item list comes from style-master; type any UUID below to bypass.)</div>
+                  ) : (
+                    itemMatches.map((it) => (
+                      <div
+                        key={it.id}
+                        style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, fontFamily: "monospace", color: C.textSub, borderBottom: `1px solid ${C.cardBdr}` }}
+                        onClick={() => setItemId(it.id)}
+                      >
+                        {it.sku_code || it.id.slice(0, 8)} - {it.description || ""}
+                      </div>
+                    ))
+                  )}
+                </div>
+                <input
+                  style={{ ...inputStyle, marginBottom: 12 }}
+                  placeholder="Or paste item UUID directly"
+                  value={itemId}
+                  onChange={(e) => setItemId(e.target.value)}
+                />
+              </>
+            )}
+
+            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Adjustment Type</label>
+            <select
+              style={{ ...inputStyle, marginBottom: 12 }}
+              value={adjustmentType}
+              onChange={(e) => setAdjustmentType(e.target.value as AdjustmentType)}
+            >
+              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </>
+        )}
+
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>
+          Qty delta (signed) - {isPositive ? "increase" : isNegative ? "decrease (FIFO consume)" : "0 rejected"}
+        </label>
+        <input
+          style={{ ...inputStyle, marginBottom: 4 }}
+          type="number"
+          step="any"
+          value={qtyDelta}
+          onChange={(e) => setQtyDelta(e.target.value)}
+        />
+        {Number.isFinite(qtyNum) && qtyNum !== 0 && (
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+            {isPositive
+              ? `This will create a new FIFO layer of ${qtyNum} units at the unit cost below.`
+              : `This will consume ${Math.abs(qtyNum)} units via FIFO. Per-unit cost is FIFO-derived at post.`}
+          </div>
+        )}
+
+        {isPositive && (
+          <>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>
+              Unit cost (cents, integer)
+            </label>
+            <input
+              style={{ ...inputStyle, marginBottom: 12 }}
+              type="number"
+              step="1"
+              value={unitCostCents}
+              onChange={(e) => setUnitCostCents(e.target.value)}
+              placeholder="e.g. 1250 = $12.50/unit"
+            />
+          </>
+        )}
+
+        {!isEdit && (
+          <>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
+            <select
+              style={{ ...inputStyle, marginBottom: 12 }}
+              value={glAccountId}
+              onChange={(e) => setGlAccountId(e.target.value)}
+            >
+              <option value="">-- Pick an account --</option>
+              {glAccounts
+                .filter((g) => g.is_postable)
+                .map((g) => (
+                  <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
+                ))}
+            </select>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+              Negative adjustments typically post to a shrinkage / damage / write-off expense account. Positive (found) adjustments post to inventory-found income or contra-shrinkage.
+            </div>
+          </>
+        )}
+
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Reason</label>
+        <textarea
+          style={{ ...inputStyle, marginBottom: 12, minHeight: 60, resize: "vertical" }}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Operator notes - flows into JE memo"
+        />
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" style={btnPrimary} onClick={() => void save()} disabled={saving}>
+            {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Draft"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
