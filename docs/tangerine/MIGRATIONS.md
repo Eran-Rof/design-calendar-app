@@ -2,6 +2,21 @@
 
 The Tangerine P1 build adds 18 migrations under `supabase/migrations/`. These do NOT auto-apply on Vercel deploys. They have to be run against the Supabase project explicitly.
 
+## P2 Chunk 5 — one-time Supabase Storage bucket setup
+
+The M29 Document Management module stores file bytes in Supabase Storage bucket `tangerine-documents`. The bucket is NOT created by a SQL migration (the admin role does not own `storage.buckets`); create it once via the dashboard:
+
+1. Supabase Dashboard → **Storage** → **New bucket**
+2. Name: `tangerine-documents`
+3. Visibility: **Private**
+4. Click **Create bucket**
+5. Open the bucket → **Policies** tab → add a policy:
+   - **Allow authenticated** (or **Allow anon** for the SPA pattern):
+     - SELECT / INSERT / UPDATE / DELETE: `(auth.uid() IS NOT NULL OR auth.role() = 'anon')`
+   - (Tightening to entity-scoped storage policies is a P10 follow-up; for now the bucket follows the same trust model as the rest of the DB — RLS at the table level is the canonical gate.)
+
+Until the bucket exists, `documentsAPI.attach()` calls will fail with `storage_upload_failed`. The schema migration (`documents` + `document_versions`) can apply independently — only file uploads fail.
+
 ## Two paths
 
 ### Option A — Supabase dashboard (one-shot, simplest)
