@@ -27,6 +27,7 @@ import InternalNotificationCenter      from "./tanda/InternalNotificationCenter"
 import InternalNotificationPreferences from "./tanda/InternalNotificationPreferences";
 import InternalEmployees               from "./tanda/InternalEmployees";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
+import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme — match the dark Tanda palette so the admin panels (which use the
@@ -136,6 +137,31 @@ export default function Tangerine() {
         if (cancelled) return;
         setUserEmail(me.mail || me.userPrincipalName || me.displayName || null);
         setAuthState("signed_in");
+
+        // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision
+        // endpoint fails (network / server-side mis-config), surface a
+        // console warning but do NOT block the login — the operator can
+        // still paste their uuid manually as a fallback while we debug.
+        // First call creates auth.users + entity_users + links EB001;
+        // subsequent calls are idempotent (ON CONFLICT DO NOTHING).
+        try {
+          const pr = await fetch("/api/internal/auth/provision", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ms_access_token: token }),
+          });
+          if (pr.ok) {
+            const provisioned = await pr.json();
+            if (!cancelled && provisioned?.auth_user_id) {
+              setCachedAuthUserId(provisioned.auth_user_id);
+            }
+          } else {
+            const detail = await pr.text().catch(() => "");
+            console.warn("[Tangerine] auth provision returned non-OK:", pr.status, detail);
+          }
+        } catch (provErr) {
+          console.warn("[Tangerine] auth provision failed (non-fatal):", provErr);
+        }
       } catch (err) {
         console.error("[Tangerine] auth check failed:", err);
         if (!cancelled) setAuthState("signed_out");

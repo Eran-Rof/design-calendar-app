@@ -5,6 +5,7 @@
 // role mark a step approve/reject/request_changes. Cancel for owner/admin.
 
 import { useEffect, useState } from "react";
+import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
 type Step = {
   id: string;
@@ -104,7 +105,10 @@ export default function InternalApprovalRequests() {
   useEffect(() => { void load(); }, [statusFilter, kindFilter]);
 
   async function cancelRequest(req: Request) {
-    const actor = prompt("Your user ID (uuid) to cancel:");
+    // Pre-fill from the Tangerine auth bridge cache (set on first MS sign-in).
+    // If empty for any reason, fall back to the legacy prompt as a safety net.
+    const cached = getCachedAuthUserId();
+    const actor = cached || prompt("Your user ID (uuid) to cancel:");
     if (!actor) return;
     const r = await fetch(`/api/internal/approval-requests/${req.id}/cancel`, {
       method: "POST",
@@ -220,7 +224,10 @@ function DecideModal({ request, onCancel, onSaved }: {
   const step = currentStep(request);
   const [decision, setDecision] = useState<"approve" | "reject" | "request_changes">("approve");
   const [notes, setNotes] = useState("");
-  const [actor, setActor] = useState("");
+  // Pre-fill from the auth bridge cache so the operator doesn't paste a uuid
+  // on every decision. Stays editable in case someone needs to act on
+  // someone else's behalf.
+  const [actor, setActor] = useState(() => getCachedAuthUserId());
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -284,7 +291,7 @@ function DecideModal({ request, onCancel, onSaved }: {
         <Field label="Your user ID (uuid)">
           <input
             style={inputStyle}
-            placeholder="actor uuid (TBD: pull from session in P2-4)"
+            placeholder="actor uuid (pre-filled from MS sign-in bridge; override only to act on behalf of someone else)"
             value={actor}
             onChange={(e) => setActor(e.target.value)}
           />

@@ -5,6 +5,7 @@
 // a time; missing rows default to enabled=true (opt-in by default).
 
 import { useEffect, useMemo, useState } from "react";
+import { getCachedAuthUserId, setCachedAuthUserId } from "../utils/tangerineAuthUser";
 
 type Pref = {
   user_id: string;
@@ -43,10 +44,12 @@ const td: React.CSSProperties = {
   color: C.text, fontSize: 13,
 };
 
-const USER_KEY = "tangerine.notifications.user_id";
+// Storage moved to src/utils/tangerineAuthUser.ts so this panel reads from the
+// MS-OAuth-bridge cache (tangerine.auth_user_id) with the legacy key
+// (tangerine.notifications.user_id) as a back-compat fallback.
 
 export default function InternalNotificationPreferences() {
-  const [user, setUser] = useState<string>(() => localStorage.getItem(USER_KEY) || "");
+  const [user, setUser] = useState<string>(() => getCachedAuthUserId());
   const [prefs, setPrefs] = useState<Pref[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
@@ -64,8 +67,7 @@ export default function InternalNotificationPreferences() {
   function saveUser(u: string) {
     const trimmed = u.trim();
     setUser(trimmed);
-    if (trimmed) localStorage.setItem(USER_KEY, trimmed);
-    else localStorage.removeItem(USER_KEY);
+    setCachedAuthUserId(trimmed);
   }
 
   const prefMap = useMemo(() => {

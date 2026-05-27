@@ -7,6 +7,7 @@
 // follow-up tracked in [[project-tangerine-progress]]).
 
 import { useEffect, useState } from "react";
+import { getCachedAuthUserId, setCachedAuthUserId } from "../utils/tangerineAuthUser";
 
 type NotificationEvent = {
   id: string;
@@ -54,10 +55,12 @@ const inputStyle: React.CSSProperties = {
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
 
-const USER_KEY = "tangerine.notifications.user_id";
+// Storage moved to src/utils/tangerineAuthUser.ts so this panel reads from the
+// MS-OAuth-bridge cache (tangerine.auth_user_id) with the legacy key
+// (tangerine.notifications.user_id) as a back-compat fallback.
 
 export default function InternalNotificationCenter() {
-  const [user, setUser] = useState<string>(() => localStorage.getItem(USER_KEY) || "");
+  const [user, setUser] = useState<string>(() => getCachedAuthUserId());
   const [rows, setRows] = useState<NotificationDispatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -90,8 +93,7 @@ export default function InternalNotificationCenter() {
   function saveUser(u: string) {
     const trimmed = u.trim();
     setUser(trimmed);
-    if (trimmed) localStorage.setItem(USER_KEY, trimmed);
-    else localStorage.removeItem(USER_KEY);
+    setCachedAuthUserId(trimmed);
   }
 
   async function markRead(d: NotificationDispatch) {
