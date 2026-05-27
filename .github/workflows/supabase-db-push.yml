@@ -29,6 +29,13 @@ on:
 permissions:
   contents: read
 
+# Opt JS-based actions into Node.js 24 ahead of the June 2026 forced default.
+# Silences the "Node.js 20 actions are deprecated" warning. Per the GitHub
+# changelog:
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   push:
     runs-on: ubuntu-latest
