@@ -712,20 +712,32 @@ export function buildExportPayload(
       }
       const weightedAvgCost = totalQtyForCost > 0 ? totalCostSum / totalQtyForCost : 0;
       // Subtotal Sls Prc: when every row in the group belongs to the
-      // same BP (style-level subtotal), use that BP's unified max so
-      // the subtotal matches the per-row values. For mixed-BP groups
-      // (Category / Sub Category subtotals) fall back to the weighted-
-      // avg-derived formula price.
-      let groupBpMax: number | undefined;
+      // same BP (style-level subtotal), match the per-row priority:
+      //   1. Customer-T3 BP price when customer is selected and that
+      //      BP has customer T3 sales.
+      //   2. BP-max formula otherwise.
+      // For mixed-BP groups (Category / Sub Category subtotals) fall
+      // back to the weighted-avg-derived formula price.
+      let groupSlsPrcOverride: number | undefined;
       if (group.length > 0) {
         const firstStyle = group[0].master_style ?? "";
         if (firstStyle && group.every(x => (x.master_style ?? "") === firstStyle)) {
-          groupBpMax = bpMaxSlsPrc.get(firstStyle);
+          if (customerFilter) {
+            const sAgg = t3ByStyleMap?.get(firstStyle);
+            if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
+              groupSlsPrcOverride = sAgg.totalPrice / sAgg.qty;
+            }
+          }
+          if (groupSlsPrcOverride === undefined) {
+            groupSlsPrcOverride = bpMaxSlsPrc.get(firstStyle);
+          }
         }
       }
-      // Round UP to the nearest $0.05 to match the per-row Sls Prc rule.
-      const slsPrcW = groupBpMax !== undefined
-        ? groupBpMax
+      // Round UP to the nearest $0.05 to match the per-row Sls Prc rule
+      // (only when falling through to the formula path; customer-T3 and
+      // BP-max are already at their canonical values).
+      const slsPrcW = groupSlsPrcOverride !== undefined
+        ? groupSlsPrcOverride
         : ((weightedAvgCost > 0 && slsMargin < 1)
             ? Math.ceil((weightedAvgCost / (1 - slsMargin)) * 20) / 20
             : 0);
@@ -937,23 +949,25 @@ export function buildExportPayload(
     // Implied sale price needed to hit `slsMarginPct` against avgCost.
     // Priority (highest first):
     //   1. If a customer is selected AND that customer has T3 sales for
-    //      THIS variant, use the customer's actual T3 avg sale price
-    //      (t3.totalPrice / t3.qty). Reflects what the customer paid;
-    //      no rounding (it's a real number).
+    //      ANY variant of this BP, use the customer's actual BP-level
+    //      T3 avg sale price (sum(totalPrice)/sum(qty) across all the
+    //      BP's variants for this customer, from t3ByStyleMap). Same
+    //      price applies to EVERY row of the BP — not just the variant
+    //      that had T3 sales. No rounding (it's a real avg).
     //   2. BP-uniform: every row of the same master_style shows the
     //      HIGHEST formula-derived price across the BP's variants —
     //      from bpMaxSlsPrc.
     //   3. Per-row formula: avgCost / (1 - margin), rounded UP to $0.05.
     const styleKeyForSlsPrc = r.master_style ?? "";
-    const custT3VariantPrice = (() => {
-      if (!customerFilter) return 0;
-      const t3 = t3Of(r.sku);
-      if (t3.qty <= 0 || t3.totalPrice <= 0) return 0;
-      return t3.totalPrice / t3.qty;
+    const custT3StylePrice = (() => {
+      if (!customerFilter || !styleKeyForSlsPrc) return 0;
+      const sAgg = t3ByStyleMap?.get(styleKeyForSlsPrc);
+      if (!sAgg || sAgg.qty <= 0 || sAgg.totalPrice <= 0) return 0;
+      return sAgg.totalPrice / sAgg.qty;
     })();
     const slsPrcV = (avgCostV > 0 && slsMargin < 1)
-      ? (custT3VariantPrice > 0
-          ? custT3VariantPrice
+      ? (custT3StylePrice > 0
+          ? custT3StylePrice
           : (styleKeyForSlsPrc && bpMaxSlsPrc.has(styleKeyForSlsPrc)
               ? bpMaxSlsPrc.get(styleKeyForSlsPrc)!
               : Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20))
@@ -1636,22 +1650,6 @@ export function buildExportPayload(
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = effectiveAllRows;
   const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
-  // Diagnostic: print the aoa dimensions + the resulting !ref. The view
-  // preview renders the aoa directly; if View shows all columns but the
-  // downloaded XLSX truncates, !ref is too narrow.
-  {
-    const rowLens = aoa.map(r => Array.isArray(r) ? r.length : 0);
-    const maxLen = Math.max(0, ...rowLens);
-    const minLen = rowLens.length ? Math.min(...rowLens) : 0;
-    let lastDefinedCol = -1;
-    for (const r of aoa) {
-      if (!Array.isArray(r)) continue;
-      for (let c = r.length - 1; c > lastDefinedCol; c--) {
-        if (r[c] !== undefined && r[c] !== null) { lastDefinedCol = c; break; }
-      }
-    }
-    console.info(`[ATS export] aoa: ${aoa.length} rows, lens min=${minLen} max=${maxLen}, lastDefinedCol=${lastDefinedCol}, totalColumnCount=${totalColumnCount}, ws['!ref']=${ws["!ref"]}`);
-  }
 
   // ── Auto-fit column widths ──────────────────────────────────────────────
   const SPACER_WCH = 1.57;
