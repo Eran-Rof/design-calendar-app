@@ -1318,7 +1318,10 @@ export function GridView({
                       <>
                         {/* ── PO info strip — phase spacers keep dividers alive ── */}
                         <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
-                          <div style={{ gridColumn: "1 / 9", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap" }}>
+                          {/* minWidth:0 + overflow:hidden so the flex content can't push grid tracks
+                              wider than their fixed px widths — keeps the phase-1 left divider aligned
+                              with the data rows above/below. Wrapping handles content that doesn't fit. */}
+                          <div style={{ gridColumn: "1 / 9", minWidth: 0, overflow: "hidden", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap" }}>
                             <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 13 }}>{poNum}</span>
                             <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>{po.VendorName}</span>
                             {po.StatusName && <span style={{ background: "#1E293B", color: "#94A3B8", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10 }}>{po.StatusName}</span>}
