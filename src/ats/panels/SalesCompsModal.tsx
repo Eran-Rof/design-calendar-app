@@ -33,7 +33,6 @@ import {
 import {
   downloadSalesCompsWorkbook,
   computeSoCatchallRow,
-  SO_CATCHALL_KEY,
   type SalesCompsExportInput,
   type SoRow as ExportSoRow,
 } from "../salesCompsExport";
@@ -1313,11 +1312,13 @@ export const SalesCompsModal: React.FC<Props> = ({
                   "SO";
                 return (
                   <div key={dim} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {/* Section header — TY vs LY SOs. 14pt bold,
+                    {/* Section header — TY SO Detail. 14pt bold,
                         primary text color. Replaces the prior 11pt
                         uppercase mini-header. Diagnostics box + table
-                        remain unchanged. */}
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>TY vs LY SOs</div>
+                        remain unchanged. LY columns removed from this
+                        table per operator request — the LY comparison
+                        already lives in the Totals block above. */}
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>TY SO Detail</div>
                     {soDiag && (
                       <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4, padding: "6px 10px", background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 6 }}>
                         <strong style={{ color: C.text }}>Filter breakdown:</strong>{" "}
@@ -1524,24 +1525,15 @@ function SoCompsTable({
   // rows rather than de-duping by style key. Overlapping windows (same
   // style, near-same cancel dates) double-count their overlapping LY
   // days — acceptable tradeoff vs. losing per-row signal in the table.
-  // EXCEPTION: the catch-all subtotal (SO_CATCHALL_KEY) carries LY ship
-  // $ for styles with NO TY SO — its LY is added explicitly so the
-  // TOTAL reconciles with the other dim sections.
+  // The LY catch-all subtotal (SO_CATCHALL_KEY) is no longer tracked
+  // here since the table is TY-only — the dim sections + Totals block
+  // above still surface the LY context the operator needs.
   const dataRows = rows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
-  const catchallRow = rows.find((r): r is Extract<SoRow, { kind: "subtotal" }> =>
-    r.kind === "subtotal" && r.key === SO_CATCHALL_KEY);
-  let totalTyQty = 0, totalTyRev = 0, totalLyQty = 0, totalLyRev = 0;
+  let totalTyQty = 0, totalTyRev = 0;
   for (const r of dataRows) {
     totalTyQty += r.tyQty;
     totalTyRev += r.tyRev;
-    totalLyQty += r.lyQty;
-    totalLyRev += r.lyRev;
   }
-  if (catchallRow) {
-    totalLyQty += catchallRow.lyQty;
-    totalLyRev += catchallRow.lyRev;
-  }
-  const totalGrowth = fmtGrowth(totalTyRev, totalLyRev);
 
   return (
     <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
@@ -1560,9 +1552,6 @@ function SoCompsTable({
             )}
             <th style={th("right")}>TY Qty</th>
             <th style={th("right")}>TY Open SO $</th>
-            <th style={th("right")}>LY Qty</th>
-            <th style={th("right")}>LY Ship $</th>
-            <th style={th("right")}>Δ Rev</th>
           </tr>
         </thead>
         <tbody>
@@ -1573,13 +1562,9 @@ function SoCompsTable({
                   <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), color: C.accent, fontWeight: 600 }}>{r.label}</td>
                   <td style={{ ...td("right"), fontWeight: 600 }}>{r.tyQty.toLocaleString()}</td>
                   <td style={{ ...td("right"), fontWeight: 600 }}>{fmtUSD(r.tyRev)}</td>
-                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{r.lyQty.toLocaleString()}</td>
-                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{fmtUSD(r.lyRev)}</td>
-                  <td style={{ ...td("right"), fontWeight: 600, color: fmtGrowth(r.tyRev, r.lyRev).positive ? C.green : C.red }}>{fmtGrowth(r.tyRev, r.lyRev).text}</td>
                 </tr>
               );
             }
-            const growth = fmtGrowth(r.tyRev, r.lyRev);
             return (
               <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
                 {showSoMeta ? (
@@ -1594,25 +1579,19 @@ function SoCompsTable({
                 )}
                 <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                 <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
-                <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
-                <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
-                <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
               </tr>
             );
           })}
-          {dataRows.length === 0 && !catchallRow && (
-            <tr><td colSpan={showSoMeta ? 9 : 6} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>
+          {dataRows.length === 0 && (
+            <tr><td colSpan={showSoMeta ? 6 : 3} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>
               No open SOs match this scope.
             </td></tr>
           )}
-          {(dataRows.length > 0 || catchallRow) && (
+          {dataRows.length > 0 && (
             <tr style={{ background: C.surface, borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
               <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), fontWeight: 700, color: C.accent }}>TOTAL</td>
               <td style={{ ...td("right"), fontWeight: 700 }}>{totalTyQty.toLocaleString()}</td>
               <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(totalTyRev)}</td>
-              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{totalLyQty.toLocaleString()}</td>
-              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(totalLyRev)}</td>
-              <td style={{ ...td("right"), fontWeight: 700, color: totalGrowth.positive ? C.green : C.red }}>{totalGrowth.text}</td>
             </tr>
           )}
         </tbody>
