@@ -25,6 +25,7 @@ import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
 import InternalNotificationPreferences from "./tanda/InternalNotificationPreferences";
+import InternalEmployees               from "./tanda/InternalEmployees";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,13 +59,14 @@ type ModuleKey =
   | "approval_rules"
   | "approval_requests"
   | "notifications"
-  | "notification_prefs";
+  | "notification_prefs"
+  | "employees";
 
 type ModuleDef = {
   key: ModuleKey;
   label: string;
   emoji: string;
-  group: "Master Data" | "Accounting" | "Approvals" | "Notifications";
+  group: "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR";
 };
 
 const MODULES: ModuleDef[] = [
@@ -78,6 +80,7 @@ const MODULES: ModuleDef[] = [
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
   { key: "notification_prefs",label: "Notif. Preferences",emoji: "🎚️", group: "Notifications" },
+  { key: "employees",         label: "Employees",         emoji: "👥", group: "HR" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,6 +198,7 @@ export default function Tangerine() {
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}
         {activeModule === "notification_prefs" && <InternalNotificationPreferences />}
+        {activeModule === "employees"          && <InternalEmployees />}
       </main>
     </div>
   );
@@ -517,6 +521,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const acctModules = MODULES.filter((m) => m.group === "Accounting");
   const approvalsModules = MODULES.filter((m) => m.group === "Approvals");
   const notifModules = MODULES.filter((m) => m.group === "Notifications");
+  const hrModules = MODULES.filter((m) => m.group === "HR");
 
   return (
     <div>
@@ -548,6 +553,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Notifications (P2)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {notifModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="HR (P2)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {hrModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
