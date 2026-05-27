@@ -246,26 +246,19 @@ async function resolveCustomerIds(name: string): Promise<string[]> {
     `ip_customer_master?select=id,name&name=ilike.${enc}&order=name.asc`,
   );
 
+  // Every row returned by the SQL ILIKE already starts with the same
+  // first token as the operator's selection (e.g. dropdown
+  // "Burlington Stores, Inc." → ILIKE "Burlington%" → returns every
+  // Burlington* master row). The previous secondary canonical
+  // comparison required one full name to be a prefix of the other,
+  // which silently dropped per-DC rows ("Burlington DC #5") whose
+  // middle text diverges from the dropdown name — operator picked
+  // Burlington, got zero T3 because all DC sales linked to those
+  // dropped IDs. The first-word ILIKE is the right narrowing scope
+  // for "everything tied to this retailer."
   const out: string[] = [];
   for (const r of rows) {
-    if (!r.id || !r.name) continue;
-    const candidate = canonCustomerName(r.name);
-    if (
-      candidate === target
-      || candidate.startsWith(target)
-      || target.startsWith(candidate)
-    ) {
-      out.push(r.id);
-    }
-  }
-  // Also try an exact match in case the first-word pool missed it
-  // (e.g. operator typed the full name verbatim).
-  if (out.length === 0) {
-    const encExact = encodeURIComponent(trimmed);
-    const exact = await sbGet<{ id: string }>(
-      `ip_customer_master?select=id&name=eq.${encExact}&limit=5`,
-    );
-    for (const r of exact) if (r.id) out.push(r.id);
+    if (r.id) out.push(r.id);
   }
   return out;
 }
