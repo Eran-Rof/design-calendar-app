@@ -5,7 +5,7 @@
 // /reverse action. Multi-line entry with live balance check, basis
 // selector (ACCRUAL | CASH | BOTH), and inline subledger entry per line.
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type JELine = {
@@ -363,9 +363,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
             </select>
           </Field>
           <Field label="Journal type">
-            <select value={journalType} onChange={(e) => setJournalType(e.target.value as "manual" | "adjustment")} style={inputStyle as React.CSSProperties}>
-              <option value="manual">manual</option>
-              <option value="adjustment">adjustment</option>
+            <select value={journalType} onChange={(e) => setJournalType(e.target.value as "manual" | "adjustment")} style={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}>
+              <option value="manual">MANUAL</option>
+              <option value="adjustment">ADJUSTMENT</option>
             </select>
           </Field>
           <Field label="Posting date">
@@ -395,12 +395,11 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                 <tr key={idx}>
                   <td style={td}>{l.line_number}</td>
                   <td style={td}>
-                    <select value={l.account_id} onChange={(e) => updateLine(idx, { account_id: e.target.value })} style={inputStyle as React.CSSProperties}>
-                      <option value="">(pick…)</option>
-                      {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>{a.code} — {a.name}{a.is_control ? " [control]" : ""}</option>
-                      ))}
-                    </select>
+                    <AccountSearchInput
+                      accounts={accounts}
+                      value={l.account_id}
+                      onChange={(id) => updateLine(idx, { account_id: id })}
+                    />
                   </td>
                   <td style={td}>
                     <input type="text" value={l.debit} onChange={(e) => updateLine(idx, { debit: e.target.value, credit: e.target.value ? "" : l.credit })} placeholder="0.00" style={inputStyle} />
@@ -469,6 +468,99 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
+    </div>
+  );
+}
+
+// Type-ahead account picker. Filters in-memory across `code` + `name`
+// substring (case-insensitive). Persists the selected `account_id` on
+// exact label match — otherwise leaves it blank until the operator picks
+// from the dropdown. Closes on outside click + on selection.
+function AccountSearchInput({
+  accounts, value, onChange,
+}: {
+  accounts: Array<{ id: string; code: string; name: string; is_control: boolean }>;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
+  // When `value` is set externally, mirror its label into the query box.
+  React.useEffect(() => {
+    if (!value) { setQuery(""); return; }
+    const a = accounts.find((x) => x.id === value);
+    if (a) setQuery(`${a.code} — ${a.name}${a.is_control ? " [control]" : ""}`);
+  }, [value, accounts]);
+
+  // Close on outside click
+  React.useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = accounts
+    .filter((a) => {
+      if (!query.trim()) return true;
+      const q = query.toLowerCase();
+      return a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q);
+    })
+    .slice(0, 50);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", minWidth: 0 }}>
+      <input
+        type="text"
+        value={query}
+        placeholder="pick or type…"
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+          // Clear current selection if the typed text no longer matches the
+          // previously-selected row's label exactly.
+          if (value) {
+            const a = accounts.find((x) => x.id === value);
+            if (a) {
+              const label = `${a.code} — ${a.name}${a.is_control ? " [control]" : ""}`;
+              if (e.target.value !== label) onChange("");
+            }
+          }
+        }}
+        style={inputStyle}
+      />
+      {open && filtered.length > 0 && (
+        <div
+          style={{
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
+            background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 4,
+            maxHeight: 240, overflowY: "auto", marginTop: 2,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+          }}
+        >
+          {filtered.map((a) => (
+            <div
+              key={a.id}
+              onMouseDown={(e) => { e.preventDefault(); onChange(a.id); setOpen(false); }}
+              style={{
+                padding: "6px 10px", cursor: "pointer", fontSize: 13,
+                color: a.is_control ? C.warn : C.text,
+                borderBottom: `1px solid ${C.cardBdr}`,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#1e293b"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+            >
+              <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{a.code}</span>
+              {" — "}{a.name}
+              {a.is_control && <span style={{ color: C.warn, fontSize: 10, marginLeft: 6 }}>[control]</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
