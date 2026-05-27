@@ -3,9 +3,6 @@
 // Used by:
 //   - planning's OperationStatusBar (indeterminate — no known total)
 //   - ATS's UploadProgressOverlay (determinate — pct from upload step)
-//   - ATS's XoroSyncOverlay (determinate + extra caption + top banner
-//     for multi-pass retry headers; routes through the same shell via
-//     the `caption` and `topBanner` slots)
 //
 // Visual: dark backdrop, slate panel (#1E293B), 14px-rounded card,
 // gradient progress bar (green→blue, matches the brand gradient).

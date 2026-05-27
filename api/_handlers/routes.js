@@ -230,7 +230,6 @@ import h224 from "./shopify/orders.js";
 import h225 from "./vendor/banking.js";
 import h226 from "./internal/rfqs/index.js";
 import h227 from "./xoro/open-pos.js";
-import h228 from "./xoro/open-sos.js";
 import h229 from "./xoro/receipts.js";
 import h230 from "./ai/ask-grid.js";
 import h231 from "./edi/inbound/index.js";
@@ -509,7 +508,6 @@ export const ROUTES = [
   { pattern: "/api/vendor/banking", handler: h225 },
   { pattern: "/api/internal/rfqs", handler: h226 },
   { pattern: "/api/xoro/open-pos", handler: h227 },
-  { pattern: "/api/xoro/open-sos", handler: h228 },
   { pattern: "/api/xoro/receipts", handler: h229 },
   { pattern: "/api/ai/ask-grid", handler: h230 },
   { pattern: "/api/edi/inbound", handler: h231 },

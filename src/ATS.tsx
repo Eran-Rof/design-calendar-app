@@ -76,7 +76,7 @@ function ATSReport() {
     minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
-    syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
+    lastSync, hoveredCell, pinnedSku, ctxMenu,
     summaryCtx, activeSort, sortCol, sortDir, mergeHistory, viewMode, showTotalsRow, showStatsCards, explodePpk, freezeKey, hiddenColumns, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
@@ -109,10 +109,7 @@ function ATSReport() {
   const setInvFile           = mk("invFile");
   const setPurFile           = mk("purFile");
   const setOrdFile           = mk("ordFile");
-  const setSyncing           = mk("syncing");
-  const setSyncStatus        = mk("syncStatus");
   const setLastSync          = mk("lastSync");
-  const setSyncError         = mk("syncError");
   const setHoveredCell       = mk("hoveredCell");
   const setPinnedSku         = mk("pinnedSku");
   const setCtxMenu           = mk("ctxMenu");
@@ -525,9 +522,6 @@ function ATSReport() {
     const enriched = enrichRowsWithItemMaster(rows).rows;
     setRows(enriched.map(applyPpkMultiplierToRow));
   }, [masterReady, excelData, rows]);
-
-  // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
-  const syncProgress = null;
 
   // mergeRows (row-level) imported from ./ats/merge.ts.
 
@@ -1043,7 +1037,7 @@ function ATSReport() {
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,
     uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData,
     setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile,
-    ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError,
+    ordFile, setOrdFile, lastSync,
     hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu,
     summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
@@ -1051,7 +1045,7 @@ function ATSReport() {
     statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
-    cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
+    cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey,
     normChanges, setNormChanges, normPendingData, setNormPendingData, normSource, setNormSource,
     applyNormReview, dismissNormReview,
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,

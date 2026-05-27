@@ -49,11 +49,12 @@ export interface ATSState {
   invFile: File | null;
   purFile: File | null;
   ordFile: File | null;
-  // Sync
-  syncing: boolean;
-  syncStatus: string;
+  // Sync — `lastSync` is the upload/load timestamp shown in the navbar
+  // info line. The transient (syncing/syncStatus/syncError) fields and
+  // their SYNC_ reducer actions were removed when the in-app Xoro
+  // Sync Open SOs button was retired in favor of Playwright-driven
+  // nightly fetches.
   lastSync: string;
-  syncError: { title: string; detail: string } | null;
   // Normalization review
   normChanges: NormChange[] | null;
   normPendingData: ExcelData | null;
@@ -133,10 +134,7 @@ export type ATSAction =
   | { type: "UPLOAD_PROGRESS"; step: string; pct: number }
   | { type: "UPLOAD_DONE"; message: string }
   | { type: "UPLOAD_FAIL"; error: string }
-  | { type: "UPLOAD_RESET" }
-  | { type: "SYNC_START" }
-  | { type: "SYNC_DONE"; lastSync: string }
-  | { type: "SYNC_FAIL"; error: { title: string; detail: string } };
+  | { type: "UPLOAD_RESET" };
 
 export function createInitialState(startDate: string): ATSState {
   return {
@@ -176,10 +174,7 @@ export function createInitialState(startDate: string): ATSState {
     invFile: null,
     purFile: null,
     ordFile: null,
-    syncing: false,
-    syncStatus: "",
     lastSync: "",
-    syncError: null,
     normChanges: null,
     normPendingData: null,
     normSource: "upload",
