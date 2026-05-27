@@ -163,6 +163,34 @@ ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_default_currency_check
 ALTER TABLE customers ADD CONSTRAINT customers_default_currency_check
   CHECK (default_currency ~ '^[A-Z]{3}$');
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- entity_id safety net. Chunk 1 mig 3 was supposed to add this to
+-- ip_customer_master, but if it didn't (table missing at the time, partial
+-- failure, etc.), the indexes below would fail with "column entity_id does
+-- not exist." Add it now if missing; backfill from the ROF entity row.
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'entity_id'
+  ) THEN
+    ALTER TABLE customers ADD COLUMN entity_id uuid;
+    UPDATE customers SET entity_id = (SELECT id FROM entities WHERE code = 'ROF') WHERE entity_id IS NULL;
+    -- Only enforce NOT NULL if there IS at least one row (otherwise the
+    -- backfill matched nothing because customers is empty, which is fine).
+    IF EXISTS (SELECT 1 FROM customers WHERE entity_id IS NULL) THEN
+      RAISE NOTICE 'Tangerine 6 fix: customers has rows with NULL entity_id after backfill (no ROF entity yet?). Skipping NOT NULL.';
+    ELSE
+      ALTER TABLE customers ALTER COLUMN entity_id SET NOT NULL;
+    END IF;
+    ALTER TABLE customers
+      ADD CONSTRAINT customers_entity_id_fkey
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE RESTRICT;
+    RAISE NOTICE 'Tangerine 6 fix: added entity_id to customers + backfilled from ROF';
+  END IF;
+END $$;
+
 -- Unique (entity_id, code) among non-deleted rows.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_entity_code
   ON customers (entity_id, code)
