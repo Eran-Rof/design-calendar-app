@@ -1,15 +1,14 @@
 -- =============================================================================
--- Tangerine P1 — bundled migration script (T1-fix-5 regen)
+-- Tangerine P1 — bundled migration script (T1-fix-6 regen)
 -- =============================================================================
--- All 18 P1 migrations in dependency order. Idempotent.
---
--- T1-fix-5 regen: Chunk 4.5 now demotes is_apparel=false on rows missing
--- any of the 5 matrix dims BEFORE adding the CHECK constraint. Previous
--- bundle failed at apparel_dims_required because Chunk 4's default=true
--- left tops/dresses flagged as apparel without inseam/length/fit.
+-- T1-fix-6: customers RENAME is now guarded by a DO block that only fires
+-- when customers doesn't yet exist as a base table. Previous bundle re-runs
+-- failed because the ip_customer_master view (created on first run) was
+-- matching ALTER TABLE IF EXISTS, causing a collision with the existing
+-- customers table.
 --
 -- USAGE: paste into Supabase SQL editor, click Run.
--- Built: 2026-05-26 (T1-fix-5)
+-- Built: 2026-05-26 (T1-fix-6)
 -- =============================================================================
 
 
@@ -1804,8 +1803,26 @@ COMMENT ON COLUMN entity_vendors.vendor_code IS
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Step 1: Rename table.
+--
+-- Idempotency note: on first run, ip_customer_master is a TABLE that gets
+-- renamed to customers. On any subsequent re-run, ip_customer_master is now
+-- a VIEW (created at the end of this same migration as a backward-compat
+-- alias). `ALTER TABLE IF EXISTS ip_customer_master` would still match the
+-- view and try to rename it — which collides with the existing customers
+-- table. Guard the rename to only fire when customers does NOT yet exist as
+-- a base table.
 -- ────────────────────────────────────────────────────────────────────────────
-ALTER TABLE IF EXISTS ip_customer_master RENAME TO customers;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name   = 'customers'
+      AND table_type   = 'BASE TABLE'
+  ) THEN
+    ALTER TABLE IF EXISTS ip_customer_master RENAME TO customers;
+  END IF;
+END $$;
 
 -- The Phase 0 migration created two indexes named idx_ip_customer_master_*.
 -- PG keeps index names attached to the table after RENAME; the names become
