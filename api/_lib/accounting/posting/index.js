@@ -110,32 +110,45 @@ export async function postEvent(supabase, event) {
     );
   }
 
-  // 2a. consumePlan drain (P3-5 — M37 negative inventory adjustments).
+  // 2a. consumePlan drain — two modes:
   //
-  //   The rule emits a consumePlan when it can't author the JE amount up-front
-  //   because the value is FIFO-derived. Currently only inventoryAdjustment
-  //   uses this path (negative qty_delta). For each plan entry we call
-  //   inventory_fifo_consume() to get cogs_cents, then rewrite the sentinel
-  //   "0" amounts on the rule output's JE lines to the real value.
+  //   LEGACY 2-LINE MODE (P3-5 — M37 negative inventory adjustments):
+  //     The rule emits a consumePlan whose entries have NO line-index hints.
+  //     The candidate has exactly two lines (DR counter / CR inventory). We
+  //     sum cogs_cents across all plan entries and rewrite line[0].debit +
+  //     line[1].credit. This is the inventoryAdjustment shape.
   //
-  //   The consume() call has DB side-effects (mutates inventory_layers +
-  //   inserts inventory_consumption) that DO NOT roll back if the JE persist
-  //   fails downstream. This is an accepted asymmetry: inventory was already
-  //   physically removed (the operator observed shrinkage / damage); the GL
-  //   posting is the bookkeeping of that physical truth. If the JE persist
-  //   fails the FIFO ledger is correct ahead of GL, which can be reconciled
-  //   out-of-band the same way we treat the inverse asymmetry on positive
-  //   adjustments (createLayer fails after JE post).
+  //   INDEXED MODE (P4-3 — arInvoiceSent + future multi-line consumers):
+  //     Each plan entry carries `dr_line_ix` + `cr_line_ix` pointing at the
+  //     sentinel COGS pair in the candidate's line array. The rule may also
+  //     emit non-COGS lines (e.g. DR AR / CR revenue) that we must NOT touch.
+  //     We rewrite per-entry (each entry's cogs_cents goes to its OWN pair),
+  //     and a 0-cogs entry causes its sentinel pair to be DROPPED cleanly
+  //     (so we never persist a {debit:0, credit:0} no-op pair). Lines are
+  //     renumbered (line_number = i+1) after any drops.
   //
-  //   The rule guarantees that the negative-side JE candidates are wired with
-  //   exactly two lines: line_number=1 has debit="0" sentinel on the counter
-  //   account, line_number=2 has credit="0" sentinel on the inventory account.
-  //   We mutate both candidates' line 1 (debit) and line 2 (credit) to the
-  //   computed amount string. Guard balance check on the sentinel "0/0" rule
-  //   output would obviously pass (both sides equal). We re-validate balance
-  //   AFTER the rewrite.
+  //   Both modes share the same consume() per-entry call and the same
+  //   side-effect semantics: consume() mutates inventory_layers +
+  //   inserts inventory_consumption BEFORE the JE persists. If JE persist
+  //   fails downstream, the FIFO ledger leads the GL by one event. This
+  //   asymmetry is accepted (see P3-5 docs); P4 inherits it for AR.
+  //
+  //   consumer_kind whitelist: `ar_invoice`, `adjustment_decrease`,
+  //   `transfer_out`, `write_off`. Enforced in fifo.js consume() AND in the
+  //   SQL CHECK constraint on inventory_consumption.consumer_kind (P3-3
+  //   migration). No widening needed here — the drain is consumer-kind
+  //   agnostic; it relays whatever the rule emitted.
   let consumePlanResults = [];
   if (Array.isArray(ruleOutput.consumePlan) && ruleOutput.consumePlan.length > 0) {
+    // Detect mode: if ANY plan entry carries dr_line_ix/cr_line_ix, treat
+    // the whole plan as indexed-mode (mixed plans are not supported — a
+    // single rule output must commit to one mode).
+    const isIndexed = ruleOutput.consumePlan.some(
+      (p) => p.dr_line_ix != null || p.cr_line_ix != null,
+    );
+
+    // Execute consume() for each plan entry, in declared order.
+    const perEntryCogs = []; // bigint per plan-entry
     let totalCogs = 0n;
     for (const plan of ruleOutput.consumePlan) {
       const { cogs_cents } = await consumeInventory(supabase, {
@@ -146,29 +159,73 @@ export async function postEvent(supabase, event) {
         consumer_ref_id: plan.consumer_ref_id,
         user_id: event.created_by_user_id || null,
       });
+      perEntryCogs.push(cogs_cents);
       consumePlanResults.push({
         item_id: plan.item_id,
         qty: plan.qty,
         cogs_cents,
+        // P4-3: expose target_line_id when the rule supplied it. The handler
+        // uses this to write cogs_cents back onto ar_invoice_lines.cogs_cents
+        // after postEvent returns.
+        target_line_id: plan.target_line_id || null,
       });
       totalCogs += cogs_cents;
     }
-    // Convert totalCogs back to a decimal-string ("123.45"). The rule put
-    // sentinel "0" on the JE candidate line 1's debit + line 2's credit; the
-    // contracted shape is exactly two lines (DR counter / CR inventory).
-    const amountStr = bigintCentsToDecimal(totalCogs);
-    for (const side of ["accrual", "cash"]) {
-      const cand = ruleOutput[side];
-      if (!cand) continue;
-      if (!Array.isArray(cand.lines) || cand.lines.length < 2) {
-        throw new PostingError(
-          "consume_plan_shape",
-          `consumePlan path expects 2-line ${side} candidate (got ${cand.lines?.length ?? 0})`,
-        );
+
+    if (isIndexed) {
+      // INDEXED MODE — per-entry rewrite + drop zero-cogs sentinel pairs.
+      for (const side of ["accrual", "cash"]) {
+        const cand = ruleOutput[side];
+        if (!cand || !Array.isArray(cand.lines)) continue;
+        const linesToDrop = new Set();
+        ruleOutput.consumePlan.forEach((plan, i) => {
+          const cogs = perEntryCogs[i];
+          if (plan.dr_line_ix == null || plan.cr_line_ix == null) {
+            throw new PostingError(
+              "consume_plan_shape",
+              `indexed consumePlan entry ${i} missing dr_line_ix/cr_line_ix`,
+            );
+          }
+          if (plan.dr_line_ix >= cand.lines.length || plan.cr_line_ix >= cand.lines.length) {
+            throw new PostingError(
+              "consume_plan_shape",
+              `indexed consumePlan entry ${i} line index out of range (${plan.dr_line_ix}/${plan.cr_line_ix}; lines=${cand.lines.length})`,
+            );
+          }
+          if (cogs === 0n) {
+            // Drop the sentinel pair — no real COGS to record.
+            linesToDrop.add(plan.dr_line_ix);
+            linesToDrop.add(plan.cr_line_ix);
+            return;
+          }
+          const amountStr = bigintCentsToDecimal(cogs);
+          cand.lines[plan.dr_line_ix].debit = amountStr;
+          cand.lines[plan.cr_line_ix].credit = amountStr;
+        });
+        if (linesToDrop.size > 0) {
+          cand.lines = cand.lines.filter((_, ix) => !linesToDrop.has(ix));
+          // Renumber 1..N after drops so persistRuleOutput sees contiguous
+          // line_numbers (the RPC tolerates gaps but downstream JE viewers
+          // assume 1..N).
+          cand.lines.forEach((l, i) => { l.line_number = i + 1; });
+        }
       }
-      // line 1 is DR counter; line 2 is CR inventory. Rewrite both.
-      cand.lines[0].debit = amountStr;
-      cand.lines[1].credit = amountStr;
+    } else {
+      // LEGACY 2-LINE MODE — sum cogs across plan, rewrite line[0]/line[1].
+      const amountStr = bigintCentsToDecimal(totalCogs);
+      for (const side of ["accrual", "cash"]) {
+        const cand = ruleOutput[side];
+        if (!cand) continue;
+        if (!Array.isArray(cand.lines) || cand.lines.length < 2) {
+          throw new PostingError(
+            "consume_plan_shape",
+            `consumePlan path expects 2-line ${side} candidate (got ${cand.lines?.length ?? 0})`,
+          );
+        }
+        // line 1 is DR counter; line 2 is CR inventory. Rewrite both.
+        cand.lines[0].debit = amountStr;
+        cand.lines[1].credit = amountStr;
+      }
     }
   }
 
@@ -184,12 +241,16 @@ export async function postEvent(supabase, event) {
   // 3. Persist transactionally
   const result = await persistRuleOutput(supabase, ruleOutput);
 
-  // 3a. Expose consume results on the result (M37 audit trail).
+  // 3a. Expose consume results on the result (M37 audit trail + P4-3 AR
+  //     write-back). target_line_id is null on legacy 2-line mode (M37) and
+  //     set on indexed mode (AR send time — handler writes cogs_cents back
+  //     onto ar_invoice_lines.cogs_cents after postEvent returns).
   if (consumePlanResults.length > 0) {
     result.consume_results = consumePlanResults.map((c) => ({
       item_id: c.item_id,
       qty: c.qty,
       cogs_cents: c.cogs_cents.toString(), // serialize bigint as string
+      target_line_id: c.target_line_id ?? null,
     }));
   }
 

@@ -237,6 +237,9 @@ describe("postEvent inventory_adjustment — NEGATIVE (consumePlan drain)", () =
       item_id: ITEM,
       qty: 5,
       cogs_cents: "700",
+      // P4-3: target_line_id added to the shape; null for M37 (no per-line
+      // write-back) and set for AR send-time (write-back into ar_invoice_lines.cogs_cents).
+      target_line_id: null,
     });
   });
 

@@ -161,13 +161,30 @@ export async function createLayer(supabase, args) {
  * Insufficient-inventory at the SQL layer surfaces as an error from
  * supabase.rpc — we re-throw as InventoryError('consume_failed').
  *
+ * P4-3 contract notes:
+ *   - `consumer_kind='ar_invoice'` is the AR send-time path. The consumer_ref_id
+ *     points at ar_invoice_lines.id (NOT the parent ar_invoice — per-line so a
+ *     credit-memo can reverse a single line). The SQL CHECK constraint on
+ *     inventory_consumption.consumer_kind already accepts 'ar_invoice' (P3-3
+ *     fifo schema migration).
+ *
+ * TODO P4-8 (historical backfill):
+ *   The 5-year backfill needs to consume against pre-AR-cutover layers only —
+ *   later forward layers must NOT backfill historical sales. Add an optional
+ *   `p_layer_cutoff_date` parameter to the RPC so callers can scope the FIFO
+ *   sweep to layers with `received_at <= cutoff`. The JS wrapper will expose
+ *   it as `args.layer_cutoff_date`. The arch (§6.4) currently has the backfill
+ *   BYPASS FIFO entirely and use the recorded `unit_cost_at_sale` directly;
+ *   this TODO is the fallback path if a future operator wants per-layer
+ *   accuracy on historical sales.
+ *
  * @param {Object} supabase
  * @param {Object} args
  * @param {string} args.entity_id
  * @param {string} args.item_id
  * @param {number|string} args.qty            Must be > 0
  * @param {string} args.consumer_kind         ar_invoice|adjustment_decrease|transfer_out|write_off
- * @param {string} [args.consumer_ref_id]     FK invoices(id) for ar_invoice; FK
+ * @param {string} [args.consumer_ref_id]     FK ar_invoice_lines(id) for ar_invoice; FK
  *                                            inventory_adjustments(id) for the others
  * @param {string} [args.user_id]
  * @returns {Promise<{cogs_cents: bigint}>}
