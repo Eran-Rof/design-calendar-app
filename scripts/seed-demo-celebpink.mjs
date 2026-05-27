@@ -121,15 +121,21 @@ const DEMO_USERS = [
   { id: uuidFrom("user-techpack"),  name: "Demo Tech",      initials: "DT" },
 ];
 
-// ── Build vendors (portal table + ip_vendor_master) ──────────────────────
-// Columns mirror the real prod vendors table shape (legacy_blob_id, country,
-// transit_days, categories[], contact, email, moq, status, etc.).
+// ── Build vendors (canonical table — Tangerine 6.5, 2026-05-27) ─────────
+// Tangerine P1 designates `vendors` as the canonical M35 master. The legacy
+// `ip_vendor_master` table is deprecated and will be converted to a view in
+// P10 (multi-tenant RLS flip). Per Chunk 6.5: this seed no longer writes
+// to ip_vendor_master — only to vendors.
+//
+// Vendor.code is the canonical short code (added by Chunk 6 ERP extensions),
+// replacing the legacy ip_vendor_master.vendor_code.
 const portalVendors = DEMO_VENDORS.map(v => ({
   id: uuidFrom(`vendor-portal-${v.code}`),
   legacy_blob_id: `demo-${v.code.toLowerCase()}`,
+  code: v.code,
   name: v.name,
   country: v.country,
-  transit_days: 28,
+  transit_days: v.lead ?? 28,
   categories: ["denim", "bottoms"],
   contact: "Demo Contact",
   email: `contact@${slugify(v.name)}.demo`,
@@ -137,8 +143,11 @@ const portalVendors = DEMO_VENDORS.map(v => ({
   status: "active",
 }));
 
+// In-memory shape kept for places that still want the ip-style record (e.g.
+// item-vendor lookups by index). Mirrors the portal vendors so downstream
+// references resolve to the same row regardless of legacy field name.
 const ipVendors = DEMO_VENDORS.map((v, i) => ({
-  id: uuidFrom(`vendor-ip-${v.code}`),
+  id: portalVendors[i].id,
   vendor_code: v.code,
   name: v.name,
   country: v.country,
@@ -992,14 +1001,19 @@ await wipeItemDependents();
 await del("ip_item_master", "sku_code=like.DEMO-*");
 await del("ip_customer_master", "customer_code=like.DEMO-CUST-*");
 await del("ip_category_master", "category_code=like.DEMO-CAT-*");
+// Clean any stale legacy ip_vendor_master DEMO rows (idempotent; safe even
+// after the table eventually becomes a view in P10 — view writes propagate
+// to vendors, where the DEL on the next line covers the same rows).
 await del("ip_vendor_master", "vendor_code=like.DEMO-VND-*");
 const portalIds = portalVendors.map(v => v.id).join(",");
 await del("vendors", `id=in.(${portalIds})`);
 
 // ── Insert in FK order ───────────────────────────────────────────────────
+// Tangerine 6.5 (2026-05-27): write to vendors only. ip_vendor_master is
+// deprecated — its rows are populated via the FK from ip_item_master in
+// later steps using ipVendors[].id (which now mirrors portalVendors[].id).
 console.log("\nInserting fresh DEMO rows…");
 await upsert("vendors", portalVendors, "id");
-await upsert("ip_vendor_master", ipVendors, "vendor_code");
 await upsert("ip_category_master", ipCategories, "category_code");
 await upsert("ip_customer_master", ipCustomers, "customer_code");
 await upsert("ip_item_master", ipItems, "sku_code");
