@@ -1,0 +1,86 @@
+// Tests for P2-8 employees handler validation.
+
+import { describe, it, expect } from "vitest";
+import { validateInsert } from "../../_handlers/internal/employees/index.js";
+import { validatePatch } from "../../_handlers/internal/employees/[id].js";
+
+const UUID = "00000000-0000-0000-0000-000000000001";
+
+describe("employees validateInsert", () => {
+  it("rejects missing code", () => {
+    expect(validateInsert({}).error).toMatch(/code/);
+  });
+  it("rejects missing first_name", () => {
+    expect(validateInsert({ code: "EB001" }).error).toMatch(/first_name/);
+  });
+  it("rejects bad email", () => {
+    expect(validateInsert({ code: "EB001", first_name: "Eran", last_name: "B", email: "no-at-sign" }).error).toMatch(/email/);
+  });
+  it("rejects bad hire_date format", () => {
+    expect(validateInsert({
+      code: "EB001", first_name: "E", last_name: "B", email: "x@y.com",
+      hire_date: "1/2/2026",
+    }).error).toMatch(/hire_date/);
+  });
+  it("rejects termination before hire", () => {
+    expect(validateInsert({
+      code: "EB001", first_name: "E", last_name: "B", email: "x@y.com",
+      hire_date: "2026-05-01", termination_date: "2026-04-01",
+    }).error).toMatch(/termination_date/);
+  });
+  it("rejects non-uuid auth_user_id", () => {
+    expect(validateInsert({
+      code: "EB001", first_name: "E", last_name: "B", email: "x@y.com",
+      auth_user_id: "abc",
+    }).error).toMatch(/auth_user_id/);
+  });
+  it("uppercases code", () => {
+    const v = validateInsert({ code: "eb001", first_name: "E", last_name: "B", email: "x@y.com" });
+    expect(v.data.code).toBe("EB001");
+  });
+  it("lowercases email", () => {
+    const v = validateInsert({ code: "EB001", first_name: "E", last_name: "B", email: "X@Y.COM" });
+    expect(v.data.email).toBe("x@y.com");
+  });
+  it("accepts no auth_user_id (contractor case)", () => {
+    const v = validateInsert({ code: "C001", first_name: "Con", last_name: "Tractor", email: "c@t.com" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.auth_user_id).toBeNull();
+  });
+  it("default is_active=true", () => {
+    expect(validateInsert({ code: "C001", first_name: "C", last_name: "T", email: "c@t.com" }).data.is_active).toBe(true);
+  });
+});
+
+describe("employees validatePatch", () => {
+  it("rejects code change", () => {
+    expect(validatePatch({ code: "X" }).error).toMatch(/code/);
+  });
+  it("rejects entity_id change", () => {
+    expect(validatePatch({ entity_id: UUID }).error).toMatch(/entity_id/);
+  });
+  it("accepts title change", () => {
+    expect(validatePatch({ title: "VP" }).data.title).toBe("VP");
+  });
+  it("rejects bad email", () => {
+    expect(validatePatch({ email: "no-at" }).error).toMatch(/email/);
+  });
+  it("accepts is_active toggle", () => {
+    expect(validatePatch({ is_active: false }).data.is_active).toBe(false);
+  });
+  it("rejects non-uuid manager", () => {
+    expect(validatePatch({ manager_employee_id: "abc" }).error).toMatch(/manager_employee_id/);
+  });
+  it("accepts manager null (no manager)", () => {
+    const v = validatePatch({ manager_employee_id: null });
+    expect(v.data.manager_employee_id).toBeNull();
+  });
+  it("trims department to null when empty string", () => {
+    expect(validatePatch({ department: "" }).data.department).toBeNull();
+  });
+  it("empty patch returns empty data", () => {
+    const v = validatePatch({});
+    expect(v.error).toBeUndefined();
+    expect(Object.keys(v.data)).toHaveLength(0);
+  });
+});

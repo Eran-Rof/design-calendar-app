@@ -22,6 +22,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 7. [Approvals (M27)](07-approvals.md) — P2: configure approval rules, approve / reject from the inbox
 8. [Notifications (M28)](08-notifications.md) — P2: in-app inbox + email channel; preferences per (kind, channel)
 9. [Documents (M29)](09-documents.md) — P2: attach files to vendors / customers; signed-URL downloads
+10. [Employees (M30)](10-employees.md) — P2: HR/identity layer + v_audit_user_resolved view for display names
 
 ## 30-second quickstart
 
@@ -49,6 +50,9 @@ Login is the same for both; access to the data inside each panel is gated by Row
 - **P2-1 + P2-2 (merged 2026-05-27):** M27 Workflow/Approvals complete — schema, library, JE posting guard, and admin UI for both rules and inbox. See chapter 7. Dormant until rules are defined.
 - **P2-3 + P2-4 (merged 2026-05-27):** M28 Notifications complete — schema, dispatcher library, admin UI (inbox + preferences), and email cron worker. See chapter 8. Dormant until a downstream caller invokes `notificationsAPI.enqueue`.
 - **P2-5 + P2-6 (merged 2026-05-27):** M29 Document Management complete — schema, library, reusable `DocumentAttachmentList` component embedded in Vendor + Customer Master edit modals. See chapter 9. **Operator must create the `tangerine-documents` Supabase Storage bucket once** before uploads work (see MIGRATIONS.md).
+- **P2-7 + P2-8 (merged 2026-05-27):** M30 HR/Employee Master complete — schema, view, admin panel. See chapter 10. Seed inserts EB001/CEO for ROF entity.
+
+**P2 cross-cutters phase is feature-complete pending auto-apply.** All schemas, libraries, UI panels, and reusable components have shipped. Outstanding items are operational: (a) DB password sync to unblock auto-apply on the schema migrations; (b) one-time Supabase Storage bucket creation for M29.
 
 ## How this guide stays current
 
