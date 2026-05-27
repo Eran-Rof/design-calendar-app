@@ -292,6 +292,10 @@ import h287 from "./internal/ap-invoices/post.js";
 import h288 from "./internal/ap-invoices/pay.js";
 import h289 from "./internal/ap-invoices/void.js";
 import h290 from "./internal/ap-payments/index.js";
+import h291 from "./internal/fabric-codes/index.js";
+import h292 from "./internal/fabric-codes/[id].js";
+import h293 from "./internal/style-fabric-codes/index.js";
+import h294 from "./internal/style-fabric-codes/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -542,6 +546,11 @@ export const ROUTES = [
   { pattern: "/api/internal/ap-invoices/:id", handler: h286 },
   { pattern: "/api/internal/ap-invoices", handler: h285 },
   { pattern: "/api/internal/ap-payments", handler: h290 },
+  // Fabric Codes (P3-11) — subpaths-before-parent
+  { pattern: "/api/internal/fabric-codes/:id", handler: h292 },
+  { pattern: "/api/internal/fabric-codes", handler: h291 },
+  { pattern: "/api/internal/style-fabric-codes/:id", handler: h294 },
+  { pattern: "/api/internal/style-fabric-codes", handler: h293 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },

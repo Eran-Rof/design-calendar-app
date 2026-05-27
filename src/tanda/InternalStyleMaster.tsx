@@ -3,6 +3,11 @@
 // Tangerine P1 Chunk 7 — internal admin panel for style_master CRUD.
 // List + search + create + edit + soft-delete (and a toggle to view deleted).
 // Wraps /api/internal/style-master and /api/internal/style-master/:id.
+//
+// P3 Chunk 11 (2026-05-27): adds a "Fabrics" subsection in the edit modal that
+// reads/writes the style_fabric_codes junction. The subsection manages its own
+// state and calls /api/internal/style-fabric-codes directly — the style_master
+// save flow is unchanged.
 
 import { useEffect, useState } from "react";
 
@@ -313,6 +318,10 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
           </Field>
         </div>
 
+        {mode === "edit" && style && (
+          <StyleFabricsSection styleId={style.id} />
+        )}
+
         {err && (
           <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>
             {err}
@@ -335,6 +344,204 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P3 Chunk 11 — Fabrics subsection embedded in the style edit modal.
+// Self-managing: reads/writes /api/internal/style-fabric-codes directly.
+// Style master save is independent of this section's lifecycle.
+// ─────────────────────────────────────────────────────────────────────────────
+const FABRIC_ROLES = ["primary", "lining", "trim", "interlining", "accent", "other"] as const;
+
+type FabricCodeLite = {
+  id: string;
+  code: string;
+  name: string;
+  composition_text: string;
+  fabric_weight_gsm: number | null;
+};
+
+type StyleFabricLink = {
+  id: string;
+  style_id: string;
+  fabric_code_id: string;
+  role: string;
+  yardage_per_unit: number | null;
+  notes: string | null;
+  fabric?: FabricCodeLite | null;
+};
+
+function StyleFabricsSection({ styleId }: { styleId: string }) {
+  const [links, setLinks] = useState<StyleFabricLink[]>([]);
+  const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [draft, setDraft] = useState({
+    role: "primary",
+    fabric_code_id: "",
+    yardage_per_unit: "",
+    notes: "",
+  });
+
+  async function loadLinks() {
+    try {
+      const r = await fetch(`/api/internal/style-fabric-codes?style_id=${styleId}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setLinks(await r.json() as StyleFabricLink[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadFabrics() {
+    try {
+      const r = await fetch(`/api/internal/fabric-codes?limit=500`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (Array.isArray(data)) setFabrics(data as FabricCodeLite[]);
+    } catch { /* non-fatal */ }
+  }
+
+  useEffect(() => { void loadLinks(); void loadFabrics(); }, [styleId]);
+
+  async function addLink() {
+    setErr(null);
+    try {
+      if (!draft.fabric_code_id) throw new Error("Select a fabric");
+      const body: Record<string, unknown> = {
+        style_id: styleId,
+        fabric_code_id: draft.fabric_code_id,
+        role: draft.role,
+        yardage_per_unit: draft.yardage_per_unit ? Number(draft.yardage_per_unit) : null,
+        notes: draft.notes || null,
+      };
+      const r = await fetch(`/api/internal/style-fabric-codes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setAddOpen(false);
+      setDraft({ role: "primary", fabric_code_id: "", yardage_per_unit: "", notes: "" });
+      await loadLinks();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function removeLink(id: string) {
+    if (!confirm("Remove this fabric from the style?")) return;
+    try {
+      const r = await fetch(`/api/internal/style-fabric-codes/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await loadLinks();
+    } catch (e: unknown) {
+      alert(`Remove failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, padding: 12, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Fabrics</div>
+        {!addOpen && (
+          <button onClick={() => setAddOpen(true)} style={btnSecondary}>+ Add fabric</button>
+        )}
+      </div>
+
+      {err && (
+        <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>
+          {err}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: C.textMuted, fontSize: 12, padding: "4px 0" }}>Loading…</div>
+      ) : links.length === 0 ? (
+        <div style={{ color: C.textMuted, fontSize: 12, padding: "4px 0" }}>No fabrics attached.</div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={th}>Role</th>
+              <th style={th}>Fabric</th>
+              <th style={th}>Yards/unit</th>
+              <th style={th}>Notes</th>
+              <th style={{ ...th, width: 70 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {links.map((l) => (
+              <tr key={l.id}>
+                <td style={td}>{l.role}</td>
+                <td style={td}>
+                  {l.fabric
+                    ? <span><strong>{l.fabric.code}</strong> — {l.fabric.name}</span>
+                    : <span style={{ color: C.textMuted }}>(unknown)</span>}
+                </td>
+                <td style={td}>{l.yardage_per_unit ?? "—"}</td>
+                <td style={td}>{l.notes ?? "—"}</td>
+                <td style={{ ...td, textAlign: "right" }}>
+                  <button onClick={() => void removeLink(l.id)} style={btnDanger}>Remove</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {addOpen && (
+        <div style={{ marginTop: 10, padding: 10, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px", gap: 8, alignItems: "end" }}>
+            <Field label="Role">
+              <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} style={inputStyle as React.CSSProperties}>
+                {FABRIC_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+            <Field label="Fabric">
+              <select
+                value={draft.fabric_code_id}
+                onChange={(e) => setDraft({ ...draft, fabric_code_id: e.target.value })}
+                style={inputStyle as React.CSSProperties}
+              >
+                <option value="">— select —</option>
+                {fabrics.map((f) => (
+                  <option key={f.id} value={f.id}>{f.code} — {f.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Yards/unit">
+              <input
+                type="number"
+                step="0.0001"
+                value={draft.yardage_per_unit}
+                onChange={(e) => setDraft({ ...draft, yardage_per_unit: e.target.value })}
+                style={inputStyle}
+              />
+            </Field>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <Field label="Notes">
+              <input
+                type="text"
+                value={draft.notes}
+                onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+                style={inputStyle}
+                placeholder="optional"
+              />
+            </Field>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8 }}>
+            <button onClick={() => setAddOpen(false)} style={btnSecondary}>Cancel</button>
+            <button onClick={() => void addLink()} style={btnPrimary}>Add</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

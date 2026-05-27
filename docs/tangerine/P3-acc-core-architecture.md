@@ -396,6 +396,90 @@ The scanner has no `/tangerine` UI tab in P3 — operator-facing scanner is the 
 
 ---
 
+## 6.X Master-data appendix: Fabric Codes (P3-11)
+
+**Added 2026-05-27** after operator flagged the gap: M34 Style Master (P1 Chunk 4) shipped without structured fabric data, M42 PIM is in P8 (months away), but textile-specific fabric reference is needed NOW for tech packs, GS1 care labels, and the M48 customs work. Today fabric info lives in `ip_item_master.attributes` JSONB or unstructured tech-pack PDFs.
+
+This is a lightweight precursor — narrower scope than M42, but unblocks the apparel-side downstream work without forcing the operator to wait for the full PIM build.
+
+### 6.X.1 New: `fabric_codes`
+
+```sql
+CREATE TABLE fabric_codes (
+  id                       uuid PRIMARY KEY,
+  entity_id                uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
+  code                     text NOT NULL,           -- short identifier, unique per entity, locked post-creation
+  name                     text NOT NULL,
+  composition_text         text NOT NULL,           -- free-form for label / tech-pack display
+  composition_json         jsonb,                   -- optional structured [{fiber,pct}] for analytics
+  fabric_weight_gsm        numeric(8,2),
+  country_of_origin_iso2   char(2),                 -- ISO 3166-1 alpha-2; CHECK ~ '^[A-Z]{2}$'
+  hts_code                 text,                    -- HTS/HSN for customs (M48)
+  care_instructions        text,                    -- for GS1 care labels
+  default_vendor_id        uuid REFERENCES vendors(id) ON DELETE SET NULL,
+  is_active                boolean NOT NULL DEFAULT true,
+  ...std audit cols...
+  UNIQUE (entity_id, code)
+);
+```
+
+Standard P1 RLS template (`anon_all` + `auth_internal`). Idempotent migration. Touch trigger on `updated_at`.
+
+**Defensive seed** for ROF entity (skipped if any fabric_codes row already exists for ROF): 9 common apparel fabrics — `CTN100`, `DEN14`, `DEN12`, `POLY100`, `POLY60_CTN40`, `VIS100`, `WOOL100`, `LINEN100`, `SPANDEX_BLEND`. Country and HTS left NULL — operator fills via UI.
+
+### 6.X.2 New: `style_fabric_codes` (M:N junction)
+
+```sql
+CREATE TABLE style_fabric_codes (
+  id                  uuid PRIMARY KEY,
+  entity_id           uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
+  style_id            uuid NOT NULL REFERENCES style_master(id) ON DELETE CASCADE,
+  fabric_code_id      uuid NOT NULL REFERENCES fabric_codes(id) ON DELETE RESTRICT,
+  role                text NOT NULL CHECK (role IN ('primary','lining','trim','interlining','accent','other')),
+  yardage_per_unit    numeric(10,4),
+  notes               text,
+  ...std audit cols...
+  UNIQUE (style_id, fabric_code_id, role)
+);
+```
+
+The UNIQUE on `(style_id, fabric_code_id, role)` — not just `(style_id, fabric_code_id)` — is intentional: the same fabric can validly appear in multiple roles on the same style (e.g. cotton as `primary` shell AND cotton as `trim` binding).
+
+ON DELETE behavior:
+- `style_id` → CASCADE — deleting a style detaches its fabric assignments automatically
+- `fabric_code_id` → RESTRICT — can't delete a fabric while it's still in use anywhere; deactivate instead
+
+### 6.X.3 Handler surface
+
+```
+/api/internal/fabric-codes            GET (list, ?include_inactive, ?q, ?country, ?limit)
+                                      POST (create, validateInsert)
+/api/internal/fabric-codes/:id        GET, PATCH (code locked), DELETE (409 if referenced)
+/api/internal/style-fabric-codes      GET (style_id OR fabric_code_id required), POST
+/api/internal/style-fabric-codes/:id  GET, PATCH (role/yardage/notes only), DELETE
+```
+
+### 6.X.4 Admin UI surface
+
+- **New tab** `/tangerine` → Master Data → 🧵 Fabric Codes (`InternalFabricCodes.tsx`)
+- **Embedded in Style Master edit modal** — bottom "Fabrics" subsection in `InternalStyleMaster.tsx`. Self-managing component that calls `/api/internal/style-fabric-codes` directly; style master save flow is unchanged.
+
+### 6.X.5 Integration touchpoints (downstream)
+
+| Module | Touchpoint |
+|---|---|
+| M33 BOM (future) | `style_fabric_codes.yardage_per_unit` → apparel BOM coefficient |
+| Tech Pack PDF | `composition_text` + `fabric_weight_gsm` + `care_instructions` render into spec sheet |
+| GS1 care label | `care_instructions` → human-readable block on label |
+| M48 Customs | `country_of_origin_iso2` + `hts_code` are the two customs columns |
+| M42 PIM (P8) | Either folds in as a sub-entity or remains a normalized lookup — decision deferred to P8 arch pass; UI surface is forward-compatible either way |
+
+### 6.X.6 Why not just wait for M42
+
+M42 PIM scope is broad (full product information management including media, marketing copy, multi-channel attributes). Fabric is one small slice. The lightweight `fabric_codes` table satisfies the textile-specific use cases NOW without committing to PIM's data model, and the surface is small enough that it can either fold into M42 cleanly or remain alongside it as a specialized lookup. The cost of building it now is a handful of files; the cost of NOT building it now is keeping fabric info in unstructured PDFs / JSONB until P8 ships.
+
+---
+
 ## 7. Hook contract recap
 
 P3 modules CALL P2 cross-cutters; they do not take FKs on cross-cutter tables.
@@ -500,6 +584,16 @@ In dependency order:
   - User-guide chapter 14
 
 - **(M39 mobile app implementation is a separate stream of work — Swift/Kotlin or RN — owned by mobile, not part of this back-end pass.)**
+
+- **P3-11 — Fabric Code Master (added 2026-05-27)**
+  - Migration: `fabric_codes` + `style_fabric_codes` junction + RLS + 9-fabric seed (ROF entity)
+  - `api/_handlers/internal/fabric-codes/` (index.js + [id].js)
+  - `api/_handlers/internal/style-fabric-codes/` (index.js + [id].js)
+  - `src/tanda/InternalFabricCodes.tsx` (new top-level Master Data tab)
+  - Embed Fabrics subsection in `InternalStyleMaster.tsx` edit modal
+  - 15 + 10 test cases (validateInsert + validatePatch for both tables)
+  - User-guide chapter 15
+  - Inserted out of dependency order (no dependency on P3-1…P3-8). Operator flagged the gap on 2026-05-27 evening: M34 Style Master shipped without structured fabric data, M42 PIM is in P8 (months away), but textile-specific fabric reference is needed NOW for tech packs + GS1 care labels + M48 customs.
 
 Each chunk lands as its own PR. Isolated worktree pattern per [[feedback-isolated-worktree-for-tangerine]]. Per [[feedback-memorize-each-chunk]], memory + user-guide update in the same PR.
 

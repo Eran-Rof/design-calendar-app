@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
+import InternalFabricCodes        from "./tanda/InternalFabricCodes";
 import InternalVendorMaster       from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalCOA                from "./tanda/InternalCOA";
@@ -56,6 +57,7 @@ const C = {
 // ─────────────────────────────────────────────────────────────────────────────
 type ModuleKey =
   | "style_master"
+  | "fabric_codes"
   | "vendor_master"
   | "customer_master"
   | "gl_accounts"
@@ -80,6 +82,7 @@ type ModuleDef = {
 
 const MODULES: ModuleDef[] = [
   { key: "style_master",      label: "Style Master",      emoji: "🎨", group: "Master Data" },
+  { key: "fabric_codes",      label: "Fabric Codes",      emoji: "🧵", group: "Master Data" },
   { key: "vendor_master",     label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
   { key: "customer_master",   label: "Customer Master",   emoji: "🤝", group: "Master Data" },
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
@@ -227,6 +230,7 @@ export default function Tangerine() {
       <main style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
         {activeModule === null && <HomeLanding onSelectModule={setActiveModule} />}
         {activeModule === "style_master"    && <InternalStyleMaster />}
+        {activeModule === "fabric_codes"    && <InternalFabricCodes />}
         {activeModule === "vendor_master"   && <InternalVendorMaster />}
         {activeModule === "customer_master" && <InternalCustomerMaster />}
         {activeModule === "gl_accounts"       && <InternalCOA />}
