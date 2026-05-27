@@ -19,6 +19,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 4. [Concepts](04-concepts.md) — multi-entity, dual-basis accounting, control accounts, matrix dimensions, PII handling, audit immutability
 5. [Workflows](05-workflows.md) — end-to-end recipes (initial COA setup, monthly close, manual adjustment, vendor/customer onboarding, JE reversal)
 6. [Troubleshooting](06-troubleshooting.md) — error reference, recovery patterns
+7. [Approvals (M27)](07-approvals.md) — P2: configure approval rules, approve / reject from the inbox
 
 ## 30-second quickstart
 
@@ -41,9 +42,9 @@ Login is the same for both; access to the data inside each panel is gated by Row
 - [`../P2-cross-cutters-architecture.md`](../P2-cross-cutters-architecture.md) — P2 (Approvals · Notifications · Documents · HR/Employees) architecture pass. Implementation in progress; user-guide chapters land alongside each chunk's UI.
 - [`../accountant-coa-request-email.md`](../accountant-coa-request-email.md) — forwardable email template asking the accountant for the canonical COA list (gates the first Chart of Accounts seeding).
 
-## P2 in flight (cross-cutters)
+## P2 progress
 
-- **Chunk P2-1 (this PR):** M27 Workflow/Approvals schema + `api/_lib/approvals/` library + `journal_entries` pending-approval posting guard. No UI yet — UI lands in Chunk P2-2 and a full Approvals chapter will be added then. The library is dormant: callable but no rules are seeded, so no posting flow blocks today.
+- **P2-1 + P2-2 (merged 2026-05-27):** M27 Workflow/Approvals complete — schema, library, JE posting guard, and admin UI for both rules and inbox. See chapter 7. The system is dormant until rules are defined.
 
 ## How this guide stays current
 
