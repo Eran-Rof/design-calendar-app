@@ -26,6 +26,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 11. [Inventory operations (M37)](11-inventory-operations.md) — P3: read-only Inventory Transfers panel (skeleton); grows as P3-5 / P3-6 ship
 12. [Mobile Scanner (M39)](12-scanner.md) — P3: back-end contract for the native scanner apps + read-only troubleshooting view
 13. [Accounts Payable (M3)](13-accounts-payable.md) — P3: vendor bill lifecycle (draft → posted → paid → void), approval gate, payments ledger
+14. [Payment Terms](14-payment-terms.md) — P3: structured payment terms master + `compute_due_date` helper
 15. [Fabric Codes (P3 / Chunk 11)](15-fabric-codes.md) — textile-specific master + many-to-many junction to Style Master; precursor to M42 PIM. Seeded with 9 common apparel fabrics.
 
 ## 30-second quickstart

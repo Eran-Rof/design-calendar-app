@@ -15,7 +15,7 @@ const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
 const MUTABLE_FIELDS = new Set([
   "name", "code", "legal_name", "country", "transit_days", "categories",
-  "contact", "email", "moq", "payment_terms", "default_currency",
+  "contact", "email", "moq", "payment_terms", "payment_terms_id", "default_currency",
   "default_gl_ap_account_id", "default_gl_expense_account_id",
   "status", "is_1099_vendor", "address",
 ]);
@@ -25,7 +25,7 @@ const PII_FIELDS = new Set(["tax_id", "bank_account_encrypted"]);
 
 const SAFE_SELECT =
   "id, code, name, legal_name, country, transit_days, categories, contact, email, moq, " +
-  "payment_terms, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
+  "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
 function corsHeaders(res) {
@@ -136,6 +136,14 @@ export function validatePatch(body) {
   if (out.code != null) out.code = out.code === "" ? null : String(out.code).trim().toUpperCase();
   for (const k of ["legal_name", "country", "contact", "email", "payment_terms"]) {
     if (out[k] === "") out[k] = null;
+  }
+  // P3-9: payment_terms_id — empty → null, otherwise must be a valid UUID.
+  if ("payment_terms_id" in out) {
+    if (out.payment_terms_id === "" || out.payment_terms_id == null) {
+      out.payment_terms_id = null;
+    } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.payment_terms_id))) {
+      return { error: "payment_terms_id must be a valid UUID" };
+    }
   }
   return { data: out };
 }

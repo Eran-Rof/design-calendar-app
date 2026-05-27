@@ -24,7 +24,8 @@ type Vendor = {
   contact: string | null;
   email: string | null;
   moq: number | null;
-  payment_terms: string | null;
+  payment_terms: string | null;       // legacy free-text (read-only display)
+  payment_terms_id: string | null;    // P3-9 structured FK
   default_currency: string;
   default_gl_ap_account_id: string | null;
   default_gl_expense_account_id: string | null;
@@ -34,6 +35,14 @@ type Vendor = {
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type PaymentTermOption = {
+  id: string;
+  code: string;
+  name: string;
+  due_days: number;
+  is_active: boolean;
 };
 
 const C = {
@@ -91,6 +100,7 @@ function statusBadge(status: string): React.CSSProperties {
 
 export default function InternalVendorMaster() {
   const [rows, setRows] = useState<Vendor[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -105,9 +115,15 @@ export default function InternalVendorMaster() {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
       if (includeInactive) params.set("include_inactive", "true");
-      const r = await fetch(`/api/internal/vendor-master?${params.toString()}`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as Vendor[]);
+      const [vendorRes, ptRes] = await Promise.all([
+        fetch(`/api/internal/vendor-master?${params.toString()}`),
+        fetch(`/api/internal/payment-terms`),
+      ]);
+      if (!vendorRes.ok) throw new Error((await vendorRes.json().catch(() => ({}))).error || `HTTP ${vendorRes.status}`);
+      setRows(await vendorRes.json() as Vendor[]);
+      if (ptRes.ok) {
+        setPaymentTerms(await ptRes.json() as PaymentTermOption[]);
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -116,6 +132,9 @@ export default function InternalVendorMaster() {
   }
 
   useEffect(() => { void load(); }, [includeInactive]);
+
+  // Build a quick lookup map for showing the term label in the list.
+  const termById = new Map(paymentTerms.map((t) => [t.id, t]));
 
   async function softDelete(id: string) {
     if (!confirm("Inactivate this vendor?")) return;
@@ -196,7 +215,13 @@ export default function InternalVendorMaster() {
                   <td style={td}>{r.country || "—"}</td>
                   <td style={td}><span style={statusBadge(r.status)}>{r.status}</span></td>
                   <td style={td}>{r.is_1099_vendor ? "yes" : "no"}</td>
-                  <td style={td}>{r.payment_terms || "—"}</td>
+                  <td style={td}>
+                    {r.payment_terms_id ? (
+                      termById.get(r.payment_terms_id)?.code || r.payment_terms_id.slice(0, 8) + "…"
+                    ) : r.payment_terms ? (
+                      <span style={{ color: C.textMuted, fontStyle: "italic" }} title="Legacy free-text — edit to migrate to structured term">{r.payment_terms}</span>
+                    ) : "—"}
+                  </td>
                   <td style={{ ...td, textAlign: "right" }}>
                     {!r.deleted_at && (
                       <>
@@ -212,8 +237,8 @@ export default function InternalVendorMaster() {
         )}
       </div>
 
-      {addOpen && <VendorFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
-      {editing && <VendorFormModal mode="edit" vendor={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {addOpen && <VendorFormModal mode="add" paymentTerms={paymentTerms} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+      {editing && <VendorFormModal mode="edit" vendor={editing} paymentTerms={paymentTerms} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
     </div>
   );
 }
@@ -221,17 +246,18 @@ export default function InternalVendorMaster() {
 interface ModalProps {
   mode: "add" | "edit";
   vendor?: Vendor;
+  paymentTerms: PaymentTermOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
+function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     name:             vendor?.name             ?? "",
     code:             vendor?.code             ?? "",
     legal_name:       vendor?.legal_name       ?? "",
     country:          vendor?.country          ?? "",
-    payment_terms:    vendor?.payment_terms    ?? "",
+    payment_terms_id: vendor?.payment_terms_id ?? "",
     default_currency: vendor?.default_currency ?? "USD",
     is_1099_vendor:   vendor?.is_1099_vendor   ?? false,
     status:           vendor?.status           ?? "active",
@@ -248,7 +274,9 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
         code:             form.code.trim() ? form.code.trim().toUpperCase() : null,
         legal_name:       form.legal_name.trim() || null,
         country:          form.country.trim() || null,
-        payment_terms:    form.payment_terms.trim() || null,
+        // P3-9: write the structured FK, leave the legacy text column untouched
+        // (it stays read-only and can be displayed for backward-compat).
+        payment_terms_id: form.payment_terms_id || null,
         default_currency: (form.default_currency || "USD").toUpperCase(),
         is_1099_vendor:   form.is_1099_vendor,
         status:           form.status,
@@ -328,13 +356,21 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
             />
           </Field>
           <Field label="Payment terms">
-            <input
-              type="text"
-              value={form.payment_terms}
-              onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. NET 30"
-            />
+            <select
+              value={form.payment_terms_id}
+              onChange={(e) => setForm({ ...form, payment_terms_id: e.target.value })}
+              style={inputStyle as React.CSSProperties}
+            >
+              <option value="">(none — inherit / no default)</option>
+              {paymentTerms.filter((t) => t.is_active || t.id === form.payment_terms_id).map((t) => (
+                <option key={t.id} value={t.id}>{t.code} — {t.name} ({t.due_days}d)</option>
+              ))}
+            </select>
+            {mode === "edit" && vendor?.payment_terms && !form.payment_terms_id && (
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
+                Legacy free-text: &quot;{vendor.payment_terms}&quot; — pick from list to migrate.
+              </div>
+            )}
           </Field>
           <Field label="Default currency">
             <input

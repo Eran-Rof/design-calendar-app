@@ -299,6 +299,8 @@ import h294 from "./internal/style-fabric-codes/[id].js";
 import h295 from "./internal/inventory-adjustments/index.js";
 import h296 from "./internal/inventory-adjustments/[id].js";
 import h297 from "./internal/inventory-adjustments/post.js";
+import h302 from "./internal/payment-terms/[id].js";
+import h303 from "./internal/payment-terms/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -558,6 +560,9 @@ export const ROUTES = [
   { pattern: "/api/internal/fabric-codes", handler: h291 },
   { pattern: "/api/internal/style-fabric-codes/:id", handler: h294 },
   { pattern: "/api/internal/style-fabric-codes", handler: h293 },
+  // Payment Terms Master (P3-9) — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/payment-terms/:id", handler: h302 },
+  { pattern: "/api/internal/payment-terms", handler: h303 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },

@@ -28,7 +28,8 @@ const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
   "customer_tier", "country", "channel_id", "customer_type",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
-  "payment_terms", "default_currency", "tax_exempt", "credit_limit",
+  "payment_terms", "payment_terms_id",
+  "default_currency", "tax_exempt", "credit_limit",
   "status", "billing_address", "shipping_address", "attributes",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
@@ -114,6 +115,7 @@ export default async function handler(req, res) {
       customer_type: v.data.customer_type || "wholesale",
       country: v.data.country || null,
       payment_terms: v.data.payment_terms || null,
+      payment_terms_id: v.data.payment_terms_id || null,
       default_currency: v.data.default_currency || "USD",
       tax_exempt: v.data.tax_exempt === true,
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
@@ -189,6 +191,14 @@ export function validateInsert(body) {
   }
   if (out.tax_exempt != null && typeof out.tax_exempt !== "boolean") {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
+  }
+  // P3-9: payment_terms_id structured FK. Validate UUID when provided.
+  if (out.payment_terms_id != null && out.payment_terms_id !== "") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.payment_terms_id))) {
+      return { error: "payment_terms_id must be a valid UUID" };
+    }
+  } else {
+    out.payment_terms_id = null;
   }
   return { data: out };
 }

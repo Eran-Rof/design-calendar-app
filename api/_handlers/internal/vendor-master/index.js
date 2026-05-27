@@ -18,9 +18,11 @@ export const config = { maxDuration: 15 };
 const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
 // Columns safe to return — explicitly omits tax_id, bank_account_encrypted.
+// payment_terms_id (P3-9) is the new structured FK; the legacy free-text
+// payment_terms column is retained read-only for backward-compat display.
 const SAFE_SELECT =
   "id, code, name, legal_name, country, transit_days, categories, contact, email, moq, " +
-  "payment_terms, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
+  "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
 function corsHeaders(res) {
@@ -116,6 +118,13 @@ export function validateInsert(body) {
     if (!Number.isFinite(n) || n < 0) return { error: "moq must be a non-negative integer" };
     body.moq = n;
   }
+  // P3-9: payment_terms_id is the new structured FK. Validate it's a UUID
+  // when provided; empty string normalizes to null.
+  if (body.payment_terms_id != null && body.payment_terms_id !== "") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.payment_terms_id))) {
+      return { error: "payment_terms_id must be a valid UUID" };
+    }
+  }
   return {
     data: {
       name:             String(body.name).trim(),
@@ -128,6 +137,7 @@ export function validateInsert(body) {
       email:            body.email ?? null,
       moq:              body.moq ?? null,
       payment_terms:    body.payment_terms ?? null,
+      payment_terms_id: body.payment_terms_id || null,
       default_currency: body.default_currency || "USD",
       status:           body.status || "active",
       is_1099_vendor:   body.is_1099_vendor === true,
