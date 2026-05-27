@@ -15,8 +15,26 @@
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Step 1: Rename table.
+--
+-- Idempotency note: on first run, ip_customer_master is a TABLE that gets
+-- renamed to customers. On any subsequent re-run, ip_customer_master is now
+-- a VIEW (created at the end of this same migration as a backward-compat
+-- alias). `ALTER TABLE IF EXISTS ip_customer_master` would still match the
+-- view and try to rename it — which collides with the existing customers
+-- table. Guard the rename to only fire when customers does NOT yet exist as
+-- a base table.
 -- ────────────────────────────────────────────────────────────────────────────
-ALTER TABLE IF EXISTS ip_customer_master RENAME TO customers;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name   = 'customers'
+      AND table_type   = 'BASE TABLE'
+  ) THEN
+    ALTER TABLE IF EXISTS ip_customer_master RENAME TO customers;
+  END IF;
+END $$;
 
 -- The Phase 0 migration created two indexes named idx_ip_customer_master_*.
 -- PG keeps index names attached to the table after RENAME; the names become
