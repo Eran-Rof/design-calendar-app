@@ -26,6 +26,7 @@ const VALID_SOURCE_KIND = new Set([
   "adjustment",
   "opening_balance",
   "transfer_in",
+  "credit_memo_return",   // P4-2 — AR credit memo with return-to-stock line
 ]);
 
 const VALID_CONSUMER_KIND = new Set([
