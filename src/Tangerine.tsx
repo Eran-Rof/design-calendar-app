@@ -31,6 +31,7 @@ import InternalNotificationPreferences from "./tanda/InternalNotificationPrefere
 import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
+import InternalCycleCounts             from "./tanda/InternalCycleCounts";
 import InternalScannerSessions         from "./tanda/InternalScannerSessions";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
@@ -73,6 +74,7 @@ type ModuleKey =
   | "employees"
   | "inventory_transfers"
   | "inventory_adjustments"
+  | "cycle_counts"
   | "scanner_sessions";
 
 type ModuleDef = {
@@ -99,6 +101,7 @@ const MODULES: ModuleDef[] = [
   { key: "employees",         label: "Employees",         emoji: "👥", group: "HR" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
+  { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
   { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Operations" },
 ];
 
@@ -248,6 +251,7 @@ export default function Tangerine() {
         {activeModule === "employees"          && <InternalEmployees />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
+        {activeModule === "cycle_counts"        && <InternalCycleCounts />}
         {activeModule === "scanner_sessions"    && <InternalScannerSessions />}
       </main>
     </div>
