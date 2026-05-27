@@ -9,6 +9,7 @@
 // handled by a dedicated workflow (not built).
 
 import { useEffect, useState } from "react";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type Customer = {
   id: string;
@@ -380,6 +381,16 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
+
+        {mode === "edit" && customer && (
+          <div style={{ marginTop: 16 }}>
+            <DocumentAttachmentList
+              contextTable="customers"
+              contextId={customer.id}
+              kinds={["contract", "tax_exempt", "credit_app", "other"]}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
