@@ -771,7 +771,10 @@ export function GridView({
         <style>{
           Array.from({ length: freezeCount }).map((_, i) => {
             const left = cellOffsets[i] ?? 0;
-            return `.gv-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: #0F172A; }`;
+            // Exclude expanded-detail rows: their cols 1-8 are merged into ONE wide div
+            // (gridColumn:"1 / 9"), so making :nth-child(1) sticky would pin the entire
+            // 766px block to left:0 and cover the data behind it when scrolled.
+            return `.gv-grid-row:not(.gv-expanded-row) > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: #0F172A; }`;
           }).join("\n")
         }</style>
       )}
@@ -1317,7 +1320,7 @@ export function GridView({
                     return (
                       <>
                         {/* ── PO info strip — phase spacers keep dividers alive ── */}
-                        <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                        <div className="gv-grid-row gv-expanded-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
                           {/* minWidth:0 + overflow:hidden so the flex content can't push grid tracks
                               wider than their fixed px widths — keeps the phase-1 left divider aligned
                               with the data rows above/below. Wrapping handles content that doesn't fit. */}
@@ -1363,7 +1366,7 @@ export function GridView({
                         {expandViewMode === "line" ? (
                           <>
                             {/* ── Item sub-header ─────────────────────────────── */}
-                            <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
+                            <div className="gv-grid-row gv-expanded-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
                               {/* Fixed area: item key | line status | delivery */}
                               <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8 }}>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Style / Color</span>
@@ -1388,7 +1391,7 @@ export function GridView({
 
                             {/* ── One row per style/color group ──────────────── */}
                             {groups.length === 0 ? (
-                              <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                              <div className="gv-grid-row gv-expanded-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
                                 <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11 }}>No line items on this PO.</div>
                                 {phases.map((phase, pi) => { const isLast = pi === phases.length - 1; return (
                                   <React.Fragment key={phase}>
@@ -1416,7 +1419,7 @@ export function GridView({
                               const deliveryDisplay = deliveries.length === 0 ? "—" : deliveries.length === 1 ? fmtDate(deliveries[0]) : "Mixed";
 
                               return (
-                                <div key={gIdx} className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
+                                <div key={gIdx} className="gv-grid-row gv-expanded-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
                                   {/* Style/color + line status + delivery spanning 8 fixed cols */}
                                   <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1 }}>
                                     <span>
@@ -1528,7 +1531,7 @@ export function GridView({
                           </>
                         ) : (
                           /* ── MATRIX VIEW — read-only, full size breakdown ── */
-                          <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                          <div className="gv-grid-row gv-expanded-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
                             <div style={{ gridColumn: `1 / ${8 + phases.length * 5 + 1}`, borderLeft: B_CELL, borderBottom: B_CELL, padding: "12px 14px", overflowX: "auto" }}>
                               {allItems.length === 0 ? (
                                 <div style={{ color: "#374151", fontSize: 12 }}>No line items on this PO.</div>
