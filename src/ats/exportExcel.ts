@@ -484,6 +484,29 @@ export function buildExportPayload(
   const sumStartLetter = colLetter(COL.spacerL);   // L (empty spacer)
   const sumEndLetter = colLetter(COL.lastPeriod);  // last period letter
 
+  // ── BP-level (style_code) max Sls Prc ─────────────────────────────────
+  // Operator rule: all variants of the same BP must show the same
+  // Sls Prc — pick the HIGHEST formula-derived price across the BP's
+  // rows so the most expensive variant doesn't get under-priced.
+  // Mirrors the per-row formula (including the explodePpk grain
+  // conversion and round-up-to-$0.05). Rows with no master_style or
+  // non-positive avgCost are skipped here AND fall through to the
+  // per-row formula at body time.
+  const bpMaxSlsPrc = new Map<string, number>();
+  if (COL_SLS_PRC || COL_SLS_MRGN_PCT) {
+    for (const r of rows) {
+      const styleKey = r.master_style ?? "";
+      if (!styleKey) continue;
+      const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+      const rCostMul = (explodePpk ?? true) ? 1 : rMult;
+      const rAvgCost = (r.avgCost ?? 0) * rCostMul;
+      if (rAvgCost <= 0 || slsMargin >= 1) continue;
+      const rPrice = Math.ceil((rAvgCost / (1 - slsMargin)) * 20) / 20;
+      const cur = bpMaxSlsPrc.get(styleKey);
+      if (cur === undefined || rPrice > cur) bpMaxSlsPrc.set(styleKey, rPrice);
+    }
+  }
+
   // ── Data rows ──────────────────────────────────────────────────────────
   // Each input row → one qty data row. Prepack rows ALSO produce a
   // PPK suffix row immediately below — but only the PERIOD cells
@@ -688,10 +711,24 @@ export function buildExportPayload(
         totalCostSum += xAvg * xRowTotal;
       }
       const weightedAvgCost = totalQtyForCost > 0 ? totalCostSum / totalQtyForCost : 0;
+      // Subtotal Sls Prc: when every row in the group belongs to the
+      // same BP (style-level subtotal), use that BP's unified max so
+      // the subtotal matches the per-row values. For mixed-BP groups
+      // (Category / Sub Category subtotals) fall back to the weighted-
+      // avg-derived formula price.
+      let groupBpMax: number | undefined;
+      if (group.length > 0) {
+        const firstStyle = group[0].master_style ?? "";
+        if (firstStyle && group.every(x => (x.master_style ?? "") === firstStyle)) {
+          groupBpMax = bpMaxSlsPrc.get(firstStyle);
+        }
+      }
       // Round UP to the nearest $0.05 to match the per-row Sls Prc rule.
-      const slsPrcW = (weightedAvgCost > 0 && slsMargin < 1)
-        ? Math.ceil((weightedAvgCost / (1 - slsMargin)) * 20) / 20
-        : 0;
+      const slsPrcW = groupBpMax !== undefined
+        ? groupBpMax
+        : ((weightedAvgCost > 0 && slsMargin < 1)
+            ? Math.ceil((weightedAvgCost / (1 - slsMargin)) * 20) / 20
+            : 0);
       if (COL_AVG_COST) r2[COL_AVG_COST - 1] = subCurr(weightedAvgCost);
       if (COL_TOT_COST) r2[COL_TOT_COST - 1] = subCurr(totalCostSum);
       if (COL_SLS_PRC)  r2[COL_SLS_PRC  - 1] = subCurr(slsPrcW);
@@ -900,8 +937,15 @@ export function buildExportPayload(
     // Implied sale price needed to hit `slsMarginPct` against avgCost.
     // price = avgCost / (1 - margin). Guard against margin >= 100.
     // Rounded UP to the nearest $0.05 so prices always end in 0 or 5.
+    // Per-BP unification: every row of the same master_style shows the
+    // HIGHEST formula-derived price across the BP's variants — pulled
+    // from bpMaxSlsPrc. Falls through to the per-row formula when the
+    // row has no master_style match.
+    const styleKeyForSlsPrc = r.master_style ?? "";
     const slsPrcV = (avgCostV > 0 && slsMargin < 1)
-      ? Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20
+      ? (styleKeyForSlsPrc && bpMaxSlsPrc.has(styleKeyForSlsPrc)
+          ? bpMaxSlsPrc.get(styleKeyForSlsPrc)!
+          : Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20)
       : 0;
     if (COL_AVG_COST) qtyRow[COL_AVG_COST - 1] = avgCostV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
@@ -1522,6 +1566,19 @@ export function buildExportPayload(
       COL.category, COL.subCat, COL.style, COL.description, COL.color,
       COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
     ]);
+    // Any optional column the operator explicitly opted into via the
+    // export modal is alwaysKeep — hideZeroColumns must not drop a
+    // header the operator asked for just because the body cells are
+    // empty (e.g. T3 columns when the visible BPs had no trailing-3
+    // sales, customer filter resolved to zero rows, etc.).
+    for (const ci of [
+      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT,
+      COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN,
+      COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN,
+      COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN,
+    ]) {
+      if (ci !== undefined) alwaysKeep.add(ci);
+    }
     // Build forced-drop set up-front. hideATSData drops period range
     // + Total; even if hideZeroColumns disagrees (e.g. a period column
     // has data), the forced drop wins because the user explicitly
