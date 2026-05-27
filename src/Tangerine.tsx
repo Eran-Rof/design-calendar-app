@@ -25,6 +25,7 @@ import InternalPeriods            from "./tanda/InternalPeriods";
 import InternalJournalEntry       from "./tanda/InternalJournalEntry";
 import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
+import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -97,6 +98,7 @@ const MODULES: ModuleDef[] = [
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
   { key: "ap_invoices",       label: "AP Invoices",       emoji: "🧾", group: "Accounting" },
   { key: "ap_payments",       label: "AP Payments",       emoji: "💸", group: "Accounting" },
+  { key: "ar_invoices",       label: "AR Invoices",       emoji: "🧮", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -248,6 +250,7 @@ export default function Tangerine() {
         {activeModule === "journal_entries"   && <InternalJournalEntry />}
         {activeModule === "ap_invoices"       && <InternalAPInvoices />}
         {activeModule === "ap_payments"       && <InternalAPPayments />}
+        {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}
