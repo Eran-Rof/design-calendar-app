@@ -24,9 +24,19 @@ ALTER TABLE IF EXISTS ip_customer_master RENAME TO customers;
 ALTER INDEX IF EXISTS idx_ip_customer_master_name   RENAME TO idx_customers_name;
 ALTER INDEX IF EXISTS idx_ip_customer_master_parent RENAME TO idx_customers_parent;
 
--- Also rename the touched-timestamp trigger.
-ALTER TRIGGER IF EXISTS trg_ip_customer_master_updated ON customers
-  RENAME TO trg_customers_updated;
+-- Also rename the touched-timestamp trigger. (PostgreSQL does NOT support
+-- ALTER TRIGGER IF EXISTS — wrap in a DO block that checks pg_trigger first.)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_ip_customer_master_updated'
+      AND tgrelid = 'customers'::regclass
+  ) THEN
+    ALTER TRIGGER trg_ip_customer_master_updated ON customers
+      RENAME TO trg_customers_updated;
+  END IF;
+END $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Step 2: ERP-grade column additions.
@@ -143,5 +153,13 @@ COMMENT ON VIEW ip_customer_master IS
 -- The view doesn't need its own RLS — view access uses the security_invoker
 -- caller's permissions against the base table per PG default.
 -- ────────────────────────────────────────────────────────────────────────────
-ALTER POLICY "anon_all_ip_customer_master"      ON customers RENAME TO "anon_all_customers";
-ALTER POLICY "auth_internal_ip_customer_master" ON customers RENAME TO "auth_internal_customers";
+-- ALTER POLICY does NOT support IF EXISTS — wrap each in a pg_policies check.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customers' AND policyname = 'anon_all_ip_customer_master') THEN
+    ALTER POLICY "anon_all_ip_customer_master" ON customers RENAME TO "anon_all_customers";
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customers' AND policyname = 'auth_internal_ip_customer_master') THEN
+    ALTER POLICY "auth_internal_ip_customer_master" ON customers RENAME TO "auth_internal_customers";
+  END IF;
+END $$;
