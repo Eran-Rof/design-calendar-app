@@ -22,6 +22,7 @@
 import { manualEntry } from "./rules/manualEntry.js";
 import { apInvoiceReceived } from "./rules/apInvoiceReceived.js";
 import { apInvoicePaid } from "./rules/apInvoicePaid.js";
+import { apInvoiceVoided } from "./rules/apInvoiceVoided.js";
 import { arInvoiceSent } from "./rules/arInvoiceSent.js";
 import { arPaymentReceived } from "./rules/arPaymentReceived.js";
 import { inventoryReceipt } from "./rules/inventoryReceipt.js";
@@ -34,6 +35,7 @@ import { checkAccountPostable } from "./guards/accountPostable.js";
 import { checkAccountExistsInEntity } from "./guards/accountExistsInEntity.js";
 
 import { persistRuleOutput } from "./persist.js";
+import { reverseJournalEntry } from "./reverse.js";
 
 export { reverseJournalEntry } from "./reverse.js";
 
@@ -41,6 +43,7 @@ const RULE_BY_KIND = {
   manual:                manualEntry,
   ap_invoice_received:   apInvoiceReceived,
   ap_invoice_paid:       apInvoicePaid,
+  ap_invoice_voided:     apInvoiceVoided,
   ar_invoice_sent:       arInvoiceSent,
   ar_payment_received:   arPaymentReceived,
   inventory_receipt:     inventoryReceipt,
@@ -76,8 +79,25 @@ export async function postEvent(supabase, event) {
     throw new PostingError("unknown_kind", `Unknown posting event kind: ${event.kind}`);
   }
 
-  // 1. Rule → { accrual, cash } candidates
+  // 1. Rule → { accrual, cash } candidates  (or { reversals: [je_id, ...] } for voids)
   const ruleOutput = rule(event);
+
+  // Reversal-shape output: { accrual:null, cash:null, reversals:[...] }
+  // No new candidates to balance-check — short-circuit through reverseJournalEntry.
+  if (Array.isArray(ruleOutput.reversals)) {
+    const reversedJeIds = [];
+    for (const jeId of ruleOutput.reversals) {
+      const newId = await reverseJournalEntry(supabase, jeId, {
+        created_by_user_id: event.created_by_user_id ?? null,
+      });
+      reversedJeIds.push(newId);
+    }
+    return {
+      accrual_je_id: null,
+      cash_je_id: null,
+      reversed_je_ids: reversedJeIds,
+    };
+  }
 
   if (!ruleOutput.accrual && !ruleOutput.cash) {
     throw new PostingError(
