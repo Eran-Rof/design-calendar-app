@@ -25,7 +25,7 @@ export default async function handler(req, res, params) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const id = params?.id;
+  const id = params?.id || req.query?.id;
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
     return res.status(400).json({ error: "Invalid id" });
   }
