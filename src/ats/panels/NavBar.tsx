@@ -206,6 +206,7 @@ interface NavBarProps {
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: SalesFetchResult,
     explodePpk?: boolean,
+    customerSoMap?: Map<string, { qty: number; soPrice: number }>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -791,7 +792,40 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates };
+    // Customer-narrowed SO summary per (sku, store). Built only when a
+    // customer is selected; passed to the export so the On Order column
+    // shows ONLY this customer's SO qty and the inserted "SO Prc" column
+    // shows the qty-weighted avg unit price from those SOs.
+    //
+    // SO names from excelData.sos.customerName come directly from the
+    // operator's Xoro SO upload. The export-modal dropdown sources its
+    // labels from the same set (NavBar's customers useMemo) so an exact
+    // string match is correct here — no canonicalization needed.
+    let customerSoMap: Map<string, { qty: number; soPrice: number }> | undefined;
+    if (customerSelected && excelData?.sos?.length) {
+      const wantedNames = Array.isArray(opts.customer)
+        ? new Set(opts.customer.map((s) => s.trim()).filter(Boolean))
+        : new Set([opts.customer.trim()].filter(Boolean));
+      const acc = new Map<string, { qty: number; rev: number }>();
+      for (const so of excelData.sos) {
+        if (!wantedNames.has(so.customerName)) continue;
+        const key = `${so.sku}::${so.store ?? "ROF"}`;
+        const cur = acc.get(key);
+        const qty = so.qty ?? 0;
+        const unit = so.unitPrice ?? (qty > 0 && so.totalPrice ? so.totalPrice / qty : 0);
+        if (qty <= 0) continue;
+        if (cur) { cur.qty += qty; cur.rev += unit * qty; }
+        else acc.set(key, { qty, rev: unit * qty });
+      }
+      if (acc.size > 0) {
+        customerSoMap = new Map();
+        for (const [key, v] of acc) {
+          customerSoMap.set(key, { qty: v.qty, soPrice: v.qty > 0 ? v.rev / v.qty : 0 });
+        }
+      }
+    }
+
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap };
   }
 
   return (
@@ -1091,6 +1125,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           eventIndex,
           prep.salesAggregates,
           explodePpk,
+          prep.customerSoMap,
         );
         setExportOptsOpen(false);
       }}
@@ -1106,6 +1141,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           eventIndex,
           prep.salesAggregates,
           explodePpk,
+          prep.customerSoMap,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's
