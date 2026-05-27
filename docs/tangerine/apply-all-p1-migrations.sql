@@ -1,25 +1,15 @@
 -- =============================================================================
--- Tangerine P1 — bundled migration script (T1-fix-4 regen)
+-- Tangerine P1 — bundled migration script (T1-fix-5 regen)
 -- =============================================================================
--- Concatenation of all 18 P1 migrations in dependency order. Idempotent: safe
--- to run on a partially-migrated database (uses IF NOT EXISTS / DROP IF EXISTS /
--- COALESCE / ON CONFLICT DO NOTHING patterns throughout).
+-- All 18 P1 migrations in dependency order. Idempotent.
 --
--- T1-fix-4 regen: fixed ALTER TRIGGER IF EXISTS and ALTER POLICY ... RENAME TO
--- (neither support IF EXISTS in PG); wrapped in pg_trigger / pg_policies guards.
+-- T1-fix-5 regen: Chunk 4.5 now demotes is_apparel=false on rows missing
+-- any of the 5 matrix dims BEFORE adding the CHECK constraint. Previous
+-- bundle failed at apparel_dims_required because Chunk 4's default=true
+-- left tops/dresses flagged as apparel without inseam/length/fit.
 --
--- USAGE — Supabase dashboard:
---   1. Open Supabase dashboard → SQL Editor → New query
---   2. Paste this entire file
---   3. Run
---   4. Watch for NOTICE messages in the Results panel — they confirm row counts
---   5. After completion, refresh https://design-calendar-app.vercel.app/tangerine
---
--- USAGE — Supabase CLI (preferred for ongoing work):
---   supabase link --project-ref <ref>
---   supabase db push
---
--- Built: 2026-05-26 (Tangerine P1 Chunk T1-fix-4)
+-- USAGE: paste into Supabase SQL editor, click Run.
+-- Built: 2026-05-26 (T1-fix-5)
 -- =============================================================================
 
 
@@ -1582,6 +1572,37 @@ BEGIN
 
   GET DIAGNOSTICS apparel_flipped = ROW_COUNT;
   RAISE NOTICE 'Tangerine 4.5: flipped % item rows to is_apparel=true', apparel_flipped;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Step 1b (T1-fix-5): pre-CHECK cleanup. The Chunk 4 migration declared
+-- is_apparel with DEFAULT true, so EVERY existing row got is_apparel=true on
+-- column add. Step 1 above only flips matching rows TO true (no-op) — it
+-- never demotes the tops/dresses/accessories that legitimately lack
+-- inseam/length/fit. Without this cleanup the CHECK at Step 2 would fail.
+--
+-- This UPDATE flips is_apparel=false on any row currently marked true that
+-- lacks at least one of the 5 matrix dims. Bottoms items with complete dims
+-- stay true (the CHECK accepts them). Non-bottoms or incomplete-bottoms get
+-- demoted (the CHECK ignores them).
+--
+-- Idempotent: re-running on already-cleaned data flips zero rows.
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  demoted integer;
+BEGIN
+  UPDATE ip_item_master
+     SET is_apparel = false
+   WHERE is_apparel = true
+     AND (color  IS NULL OR color  = ''
+       OR size   IS NULL OR size   = ''
+       OR inseam IS NULL OR inseam = ''
+       OR length IS NULL OR length = ''
+       OR fit    IS NULL OR fit    = '');
+
+  GET DIAGNOSTICS demoted = ROW_COUNT;
+  RAISE NOTICE 'Tangerine 4.5: demoted % item rows to is_apparel=false (missing dims)', demoted;
 END $$;
 
 -- ────────────────────────────────────────────────────────────────────────────

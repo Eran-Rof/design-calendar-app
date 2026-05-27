@@ -60,6 +60,37 @@ BEGIN
 END $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- Step 1b (T1-fix-5): pre-CHECK cleanup. The Chunk 4 migration declared
+-- is_apparel with DEFAULT true, so EVERY existing row got is_apparel=true on
+-- column add. Step 1 above only flips matching rows TO true (no-op) — it
+-- never demotes the tops/dresses/accessories that legitimately lack
+-- inseam/length/fit. Without this cleanup the CHECK at Step 2 would fail.
+--
+-- This UPDATE flips is_apparel=false on any row currently marked true that
+-- lacks at least one of the 5 matrix dims. Bottoms items with complete dims
+-- stay true (the CHECK accepts them). Non-bottoms or incomplete-bottoms get
+-- demoted (the CHECK ignores them).
+--
+-- Idempotent: re-running on already-cleaned data flips zero rows.
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  demoted integer;
+BEGIN
+  UPDATE ip_item_master
+     SET is_apparel = false
+   WHERE is_apparel = true
+     AND (color  IS NULL OR color  = ''
+       OR size   IS NULL OR size   = ''
+       OR inseam IS NULL OR inseam = ''
+       OR length IS NULL OR length = ''
+       OR fit    IS NULL OR fit    = '');
+
+  GET DIAGNOSTICS demoted = ROW_COUNT;
+  RAISE NOTICE 'Tangerine 4.5: demoted % item rows to is_apparel=false (missing dims)', demoted;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- Step 2: add the CHECK constraint. Validate over the whole table; the prep
 -- above guarantees it passes.
 -- ────────────────────────────────────────────────────────────────────────────
