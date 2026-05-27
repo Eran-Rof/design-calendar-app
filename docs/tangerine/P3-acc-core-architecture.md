@@ -161,6 +161,55 @@ When the approval flips to `approved` (decided via /tangerine ⚙️ Approval In
 - `src/tanda/InternalAPPayments.tsx` — view-only ledger of `invoice_payments` rows.
 - Documents widget embedded in the AP Invoice edit modal: `kinds=['vendor_invoice_pdf','receipt','approval_correspondence']`.
 
+### 3.9 Payment Terms Master (added 2026-05-27 — P3-9)
+
+The original P3 arch left `vendors.payment_terms` and `customers.payment_terms` as free-text columns and described `invoices.due_date` as "computed at insert from posting_date + vendor.payment_terms". That phrase glossed over a real schema gap: there was no structured way to turn `"Net 30"` into 30 days. This chunk closes the gap.
+
+**New table** `payment_terms` (per-entity reference data):
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | uuid PK | NOT NULL | |
+| `entity_id` | uuid FK entities(id) ON DELETE RESTRICT | NOT NULL | |
+| `code` | text | NOT NULL | UNIQUE per entity. Uppercased, letters/digits/underscores |
+| `name` | text | NOT NULL | Human-readable label |
+| `due_days` | int | NOT NULL CHECK ≥ 0 | Days from anchor date until due |
+| `discount_pct` | numeric(5,4) | NOT NULL DEFAULT 0 | CHECK in [0, 1) — early-payment decimal |
+| `discount_days` | int | NOT NULL DEFAULT 0 | CHECK ≥ 0 |
+| `is_active` | boolean | NOT NULL DEFAULT true | |
+| std audit | — | — | created_at / updated_at + touch trigger / created_by_user_id |
+
+**Cross-field CHECK:** `discount_pct = 0 OR discount_days > 0` — no early-payment discount without a window.
+
+**Helper function:**
+```sql
+CREATE FUNCTION compute_due_date(p_anchor_date date, p_payment_terms_id uuid)
+  RETURNS date AS $$ ... $$ LANGUAGE plpgsql IMMUTABLE;
+```
+Returns `anchor_date + due_days`, or `NULL` if either argument is null or the term doesn't exist. AP and AR posting flows call this when stamping `invoices.due_date`.
+
+**FK columns added** (each idempotent `ADD COLUMN IF NOT EXISTS`):
+
+- `vendors.payment_terms_id` uuid NULL FK `payment_terms(id)` ON DELETE SET NULL
+- `customers.payment_terms_id` uuid NULL FK `payment_terms(id)` ON DELETE SET NULL
+- `invoices.payment_terms_id` uuid NULL FK `payment_terms(id)` ON DELETE SET NULL — overrides the vendor / customer default for that specific invoice
+
+The legacy free-text `payment_terms` columns on vendors + customers are **retained** for backward-compat display; new writes flow through the FK. A future migration may drop the text column once the operator confirms backfill is complete.
+
+**Seeded defaults for ROF** (skipped if any payment_terms rows already exist):
+
+`COD` (0d) · `DUE_ON_RECEIPT` (0d) · `NET10` · `NET15` · `NET30` · `NET45` · `NET60` · `NET90` · `2_10_NET30` (30d, 2%/10d discount).
+
+**Best-effort backfill** (defensive DO $$ block):
+- Iterates `vendors` + `customers` rows where `payment_terms_id IS NULL AND payment_terms IS NOT NULL`.
+- Normalizes: `UPPER(strip_whitespace(replace('/', '_'), replace('-', '_')))`. So `"Net 30"` → `NET30`; `"due on receipt"` → `DUE_ON_RECEIPT`; `"2/10 net 30"` → `2_10_NET30`.
+- For unambiguous matches, sets the FK automatically.
+- For unmatched, leaves NULL with a `RAISE NOTICE` per row so the operator can find + fix them via the UI.
+
+**Admin UI:** `src/tanda/InternalPaymentTerms.tsx` — standard list / search / Add / Edit / Delete pattern (hard-delete rejected with reference detail if any vendors / customers / invoices still reference the row). Wired into Master Data group in Tangerine.tsx.
+
+**Vendor + Customer master UIs updated:** the free-text `payment_terms` input is replaced by a dropdown of active `payment_terms` rows. The legacy text value (if any) shows in italic grey under the dropdown so the operator can verify migration before clearing it. New writes send `payment_terms_id` (the text column is no longer written by the admin UIs).
+
 ---
 
 ## 4. M5 Inventory FIFO
@@ -594,6 +643,14 @@ In dependency order:
   - 15 + 10 test cases (validateInsert + validatePatch for both tables)
   - User-guide chapter 15
   - Inserted out of dependency order (no dependency on P3-1…P3-8). Operator flagged the gap on 2026-05-27 evening: M34 Style Master shipped without structured fabric data, M42 PIM is in P8 (months away), but textile-specific fabric reference is needed NOW for tech packs + GS1 care labels + M48 customs.
+- **P3-9 — Payment Terms Master (added 2026-05-27)**
+  - Migration: `payment_terms` table + `compute_due_date()` helper function + FK columns on vendors / customers / invoices + 9 seeded defaults + best-effort text → FK backfill
+  - `api/_handlers/internal/payment-terms/` (index.js + [id].js — standard list/create/get/patch/hard-delete pattern with reference-count guard on DELETE)
+  - `src/tanda/InternalPaymentTerms.tsx` (list + search + Add/Edit modal with due-date preview)
+  - **Existing panels updated:** `InternalVendorMaster.tsx` + `InternalCustomerMaster.tsx` replace the free-text `payment_terms` input with a structured dropdown of payment_terms rows
+  - **Existing handlers updated:** vendor-master + customer-master accept `payment_terms_id` (UUID, validated) in addition to the legacy text column
+  - User-guide chapter 14 (`14-payment-terms.md`)
+  - ~50 new tests covering validators on all 5 handlers
 
 Each chunk lands as its own PR. Isolated worktree pattern per [[feedback-isolated-worktree-for-tangerine]]. Per [[feedback-memorize-each-chunk]], memory + user-guide update in the same PR.
 
@@ -628,6 +685,7 @@ Each chunk lands as its own PR. Isolated worktree pattern per [[feedback-isolate
 | 6 | Mobile app stack: native vs React Native | Out of P3 scope; M39 mobile-app chunk |
 | 7 | Whether scanner barcode-resolve uses item_master.upc, sku_code, or both | P3-8 |
 | 8 | AR (M4) inventory consume integration at invoice vs at shipment | P4 architecture pass |
+| 9 | ~~Free-text vs structured payment terms~~ — **CLOSED 2026-05-27 (P3-9):** structured `payment_terms` table + `compute_due_date()` helper + FK columns on vendors/customers/invoices. See §3.9. | P3-9 |
 
 ---
 

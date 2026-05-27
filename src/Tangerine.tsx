@@ -19,6 +19,7 @@ import InternalStyleMaster        from "./tanda/InternalStyleMaster";
 import InternalFabricCodes        from "./tanda/InternalFabricCodes";
 import InternalVendorMaster       from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
+import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalCOA                from "./tanda/InternalCOA";
 import InternalPeriods            from "./tanda/InternalPeriods";
 import InternalJournalEntry       from "./tanda/InternalJournalEntry";
@@ -62,6 +63,7 @@ type ModuleKey =
   | "fabric_codes"
   | "vendor_master"
   | "customer_master"
+  | "payment_terms"
   | "gl_accounts"
   | "gl_periods"
   | "journal_entries"
@@ -89,6 +91,7 @@ const MODULES: ModuleDef[] = [
   { key: "fabric_codes",      label: "Fabric Codes",      emoji: "🧵", group: "Master Data" },
   { key: "vendor_master",     label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
   { key: "customer_master",   label: "Customer Master",   emoji: "🤝", group: "Master Data" },
+  { key: "payment_terms",     label: "Payment Terms",     emoji: "📆", group: "Master Data" },
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
   { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
@@ -239,6 +242,7 @@ export default function Tangerine() {
         {activeModule === "fabric_codes"    && <InternalFabricCodes />}
         {activeModule === "vendor_master"   && <InternalVendorMaster />}
         {activeModule === "customer_master" && <InternalCustomerMaster />}
+        {activeModule === "payment_terms"   && <InternalPaymentTerms />}
         {activeModule === "gl_accounts"       && <InternalCOA />}
         {activeModule === "gl_periods"        && <InternalPeriods />}
         {activeModule === "journal_entries"   && <InternalJournalEntry />}

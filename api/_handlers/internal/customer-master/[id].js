@@ -19,7 +19,7 @@ const CUSTOMER_TYPES = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
 const MUTABLE_FIELDS = new Set([
-  "name", "code", "customer_type", "country", "payment_terms",
+  "name", "code", "customer_type", "country", "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit", "status",
   "billing_address", "shipping_address",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
@@ -28,7 +28,7 @@ const MUTABLE_FIELDS = new Set([
 
 // Nullable fields whose empty-string input should be normalized to null.
 const NULLABLE_TEXT_FIELDS = [
-  "code", "country", "payment_terms",
+  "code", "country", "payment_terms", "payment_terms_id",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
   "parent_customer_id",
 ];
@@ -189,6 +189,11 @@ export function validatePatch(body) {
   // Normalize empty strings to null for nullable text/uuid fields.
   for (const k of NULLABLE_TEXT_FIELDS) {
     if (out[k] === "") out[k] = null;
+  }
+
+  // P3-9: validate payment_terms_id is a valid UUID when not null.
+  if (out.payment_terms_id != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.payment_terms_id))) {
+    return { error: "payment_terms_id must be a valid UUID" };
   }
 
   return { data: out };

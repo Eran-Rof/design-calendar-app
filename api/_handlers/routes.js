@@ -303,6 +303,8 @@ import h298 from "./internal/inventory-cycle-counts/index.js";
 import h299 from "./internal/inventory-cycle-counts/[id].js";
 import h300 from "./internal/inventory-cycle-counts/lines.js";
 import h301 from "./internal/inventory-cycle-counts/finalize.js";
+import h302 from "./internal/payment-terms/index.js";
+import h303 from "./internal/payment-terms/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -562,6 +564,9 @@ export const ROUTES = [
   { pattern: "/api/internal/fabric-codes", handler: h291 },
   { pattern: "/api/internal/style-fabric-codes/:id", handler: h294 },
   { pattern: "/api/internal/style-fabric-codes", handler: h293 },
+  // Payment Terms (P3-9) — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/payment-terms/:id", handler: h303 },
+  { pattern: "/api/internal/payment-terms", handler: h302 },
   // Cycle Counts (P3-6) — subpaths BEFORE /:id (first-match-wins)
   { pattern: "/api/internal/inventory-cycle-counts/:id/finalize", handler: h301 },
   { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: h300 },

@@ -24,7 +24,8 @@ type Customer = {
   customer_type: string;
   default_gl_ar_account_id: string | null;
   default_gl_revenue_account_id: string | null;
-  payment_terms: string | null;
+  payment_terms: string | null;       // legacy free-text (read-only display)
+  payment_terms_id: string | null;    // P3-9 structured FK
   default_currency: string;
   tax_exempt: boolean;
   credit_limit: number | string | null;
@@ -47,6 +48,14 @@ const C = {
 
 const CUSTOMER_TYPE_OPTIONS = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_OPTIONS = ["active", "inactive", "on_hold"];
+
+type PaymentTermOption = {
+  id: string;
+  code: string;
+  name: string;
+  due_days: number;
+  is_active: boolean;
+};
 
 const btnPrimary: React.CSSProperties = {
   background: C.primary, color: "white", border: 0, padding: "8px 14px",
@@ -96,6 +105,7 @@ function statusPill(s: string): React.CSSProperties {
 
 export default function InternalCustomerMaster() {
   const [rows, setRows] = useState<Customer[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -112,9 +122,15 @@ export default function InternalCustomerMaster() {
       if (q.trim()) params.set("q", q.trim());
       if (includeInactive) params.set("include_inactive", "true");
       if (typeFilter) params.set("customer_type", typeFilter);
-      const r = await fetch(`/api/internal/customer-master?${params.toString()}`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as Customer[]);
+      const [custRes, ptRes] = await Promise.all([
+        fetch(`/api/internal/customer-master?${params.toString()}`),
+        fetch(`/api/internal/payment-terms`),
+      ]);
+      if (!custRes.ok) throw new Error((await custRes.json().catch(() => ({}))).error || `HTTP ${custRes.status}`);
+      setRows(await custRes.json() as Customer[]);
+      if (ptRes.ok) {
+        setPaymentTerms(await ptRes.json() as PaymentTermOption[]);
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -123,6 +139,8 @@ export default function InternalCustomerMaster() {
   }
 
   useEffect(() => { void load(); }, [includeInactive, typeFilter]);
+
+  const termById = new Map(paymentTerms.map((t) => [t.id, t]));
 
   async function softDelete(c: Customer) {
     if (!confirm(`Deactivate this customer?\n\n${c.name}\n\nThis soft-deletes the row. An admin can restore via SQL.`)) return;
@@ -207,7 +225,13 @@ export default function InternalCustomerMaster() {
                   <td style={{ ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}>
                     {fmtMoney(r.credit_limit)}
                   </td>
-                  <td style={td}>{r.payment_terms || "—"}</td>
+                  <td style={td}>
+                    {r.payment_terms_id ? (
+                      termById.get(r.payment_terms_id)?.code || r.payment_terms_id.slice(0, 8) + "…"
+                    ) : r.payment_terms ? (
+                      <span style={{ color: C.textMuted, fontStyle: "italic" }} title="Legacy free-text — edit to migrate to structured term">{r.payment_terms}</span>
+                    ) : "—"}
+                  </td>
                   <td style={{ ...td, textAlign: "right" }}>
                     {!r.deleted_at && (
                       <>
@@ -226,6 +250,7 @@ export default function InternalCustomerMaster() {
       {addOpen && (
         <CustomerFormModal
           mode="add"
+          paymentTerms={paymentTerms}
           onClose={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); void load(); }}
         />
@@ -234,6 +259,7 @@ export default function InternalCustomerMaster() {
         <CustomerFormModal
           mode="edit"
           customer={editing}
+          paymentTerms={paymentTerms}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
@@ -245,17 +271,18 @@ export default function InternalCustomerMaster() {
 interface ModalProps {
   mode: "add" | "edit";
   customer?: Customer;
+  paymentTerms: PaymentTermOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
+function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     name:             customer?.name             ?? "",
     code:             customer?.code             ?? "",
     customer_type:    customer?.customer_type    ?? "wholesale",
     country:          customer?.country          ?? "",
-    payment_terms:    customer?.payment_terms    ?? "",
+    payment_terms_id: customer?.payment_terms_id ?? "",
     default_currency: customer?.default_currency ?? "USD",
     tax_exempt:       customer?.tax_exempt       ?? false,
     credit_limit:     customer?.credit_limit != null ? String(customer.credit_limit) : "",
@@ -273,7 +300,8 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
         code:             form.code.trim() || null,
         customer_type:    form.customer_type,
         country:          form.country.trim() || null,
-        payment_terms:    form.payment_terms.trim() || null,
+        // P3-9: structured FK. Legacy text column stays read-only display.
+        payment_terms_id: form.payment_terms_id || null,
         default_currency: form.default_currency.trim().toUpperCase() || "USD",
         tax_exempt:       !!form.tax_exempt,
         credit_limit:     form.credit_limit.trim() === "" ? null : parseFloat(form.credit_limit),
@@ -344,7 +372,21 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
             <input type="text" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} style={inputStyle} placeholder="e.g. US" />
           </Field>
           <Field label="Payment terms">
-            <input type="text" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })} style={inputStyle} placeholder="e.g. Net 30" />
+            <select
+              value={form.payment_terms_id}
+              onChange={(e) => setForm({ ...form, payment_terms_id: e.target.value })}
+              style={inputStyle as React.CSSProperties}
+            >
+              <option value="">(none — inherit / no default)</option>
+              {paymentTerms.filter((t) => t.is_active || t.id === form.payment_terms_id).map((t) => (
+                <option key={t.id} value={t.id}>{t.code} — {t.name} ({t.due_days}d)</option>
+              ))}
+            </select>
+            {mode === "edit" && customer?.payment_terms && !form.payment_terms_id && (
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
+                Legacy free-text: &quot;{customer.payment_terms}&quot; — pick from list to migrate.
+              </div>
+            )}
           </Field>
           <Field label="Default currency">
             <input type="text" value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value.toUpperCase() })} style={inputStyle} placeholder="USD" maxLength={3} />
