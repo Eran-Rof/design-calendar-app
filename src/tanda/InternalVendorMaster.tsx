@@ -11,6 +11,7 @@
 // every SELECT and reject them on insert/patch.
 
 import { useEffect, useState } from "react";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type Vendor = {
   id: string;
@@ -382,6 +383,16 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
+
+        {mode === "edit" && vendor && (
+          <div style={{ marginTop: 16 }}>
+            <DocumentAttachmentList
+              contextTable="vendors"
+              contextId={vendor.id}
+              kinds={["contract", "w9", "coa", "insurance", "other"]}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
