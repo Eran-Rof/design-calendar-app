@@ -60,7 +60,20 @@ jobs:
           echo "All required secrets present."
 
       - name: Link Supabase project
-        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          # Trim any whitespace / newlines that may have crept into the secret
+          # value when it was pasted into the GitHub UI. Without this, a stray
+          # newline in the secret causes bash to treat anything after it as a
+          # separate command (e.g. "this-segment: No such file or directory").
+          REF="$(printf '%s' "$PROJECT_REF" | tr -d '[:space:]')"
+          if [ -z "$REF" ]; then
+            echo "::error::SUPABASE_PROJECT_REF is empty after stripping whitespace."
+            exit 1
+          fi
+          echo "Linking to project ref of length ${#REF} (value masked)."
+          supabase link --project-ref "$REF"
 
       - name: List migration state (before)
         run: supabase migration list --linked
