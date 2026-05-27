@@ -15,12 +15,14 @@
 
 import { useEffect, useState } from "react";
 
-import InternalStyleMaster    from "./tanda/InternalStyleMaster";
-import InternalVendorMaster   from "./tanda/InternalVendorMaster";
-import InternalCustomerMaster from "./tanda/InternalCustomerMaster";
-import InternalCOA            from "./tanda/InternalCOA";
-import InternalPeriods        from "./tanda/InternalPeriods";
-import InternalJournalEntry   from "./tanda/InternalJournalEntry";
+import InternalStyleMaster        from "./tanda/InternalStyleMaster";
+import InternalVendorMaster       from "./tanda/InternalVendorMaster";
+import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
+import InternalCOA                from "./tanda/InternalCOA";
+import InternalPeriods            from "./tanda/InternalPeriods";
+import InternalJournalEntry       from "./tanda/InternalJournalEntry";
+import InternalApprovalRules      from "./tanda/InternalApprovalRules";
+import InternalApprovalRequests   from "./tanda/InternalApprovalRequests";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,22 +52,26 @@ type ModuleKey =
   | "customer_master"
   | "gl_accounts"
   | "gl_periods"
-  | "journal_entries";
+  | "journal_entries"
+  | "approval_rules"
+  | "approval_requests";
 
 type ModuleDef = {
   key: ModuleKey;
   label: string;
   emoji: string;
-  group: "Master Data" | "Accounting";
+  group: "Master Data" | "Accounting" | "Approvals";
 };
 
 const MODULES: ModuleDef[] = [
-  { key: "style_master",    label: "Style Master",      emoji: "🎨", group: "Master Data" },
-  { key: "vendor_master",   label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
-  { key: "customer_master", label: "Customer Master",   emoji: "🤝", group: "Master Data" },
-  { key: "gl_accounts",     label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
-  { key: "gl_periods",      label: "Periods",           emoji: "🗓️", group: "Accounting" },
-  { key: "journal_entries", label: "Journal Entries",   emoji: "📓", group: "Accounting" },
+  { key: "style_master",      label: "Style Master",      emoji: "🎨", group: "Master Data" },
+  { key: "vendor_master",     label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
+  { key: "customer_master",   label: "Customer Master",   emoji: "🤝", group: "Master Data" },
+  { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
+  { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
+  { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
+  { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
+  { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,9 +182,11 @@ export default function Tangerine() {
         {activeModule === "style_master"    && <InternalStyleMaster />}
         {activeModule === "vendor_master"   && <InternalVendorMaster />}
         {activeModule === "customer_master" && <InternalCustomerMaster />}
-        {activeModule === "gl_accounts"     && <InternalCOA />}
-        {activeModule === "gl_periods"      && <InternalPeriods />}
-        {activeModule === "journal_entries" && <InternalJournalEntry />}
+        {activeModule === "gl_accounts"       && <InternalCOA />}
+        {activeModule === "gl_periods"        && <InternalPeriods />}
+        {activeModule === "journal_entries"   && <InternalJournalEntry />}
+        {activeModule === "approval_rules"    && <InternalApprovalRules />}
+        {activeModule === "approval_requests" && <InternalApprovalRequests />}
       </main>
     </div>
   );
@@ -499,6 +507,7 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
 function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => void }) {
   const masterModules = MODULES.filter((m) => m.group === "Master Data");
   const acctModules = MODULES.filter((m) => m.group === "Accounting");
+  const approvalsModules = MODULES.filter((m) => m.group === "Approvals");
 
   return (
     <div>
@@ -518,6 +527,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Accounting">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {acctModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Approvals (P2)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {approvalsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 

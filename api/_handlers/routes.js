@@ -265,6 +265,12 @@ import h260 from "./internal/gl-periods/[id].js";
 import h261 from "./internal/journal-entries/index.js";
 import h262 from "./internal/journal-entries/[id].js";
 import h263 from "./internal/journal-entries/reverse.js";
+import h264 from "./internal/approval-rules/index.js";
+import h265 from "./internal/approval-rules/[id].js";
+import h266 from "./internal/approval-requests/index.js";
+import h267 from "./internal/approval-requests/[id].js";
+import h268 from "./internal/approval-requests/decide.js";
+import h269 from "./internal/approval-requests/cancel.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -486,6 +492,12 @@ export const ROUTES = [
   { pattern: "/api/internal/journal-entries/:id/reverse", handler: h263 },
   { pattern: "/api/internal/journal-entries/:id", handler: h262 },
   { pattern: "/api/internal/journal-entries", handler: h261 },
+  { pattern: "/api/internal/approval-requests/:id/decide", handler: h268 },
+  { pattern: "/api/internal/approval-requests/:id/cancel", handler: h269 },
+  { pattern: "/api/internal/approval-requests/:id", handler: h267 },
+  { pattern: "/api/internal/approval-requests", handler: h266 },
+  { pattern: "/api/internal/approval-rules/:id", handler: h265 },
+  { pattern: "/api/internal/approval-rules", handler: h264 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
