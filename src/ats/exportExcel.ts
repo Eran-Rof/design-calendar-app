@@ -237,6 +237,14 @@ export function buildExportPayload(
   const COL_AVG_COST:    number | undefined = opts.avgCost      ? nextCol++ : undefined;
   const COL_TOT_COST:    number | undefined = opts.avgCost      ? nextCol++ : undefined;
   const COL_SLS_PRC:     number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
+  // Mrgn % column ships alongside Sls Prc @. Math priority:
+  //   1. Customer selected + customer bought this SKU within 12mo →
+  //      use that price, RED font.
+  //   2. Style has T3 sales (any customer; respects customer filter when
+  //      one is set upstream) → use style-level avg unit price, BLUE font.
+  //   3. Fall through to formula Sls Prc = avgCost / (1 - margin) →
+  //      margin equals operator-typed slsMarginPct, default font.
+  const COL_SLS_MRGN_PCT: number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
   const COL_T3_QTY:      number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_PRICE:    number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_TTL_SLS:  number | undefined = opts.trailing3    ? nextCol++ : undefined;
@@ -406,6 +414,7 @@ export function buildExportPayload(
   if (COL_AVG_COST) headerRow[COL_AVG_COST - 1] = headerCell("Avg Cost",   HDR_ONHAND_FILL, "center");
   if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = headerCell("Total Cost", HDR_ONHAND_FILL, "center");
   if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = headerCell(`Sls Prc @ ${opts.slsMarginPct}%`, HDR_ONHAND_FILL, "center");
+  if (COL_SLS_MRGN_PCT) headerRow[COL_SLS_MRGN_PCT - 1] = headerCell("Mrgn %", HDR_ONHAND_FILL, "center");
   // T3/LY column labels reflect the customer narrowing AND, when the
   // operator picked a custom date range via Hide ATS data, the actual
   // window the aggregates were computed over. Format examples:
@@ -458,6 +467,13 @@ export function buildExportPayload(
   const lyMap = salesAggregates?.ly ?? new Map<string, SalesAggregate>();
   const t3Of = (sku: string): SalesAggregate => t3Map.get(sku) ?? EMPTY_AGG;
   const lyOf = (sku: string): SalesAggregate => lyMap.get(sku) ?? EMPTY_AGG;
+  const t3ByStyleMap = salesAggregates?.t3ByStyle;
+  const lastCustPriceMap = salesAggregates?.lastCustomerPriceBySku;
+  // Hex colors for the Mrgn % cell font. Blue matches the existing
+  // dark-header palette (1F497D); red matches the existing T3-vs-LY
+  // negative-diff color (C00000).
+  const MRGN_BLUE = "1F497D";
+  const MRGN_RED  = "C00000";
 
   // ── Helpers ────────────────────────────────────────────────────────────
   // Index-aware accessor — periodAvail returns cumulative free at
@@ -487,7 +503,7 @@ export function buildExportPayload(
     COL.spacerF, COL.onHand, COL.spacerH, COL.onOrder, COL.spacerJ, COL.onPO, COL.spacerL,
     COL.total,
     ...([
-      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC,
+      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT,
       COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN,
       COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN,
       COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN,
@@ -660,7 +676,7 @@ export function buildExportPayload(
     // For avg cost / sls price, weighted-avg across the group (cost
     // weighted by Total qty; sls price is unweighted avg of avgCost-
     // derived prices — there's no qty multiplier on the implied price).
-    if (COL_AVG_COST || COL_TOT_COST || COL_SLS_PRC) {
+    if (COL_AVG_COST || COL_TOT_COST || COL_SLS_PRC || COL_SLS_MRGN_PCT) {
       let totalQtyForCost = 0;
       let totalCostSum = 0;
       for (const x of group) {
@@ -679,6 +695,15 @@ export function buildExportPayload(
       if (COL_AVG_COST) r2[COL_AVG_COST - 1] = subCurr(weightedAvgCost);
       if (COL_TOT_COST) r2[COL_TOT_COST - 1] = subCurr(totalCostSum);
       if (COL_SLS_PRC)  r2[COL_SLS_PRC  - 1] = subCurr(slsPrcW);
+      // Subtotal Mrgn % uses the formula-derived weighted price — keeps
+      // the subtotal grain-clean. Per-row color overrides aren't carried
+      // up because subtotals can mix red/blue/default sources.
+      if (COL_SLS_MRGN_PCT) {
+        const subMrgn = (weightedAvgCost > 0 && slsPrcW > 0)
+          ? (slsPrcW - weightedAvgCost) / slsPrcW
+          : 0;
+        r2[COL_SLS_MRGN_PCT - 1] = subPct(subMrgn);
+      }
     }
 
     // Subtotal T3 / LY: sales qty is now at unit grain in the DB
@@ -888,6 +913,37 @@ export function buildExportPayload(
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
+    // Mrgn % — see COL_SLS_MRGN_PCT declaration for the priority rules.
+    // Falls back to formula margin (== slsMarginPct) when no preferred
+    // price source applies.
+    if (COL_SLS_MRGN_PCT) {
+      let derivedPrice = slsPrcV;
+      let mrgnColor: "default" | "blue" | "red" = "default";
+      if (avgCostV > 0) {
+        const styleKey = r.master_style ?? "";
+        const sAgg = styleKey ? t3ByStyleMap?.get(styleKey) : undefined;
+        if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
+          derivedPrice = sAgg.totalPrice / sAgg.qty;
+          mrgnColor = "blue";
+        }
+        const cl = lastCustPriceMap?.get(r.sku);
+        if (cl && cl.price > 0) {
+          derivedPrice = cl.price;
+          mrgnColor = "red";
+        }
+      }
+      const m = (derivedPrice > 0 && avgCostV > 0)
+        ? (derivedPrice - avgCostV) / derivedPrice
+        : 0;
+      const base = bodyNumStyle(fill);
+      const styled = mrgnColor === "default"
+        ? { ...base, numFmt: "0.0%" }
+        : { ...base, numFmt: "0.0%", font: { ...base.font, bold: true, color: { rgb: mrgnColor === "blue" ? MRGN_BLUE : MRGN_RED } } };
+      qtyRow[COL_SLS_MRGN_PCT - 1] = m === 0
+        ? { v: "", t: "s", s: styled }
+        : { v: m, t: "n", s: styled };
+    }
+
     // Trailing 3 — sales over the last 3 months from today, optionally
     // narrowed to one customer. Sales qty is now at unit grain in the
     // DB (qty_units, populated by the nightly sync). Display as-is —
@@ -1012,7 +1068,7 @@ export function buildExportPayload(
       // Optional extra cols on the PPK follower row — blank with the
       // same style as the qty row's matching cell so the merge looks
       // clean and the outline finalizer sees a real cell to border.
-      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
+      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
         if (ci !== undefined) ppkRow[ci - 1] = blankFill(bodyNumStyle(fill));
       }
 
@@ -1083,7 +1139,7 @@ export function buildExportPayload(
     // outline finalizer + autofit see real cells and the bottom row
     // closes the table cleanly across its full width. Callers that
     // want real aggregates patch these in after.
-    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
+    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
     for (const ci of optCols) {
       if (ci !== undefined) cells[ci - 1] = { v: "", t: "s", s: totalNumStyle };
     }
@@ -1104,7 +1160,13 @@ export function buildExportPayload(
       costSum    += a * q;
     }
     const avgCostW = qtyForCost > 0 ? costSum / qtyForCost : 0;
-    const slsPrcW = (avgCostW > 0 && slsMargin < 1) ? avgCostW / (1 - slsMargin) : 0;
+    // Round UP to nearest $0.05 — matches the per-row and subtotal rule.
+    const slsPrcW = (avgCostW > 0 && slsMargin < 1)
+      ? Math.ceil((avgCostW / (1 - slsMargin)) * 20) / 20
+      : 0;
+    const slsMrgnW = (avgCostW > 0 && slsPrcW > 0)
+      ? (slsPrcW - avgCostW) / slsPrcW
+      : 0;
 
     // T3 / LY totals. Sales qty is at unit grain in the DB
     // (qty_units, populated by the nightly sync). Margin % comes from
@@ -1133,7 +1195,7 @@ export function buildExportPayload(
     const t3Mrgn  = t3Tot > 0 ? t3Marg / t3Tot : 0;
     const lyMrgn  = lyTot > 0 ? lyMarg / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
+    return { avgCostW, totalCostW: costSum, slsPrcW, slsMrgnW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
@@ -1160,6 +1222,7 @@ export function buildExportPayload(
     setCurr(COL_AVG_COST,    agg.avgCostW);
     setCurr(COL_TOT_COST,    agg.totalCostW);
     setCurr(COL_SLS_PRC,     agg.slsPrcW);
+    setPct (COL_SLS_MRGN_PCT, agg.slsMrgnW);
     setQty (COL_T3_QTY,      agg.t3Qty);
     setCurr(COL_T3_PRICE,    agg.t3Price);
     setCurr(COL_T3_TTL_SLS,  agg.t3Tot);

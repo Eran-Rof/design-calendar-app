@@ -107,6 +107,16 @@ export interface SalesFetchResult {
   // The fetch's LY window is widened by ±30 days when this flag is set
   // so every per-SO window is covered.
   lyDailyByStyle?: Map<string, DailyStyleAgg[]>;
+  // Per-style T3 aggregate. Keyed by ip_item_master.style_code.
+  // Present only when needT3ByStyle is set. Lets the Mrgn % column
+  // derive a style-level avg sell price = totalPrice / qty.
+  t3ByStyle?: Map<string, SalesAggregate>;
+  // Per-ATS-sku most-recent unit_price within the last 12 months.
+  // Present only when needLastCustomerPriceBySku is set. When a
+  // customer is selected upstream, salesRows are already customer-
+  // filtered, so the resulting price is THAT customer's most recent
+  // buy of the SKU.
+  lastCustomerPriceBySku?: Map<string, { price: number; date: string }>;
 }
 
 // One day of LY sales for a single style. Built from ip_sales_history_wholesale
@@ -369,6 +379,19 @@ export interface FetchSalesArgs {
   // on each side so every per-SO window is fully covered. Built in
   // the same row scan as t3/ly — no extra DB round trip.
   needLyDailyByStyle?: boolean;
+  // When true, the result includes `t3ByStyle` — T3-window sales
+  // aggregated to ip_item_master.style_code. Used by the Sls Prc
+  // Mrgn % column to derive a style-level avg sell price when the
+  // formula path would otherwise just echo the operator's typed
+  // margin. Honors the customer filter (when set) so the style
+  // price reflects that customer's T3 buys.
+  needT3ByStyle?: boolean;
+  // When true, the result includes `lastCustomerPriceBySku` — the
+  // most-recent unit_price per ATS-row sku within the last 12 months.
+  // Only useful when a customer is selected (rows are customer-
+  // filtered upstream). Used by the Sls Prc Mrgn % column to override
+  // the formula with the customer's most recent actual sale price.
+  needLastCustomerPriceBySku?: boolean;
 }
 
 export interface SalesFetchWindows {
@@ -493,7 +516,7 @@ function isoMinusDays(iso: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, filterGender, needByCustomer, needLyDailyByStyle }: FetchSalesArgs): Promise<SalesFetchResult> {
+export async function fetchSalesAggregates({ rows, needT3, needLY, customer, customStart, customEnd, storeFilter, filterCategory, filterSubCategory, filterStyle, filterGender, needByCustomer, needLyDailyByStyle, needT3ByStyle, needLastCustomerPriceBySku }: FetchSalesArgs): Promise<SalesFetchResult> {
   // Window resolution. Default: T3 = trailing 3 months from today;
   // LY = same window shifted back 12 months (== [today-15m, today-12m]).
   // Custom: T3 = [customStart, customEnd]; LY = the same range -12mo.
@@ -509,8 +532,14 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   // [lyStart, lyEnd] gate so existing non-SO views are unaffected.
   const lyDailyStart = needLyDailyByStyle ? isoMinusDays(lyStart, LY_DAILY_PADDING_DAYS) : lyStart;
   const lyDailyEnd   = needLyDailyByStyle ? isoPlusDays(lyEnd,    LY_DAILY_PADDING_DAYS) : lyEnd;
+  // 12-month customer-last-price window. Fixed at [today-12mo, today]
+  // regardless of any custom T3 range; the Mrgn % column wants the
+  // customer's most recent buy across the past year, not the operator's
+  // selected analysis window.
+  const custLastStart = isoMinusMonths(today, 12);
+  const custLastEnd   = today;
 
-  if (!needT3 && !needLY) return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
+  if (!needT3 && !needLY && !needT3ByStyle && !needLastCustomerPriceBySku) return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
   if (!SB_URL) {
     console.warn("[ATS export] Supabase not configured — T3/LY columns will be empty.");
     return { windows, t3: new Map(), ly: new Map(), extraBySkuId: new Map() };
@@ -533,11 +562,20 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   // the edges of the operator's TY window.
   const effectiveLyStart = needLyDailyByStyle ? lyDailyStart : lyStart;
   const effectiveLyEnd   = needLyDailyByStyle ? lyDailyEnd   : lyEnd;
-  let fetchStart: string;
-  let fetchEnd: string;
-  if (needT3 && needLY) { fetchStart = effectiveLyStart < t3Start ? effectiveLyStart : t3Start; fetchEnd = t3End > effectiveLyEnd ? t3End : effectiveLyEnd; }
-  else if (needT3)      { fetchStart = t3Start; fetchEnd = t3End; }
-  else                  { fetchStart = effectiveLyStart; fetchEnd = effectiveLyEnd; }
+  // Union the active windows: T3 / T3ByStyle (T3 window), LY, customer-
+  // last-price (12mo). At least one need is guaranteed by the early-
+  // return above.
+  const wantT3Window  = needT3 || needT3ByStyle;
+  const candidates: Array<{ s: string; e: string }> = [];
+  if (wantT3Window)              candidates.push({ s: t3Start,       e: t3End });
+  if (needLY)                    candidates.push({ s: effectiveLyStart, e: effectiveLyEnd });
+  if (needLastCustomerPriceBySku) candidates.push({ s: custLastStart, e: custLastEnd });
+  let fetchStart = candidates[0].s;
+  let fetchEnd   = candidates[0].e;
+  for (const c of candidates) {
+    if (c.s < fetchStart) fetchStart = c.s;
+    if (c.e > fetchEnd)   fetchEnd   = c.e;
+  }
 
   // Resolve customer name(s) → union of matching ip_customer_master.ids
   // across every provided name. Empty input = "all customers"; non-empty
@@ -680,7 +718,11 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   //     PO/SO/inventory row) silently drop from the total — that's the
   //     ~$700K "selecting all stores doesn't compute" gap operators saw.
   const extraBySkuId: SalesFetchResult["extraBySkuId"] = new Map();
-  const shouldCollectExtras = true;
+  // Only collect cross-grid extras when at least one of the T3 / LY
+  // columns is actually being displayed. A Mrgn-%-only fetch otherwise
+  // bubbles unmapped sku_ids in here and triggers synthetic-row injection
+  // downstream with nothing to populate.
+  const shouldCollectExtras = needT3 || needLY;
 
   // Per-customer accumulator. Populated alongside the per-sku maps so
   // the byCustomer rollup uses the same filtered row set + the same
@@ -720,6 +762,15 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
   // sales of the same style on the same day collapse into one entry —
   // we flatten + sort into an array after the loop.
   const lyDailyAcc: Map<string, Map<string, DailyStyleAgg>> | null = needLyDailyByStyle ? new Map() : null;
+  // T3-by-style accumulator for the Mrgn % column. Keyed by master
+  // style_code so every variant of the same style sees the same
+  // weighted avg sell price.
+  const t3ByStyleAcc: Map<string, SalesAggregate> | null = needT3ByStyle ? new Map() : null;
+  // Per-ATS-sku most-recent unit_price in the last 12 months. Tracks
+  // the latest (date, unit_price) pair seen — when txn_date ties, the
+  // last row read in date-ascending order wins (the table is paged
+  // ascending so this naturally ends up = latest invoice of the day).
+  const lastCustPriceAcc: Map<string, { price: number; date: string }> | null = needLastCustomerPriceBySku ? new Map() : null;
 
   for (const r of salesRows) {
     const inT3 = needT3 && r.txn_date >= t3Start && r.txn_date <= t3End;
@@ -728,7 +779,12 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     // fall outside the strict LY window but inside the ±30d padding
     // used by per-SO LY windows.
     const inLyDaily = lyDailyAcc != null && r.txn_date >= lyDailyStart && r.txn_date <= lyDailyEnd;
-    if (!inT3 && !inLY && !inLyDaily) continue;
+    // T3 window for the style-level aggregator. Independent of `inT3`
+    // — kicks in for needT3ByStyle even when the operator didn't ask
+    // for the T3 columns themselves.
+    const inT3Style = t3ByStyleAcc != null && r.txn_date >= t3Start && r.txn_date <= t3End;
+    const inCustLast = lastCustPriceAcc != null && r.txn_date >= custLastStart && r.txn_date <= custLastEnd;
+    if (!inT3 && !inLY && !inLyDaily && !inT3Style && !inCustLast) continue;
 
     // qty_units is the authoritative unit-grain qty written by the
     // nightly sync handler (since migration 20260517230000). Falls
@@ -815,6 +871,37 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
         agg.marginAmount += marg;
       }
     }
+
+    // T3 sales rolled up to style. Independent of inT3 (the per-variant
+    // map) — fires whenever the T3 window includes the row AND the
+    // caller asked for the style rollup.
+    if (t3ByStyleAcc && inT3Style) {
+      const master = getItemMasterById(r.sku_id);
+      const style = master?.style_code;
+      if (style) {
+        const ex = t3ByStyleAcc.get(style);
+        if (ex) { ex.qty += qty; ex.totalPrice += rev; ex.marginAmount += marg; }
+        else t3ByStyleAcc.set(style, { qty, totalPrice: rev, marginAmount: marg });
+      }
+    }
+
+    // Customer last-known price. Tracks the most recent (txn_date,
+    // unit_price) per ATS-sku. Only meaningful when the caller passed
+    // a customer filter upstream (otherwise this aggregates everyone's
+    // most-recent buy across the whole table — not the intent).
+    if (lastCustPriceAcc && inCustLast) {
+      const atsSkuForCust = idToSku.get(r.sku_id);
+      if (atsSkuForCust) {
+        const unit = toNum(r.unit_price);
+        const price = unit > 0 ? unit : (qty > 0 ? rev / qty : 0);
+        if (price > 0) {
+          const prev = lastCustPriceAcc.get(atsSkuForCust);
+          if (!prev || r.txn_date >= prev.date) {
+            lastCustPriceAcc.set(atsSkuForCust, { price, date: r.txn_date });
+          }
+        }
+      }
+    }
   }
 
   // Flatten the per-style daily LY accumulator into the result shape.
@@ -869,7 +956,15 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     console.info(`[ATS export] byCustomer rollup → ${byCustomer.size} customers (${realIds.length - nameById.size} unresolved name${realIds.length - nameById.size === 1 ? "" : "s"})`);
   }
 
-  return { windows, t3, ly, extraBySkuId, byCustomer, lyDailyByStyle };
+  const t3ByStyle = t3ByStyleAcc ?? undefined;
+  const lastCustomerPriceBySku = lastCustPriceAcc ?? undefined;
+  if (t3ByStyle) {
+    console.info(`[ATS export] t3ByStyle → ${t3ByStyle.size} styles, window ${t3Start}..${t3End}`);
+  }
+  if (lastCustomerPriceBySku) {
+    console.info(`[ATS export] lastCustomerPriceBySku → ${lastCustomerPriceBySku.size} SKUs, window ${custLastStart}..${custLastEnd}`);
+  }
+  return { windows, t3, ly, extraBySkuId, byCustomer, lyDailyByStyle, t3ByStyle, lastCustomerPriceBySku };
 }
 
 // Resolve sales aggregates for one ATS-row SKU, narrowed by customer
