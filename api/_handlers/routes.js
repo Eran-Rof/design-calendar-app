@@ -305,6 +305,10 @@ import h300 from "./internal/inventory-cycle-counts/lines.js";
 import h301 from "./internal/inventory-cycle-counts/finalize.js";
 import h302 from "./internal/payment-terms/index.js";
 import h303 from "./internal/payment-terms/[id].js";
+import h304 from "./internal/ar-invoices/index.js";
+import h305 from "./internal/ar-invoices/[id].js";
+import h306 from "./internal/ar-invoices/post.js";
+import h307 from "./internal/ar-invoices/void.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -616,6 +620,10 @@ export const ROUTES = [
   { pattern: "/api/parse-excel", handler: h248 },
   { pattern: "/api/xoro-proxy", handler: h249 },
   { pattern: "/api/sales/backfill-grain", handler: h250 },
+  { pattern: "/api/internal/ar-invoices/:id/post", handler: h306 },
+  { pattern: "/api/internal/ar-invoices/:id/void", handler: h307 },
+  { pattern: "/api/internal/ar-invoices/:id", handler: h305 },
+  { pattern: "/api/internal/ar-invoices", handler: h304 },
 ];
 
 export function compileRoutes(routes) {

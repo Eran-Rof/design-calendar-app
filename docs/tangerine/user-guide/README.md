@@ -28,6 +28,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 13. [Accounts Payable (M3)](13-accounts-payable.md) — P3: vendor bill lifecycle (draft → posted → paid → void), approval gate, payments ledger
 14. [Payment Terms](14-payment-terms.md) — P3: structured payment terms master + `compute_due_date` helper
 15. [Fabric Codes (P3 / Chunk 11)](15-fabric-codes.md) — textile-specific master + many-to-many junction to Style Master; precursor to M42 PIM. Seeded with 9 common apparel fabrics.
+16. [Accounts Receivable (M4)](16-accounts-receivable.md) — P4: customer invoice lifecycle (draft → sent → partial_paid → paid → void), approval gate, FIFO COGS recognition. Receipts UI ships in P4-5.
 
 ## 30-second quickstart
 
