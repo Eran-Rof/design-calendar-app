@@ -39,23 +39,4 @@ describe("atsReducer", () => {
     expect(s.uploadingFile).toBe(false);
     expect(s.uploadError).toBe("Parse error");
   });
-
-  it("SYNC_START sets syncing atomically", () => {
-    const s = atsReducer(initial, { type: "SYNC_START" });
-    expect(s.syncing).toBe(true);
-    expect(s.syncStatus).toBe("Syncing…");
-    expect(s.syncError).toBeNull();
-  });
-
-  it("SYNC_DONE clears sync state", () => {
-    const s = atsReducer({ ...initial, syncing: true }, { type: "SYNC_DONE", lastSync: "2026-03-30" });
-    expect(s.syncing).toBe(false);
-    expect(s.lastSync).toBe("2026-03-30");
-  });
-
-  it("SYNC_FAIL sets error", () => {
-    const s = atsReducer({ ...initial, syncing: true }, { type: "SYNC_FAIL", error: { title: "Error", detail: "Timeout" } });
-    expect(s.syncing).toBe(false);
-    expect(s.syncError).toEqual({ title: "Error", detail: "Timeout" });
-  });
 });

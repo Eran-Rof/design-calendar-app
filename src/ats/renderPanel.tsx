@@ -6,13 +6,13 @@ import { StatsRow } from "./panels/StatsRow";
 import { MergeConfirmModal } from "./panels/MergeConfirmModal";
 import { UploadWarningsModal } from "./panels/UploadWarningsModal";
 import { NormalizationReviewModal } from "./panels/NormalizationReviewModal";
-import { UploadProgressOverlay, SuccessToast, SyncErrorModal, UploadErrorModal } from "./panels/StatusOverlays";
+import { UploadProgressOverlay, SuccessToast, UploadErrorModal } from "./panels/StatusOverlays";
 import { UploadModal } from "./panels/UploadModal";
 import { SummaryContextMenu, CellContextMenu } from "./panels/ContextMenus";
 import { SOLineItemsModal, type SOLineItem } from "./panels/SOLineItemsModal";
 import { resolveItemMasterIds, getItemMasterById } from "./itemMasterLookup";
 import { Pagination } from "./panels/Pagination";
-import { NavBar, SyncProgressBanner } from "./panels/NavBar";
+import { NavBar } from "./panels/NavBar";
 import { Toolbar } from "./panels/Toolbar";
 import { GridTable } from "./panels/GridTable";
 import { GridErrorBoundary } from "./panels/GridErrorBoundary";
@@ -83,7 +83,6 @@ interface ATSDerivedCtx {
   totalSKUs: number;
   totalPoQty: number;
   totalSoQty: number;
-  syncProgress: { step: string; pct: number; log: string[] } | null;
   // Drag state (plain useState, not reducer)
   dragSku: string | null;
   setDragSku: (v: string | null) => void;
@@ -142,7 +141,7 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
@@ -366,7 +365,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         gridStart={startDate}
         gridEnd={dates.length > 0 ? dates[dates.length - 1] : undefined}
       />
-      <SyncProgressBanner syncProgress={syncProgress} />
       <UnmatchedBanner
         unmatchedRows={unmatchedRows}
         // The banner is only "ready" once the master-aware enrichment
@@ -536,7 +534,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
 
       <UploadProgressOverlay uploadProgress={uploadProgress} cancelUpload={cancelUpload} />
       <SuccessToast uploadSuccess={uploadSuccess} setUploadSuccess={setUploadSuccess} />
-      <SyncErrorModal syncError={syncError} setSyncError={setSyncError} />
       <UploadErrorModal uploadError={uploadError} setUploadError={setUploadError} />
 
       <UploadModal
