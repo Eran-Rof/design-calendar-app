@@ -77,28 +77,71 @@ ALTER TABLE customers
   ADD COLUMN IF NOT EXISTS created_by_user_id                uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS updated_by_user_id                uuid REFERENCES auth.users(id) ON DELETE SET NULL;
 
--- Backfill: `code` from existing `customer_code`; `status` from `active`.
-UPDATE customers
-   SET code   = COALESCE(code,   customer_code),
-       status = COALESCE(status, CASE WHEN active THEN 'active' ELSE 'inactive' END);
+-- Backfill: `code` from existing `customer_code` (if that column exists);
+-- `status` from `active` (if that column exists). Guarded because some
+-- legacy installs of ip_customer_master may differ from the Phase 0 schema.
+DO $$
+DECLARE
+  has_customer_code boolean;
+  has_active        boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'customer_code'
+  ) INTO has_customer_code;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'active'
+  ) INTO has_active;
+
+  IF has_customer_code THEN
+    EXECUTE 'UPDATE customers SET code = COALESCE(code, customer_code) WHERE code IS NULL';
+  END IF;
+
+  IF has_active THEN
+    EXECUTE $sql$
+      UPDATE customers
+         SET status = COALESCE(status, CASE WHEN active THEN 'active' ELSE 'inactive' END)
+       WHERE status IS NULL
+    $sql$;
+  ELSE
+    -- No legacy active column → default everyone to active where status is null
+    EXECUTE 'UPDATE customers SET status = ''active'' WHERE status IS NULL';
+  END IF;
+END $$;
 
 -- customer_type backfill: heuristic from channel_id if present; otherwise 'wholesale'.
 -- ip_channel_master has channel_type column (wholesale/ecom/marketplace/retail/other);
--- map directly when channel is set.
-UPDATE customers c
-   SET customer_type = COALESCE(
-         c.customer_type,
-         CASE ch.channel_type
-           WHEN 'wholesale'   THEN 'wholesale'
-           WHEN 'ecom'        THEN 'ecom'
-           WHEN 'retail'      THEN 'showroom'
-           WHEN 'marketplace' THEN 'ecom'
-           ELSE 'wholesale'
-         END,
-         'wholesale'
-       )
-  FROM ip_channel_master ch
- WHERE c.channel_id = ch.id OR c.channel_id IS NULL;
+-- map directly when channel is set. Guarded too (channel_id may not exist on all installs).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'channel_id'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ip_channel_master'
+  ) THEN
+    EXECUTE $sql$
+      UPDATE customers c
+         SET customer_type = COALESCE(
+               c.customer_type,
+               CASE ch.channel_type
+                 WHEN 'wholesale'   THEN 'wholesale'
+                 WHEN 'ecom'        THEN 'ecom'
+                 WHEN 'retail'      THEN 'showroom'
+                 WHEN 'marketplace' THEN 'ecom'
+                 ELSE 'wholesale'
+               END,
+               'wholesale'
+             )
+        FROM ip_channel_master ch
+       WHERE (c.channel_id = ch.id OR c.channel_id IS NULL)
+         AND c.customer_type IS NULL
+    $sql$;
+  END IF;
+END $$;
 
 UPDATE customers SET customer_type = 'wholesale' WHERE customer_type IS NULL;
 
@@ -143,22 +186,39 @@ COMMENT ON COLUMN customers.deleted_at         IS 'Soft delete. Indexes exclude 
 -- Simple SELECT from one base table with no expressions → auto-updatable per
 -- PostgreSQL view-update rules. xoro-sales-sync, planning-sync, AI executors,
 -- seed scripts all continue to work without modification.
+--
+-- Built dynamically because legacy schemas vary: some installs of
+-- ip_customer_master had customer_code / customer_tier / active / channel_id,
+-- some didn't. The view only selects columns that exist on customers.
 -- ────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE VIEW ip_customer_master AS
-SELECT
-  id,
-  customer_code,
-  name,
-  parent_customer_id,
-  customer_tier,
-  country,
-  channel_id,
-  active,
-  external_refs,
-  created_at,
-  updated_at,
-  entity_id
-FROM customers;
+DO $$
+DECLARE
+  view_cols text;
+  legacy_cols text[] := ARRAY[
+    'id', 'customer_code', 'name', 'parent_customer_id', 'customer_tier',
+    'country', 'channel_id', 'active', 'external_refs', 'created_at', 'updated_at', 'entity_id'
+  ];
+  c text;
+  selected text[] := ARRAY[]::text[];
+BEGIN
+  FOREACH c IN ARRAY legacy_cols LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = c
+    ) THEN
+      selected := array_append(selected, c);
+    END IF;
+  END LOOP;
+
+  IF array_length(selected, 1) IS NULL THEN
+    RAISE EXCEPTION 'Tangerine: customers table has none of the legacy columns; cannot create ip_customer_master view';
+  END IF;
+
+  view_cols := array_to_string(selected, ', ');
+  EXECUTE format('CREATE OR REPLACE VIEW ip_customer_master AS SELECT %s FROM customers', view_cols);
+
+  RAISE NOTICE 'Tangerine: created ip_customer_master view with cols [%]', view_cols;
+END $$;
 
 COMMENT ON VIEW ip_customer_master IS
   'Auto-updatable view over `customers` (Tangerine P1 Chunk 6). Preserves the original schema so legacy callers (xoro-sales-sync, planning-sync, AI executors, seed scripts) work without changes. Inserts/updates through the view propagate to customers.';

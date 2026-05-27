@@ -1,20 +1,10 @@
--- =============================================================================
--- Tangerine P1 — bundled migration script (T1-fix-6 regen)
--- =============================================================================
--- T1-fix-6: customers RENAME is now guarded by a DO block that only fires
--- when customers doesn't yet exist as a base table. Previous bundle re-runs
--- failed because the ip_customer_master view (created on first run) was
--- matching ALTER TABLE IF EXISTS, causing a collision with the existing
--- customers table.
---
--- USAGE: paste into Supabase SQL editor, click Run.
--- Built: 2026-05-26 (T1-fix-6)
--- =============================================================================
+-- Tangerine P1 bundled migration (T1-fix-7)
+-- Customers promotion now defensive against missing legacy columns
+-- (customer_code, customer_tier, active, channel_id). View is built
+-- dynamically to select only columns that exist on customers.
 
 
--- =============================================================================
--- BEGIN: 20260521010000_p1_entities_extensions.sql
--- =============================================================================
+-- ==== BEGIN: 20260521010000_p1_entities_extensions.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 1 / Migration 1
 -- Extend `entities` with ERP-grade columns needed by M1 Tenancy and M2 GL.
@@ -77,12 +67,10 @@ COMMENT ON COLUMN entities.posting_locked_through   IS 'Hard lock: any posting_d
 COMMENT ON COLUMN entities.country                  IS 'ISO 3166-1 alpha-2. Informational at launch; drives 1099/tax in later phases.';
 COMMENT ON COLUMN entities.metadata                 IS 'Free-form (branding flags, integration toggles).';
 
--- END: 20260521010000_p1_entities_extensions.sql
+-- ==== END: 20260521010000_p1_entities_extensions.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521010100_p1_entity_users.sql
--- =============================================================================
+-- ==== BEGIN: 20260521010100_p1_entity_users.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 1 / Migration 2
 -- entity_users: junction of auth.users → entities for internal staff and the
@@ -122,12 +110,10 @@ CREATE POLICY "auth_own_entity_users_select" ON entity_users
 COMMENT ON TABLE  entity_users IS 'Junction of auth.users → entities for internal staff and external accountant. Role is text+CHECK (per Tangerine P1 decision).';
 COMMENT ON COLUMN entity_users.role IS 'admin | accountant | staff | readonly. Adding values requires ALTER CONSTRAINT entity_users_role_check.';
 
--- END: 20260521010100_p1_entity_users.sql
+-- ==== END: 20260521010100_p1_entity_users.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521010200_p1_entity_id_propagation.sql
--- =============================================================================
+-- ==== BEGIN: 20260521010200_p1_entity_id_propagation.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 1 / Migration 3
 -- Propagate entity_id across all 13 transactional + master tables.
@@ -310,12 +296,10 @@ BEGIN
   END LOOP;
 END $$;
 
--- END: 20260521010200_p1_entity_id_propagation.sql
+-- ==== END: 20260521010200_p1_entity_id_propagation.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521010300_p1_rls_entity_scope.sql
--- =============================================================================
+-- ==== BEGIN: 20260521010300_p1_rls_entity_scope.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 1 / Migration 4
 -- Apply the canonical RLS template (policy #2: auth_internal) to every
@@ -439,12 +423,10 @@ CREATE POLICY "auth_internal_ip_customer_master" ON ip_customer_master
 -- access by accident.
 -- ────────────────────────────────────────────────────────────────────────────
 
--- END: 20260521010300_p1_rls_entity_scope.sql
+-- ==== END: 20260521010300_p1_rls_entity_scope.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521020000_p1_gl_accounts.sql
--- =============================================================================
+-- ==== BEGIN: 20260521020000_p1_gl_accounts.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 2 / Migration 5
 -- gl_accounts: Chart of Accounts. Schema only; the seed COA arrives as a
@@ -501,12 +483,10 @@ CREATE TRIGGER gl_accounts_touch_trg
   BEFORE UPDATE ON gl_accounts
   FOR EACH ROW EXECUTE FUNCTION gl_accounts_touch();
 
--- END: 20260521020000_p1_gl_accounts.sql
+-- ==== END: 20260521020000_p1_gl_accounts.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521020100_p1_gl_periods.sql
--- =============================================================================
+-- ==== BEGIN: 20260521020100_p1_gl_periods.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 2 / Migration 6
 -- gl_periods: 12 calendar-month accounting periods per fiscal year per entity.
@@ -589,12 +569,10 @@ $$;
 
 COMMENT ON FUNCTION gl_find_period(uuid, date) IS 'Locate the gl_periods row whose [starts_on, ends_on] contains the date for an entity. Used by journal_entries posting trigger.';
 
--- END: 20260521020100_p1_gl_periods.sql
+-- ==== END: 20260521020100_p1_gl_periods.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521020200_p1_journal_entries.sql
--- =============================================================================
+-- ==== BEGIN: 20260521020200_p1_journal_entries.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 2 / Migration 7
 -- journal_entries + journal_entry_lines, plus trigger-level posting guards:
@@ -815,12 +793,10 @@ CREATE TRIGGER journal_entry_lines_immutable_trg
   BEFORE INSERT OR UPDATE OR DELETE ON journal_entry_lines
   FOR EACH ROW EXECUTE FUNCTION journal_entry_lines_immutable();
 
--- END: 20260521020200_p1_journal_entries.sql
+-- ==== END: 20260521020200_p1_journal_entries.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521020300_p1_gl_subledger_balances_view.sql
--- =============================================================================
+-- ==== BEGIN: 20260521020300_p1_gl_subledger_balances_view.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 2 / Migration 8
 -- gl_subledger_balances_v: read-only view of running subledger balances by
@@ -848,12 +824,10 @@ GROUP BY je.entity_id, jel.account_id, je.basis, jel.subledger_type, jel.subledg
 
 COMMENT ON VIEW gl_subledger_balances_v IS 'Running balance per (entity, account, basis, subledger). Only posted journal_entries contribute. net_balance_debit is positive when the account has a debit balance; net_balance_credit is its negation. Promote to materialized view if posted-JE volume makes the live aggregation too slow.';
 
--- END: 20260521020300_p1_gl_subledger_balances_view.sql
+-- ==== END: 20260521020300_p1_gl_subledger_balances_view.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521020400_p1_gl_rls.sql
--- =============================================================================
+-- ==== BEGIN: 20260521020400_p1_gl_rls.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 2 / Migration 9
 -- RLS for GL tables. Vendors never see GL data; the anon-key SPA path retains
@@ -966,12 +940,10 @@ CREATE TRIGGER je_period_lock_del
 
 COMMENT ON FUNCTION journal_entry_period_lock_guard() IS 'Trigger-level period status enforcement. Blocks all writes into closed periods; in soft_close periods, only adjustment/close journal types may be inserted.';
 
--- END: 20260521020400_p1_gl_rls.sql
+-- ==== END: 20260521020400_p1_gl_rls.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521030000_p1_gl_post_rpc.sql
--- =============================================================================
+-- ==== BEGIN: 20260521030000_p1_gl_post_rpc.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 3 / Migration 10
 -- gl_post_journal_entry: atomic posting RPC. Inserts journal_entries header
@@ -1128,12 +1100,10 @@ $$;
 
 COMMENT ON FUNCTION gl_link_sibling_je(uuid, uuid) IS 'Bi-directionally link the ACCRUAL and CASH twin of a dual-basis posting event.';
 
--- END: 20260521030000_p1_gl_post_rpc.sql
+-- ==== END: 20260521030000_p1_gl_post_rpc.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521040000_p1_style_master.sql
--- =============================================================================
+-- ==== BEGIN: 20260521040000_p1_style_master.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 4 / Migration 10
 -- style_master: style-level attributes shared by every SKU variant of a
@@ -1245,12 +1215,10 @@ WHERE im.style_code IS NOT NULL
 ORDER BY im.entity_id, TRIM(UPPER(im.style_code)), im.updated_at DESC
 ON CONFLICT DO NOTHING;
 
--- END: 20260521040000_p1_style_master.sql
+-- ==== END: 20260521040000_p1_style_master.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521040100_p1_ip_item_master_matrix.sql
--- =============================================================================
+-- ==== BEGIN: 20260521040100_p1_ip_item_master_matrix.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 4 / Migration 11
 -- ip_item_master: matrix dimensions + style FK + is_apparel flag.
@@ -1364,12 +1332,10 @@ COMMENT ON COLUMN ip_item_master.fit         IS 'Apparel dim 5. SKINNY|SLIM|STRA
 COMMENT ON COLUMN ip_item_master.style_id    IS 'FK to style_master. Resolved by trigger from style_code (UPPER TRIM). NULL when style_code matches no style_master row.';
 COMMENT ON COLUMN ip_item_master.is_apparel  IS 'Default true. When false, apparel CHECK (added in a later migration) does not apply.';
 
--- END: 20260521040100_p1_ip_item_master_matrix.sql
+-- ==== END: 20260521040100_p1_ip_item_master_matrix.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260521040200_p1_category_3level.sql
--- =============================================================================
+-- ==== BEGIN: 20260521040200_p1_category_3level.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 4 / Migration 12
 -- ip_category_master: 3-level taxonomy.
@@ -1506,12 +1472,10 @@ COMMENT ON COLUMN ip_category_master.parent_category_id IS 'Self-ref for 3-level
 COMMENT ON COLUMN ip_category_master.level              IS '1=top, 2=mid, 3=leaf. CHECK constraint enforces BETWEEN 1 AND 3 and (level=1 ⇔ parent IS NULL).';
 COMMENT ON COLUMN ip_category_master.path               IS 'Materialized full path "Apparel > Bottoms > Jeans" for display/search. Maintained by trigger; never set by hand.';
 
--- END: 20260521040200_p1_category_3level.sql
+-- ==== END: 20260521040200_p1_category_3level.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260522010000_p1_chunk4_5_apparel_check.sql
--- =============================================================================
+-- ==== BEGIN: 20260522010000_p1_chunk4_5_apparel_check.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 4.5 / Migration 13
 -- apparel_dims_required CHECK + is_apparel data prep.
@@ -1661,12 +1625,10 @@ WHERE im.is_apparel = false
 COMMENT ON VIEW ip_item_master_needs_matrix_review_v IS
   'Bottoms-category items with at least one matrix dim NULL. Merchandiser fills in missing dims via the admin UI, then sets is_apparel=true.';
 
--- END: 20260522010000_p1_chunk4_5_apparel_check.sql
+-- ==== END: 20260522010000_p1_chunk4_5_apparel_check.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260522020000_p1_vendors_erp_extensions.sql
--- =============================================================================
+-- ==== BEGIN: 20260522020000_p1_vendors_erp_extensions.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 6 / Migration 13
 -- vendors ERP-grade extensions. Promotes `vendors` to canonical M35 (per arch
@@ -1744,12 +1706,10 @@ COMMENT ON COLUMN vendors.is_1099_vendor                IS 'Pre-flags M20 1099 r
 COMMENT ON COLUMN vendors.default_gl_ap_account_id      IS 'Override of entity-default AP account. When NULL, posting service uses the entity-level default (configured in chart of accounts seed).';
 COMMENT ON COLUMN vendors.default_gl_expense_account_id IS 'Default expense account for bills without explicit line coding. NULL → require line-level account on every bill.';
 
--- END: 20260522020000_p1_vendors_erp_extensions.sql
+-- ==== END: 20260522020000_p1_vendors_erp_extensions.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260522020100_p1_entity_vendors_code.sql
--- =============================================================================
+-- ==== BEGIN: 20260522020100_p1_entity_vendors_code.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 6 / Migration 14
 -- entity_vendors.vendor_code — per-entity vendor code override. Lets one
@@ -1780,12 +1740,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_entity_vendors_vendor_code
 COMMENT ON COLUMN entity_vendors.vendor_code IS
   'Per-entity vendor code override. Unique per entity when set. Falls back to vendors.code if NULL.';
 
--- END: 20260522020100_p1_entity_vendors_code.sql
+-- ==== END: 20260522020100_p1_entity_vendors_code.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260522020200_p1_customers_promotion.sql
--- =============================================================================
+-- ==== BEGIN: 20260522020200_p1_customers_promotion.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk 6 / Migration 15 (was 16 in arch §9.1)
 -- Promote ip_customer_master to canonical `customers` table per arch §8.
@@ -1865,28 +1823,71 @@ ALTER TABLE customers
   ADD COLUMN IF NOT EXISTS created_by_user_id                uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS updated_by_user_id                uuid REFERENCES auth.users(id) ON DELETE SET NULL;
 
--- Backfill: `code` from existing `customer_code`; `status` from `active`.
-UPDATE customers
-   SET code   = COALESCE(code,   customer_code),
-       status = COALESCE(status, CASE WHEN active THEN 'active' ELSE 'inactive' END);
+-- Backfill: `code` from existing `customer_code` (if that column exists);
+-- `status` from `active` (if that column exists). Guarded because some
+-- legacy installs of ip_customer_master may differ from the Phase 0 schema.
+DO $$
+DECLARE
+  has_customer_code boolean;
+  has_active        boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'customer_code'
+  ) INTO has_customer_code;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'active'
+  ) INTO has_active;
+
+  IF has_customer_code THEN
+    EXECUTE 'UPDATE customers SET code = COALESCE(code, customer_code) WHERE code IS NULL';
+  END IF;
+
+  IF has_active THEN
+    EXECUTE $sql$
+      UPDATE customers
+         SET status = COALESCE(status, CASE WHEN active THEN 'active' ELSE 'inactive' END)
+       WHERE status IS NULL
+    $sql$;
+  ELSE
+    -- No legacy active column → default everyone to active where status is null
+    EXECUTE 'UPDATE customers SET status = ''active'' WHERE status IS NULL';
+  END IF;
+END $$;
 
 -- customer_type backfill: heuristic from channel_id if present; otherwise 'wholesale'.
 -- ip_channel_master has channel_type column (wholesale/ecom/marketplace/retail/other);
--- map directly when channel is set.
-UPDATE customers c
-   SET customer_type = COALESCE(
-         c.customer_type,
-         CASE ch.channel_type
-           WHEN 'wholesale'   THEN 'wholesale'
-           WHEN 'ecom'        THEN 'ecom'
-           WHEN 'retail'      THEN 'showroom'
-           WHEN 'marketplace' THEN 'ecom'
-           ELSE 'wholesale'
-         END,
-         'wholesale'
-       )
-  FROM ip_channel_master ch
- WHERE c.channel_id = ch.id OR c.channel_id IS NULL;
+-- map directly when channel is set. Guarded too (channel_id may not exist on all installs).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = 'channel_id'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ip_channel_master'
+  ) THEN
+    EXECUTE $sql$
+      UPDATE customers c
+         SET customer_type = COALESCE(
+               c.customer_type,
+               CASE ch.channel_type
+                 WHEN 'wholesale'   THEN 'wholesale'
+                 WHEN 'ecom'        THEN 'ecom'
+                 WHEN 'retail'      THEN 'showroom'
+                 WHEN 'marketplace' THEN 'ecom'
+                 ELSE 'wholesale'
+               END,
+               'wholesale'
+             )
+        FROM ip_channel_master ch
+       WHERE (c.channel_id = ch.id OR c.channel_id IS NULL)
+         AND c.customer_type IS NULL
+    $sql$;
+  END IF;
+END $$;
 
 UPDATE customers SET customer_type = 'wholesale' WHERE customer_type IS NULL;
 
@@ -1931,22 +1932,39 @@ COMMENT ON COLUMN customers.deleted_at         IS 'Soft delete. Indexes exclude 
 -- Simple SELECT from one base table with no expressions → auto-updatable per
 -- PostgreSQL view-update rules. xoro-sales-sync, planning-sync, AI executors,
 -- seed scripts all continue to work without modification.
+--
+-- Built dynamically because legacy schemas vary: some installs of
+-- ip_customer_master had customer_code / customer_tier / active / channel_id,
+-- some didn't. The view only selects columns that exist on customers.
 -- ────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE VIEW ip_customer_master AS
-SELECT
-  id,
-  customer_code,
-  name,
-  parent_customer_id,
-  customer_tier,
-  country,
-  channel_id,
-  active,
-  external_refs,
-  created_at,
-  updated_at,
-  entity_id
-FROM customers;
+DO $$
+DECLARE
+  view_cols text;
+  legacy_cols text[] := ARRAY[
+    'id', 'customer_code', 'name', 'parent_customer_id', 'customer_tier',
+    'country', 'channel_id', 'active', 'external_refs', 'created_at', 'updated_at', 'entity_id'
+  ];
+  c text;
+  selected text[] := ARRAY[]::text[];
+BEGIN
+  FOREACH c IN ARRAY legacy_cols LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'customers' AND column_name = c
+    ) THEN
+      selected := array_append(selected, c);
+    END IF;
+  END LOOP;
+
+  IF array_length(selected, 1) IS NULL THEN
+    RAISE EXCEPTION 'Tangerine: customers table has none of the legacy columns; cannot create ip_customer_master view';
+  END IF;
+
+  view_cols := array_to_string(selected, ', ');
+  EXECUTE format('CREATE OR REPLACE VIEW ip_customer_master AS SELECT %s FROM customers', view_cols);
+
+  RAISE NOTICE 'Tangerine: created ip_customer_master view with cols [%]', view_cols;
+END $$;
 
 COMMENT ON VIEW ip_customer_master IS
   'Auto-updatable view over `customers` (Tangerine P1 Chunk 6). Preserves the original schema so legacy callers (xoro-sales-sync, planning-sync, AI executors, seed scripts) work without changes. Inserts/updates through the view propagate to customers.';
@@ -1970,12 +1988,10 @@ BEGIN
   END IF;
 END $$;
 
--- END: 20260522020200_p1_customers_promotion.sql
+-- ==== END: 20260522020200_p1_customers_promotion.sql ====
 
 
--- =============================================================================
--- BEGIN: 20260526010000_p1_t1fix_ensure_rof_entity.sql
--- =============================================================================
+-- ==== BEGIN: 20260526010000_p1_t1fix_ensure_rof_entity.sql ====
 -- ════════════════════════════════════════════════════════════════════════════
 -- Tangerine P1 / Chunk T1-fix
 -- Ensure exactly one entity has code='ROF'.
@@ -2050,5 +2066,5 @@ BEGIN
   END IF;
 END $$;
 
--- END: 20260526010000_p1_t1fix_ensure_rof_entity.sql
+-- ==== END: 20260526010000_p1_t1fix_ensure_rof_entity.sql ====
 
