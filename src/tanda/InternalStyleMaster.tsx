@@ -496,23 +496,14 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
       )}
 
       {addOpen && (
-        <div style={{ marginTop: 10, padding: 10, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px", gap: 8, alignItems: "end" }}>
+        <div style={{ marginTop: 10, padding: 10, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, minWidth: 0 }}>
+          {/* Stacked layout — selects + inputs need ~150px minimum to render readably
+              and a 3-column grid overflows the parent edit modal. Two rows × two cols
+              keeps everything inside the modal width. */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "end", minWidth: 0 }}>
             <Field label="Role">
-              <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} style={inputStyle as React.CSSProperties}>
+              <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} style={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}>
                 {FABRIC_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </Field>
-            <Field label="Fabric">
-              <select
-                value={draft.fabric_code_id}
-                onChange={(e) => setDraft({ ...draft, fabric_code_id: e.target.value })}
-                style={inputStyle as React.CSSProperties}
-              >
-                <option value="">— select —</option>
-                {fabrics.map((f) => (
-                  <option key={f.id} value={f.id}>{f.code} — {f.name}</option>
-                ))}
               </select>
             </Field>
             <Field label="Yards/unit">
@@ -521,17 +512,31 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
                 step="0.0001"
                 value={draft.yardage_per_unit}
                 onChange={(e) => setDraft({ ...draft, yardage_per_unit: e.target.value })}
-                style={inputStyle}
+                style={{ ...inputStyle, minWidth: 0 }}
               />
             </Field>
           </div>
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 8, minWidth: 0 }}>
+            <Field label="Fabric">
+              <select
+                value={draft.fabric_code_id}
+                onChange={(e) => setDraft({ ...draft, fabric_code_id: e.target.value })}
+                style={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
+              >
+                <option value="">— select —</option>
+                {fabrics.map((f) => (
+                  <option key={f.id} value={f.id}>{f.code} — {f.name}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div style={{ marginTop: 8, minWidth: 0 }}>
             <Field label="Notes">
               <input
                 type="text"
                 value={draft.notes}
                 onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-                style={inputStyle}
+                style={{ ...inputStyle, minWidth: 0 }}
                 placeholder="optional"
               />
             </Field>

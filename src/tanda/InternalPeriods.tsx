@@ -58,7 +58,9 @@ export default function InternalPeriods() {
   const [rows, setRows] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [fyFilter, setFyFilter] = useState("");
+  // Default to the current calendar year so the panel doesn't dump all 10
+  // bootstrapped fiscal years on the operator. Switch to "All" via the dropdown.
+  const [fyFilter, setFyFilter] = useState(String(new Date().getFullYear()));
   const [statusFilter, setStatusFilter] = useState("");
 
   async function load() {
