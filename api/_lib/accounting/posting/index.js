@@ -36,7 +36,10 @@ import { checkAccountExistsInEntity } from "./guards/accountExistsInEntity.js";
 
 import { persistRuleOutput } from "./persist.js";
 import { reverseJournalEntry } from "./reverse.js";
-import { createLayer as createInventoryLayer } from "../../inventory/fifo.js";
+import {
+  createLayer as createInventoryLayer,
+  consume as consumeInventory,
+} from "../../inventory/fifo.js";
 
 export { reverseJournalEntry } from "./reverse.js";
 
@@ -107,7 +110,69 @@ export async function postEvent(supabase, event) {
     );
   }
 
-  // 2. Run guards on each non-null candidate
+  // 2a. consumePlan drain (P3-5 — M37 negative inventory adjustments).
+  //
+  //   The rule emits a consumePlan when it can't author the JE amount up-front
+  //   because the value is FIFO-derived. Currently only inventoryAdjustment
+  //   uses this path (negative qty_delta). For each plan entry we call
+  //   inventory_fifo_consume() to get cogs_cents, then rewrite the sentinel
+  //   "0" amounts on the rule output's JE lines to the real value.
+  //
+  //   The consume() call has DB side-effects (mutates inventory_layers +
+  //   inserts inventory_consumption) that DO NOT roll back if the JE persist
+  //   fails downstream. This is an accepted asymmetry: inventory was already
+  //   physically removed (the operator observed shrinkage / damage); the GL
+  //   posting is the bookkeeping of that physical truth. If the JE persist
+  //   fails the FIFO ledger is correct ahead of GL, which can be reconciled
+  //   out-of-band the same way we treat the inverse asymmetry on positive
+  //   adjustments (createLayer fails after JE post).
+  //
+  //   The rule guarantees that the negative-side JE candidates are wired with
+  //   exactly two lines: line_number=1 has debit="0" sentinel on the counter
+  //   account, line_number=2 has credit="0" sentinel on the inventory account.
+  //   We mutate both candidates' line 1 (debit) and line 2 (credit) to the
+  //   computed amount string. Guard balance check on the sentinel "0/0" rule
+  //   output would obviously pass (both sides equal). We re-validate balance
+  //   AFTER the rewrite.
+  let consumePlanResults = [];
+  if (Array.isArray(ruleOutput.consumePlan) && ruleOutput.consumePlan.length > 0) {
+    let totalCogs = 0n;
+    for (const plan of ruleOutput.consumePlan) {
+      const { cogs_cents } = await consumeInventory(supabase, {
+        entity_id: event.entity_id,
+        item_id: plan.item_id,
+        qty: plan.qty,
+        consumer_kind: plan.consumer_kind,
+        consumer_ref_id: plan.consumer_ref_id,
+        user_id: event.created_by_user_id || null,
+      });
+      consumePlanResults.push({
+        item_id: plan.item_id,
+        qty: plan.qty,
+        cogs_cents,
+      });
+      totalCogs += cogs_cents;
+    }
+    // Convert totalCogs back to a decimal-string ("123.45"). The rule put
+    // sentinel "0" on the JE candidate line 1's debit + line 2's credit; the
+    // contracted shape is exactly two lines (DR counter / CR inventory).
+    const amountStr = bigintCentsToDecimal(totalCogs);
+    for (const side of ["accrual", "cash"]) {
+      const cand = ruleOutput[side];
+      if (!cand) continue;
+      if (!Array.isArray(cand.lines) || cand.lines.length < 2) {
+        throw new PostingError(
+          "consume_plan_shape",
+          `consumePlan path expects 2-line ${side} candidate (got ${cand.lines?.length ?? 0})`,
+        );
+      }
+      // line 1 is DR counter; line 2 is CR inventory. Rewrite both.
+      cand.lines[0].debit = amountStr;
+      cand.lines[1].credit = amountStr;
+    }
+  }
+
+  // 2b. Run guards on each non-null candidate
   const ctx = { supabase, entity_id: event.entity_id };
 
   for (const side of ["accrual", "cash"]) {
@@ -118,6 +183,15 @@ export async function postEvent(supabase, event) {
 
   // 3. Persist transactionally
   const result = await persistRuleOutput(supabase, ruleOutput);
+
+  // 3a. Expose consume results on the result (M37 audit trail).
+  if (consumePlanResults.length > 0) {
+    result.consume_results = consumePlanResults.map((c) => ({
+      item_id: c.item_id,
+      qty: c.qty,
+      cogs_cents: c.cogs_cents.toString(), // serialize bigint as string
+    }));
+  }
 
   // 4. P3-4 (arch §4.5): after the JE persists, create one inventory_layers
   //    row per pending layer. This fires AFTER the JE so a failed JE does NOT
@@ -131,14 +205,19 @@ export async function postEvent(supabase, event) {
     const layerIds = [];
     const layerErrors = [];
     for (const pending of ruleOutput.inventoryLayers) {
+      // P3-5: source_kind defaults to 'ap_invoice' for back-compat with P3-4
+      // (apInvoiceReceived). Positive inventoryAdjustment supplies
+      // source_kind='adjustment' + source_adjustment_id.
+      const sourceKind = pending.source_kind || "ap_invoice";
       try {
         const { layer } = await createInventoryLayer(supabase, {
           entity_id: event.entity_id,
           item_id: pending.item_id,
           qty: pending.qty,
           unit_cost_cents: pending.unit_cost_cents,
-          source_kind: "ap_invoice",
-          source_invoice_id: pending.source_invoice_id,
+          source_kind: sourceKind,
+          source_invoice_id: pending.source_invoice_id || null,
+          source_adjustment_id: pending.source_adjustment_id || null,
           received_at: pending.received_at || null,
           notes: pending.notes || null,
           created_by_user_id: event.created_by_user_id ?? null,
@@ -148,7 +227,7 @@ export async function postEvent(supabase, event) {
         const message = err?.message || String(err);
         // eslint-disable-next-line no-console
         console.error(
-          `[posting] AP invoice ${event.data?.invoice_id ?? "(?)"}: FIFO layer create failed for item ${pending.item_id}: ${message}`,
+          `[posting] ${event.kind}: FIFO layer create failed for item ${pending.item_id}: ${message}`,
         );
         layerErrors.push({ item_id: pending.item_id, error: message });
       }
@@ -160,6 +239,17 @@ export async function postEvent(supabase, event) {
   }
 
   return result;
+}
+
+// cents (bigint) → decimal-string ("123.45"). Shared with rules; kept here so
+// the consumePlan drain doesn't have to import from a sibling rule.
+function bigintCentsToDecimal(cents) {
+  const neg = cents < 0n;
+  const abs = neg ? -cents : cents;
+  const whole = abs / 100n;
+  const frac = abs % 100n;
+  const fracStr = frac.toString().padStart(2, "0");
+  return `${neg ? "-" : ""}${whole.toString()}.${fracStr}`;
 }
 
 async function runGuards(candidate, ctx, side) {

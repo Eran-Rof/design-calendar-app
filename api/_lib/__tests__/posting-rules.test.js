@@ -155,42 +155,58 @@ describe("inventoryReceipt", () => {
 });
 
 describe("inventoryAdjustment", () => {
-  it("'up' direction: DR inventory / CR adjustment, both bases", () => {
+  // P3-5 (2026-05-27) reworked the rule from a `direction: up|down` + `amount`
+  // contract to a signed `qty_delta` + `adjustment_type` contract that does
+  // its own cents math + emits side-effect descriptors (inventoryLayers for
+  // positive, consumePlan for negative). See inventory-adjustment-rule.test.js
+  // for the full surface coverage; the legacy assertions below were rewritten
+  // to match the new shape.
+  it("positive qty_delta: DR inventory / CR counter, both bases", () => {
     const r = inventoryAdjustment({
       kind: "inventory_adjustment", entity_id: ENTITY,
       data: {
         adjustment_id: "adj-1", item_id: "i-1",
-        adjustment_date: "2026-05-21", amount: "25.00", direction: "up",
-        inventory_account_id: "inv1", adjustment_account_id: "adj1",
+        posting_date: "2026-05-21",
+        adjustment_type: "found", qty_delta: 5, unit_cost_cents: 500,
+        inventory_account_id: "inv1", gl_account_id: "adj1",
       },
     });
     expect(r.accrual.lines[0].account_id).toBe("inv1");
     expect(r.accrual.lines[0].subledger_type).toBe("item");
-    expect(r.cash.lines).toEqual(r.accrual.lines);
+    // Line content equal across bases (independent arrays)
+    expect(r.cash.lines[0].account_id).toBe(r.accrual.lines[0].account_id);
+    expect(r.cash.lines[0].debit).toBe(r.accrual.lines[0].debit);
+    expect(r.inventoryLayers).toHaveLength(1);
   });
 
-  it("'down' direction: DR adjustment / CR inventory", () => {
+  it("negative qty_delta: DR counter / CR inventory + consumePlan", () => {
     const r = inventoryAdjustment({
       kind: "inventory_adjustment", entity_id: ENTITY,
       data: {
         adjustment_id: "adj-2", item_id: "i-1",
-        adjustment_date: "2026-05-21", amount: "25.00", direction: "down",
-        inventory_account_id: "inv1", adjustment_account_id: "adj1",
+        posting_date: "2026-05-21",
+        adjustment_type: "damage", qty_delta: -5, unit_cost_cents: null,
+        inventory_account_id: "inv1", gl_account_id: "adj1",
       },
     });
     expect(r.accrual.lines[0].account_id).toBe("adj1");
     expect(r.accrual.lines[1].account_id).toBe("inv1");
     expect(r.accrual.lines[1].subledger_type).toBe("item");
+    // Sentinel "0" amounts; rewritten by postEvent.
+    expect(r.accrual.lines[0].debit).toBe("0");
+    expect(r.accrual.lines[1].credit).toBe("0");
+    expect(r.consumePlan).toHaveLength(1);
   });
 
-  it("rejects invalid direction", () => {
+  it("rejects invalid adjustment_type", () => {
     expect(() => inventoryAdjustment({
       kind: "inventory_adjustment", entity_id: ENTITY,
       data: {
         adjustment_id: "adj-3", item_id: "i-1",
-        adjustment_date: "2026-05-21", amount: "25.00", direction: "sideways",
-        inventory_account_id: "inv1", adjustment_account_id: "adj1",
+        posting_date: "2026-05-21",
+        adjustment_type: "sideways", qty_delta: -1,
+        inventory_account_id: "inv1", gl_account_id: "adj1",
       },
-    })).toThrow(/direction must be/);
+    })).toThrow(/adjustment_type/);
   });
 });

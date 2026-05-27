@@ -296,6 +296,9 @@ import h291 from "./internal/fabric-codes/index.js";
 import h292 from "./internal/fabric-codes/[id].js";
 import h293 from "./internal/style-fabric-codes/index.js";
 import h294 from "./internal/style-fabric-codes/[id].js";
+import h295 from "./internal/inventory-adjustments/index.js";
+import h296 from "./internal/inventory-adjustments/[id].js";
+import h297 from "./internal/inventory-adjustments/post.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -533,6 +536,10 @@ export const ROUTES = [
   { pattern: "/api/internal/employees", handler: h276 },
   { pattern: "/api/internal/auth/provision", handler: h278 },
   { pattern: "/api/internal/inventory-transfers", handler: h279 },
+  // Inventory adjustments — subpath /:id/post BEFORE bare /:id (first-match-wins)
+  { pattern: "/api/internal/inventory-adjustments/:id/post", handler: h297 },
+  { pattern: "/api/internal/inventory-adjustments/:id", handler: h296 },
+  { pattern: "/api/internal/inventory-adjustments", handler: h295 },
   // Scanner — subpaths BEFORE /:id parent (first-match-wins dispatcher)
   { pattern: "/api/internal/scanner/events/batch", handler: h280 },
   { pattern: "/api/internal/scanner/sessions/:id/submit", handler: h281 },
