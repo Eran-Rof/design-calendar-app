@@ -14,25 +14,52 @@
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Step 1: Rename table.
+-- Step 1: Rename table — handles 4 prod-state cases.
 --
--- Idempotency note: on first run, ip_customer_master is a TABLE that gets
--- renamed to customers. On any subsequent re-run, ip_customer_master is now
--- a VIEW (created at the end of this same migration as a backward-compat
--- alias). `ALTER TABLE IF EXISTS ip_customer_master` would still match the
--- view and try to rename it — which collides with the existing customers
--- table. Guard the rename to only fire when customers does NOT yet exist as
--- a base table.
+-- Case A: ip_customer_master exists (table), customers does NOT
+--   → straightforward rename
+-- Case B: ip_customer_master gone (view from prior run), customers exists (table from prior run)
+--   → no-op, re-run scenario
+-- Case C: ip_customer_master exists (table), customers also exists (table from a
+--         DIFFERENT system / pre-Tangerine app) — this is the collision we hit
+--         on the actual prod where a pre-existing `customers` stub lived
+--   → archive the existing customers to customers_pretangerine_YYYYMMDDHH24MISS,
+--     preserving its data, then rename ip_customer_master to customers
+-- Case D: Neither exists → abort with a clear error
 -- ────────────────────────────────────────────────────────────────────────────
 DO $$
+DECLARE
+  ipcm_is_table boolean;
+  cust_is_table boolean;
+  archive_name  text;
 BEGIN
-  IF NOT EXISTS (
+  SELECT EXISTS (
     SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name   = 'customers'
-      AND table_type   = 'BASE TABLE'
-  ) THEN
-    ALTER TABLE IF EXISTS ip_customer_master RENAME TO customers;
+    WHERE table_schema = 'public' AND table_name = 'ip_customer_master' AND table_type = 'BASE TABLE'
+  ) INTO ipcm_is_table;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'customers' AND table_type = 'BASE TABLE'
+  ) INTO cust_is_table;
+
+  IF ipcm_is_table AND cust_is_table THEN
+    -- Case C: collision. Archive the pre-existing customers, then rename ip_customer_master.
+    archive_name := 'customers_pretangerine_' || to_char(now(), 'YYYYMMDDHH24MISS');
+    EXECUTE format('ALTER TABLE customers RENAME TO %I', archive_name);
+    RAISE NOTICE 'Tangerine: pre-existing customers table archived as % (data preserved). Inspect after migration to decide whether to keep or drop it.', archive_name;
+    ALTER TABLE ip_customer_master RENAME TO customers;
+    RAISE NOTICE 'Tangerine: ip_customer_master renamed to customers';
+  ELSIF ipcm_is_table AND NOT cust_is_table THEN
+    -- Case A: clean first run
+    ALTER TABLE ip_customer_master RENAME TO customers;
+    RAISE NOTICE 'Tangerine: ip_customer_master renamed to customers';
+  ELSIF NOT ipcm_is_table AND cust_is_table THEN
+    -- Case B: re-run; nothing to do
+    RAISE NOTICE 'Tangerine: customers already exists, ip_customer_master is gone — skipping rename (re-run case)';
+  ELSE
+    -- Case D: nothing to promote
+    RAISE EXCEPTION 'Tangerine: neither ip_customer_master nor customers exists as a base table. Cannot promote.';
   END IF;
 END $$;
 
