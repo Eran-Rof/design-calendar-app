@@ -44,6 +44,9 @@ const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borde
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  // colorScheme makes native pickers (date / time / color) render their
+  // popup chrome in dark mode so the calendar widget matches the panel.
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
