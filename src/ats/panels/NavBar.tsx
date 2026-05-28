@@ -797,25 +797,43 @@ export const NavBar: React.FC<NavBarProps> = ({
     // shows ONLY this customer's SO qty and the inserted "SO Prc" column
     // shows the qty-weighted avg unit price from those SOs.
     //
-    // SO names from excelData.sos.customerName come directly from the
-    // operator's Xoro SO upload. The export-modal dropdown sources its
-    // labels from the same set (NavBar's customers useMemo) so an exact
-    // string match is correct here — no canonicalization needed.
+    // GRAIN CONVERSION (critical):
+    // Xoro stores SO qty + unitPrice in PACK grain for prepack SKUs
+    // (so.qty=10 means 10 packs of a PPK60 → 600 units; so.unitPrice is
+    // per-pack). compute.ts already multiplies r.onOrder by mult to land
+    // at unit-grain, so our customerSoMap.qty must also be unit-grain or
+    // the body's `qty / qtyDiv` display would silently render pack-grain
+    // when explodePpk=true. Symmetric divide for unitPrice → per-unit
+    // price. Then exportExcel applies costMul on display so pack mode
+    // gets pack-grain price back.
     let customerSoMap: Map<string, { qty: number; soPrice: number }> | undefined;
     if (customerSelected && excelData?.sos?.length) {
       const wantedNames = Array.isArray(opts.customer)
         ? new Set(opts.customer.map((s) => s.trim()).filter(Boolean))
         : new Set([opts.customer.trim()].filter(Boolean));
+      // (sku, store) → ppkMult lookup, sourced from the row set since
+      // each row already has the resolved mult from compute.ts.
+      const multByKey = new Map<string, number>();
+      for (const r of finalRows) {
+        const k = `${r.sku}::${r.store ?? "ROF"}`;
+        const m = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+        if (!multByKey.has(k)) multByKey.set(k, m);
+      }
       const acc = new Map<string, { qty: number; rev: number }>();
       for (const so of excelData.sos) {
         if (!wantedNames.has(so.customerName)) continue;
         const key = `${so.sku}::${so.store ?? "ROF"}`;
+        const mult = multByKey.get(key) ?? 1;
+        const qtyRaw = so.qty ?? 0;
+        if (qtyRaw <= 0) continue;
+        const unitPackPrice = so.unitPrice ?? (so.totalPrice ?? 0) / qtyRaw;
+        // PACK qty → UNIT qty (multiply); per-PACK price → per-UNIT price
+        // (divide). For non-prepack rows (mult=1) both are no-ops.
+        const qtyUnit = qtyRaw * mult;
+        const perUnitPrice = mult > 0 ? unitPackPrice / mult : unitPackPrice;
         const cur = acc.get(key);
-        const qty = so.qty ?? 0;
-        const unit = so.unitPrice ?? (qty > 0 && so.totalPrice ? so.totalPrice / qty : 0);
-        if (qty <= 0) continue;
-        if (cur) { cur.qty += qty; cur.rev += unit * qty; }
-        else acc.set(key, { qty, rev: unit * qty });
+        if (cur) { cur.qty += qtyUnit; cur.rev += perUnitPrice * qtyUnit; }
+        else acc.set(key, { qty: qtyUnit, rev: perUnitPrice * qtyUnit });
       }
       if (acc.size > 0) {
         customerSoMap = new Map();

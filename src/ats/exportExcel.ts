@@ -969,12 +969,16 @@ export function buildExportPayload(
     qtyRow[COL.onOrder - 1] = onOrderV === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onOrderV, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onPO    - 1] = onPOV    === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onPOV,    t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     // SO Prc — qty-weighted avg unit price of the customer's matching
-    // SOs for this row. Blank when this row has no customer SOs.
+    // SOs for this row. The map stores per-UNIT price (NavBar divides
+    // by mult when ingesting from Xoro's per-PACK SO data). Apply
+    // costMul on display so pack mode (explodePpk=false) shows the
+    // per-pack price and unit mode shows the per-unit price.
     if (COL_SO_PRC) {
-      const soPrc = customerSoEntry?.soPrice ?? 0;
-      qtyRow[COL_SO_PRC - 1] = soPrc === 0
+      const soPrcUnit = customerSoEntry?.soPrice ?? 0;
+      const soPrcDisplay = soPrcUnit * costMul;
+      qtyRow[COL_SO_PRC - 1] = soPrcDisplay === 0
         ? { v: "", t: "s", s: { ...bodyNumStyle(FILL_QTY_COL), numFmt: "$#,##0.00" } }
-        : { v: soPrc, t: "n", s: { ...bodyNumStyle(FILL_QTY_COL), numFmt: "$#,##0.00" } };
+        : { v: soPrcDisplay, t: "n", s: { ...bodyNumStyle(FILL_QTY_COL), numFmt: "$#,##0.00" } };
     }
 
     // Period cells. For prepack rows the qty sits at the BOTTOM of
