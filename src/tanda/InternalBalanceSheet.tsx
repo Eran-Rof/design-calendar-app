@@ -14,6 +14,8 @@
 // Per docs/tangerine/P5-close-core-financials-architecture.md §6.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Basis = "ACCRUAL" | "CASH";
 
@@ -266,6 +268,38 @@ export default function InternalBalanceSheet() {
           />
         </label>
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
+        <ExportButton
+          rows={(() => {
+            const out: Array<Record<string, unknown>> = [];
+            for (const r of assetsRows) {
+              const isContra = r.account_type === "contra_asset";
+              const bal = isContra ? -Number(r.balance_cents || 0) : Number(r.balance_cents || 0);
+              out.push({ section: "Assets", kind: "row", account_type: r.account_type, code: r.code, name: r.name, balance_cents: bal });
+            }
+            out.push({ section: "Assets", kind: "subtotal", account_type: "", code: "", name: "TOTAL ASSETS", balance_cents: totalAssetsNet });
+            for (const r of liabRows) {
+              out.push({ section: "Liabilities", kind: "row", account_type: r.account_type, code: r.code, name: r.name, balance_cents: Number(r.balance_cents || 0) });
+            }
+            out.push({ section: "Liabilities", kind: "subtotal", account_type: "", code: "", name: "TOTAL LIABILITIES", balance_cents: totalLiabilities });
+            for (const r of equityRows) {
+              out.push({ section: "Equity", kind: "row", account_type: r.account_type, code: r.code, name: r.name, balance_cents: Number(r.balance_cents || 0) });
+            }
+            out.push({ section: "Equity", kind: "row", account_type: "equity", code: "", name: "Current Year Earnings", balance_cents: currentYearEarnings });
+            out.push({ section: "Equity", kind: "subtotal", account_type: "", code: "", name: "TOTAL EQUITY", balance_cents: totalEquityWithCYE });
+            out.push({ section: "Variance", kind: "total", account_type: "", code: "", name: "Variance (Assets − Liab − Equity)", balance_cents: variance });
+            return out;
+          })()}
+          filename={`balance-sheet-${basis}-${asOf}`}
+          sheetName="Balance Sheet"
+          columns={[
+            { key: "section",       header: "Section" },
+            { key: "kind",          header: "Kind" },
+            { key: "account_type",  header: "Type" },
+            { key: "code",          header: "Code" },
+            { key: "name",          header: "Account" },
+            { key: "balance_cents", header: "Balance", format: "currency_cents" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

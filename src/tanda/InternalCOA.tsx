@@ -6,6 +6,8 @@
 // code, account_type, normal_balance are locked post-creation by the handler.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Account = {
   id: string;
@@ -133,6 +135,24 @@ export default function InternalCOA() {
           />
           Show inactive
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="chart-of-accounts"
+          sheetName="Chart of Accounts"
+          columns={[
+            { key: "code",            header: "Code" },
+            { key: "name",            header: "Name" },
+            { key: "account_type",    header: "Type" },
+            { key: "account_subtype", header: "Subtype" },
+            { key: "normal_balance",  header: "Normal Balance" },
+            { key: "status",          header: "Status" },
+            { key: "is_postable",     header: "Postable" },
+            { key: "is_control",      header: "Control" },
+            { key: "description",     header: "Description" },
+            { key: "created_at",      header: "Created", format: "datetime" },
+            { key: "updated_at",      header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

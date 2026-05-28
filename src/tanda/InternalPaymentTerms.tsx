@@ -11,6 +11,8 @@
 // 2_10_NET30) — operators add edge-case terms here (NET75, special discounts).
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type PaymentTerm = {
   id: string;
@@ -144,6 +146,21 @@ export default function InternalPaymentTerms() {
           />
           Show inactive
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="payment-terms"
+          sheetName="Payment Terms"
+          columns={[
+            { key: "code",          header: "Code" },
+            { key: "name",          header: "Name" },
+            { key: "due_days",      header: "Due Days",      format: "number" },
+            { key: "discount_pct",  header: "Discount %",    format: "number" },
+            { key: "discount_days", header: "Discount Days", format: "number" },
+            { key: "is_active",     header: "Active" },
+            { key: "created_at",    header: "Created", format: "datetime" },
+            { key: "updated_at",    header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

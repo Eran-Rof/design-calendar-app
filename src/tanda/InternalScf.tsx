@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Program {
   id: string;
@@ -145,14 +147,35 @@ export default function InternalScf() {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Requests</h3>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-          <option value="requested">Pending approval</option>
-          <option value="approved">Approved (needs funding)</option>
-          <option value="funded">Funded</option>
-          <option value="repaid">Repaid</option>
-          <option value="rejected">Rejected</option>
-          <option value="">All</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
+            <option value="requested">Pending approval</option>
+            <option value="approved">Approved (needs funding)</option>
+            <option value="funded">Funded</option>
+            <option value="repaid">Repaid</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <ExportButton
+            rows={requests as unknown as Array<Record<string, unknown>>}
+            filename="scf-requests"
+            sheetName="SCF Requests"
+            columns={[
+              { key: "requested_at",        header: "Requested",      format: "datetime" },
+              { key: "vendor_id",           header: "Vendor ID" },
+              { key: "program_id",          header: "Program ID" },
+              { key: "invoice_id",          header: "Invoice ID" },
+              { key: "requested_amount",    header: "Requested",      format: "currency_dollars" },
+              { key: "approved_amount",     header: "Approved",       format: "currency_dollars" },
+              { key: "fee_pct",             header: "Fee %",          format: "number" },
+              { key: "fee_amount",          header: "Fee Amount",     format: "currency_dollars" },
+              { key: "net_disbursement",    header: "Net",            format: "currency_dollars" },
+              { key: "status",              header: "Status" },
+              { key: "repayment_due_date",  header: "Repay Due",      format: "date" },
+              { key: "rejection_reason",    header: "Rejection Reason" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>

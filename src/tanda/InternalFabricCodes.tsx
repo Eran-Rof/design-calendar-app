@@ -5,6 +5,8 @@
 // 409-on-reference guard. Wraps /api/internal/fabric-codes and /:id.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type FabricCode = {
   id: string;
@@ -140,6 +142,24 @@ export default function InternalFabricCodes() {
           />
           Show inactive
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="fabric-codes"
+          sheetName="Fabric Codes"
+          columns={[
+            { key: "code",                   header: "Code" },
+            { key: "name",                   header: "Name" },
+            { key: "composition_text",       header: "Composition" },
+            { key: "fabric_weight_gsm",      header: "GSM", format: "number" },
+            { key: "country_of_origin_iso2", header: "COO" },
+            { key: "hts_code",               header: "HTS" },
+            { key: "care_instructions",      header: "Care Instructions" },
+            { key: "default_vendor_id",      header: "Default Vendor ID" },
+            { key: "is_active",              header: "Active" },
+            { key: "created_at",             header: "Created", format: "datetime" },
+            { key: "updated_at",             header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

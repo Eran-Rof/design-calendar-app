@@ -10,6 +10,8 @@
 
 import { useEffect, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Customer = {
   id: string;
@@ -185,6 +187,26 @@ export default function InternalCustomerMaster() {
           />
           Show inactive
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="customers"
+          sheetName="Customers"
+          columns={[
+            { key: "code",             header: "Code" },
+            { key: "customer_code",    header: "Customer Code" },
+            { key: "name",             header: "Name" },
+            { key: "customer_type",    header: "Type" },
+            { key: "customer_tier",    header: "Tier" },
+            { key: "country",          header: "Country" },
+            { key: "status",           header: "Status" },
+            { key: "credit_limit",     header: "Credit Limit", format: "number" },
+            { key: "payment_terms",    header: "Payment Terms" },
+            { key: "default_currency", header: "Currency" },
+            { key: "tax_exempt",       header: "Tax Exempt" },
+            { key: "created_at",       header: "Created", format: "datetime" },
+            { key: "updated_at",       header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

@@ -19,6 +19,8 @@
 //      check — P6-6).
 
 import { useEffect, useMemo, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -176,7 +178,35 @@ function AccountsTab() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, []);
+  const exportRows = useMemo(
+    () => rows.map((r) => ({
+      ...r,
+      institution: r.institution_name,
+      gl_account: r.gl_accounts ? `${r.gl_accounts.code} ${r.gl_accounts.name}` : r.gl_account_id,
+      active: r.is_active ? "active" : "inactive",
+    })),
+    [rows]
+  );
   return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <ExportButton
+          rows={exportRows as unknown as Array<Record<string, unknown>>}
+          filename="bank-accounts"
+          sheetName="Bank Accounts"
+          columns={[
+            { key: "name",                  header: "Name" },
+            { key: "institution",           header: "Institution" },
+            { key: "mask",                  header: "Mask" },
+            { key: "account_kind",          header: "Kind" },
+            { key: "feed_source",           header: "Source" },
+            { key: "gl_account",            header: "GL Account" },
+            { key: "last_synced_at",        header: "Last Sync",  format: "datetime" },
+            { key: "current_balance_cents", header: "Balance",    format: "currency_cents" },
+            { key: "active",                header: "Status" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
+      </div>
     <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px" }}>Error: {err}</div>}
       {loading ? (
@@ -228,6 +258,7 @@ function AccountsTab() {
           onSaved={() => { setRulesModal(null); void load(); }}
         />
       )}
+    </div>
     </div>
   );
 }
@@ -500,6 +531,29 @@ function TransactionsTab() {
           <option value="all">All ({rows.length})</option>
         </select>
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
+        <ExportButton
+          rows={rows.map((r) => ({
+            ...r,
+            account_name: r.bank_accounts?.name || r.bank_account_id,
+            account_mask: r.bank_accounts?.mask || null,
+            description_display: r.merchant_name || r.description,
+          })) as unknown as Array<Record<string, unknown>>}
+          filename="bank-transactions"
+          sheetName="Bank Transactions"
+          columns={[
+            { key: "posted_date",         header: "Date",        format: "date" },
+            { key: "account_name",        header: "Account" },
+            { key: "account_mask",        header: "Mask" },
+            { key: "description_display", header: "Description" },
+            { key: "merchant_name",       header: "Merchant" },
+            { key: "amount_cents",        header: "Amount",      format: "currency_cents" },
+            { key: "status",              header: "Status" },
+            { key: "match_confidence",    header: "Confidence %", format: "number" },
+            { key: "external_txn_id",     header: "External Txn ID" },
+            { key: "pending",             header: "Pending" },
+            { key: "notes",               header: "Notes" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
         <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted }}>{rows.length} row{rows.length === 1 ? "" : "s"}</span>
       </div>
 

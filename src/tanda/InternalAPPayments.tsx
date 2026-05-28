@@ -5,6 +5,8 @@
 // (the AP Invoice panel) — this is for accountant review only.
 
 import { useEffect, useMemo, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type APPayment = {
   id: string;
@@ -150,6 +152,37 @@ export default function InternalAPPayments() {
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 150 }} />
         </label>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
+        <ExportButton
+          rows={rows.map((p) => {
+            const inv = invMap[p.invoice_id];
+            const vendor = inv && vendorMap[inv.vendor_id];
+            const bank = acctMap[p.bank_account_id];
+            return {
+              payment_date: p.payment_date,
+              invoice_number: inv?.invoice_number || p.invoice_id,
+              vendor: vendor?.name || "",
+              amount_cents: p.amount_cents,
+              method: p.method,
+              bank: bank ? `${bank.code} — ${bank.name}` : p.bank_account_id,
+              reference: p.reference,
+              cash_je_id: p.cash_je_id,
+              notes: p.notes,
+            };
+          }) as unknown as Array<Record<string, unknown>>}
+          filename="ap-payments"
+          sheetName="AP Payments"
+          columns={[
+            { key: "payment_date",   header: "Date",     format: "date" },
+            { key: "invoice_number", header: "Invoice" },
+            { key: "vendor",         header: "Vendor" },
+            { key: "amount_cents",   header: "Amount",   format: "currency_cents" },
+            { key: "method",         header: "Method" },
+            { key: "bank",           header: "Bank" },
+            { key: "reference",      header: "Reference" },
+            { key: "cash_je_id",     header: "Cash JE" },
+            { key: "notes",          header: "Notes" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
         <div style={{ marginLeft: "auto", fontSize: 12, color: C.textMuted }}>
           Total this view: <strong style={{ color: C.text, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{fmtCents(totalCents.toString())}</strong>
         </div>

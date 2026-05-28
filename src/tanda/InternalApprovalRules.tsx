@@ -6,6 +6,8 @@
 // for the 3 MVP rule shapes is a future polish).
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Rule = {
   id: string;
@@ -116,6 +118,22 @@ export default function InternalApprovalRules() {
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Include inactive
         </label>
+        <div style={{ marginLeft: "auto" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="approval-rules"
+            sheetName="Approval Rules"
+            columns={[
+              { key: "kind",       header: "Kind" },
+              { key: "name",       header: "Name" },
+              { key: "match",      header: "Match" },
+              { key: "steps",      header: "Steps" },
+              { key: "is_active",  header: "Active" },
+              { key: "created_at", header: "Created",  format: "datetime" },
+              { key: "updated_at", header: "Updated",  format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}

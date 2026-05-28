@@ -10,6 +10,8 @@
 //      and bf_unmatched_customers_log audits.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -191,7 +193,27 @@ export default function InternalARBackfill() {
         )}
       </div>
 
-      <Section title={`Checkpoint log (${checkpoints.length})`}>
+      <Section
+        title={`Checkpoint log (${checkpoints.length})`}
+        action={
+          <ExportButton
+            rows={checkpoints as unknown as Array<Record<string, unknown>>}
+            filename="ar-backfill-checkpoints"
+            sheetName="Checkpoints"
+            columns={[
+              { key: "backfill_run_id",   header: "Run ID" },
+              { key: "year",              header: "Year" },
+              { key: "month",             header: "Month" },
+              { key: "invoices_created",  header: "Invoices", format: "number" },
+              { key: "je_created",        header: "JEs",      format: "number" },
+              { key: "status",            header: "Status" },
+              { key: "started_at",        header: "Started",  format: "datetime" },
+              { key: "finished_at",       header: "Finished", format: "datetime" },
+              { key: "error",             header: "Error" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        }
+      >
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Run</th><th style={th}>Year</th><th style={th}>Month</th>
@@ -216,7 +238,26 @@ export default function InternalARBackfill() {
         </table>
       </Section>
 
-      <Section title={`Reconciliation — variance rows only (${recon.filter((r) => Number(r.variance) !== 0).length})`}>
+      <Section
+        title={`Reconciliation — variance rows only (${recon.filter((r) => Number(r.variance) !== 0).length})`}
+        action={
+          <ExportButton
+            rows={recon.filter((r) => Number(r.variance ?? 0) !== 0) as unknown as Array<Record<string, unknown>>}
+            filename="ar-backfill-reconciliation"
+            sheetName="Reconciliation"
+            columns={[
+              { key: "year",                  header: "Year" },
+              { key: "month",                 header: "Month" },
+              { key: "source_invoice_count",  header: "Src #",   format: "number" },
+              { key: "ar_invoice_count",      header: "AR #",    format: "number" },
+              { key: "source_revenue",        header: "Src $",   format: "currency_dollars" },
+              { key: "ar_revenue",            header: "AR $",    format: "currency_dollars" },
+              { key: "variance",              header: "Variance", format: "currency_dollars" },
+              { key: "variance_pct",          header: "Variance %", format: "percent" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        }
+      >
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Year</th><th style={th}>Month</th>
@@ -242,7 +283,25 @@ export default function InternalARBackfill() {
         </table>
       </Section>
 
-      <Section title={`Unmatched / synthesized customers (${unmatched.length})`}>
+      <Section
+        title={`Unmatched / synthesized customers (${unmatched.length})`}
+        action={
+          <ExportButton
+            rows={unmatched as unknown as Array<Record<string, unknown>>}
+            filename="ar-backfill-unmatched-customers"
+            sheetName="Unmatched"
+            columns={[
+              { key: "source_customer_code", header: "Code" },
+              { key: "source_customer_name", header: "Name" },
+              { key: "invoice_number",       header: "Invoice" },
+              { key: "resolution",           header: "Resolution" },
+              { key: "resolved_customer_id", header: "Resolved Customer ID" },
+              { key: "notes",                header: "Notes" },
+              { key: "logged_at",            header: "Logged At", format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        }
+      >
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Code</th><th style={th}>Name</th><th style={th}>Invoice</th><th style={th}>Resolution</th><th style={th}>Notes</th>
@@ -261,7 +320,23 @@ export default function InternalARBackfill() {
         </table>
       </Section>
 
-      <Section title={`Skipped COGS lines (${skipped.length})`}>
+      <Section
+        title={`Skipped COGS lines (${skipped.length})`}
+        action={
+          <ExportButton
+            rows={skipped as unknown as Array<Record<string, unknown>>}
+            filename="ar-backfill-skipped-cogs"
+            sheetName="Skipped COGS"
+            columns={[
+              { key: "invoice_number",   header: "Invoice" },
+              { key: "source_line_key",  header: "Line Key" },
+              { key: "sku_id",           header: "SKU ID" },
+              { key: "reason",           header: "Reason" },
+              { key: "logged_at",        header: "Logged At", format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        }
+      >
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Invoice</th><th style={th}>Line key</th><th style={th}>SKU</th><th style={th}>Reason</th>
@@ -282,10 +357,13 @@ export default function InternalARBackfill() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: C.textSub, marginBottom: 6 }}>{title}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.textSub }}>{title}</div>
+        {action}
+      </div>
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: 320, overflowY: "auto" }}>
         {children}
       </div>

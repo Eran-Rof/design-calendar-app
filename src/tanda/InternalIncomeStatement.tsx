@@ -21,6 +21,8 @@
 // Sections are collapsible (default open). Currency right-aligned + tabular-nums.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type ISRow = {
   entity_id: string;
@@ -260,6 +262,39 @@ export default function InternalIncomeStatement() {
           />
         </label>
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
+        <ExportButton
+          rows={(() => {
+            const out: Array<Record<string, unknown>> = [];
+            for (const r of revenueRows) {
+              out.push({ section: "Revenue", kind: "row", code: r.code, name: r.name, amount_cents: rowAmount(r) });
+            }
+            for (const r of contraRows) {
+              out.push({ section: "Revenue", kind: "row", code: r.code, name: r.name, amount_cents: rowAmount(r) });
+            }
+            out.push({ section: "Revenue", kind: "subtotal", code: "", name: "NET REVENUE", amount_cents: netRevenue });
+            for (const r of cogsRows) {
+              out.push({ section: "Cost of Goods Sold", kind: "row", code: r.code, name: r.name, amount_cents: rowAmount(r) });
+            }
+            out.push({ section: "Cost of Goods Sold", kind: "subtotal", code: "", name: "COGS", amount_cents: cogs });
+            out.push({ section: "Gross Margin", kind: "subtotal", code: "", name: "Gross Margin", amount_cents: grossMargin });
+            for (const r of opexRows) {
+              out.push({ section: "Operating Expenses", kind: "row", code: r.code, name: r.name, amount_cents: rowAmount(r) });
+            }
+            out.push({ section: "Operating Expenses", kind: "subtotal", code: "", name: "OPEX", amount_cents: opex });
+            out.push({ section: "Operating Income", kind: "subtotal", code: "", name: "Operating Income", amount_cents: operatingIncome });
+            out.push({ section: "Net Income", kind: "total", code: "", name: "NET INCOME", amount_cents: netIncome });
+            return out;
+          })()}
+          filename={`income-statement-${basis}-${from}-to-${to}`}
+          sheetName="Income Statement"
+          columns={[
+            { key: "section",      header: "Section" },
+            { key: "kind",         header: "Kind" },
+            { key: "code",         header: "Code" },
+            { key: "name",         header: "Account" },
+            { key: "amount_cents", header: "Amount", format: "currency_cents" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

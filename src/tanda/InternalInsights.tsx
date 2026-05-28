@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Insight {
   id: string;
@@ -116,6 +118,21 @@ export default function InternalInsights() {
             <option value="">All</option>
           </select>
           <button onClick={() => void regenerate()} style={btnSecondary}>Regenerate now</button>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="insights"
+            sheetName="Insights"
+            columns={[
+              { key: "generated_at",   header: "Generated",      format: "datetime" },
+              { key: "type",           header: "Type" },
+              { key: "title",          header: "Title" },
+              { key: "summary",        header: "Summary" },
+              { key: "recommendation", header: "Recommendation" },
+              { key: "confidence_pct", header: "Confidence %",   format: "number" },
+              { key: "status",         header: "Status" },
+              { key: "expires_at",     header: "Expires",        format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

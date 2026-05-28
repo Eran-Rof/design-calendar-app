@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Offer {
   id: string;
@@ -105,6 +107,29 @@ export default function InternalDiscountOffers() {
             <option value="paid">Paid</option>
           </select>
           <button onClick={() => void runJob()} style={btnPrimary}>Generate now</button>
+          <ExportButton
+            rows={offers.map((o) => ({
+              ...o,
+              vendor_name: o.vendor?.name || o.vendor_id,
+              invoice_number: o.invoice?.invoice_number || null,
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="discount-offers"
+            sheetName="Discount Offers"
+            columns={[
+              { key: "vendor_name",              header: "Vendor" },
+              { key: "invoice_number",           header: "Invoice #" },
+              { key: "original_due_date",        header: "Original Due",  format: "date" },
+              { key: "early_payment_date",       header: "Early Pay",     format: "date" },
+              { key: "days_early",               header: "Days Early",    format: "number" },
+              { key: "discount_pct",             header: "Discount %",    format: "number" },
+              { key: "discount_amount",          header: "Discount $",    format: "number" },
+              { key: "net_payment_amount",       header: "Net Payment",   format: "number" },
+              { key: "annualized_return_pct",    header: "APR %",         format: "number" },
+              { key: "status",                   header: "Status" },
+              { key: "offered_at",               header: "Offered",       format: "datetime" },
+              { key: "expires_at",               header: "Expires",       format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Payment {
   id: string;
@@ -89,6 +91,26 @@ export default function InternalPayments() {
             <option value="cancelled">Cancelled</option>
           </select>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New payment</button>
+          <ExportButton
+            rows={rows.map((p) => ({
+              ...p,
+              vendor_name: p.vendor?.name || p.vendor_id,
+              invoice_number: p.invoice?.invoice_number || null,
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="payments"
+            sheetName="Payments"
+            columns={[
+              { key: "vendor_name",      header: "Vendor" },
+              { key: "invoice_number",   header: "Invoice #" },
+              { key: "amount",           header: "Amount",      format: "number" },
+              { key: "currency",         header: "Currency" },
+              { key: "method",           header: "Method" },
+              { key: "status",           header: "Status" },
+              { key: "reference",        header: "Reference" },
+              { key: "initiated_at",     header: "Initiated",   format: "datetime" },
+              { key: "completed_at",     header: "Completed",   format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

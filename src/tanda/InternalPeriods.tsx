@@ -13,6 +13,8 @@
 //   closed     → open       (full reopen)
 
 import { useEffect, useMemo, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type PeriodStatus = "open" | "soft_close" | "closed" | "closed_with_closing_jes";
 
@@ -197,7 +199,7 @@ export default function InternalPeriods() {
         <span style={{ color: STATUS_COLORS.closed }}>closed</span> blocks all writes. Reopening transitions are allowed in all directions.
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
         <select value={fyFilter} onChange={(e) => setFyFilter(e.target.value)} style={inputStyle}>
           <option value="">All fiscal years</option>
           {fyOptions.map((y) => <option key={y} value={String(y)}>FY {y}</option>)}
@@ -208,6 +210,21 @@ export default function InternalPeriods() {
           <option value="soft_close">soft_close</option>
           <option value="closed">closed</option>
         </select>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="gl-periods"
+          sheetName="GL Periods"
+          columns={[
+            { key: "fiscal_year",     header: "Fiscal Year", format: "number" },
+            { key: "period_number",   header: "Period",      format: "number" },
+            { key: "starts_on",       header: "Starts",      format: "date" },
+            { key: "ends_on",         header: "Ends",        format: "date" },
+            { key: "status",          header: "Status" },
+            { key: "posted_je_count", header: "Posted JEs",  format: "number" },
+            { key: "soft_closed_at",  header: "Soft Closed", format: "datetime" },
+            { key: "closed_at",       header: "Closed",      format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

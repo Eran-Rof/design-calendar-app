@@ -12,6 +12,8 @@
 
 import { useEffect, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Vendor = {
   id: string;
@@ -172,6 +174,27 @@ export default function InternalVendorMaster() {
           />
           Show inactive
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="vendors"
+          sheetName="Vendors"
+          columns={[
+            { key: "code",             header: "Code" },
+            { key: "name",             header: "Name" },
+            { key: "legal_name",       header: "Legal Name" },
+            { key: "country",          header: "Country" },
+            { key: "status",           header: "Status" },
+            { key: "is_1099_vendor",   header: "1099" },
+            { key: "default_currency", header: "Currency" },
+            { key: "payment_terms",    header: "Payment Terms" },
+            { key: "transit_days",     header: "Transit Days", format: "number" },
+            { key: "moq",              header: "MOQ", format: "number" },
+            { key: "contact",          header: "Contact" },
+            { key: "email",            header: "Email" },
+            { key: "created_at",       header: "Created", format: "datetime" },
+            { key: "updated_at",       header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (
