@@ -393,12 +393,13 @@ import h380 from "./internal/pim/styles/[style_id]/images/index.js";
 import h381 from "./internal/pim/styles/[style_id]/images/[id].js";
 import h382 from "./internal/pim/styles/[style_id]/images/[id]/delete.js";
 import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
-// T10-2 — Cross-cutter Xoro shadow mirror, AR domain manual trigger. APPEND ONLY.
-// h400 reserved for T10-2 AR mirror; h401 reserved for T10-3 AP mirror;
-// h402 reserved for T10-4 inventory rebuild. (h390-h399 reserved for P8-9
-// and other follow-ups.)
+// T10 cross-cutter Xoro shadow mirror handlers. APPEND ONLY.
+//   h400 = T10-2 AR mirror
+//   h401 = T10-3 AP mirror (this PR)
+//   h402 = T10-4 inventory rebuild
+//   h403 = T10-5 daily summary JE poster
 import h400 from "./internal/xoro-mirror/ar.js";
-// T10-5 — Cross-cutter daily summary JE poster. APPEND ONLY.
+import h401 from "./internal/xoro-mirror/ap.js";
 import h403 from "./internal/xoro-mirror/summary-je.js";
 
 export const ROUTES = [
@@ -806,6 +807,8 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/attribute-defs",                       handler: h372 },
   { pattern: "/api/internal/pim/categories/:id",                       handler: h371 },
   { pattern: "/api/internal/pim/categories",                           handler: h370 },
+  // T10-3 — Xoro shadow-mirror AP domain (manual trigger).
+  { pattern: "/api/internal/xoro-mirror/ap",                           handler: h401 },
 ];
 
 export function compileRoutes(routes) {
