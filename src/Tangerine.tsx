@@ -28,6 +28,7 @@ import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
+import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -75,6 +76,7 @@ type ModuleKey =
   | "ar_invoices"
   | "ar_receipts"
   | "ar_aging"
+  | "ar_backfill"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -109,6 +111,8 @@ const MODULES: ModuleDef[] = [
   { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Accounting" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Accounting" },
+  // P4-8: Historical backfill — one-shot operator tool, kept in Accounting.
+  { key: "ar_backfill",       label: "AR Backfill",       emoji: "🗄️", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -263,6 +267,7 @@ export default function Tangerine() {
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "ar_aging"          && <InternalARAging />}
+        {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}

@@ -318,6 +318,9 @@ import h311 from "./internal/ar-receipts/void.js";
 import h312 from "./internal/ar-receipt-applications/[id].js";
 // P4-6 — AR Aging GET (h313). APPEND ONLY.
 import h313 from "./internal/ar-aging/index.js";
+// P4-8 — AR historical backfill runner (h314) + status (h315). APPEND ONLY.
+import h314 from "./internal/ar-backfill/run.js";
+import h315 from "./internal/ar-backfill/status.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -642,6 +645,9 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-receipt-applications/:id", handler: h312 },
   // P4-6 — AR Aging GET (h313).
   { pattern: "/api/internal/ar-aging", handler: h313 },
+  // P4-8 — AR historical backfill (h314 POST run + h315 GET status).
+  { pattern: "/api/internal/ar-backfill/run", handler: h314 },
+  { pattern: "/api/internal/ar-backfill/status", handler: h315 },
 ];
 
 export function compileRoutes(routes) {
