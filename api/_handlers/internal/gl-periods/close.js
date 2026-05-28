@@ -140,6 +140,35 @@ export default async function handler(req, res) {
     });
   }
 
+  // P5-7: pre-flight checks. Any blocking failure rejects the close with 409.
+  // Warning failures pass through unless ignore_warnings is false (default
+  // behavior: warnings are NOT blocking, so they pass).
+  try {
+    const { data: preflightRows, error: preflightErr } = await admin.rpc(
+      "gl_period_close_preflight",
+      { p_entity_id: period.entity_id, p_period_id: id },
+    );
+    if (preflightErr) {
+      // Pre-flight RPC missing (e.g. migration not yet applied) → log and
+      // continue. Better to let the close go through than to block forever.
+      console.warn("[close.js] preflight RPC failed; continuing:", preflightErr.message);
+    } else if (Array.isArray(preflightRows)) {
+      // Only blocking failures stop the close. Warnings (status=fail,
+      // blocking=false) are advisory — the UI surfaces them but the handler
+      // lets them through.
+      const blockingFails = preflightRows.filter((r) => r.status === "fail" && r.blocking);
+      if (blockingFails.length > 0) {
+        return res.status(409).json({
+          error: "Pre-flight checks failed (blocking)",
+          blocking_failures: blockingFails,
+          all_rows: preflightRows,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[close.js] preflight crash; continuing:", e instanceof Error ? e.message : String(e));
+  }
+
   // M27 approval gate (opt-in; only fires if an active rule of
   // kind='gl_period_close' exists).
   try {
