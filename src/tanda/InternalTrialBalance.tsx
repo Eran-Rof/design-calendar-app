@@ -156,7 +156,11 @@ export default function InternalTrialBalance() {
     }
   }
 
-  useEffect(() => { void load(); }, []); // initial load
+  // Refetch when from/to change so that picking a <DateRangePresets> chip
+  // auto-loads without a separate click on Refresh. (Basis is still on the
+  // manual-Refresh path to avoid surprising mid-edit re-queries.)
+  // The manual Refresh button still works — it calls load() directly.
+  useEffect(() => { void load(); }, [fromDate, toDate]);
 
   const groups = groupByType(rows);
   const grandDebit = sumDebit(rows);
