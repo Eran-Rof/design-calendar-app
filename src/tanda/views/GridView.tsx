@@ -1350,7 +1350,7 @@ export function GridView({
                           {/* minWidth:0 + overflow:hidden so the flex content can't push grid tracks
                               wider than their fixed px widths — keeps the phase-1 left divider aligned
                               with the data rows above/below. Wrapping handles content that doesn't fit. */}
-                          <div style={{ gridColumn: "1 / 9", minWidth: 0, overflow: "hidden", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap", background: infoBg }}>
+                          <div style={{ gridColumn: "1 / 9", minWidth: 0, overflow: "hidden", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap", background: infoBg, position: "sticky", left: 0, zIndex: 2 }}>
                             <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 13 }}>{poNum}</span>
                             <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>{po.VendorName}</span>
                             {po.StatusName && <span style={{ background: "#1E293B", color: "#94A3B8", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10 }}>{po.StatusName}</span>}
@@ -1394,7 +1394,7 @@ export function GridView({
                             {/* ── Item sub-header ─────────────────────────────── */}
                             <div className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
                               {/* Fixed area: item key | line status | delivery */}
-                              <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, background: infoBg2 }}>
+                              <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, background: infoBg2, position: "sticky", left: 0, zIndex: 2 }}>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Style / Color</span>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Line Status</span>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Delivery</span>
@@ -1418,7 +1418,7 @@ export function GridView({
                             {/* ── One row per style/color group ──────────────── */}
                             {groups.length === 0 ? (
                               <div className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
-                                <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11, background: infoBg }}>No line items on this PO.</div>
+                                <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11, background: infoBg, position: "sticky", left: 0, zIndex: 2 }}>No line items on this PO.</div>
                                 {phases.map((phase, pi) => { const isLast = pi === phases.length - 1; return (
                                   <React.Fragment key={phase}>
                                     <span style={{ borderBottom: B_CELL, background: infoBg, ...phaseDividerHost }}><span style={phaseDividerOverlay} /></span>
@@ -1447,7 +1447,7 @@ export function GridView({
                               return (
                                 <div key={gIdx} className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
                                   {/* Style/color + line status + delivery spanning 8 fixed cols */}
-                                  <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1, background: rowBg }}>
+                                  <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1, background: rowBg, position: "sticky", left: 0, zIndex: 2 }}>
                                     <span>
                                       <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 10 }}>{group.key}</span>
                                       {group.desc && group.desc !== group.key && <span style={{ color: "#4B5563", fontSize: 10, marginLeft: 6 }}>{group.desc}</span>}
