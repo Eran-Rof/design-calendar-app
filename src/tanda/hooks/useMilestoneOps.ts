@@ -167,6 +167,7 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
     if (existing) {
       const { data: currentRow } = await sb.from("tanda_milestones").single("id,data", `id=eq.${encodeURIComponent(m.id)}`);
       const serverData = (currentRow as any)?.data as Milestone | undefined;
+      console.log("[MS-DBG] conflict-check", { id: m.id, po: m.po_number, phase: m.phase, mineStatus: m.status, serverFound: !!serverData, serverStatus: serverData?.status, serverUpdatedBy: serverData?.updated_by, mineUpdatedBy: m.updated_by, existingUpdatedAt: existing.updated_at, serverUpdatedAt: serverData?.updated_at, currentUserName: user?.name });
       if (serverData && serverData.updated_at && serverData.updated_at !== existing.updated_at && serverData.updated_by !== (user?.name || "") && serverData.updated_by !== "auto" && serverData.updated_by !== "sync") {
         // Conflict detected — let user decide (skip if we're the one who made the change)
         conflictPendingRef.current.add(m.id);
@@ -193,7 +194,9 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         return; // Don't save yet — modal callbacks handle it
       }
     }
-    const { error: upErr } = await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+    console.log("[MS-DBG] upsert REQUEST", { id: m.id, po: m.po_number, phase: m.phase, status: m.status, updated_at: m.updated_at, updated_by: m.updated_by });
+    const { data: upData, error: upErr } = await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+    console.log("[MS-DBG] upsert RESPONSE", { id: m.id, error: upErr, returnedRow: upData });
     if (upErr) {
       console.error("[MS] saveMilestone DB error:", upErr);
       throw new Error((upErr as any)?.message || "saveMilestone failed");
