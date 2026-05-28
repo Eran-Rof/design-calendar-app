@@ -1655,30 +1655,11 @@ export function buildExportPayload(
       m.e.r += titleRowCount;
     }
   }
-  // Title-row merge: span A1 across every column so the 22pt customer
-  // name has room to render. Without this the adjacent cells (which
-  // we wrote as { v: "", t: "s" } so the row width stays correct)
-  // block Excel's text-overflow into neighbouring empty cells —
-  // operator only sees the first ~8 chars in column A's narrow width.
-  if (titleRow) {
-    if (customerFilter && dateRangeText) {
-      // Customer in col A (un-merged so its 22pt left-justified text
-      // stays anchored), date range merged across B..lastCol so its
-      // 20pt centered banner fills the rest of the row.
-      merges.push({
-        s: { r: 0, c: 1 },
-        e: { r: 0, c: lastColIdx },
-      });
-    } else {
-      // Single value (customer OR date range alone) — merge the full
-      // row so its anchor cell can render the wide text without being
-      // clipped by adjacent empty cells.
-      merges.push({
-        s: { r: 0, c: 0 },
-        e: { r: 0, c: lastColIdx },
-      });
-    }
-  }
+  // Title-row merge is built AFTER the column-drop pass below, because
+  // hideATSData / hideZeroColumns can shorten the row — if we used the
+  // pre-drop lastColIdx here the remap at oldToNew0 would null out the
+  // merge's end column and drop the title merge entirely, leaving the
+  // 22pt customer name clipped to column A's width.
 
   // ── Optional pass: drop columns ──────────────────────────────────────
   // Two independent triggers, composed into one projection:
@@ -1749,6 +1730,18 @@ export function buildExportPayload(
           return { s: { r: m.s.r, c: sc }, e: { r: m.e.r, c: ec } };
         })
         .filter((m): m is { s: { r: number; c: number }; e: { r: number; c: number } } => m !== null);
+    }
+  }
+
+  // Title-row merge (built after column drop so it spans the final width).
+  if (titleRow) {
+    const finalLastColIdx = (effectiveAllRows[0]?.length ?? totalColumnCount) - 1;
+    if (customerFilter && dateRangeText) {
+      // Customer stays anchored in col A; date range banner spans B..end.
+      effectiveMerges.push({ s: { r: 0, c: 1 }, e: { r: 0, c: finalLastColIdx } });
+    } else {
+      // Single value (customer OR date range alone) merges the full row.
+      effectiveMerges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: finalLastColIdx } });
     }
   }
 
