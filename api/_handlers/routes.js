@@ -398,6 +398,8 @@ import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
 // h402 reserved for T10-4 inventory rebuild. (h390-h399 reserved for P8-9
 // and other follow-ups.)
 import h400 from "./internal/xoro-mirror/ar.js";
+// T10-5 — Cross-cutter daily summary JE poster. APPEND ONLY.
+import h403 from "./internal/xoro-mirror/summary-je.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -785,6 +787,8 @@ export const ROUTES = [
   { pattern: "/api/internal/crm/pipeline-report",                     handler: h367 },
   // T10-2 — Cross-cutter Xoro shadow mirror, AR domain manual trigger.
   { pattern: "/api/internal/xoro-mirror/ar",                          handler: h400 },
+  // T10-5 — Cross-cutter Xoro shadow mirror, daily summary JE poster.
+  { pattern: "/api/internal/xoro-mirror/summary-je",                  handler: h403 },
   // P8-7 — PIM images. Specific subpaths BEFORE the bare /:id route.
   // Image routes must come BEFORE the bare /:style_id route from P8-6 so
   // /styles/:style_id/images/... gets matched first.
