@@ -66,19 +66,22 @@ Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. 
 
 ## The Tangerine nav layout
 
-Tangerine has its own **independent top nav** with the 6 module buttons across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps.
+Tangerine has its own **independent top nav** with **7 group dropdowns** across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each group dropdown opens a menu of the modules in that group; clicking a module navigates and closes the dropdown.
+
+> **Nav layout changed 2026-05-27 night:** the original flat row of 22 module buttons got too crowded after P4 shipped (the Accounting group alone grew to 9 modules). Modules are now grouped under: 📚 Master Data · 💼 Accounting · 📦 Inventory · ✅ Approvals · 🔔 Notifications · 👥 HR · ⚙️ Operations. The active module's parent group is highlighted, so you always know where you are. Click outside or press <kbd>Esc</kbd> to close a dropdown without selecting.
 
 ```mermaid
 flowchart LR
     Login["🔑 Login"] --> Tangerine["/tangerine<br/>(Tangerine ERP home)"]
-    Tangerine --> TopNav["Top nav:<br/>🎨 Style · 🏭 Vendor · 🤝 Customer ·<br/>📒 COA · 🗓️ Periods · 📓 JEs · 🧩 Apps ▾"]
+    Tangerine --> TopNav["Top nav (group dropdowns):<br/>📚 Master Data ▾ · 💼 Accounting ▾ · 📦 Inventory ▾ ·<br/>✅ Approvals ▾ · 🔔 Notifications ▾ · 👥 HR ▾ · ⚙️ Operations ▾ · 🧩 Apps ▾"]
 
-    TopNav --> Style["🎨 Style Master"]
-    TopNav --> Vendor["🏭 Vendor Master"]
-    TopNav --> Customer["🤝 Customer Master"]
-    TopNav --> COA["📒 Chart of Accounts"]
-    TopNav --> Periods["🗓️ Periods"]
-    TopNav --> JE["📓 Journal Entries"]
+    TopNav --> MD["📚 Master Data ▾<br/>Style · Fabric · Vendor · Customer · Payment Terms"]
+    TopNav --> Acct["💼 Accounting ▾<br/>COA · Periods · JEs · AP Invoices · AP Payments ·<br/>AR Invoices · AR Receipts · AR Aging · AR Backfill"]
+    TopNav --> Inv["📦 Inventory ▾<br/>Transfers · Adjustments · Cycle Counts"]
+    TopNav --> Appr["✅ Approvals ▾<br/>Rules · Inbox"]
+    TopNav --> Notif["🔔 Notifications ▾<br/>Center · Preferences"]
+    TopNav --> HR["👥 HR ▾<br/>Employees"]
+    TopNav --> Ops["⚙️ Operations ▾<br/>Scanner Sessions"]
     TopNav --> Apps["🧩 Apps launcher"]
 
     Apps -->|click app| DC["📅 / Design Calendar"]
@@ -90,22 +93,23 @@ flowchart LR
     Apps --> VP["🌐 /vendor Portal"]
 
     style Tangerine fill:#fb923c,stroke:#c2410c,stroke-width:2px,color:#fff
-    style Style fill:#fbcfe8
-    style Vendor fill:#fed7aa
-    style Customer fill:#bbf7d0
-    style COA fill:#bfdbfe
-    style Periods fill:#fde68a
-    style JE fill:#e9d5ff
+    style MD fill:#fbcfe8
+    style Acct fill:#bfdbfe
+    style Inv fill:#bbf7d0
+    style Appr fill:#fde68a
+    style Notif fill:#e9d5ff
+    style HR fill:#fed7aa
+    style Ops fill:#cbd5e1
     style Apps fill:#94a3b8,color:#fff
 ```
 
 **Layout:**
 
 - **Top-left:** Tangerine logo + "ERP" subtitle. Click anywhere on the logo to return to the home landing.
-- **Center:** 6 module buttons. Click any to open that panel. The active one is highlighted.
+- **Center:** 7 group buttons. Click a group to expand a dropdown of its modules. The group whose currently-active module you're on is highlighted. Click outside or press <kbd>Esc</kbd> to close without selecting.
 - **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Vendor Portal). Clicking any link navigates the browser to that app's URL in the same tab.
 
-**Home landing** (when no module is selected, e.g. just after login): shows module cards grouped by **Master Data** (Style / Vendor / Customer) and **Accounting** (COA / Periods / JE), plus a "Other apps in the suite" grid at the bottom.
+**Home landing** (when no module is selected, e.g. just after login): shows module cards organized by the same group structure (Master Data / Accounting / Inventory / etc.), plus a "Other apps in the suite" grid at the bottom.
 
 ![Tangerine top nav and home landing](screenshots/01-tangerine-home.png)
 <!-- screenshot needed: /tangerine landing page showing top nav + module cards + apps grid -->

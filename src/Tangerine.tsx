@@ -87,11 +87,28 @@ type ModuleKey =
   | "cycle_counts"
   | "scanner_sessions";
 
+type GroupKey = "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations";
+
 type ModuleDef = {
   key: ModuleKey;
   label: string;
   emoji: string;
-  group: "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations";
+  group: GroupKey;
+};
+
+// Order groups appear in the top nav. Also where the per-group icon comes from.
+const GROUP_ORDER: GroupKey[] = [
+  "Master Data", "Accounting", "Inventory", "Approvals", "Notifications", "HR", "Operations",
+];
+
+const GROUP_ICON: Record<GroupKey, string> = {
+  "Master Data":   "📚",
+  "Accounting":    "💼",
+  "Inventory":     "📦",
+  "Approvals":     "✅",
+  "Notifications": "🔔",
+  "HR":            "👥",
+  "Operations":    "⚙️",
 };
 
 const MODULES: ModuleDef[] = [
@@ -392,6 +409,24 @@ interface TopNavProps {
 }
 
 function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, onSignOut }: TopNavProps) {
+  // Group-dropdown nav: one button per group, expands into a menu of modules.
+  // openGroup === null means all closed.
+  const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
+
+  // Close on Esc, and close when activeModule changes (selection collapses the menu).
+  useEffect(() => {
+    if (openGroup == null) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenGroup(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openGroup]);
+
+  // Auto-close after selection.
+  function handleSelect(m: ModuleKey) {
+    setOpenGroup(null);
+    onSelectModule(m);
+  }
+
   return (
     <header
       style={{
@@ -444,30 +479,93 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
       </button>
 
       <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20 }}>
-        {MODULES.map((m) => {
-          const active = activeModule === m.key;
+        {GROUP_ORDER.map((group) => {
+          const modules = MODULES.filter((m) => m.group === group);
+          if (modules.length === 0) return null;
+          const containsActive = modules.some((m) => m.key === activeModule);
+          const isOpen = openGroup === group;
           return (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => onSelectModule(m.key)}
-              style={{
-                background: active ? C.card : "transparent",
-                border: `1px solid ${active ? C.cardBdr : "transparent"}`,
-                color: active ? C.text : C.textSub,
-                padding: "6px 12px",
-                borderRadius: 6,
-                fontSize: 13,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-              title={m.group}
-            >
-              <span>{m.emoji}</span>
-              <span>{m.label}</span>
-            </button>
+            <div key={group} style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setOpenGroup(isOpen ? null : group)}
+                style={{
+                  background: containsActive || isOpen ? C.card : "transparent",
+                  border: `1px solid ${containsActive || isOpen ? C.cardBdr : "transparent"}`,
+                  color: containsActive || isOpen ? C.text : C.textSub,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
+              >
+                <span>{GROUP_ICON[group]}</span>
+                <span>{group}</span>
+                <span style={{ fontSize: 10 }}>{isOpen ? "▴" : "▾"}</span>
+              </button>
+              {isOpen && (
+                <>
+                  {/* Click-outside guard — covers the rest of the viewport but
+                      not the dropdown menu itself. */}
+                  <div
+                    onClick={() => setOpenGroup(null)}
+                    style={{ position: "fixed", inset: 0, zIndex: 50 }}
+                    aria-hidden="true"
+                  />
+                  <div
+                    role="menu"
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 4px)",
+                      left: 0,
+                      minWidth: 240,
+                      background: C.card,
+                      border: `1px solid ${C.cardBdr}`,
+                      borderRadius: 8,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                      padding: 6,
+                      zIndex: 60,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}
+                  >
+                    {modules.map((m) => {
+                      const active = activeModule === m.key;
+                      return (
+                        <button
+                          key={m.key}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => handleSelect(m.key)}
+                          style={{
+                            background: active ? "#0b1220" : "transparent",
+                            border: 0,
+                            color: active ? C.text : C.textSub,
+                            padding: "8px 10px",
+                            borderRadius: 4,
+                            fontSize: 13,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
+                          <span>{m.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
           );
         })}
       </nav>
