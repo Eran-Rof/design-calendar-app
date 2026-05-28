@@ -13,6 +13,15 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
+  // No-cache: Xoro data is point-in-time. The browser was caching prior
+  // responses and Vercel/browser revalidation was returning 304s with the
+  // stale cached body, so syncs after a Xoro status change (e.g.
+  // Released -> Received) silently replayed pre-transition data and the
+  // archive Source 1 path missed terminal-status POs.
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const XORO_API_KEY    = process.env.VITE_XORO_API_KEY;
