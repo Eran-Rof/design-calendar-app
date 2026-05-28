@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type Row = {
   sales_rep_id: string;
@@ -118,6 +119,11 @@ export default function InternalSalesByRep() {
           To
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
         </label>
+        <DateRangePresets
+          from={fromDate}
+          to={toDate}
+          onChange={(f, t) => { setFromDate(f); setToDate(t); }}
+        />
         <button onClick={() => void load()} style={btnPrimary} disabled={loading}>
           {loading ? "Loading…" : "Refresh"}
         </button>

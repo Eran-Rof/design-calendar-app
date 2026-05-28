@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -179,6 +180,13 @@ export default function InternalARBackfill() {
             </button>
             <button onClick={() => void loadStatus()} style={btnSecondary} disabled={running}>Refresh</button>
           </div>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <DateRangePresets
+            from={startDate}
+            to={endDate}
+            onChange={(f, t) => { setStartDate(f); setEndDate(t); }}
+          />
         </div>
 
         {runErr && (

@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type Adjustment = {
   id: string;
@@ -263,6 +264,11 @@ export default function InternalInventoryAdjustments() {
           value={filterTo}
           onChange={(e) => setFilterTo(e.target.value)}
           placeholder="To"
+        />
+        <DateRangePresets
+          from={filterFrom}
+          to={filterTo}
+          onChange={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
         />
         <div style={{ marginLeft: "auto" }}>
           <ExportButton

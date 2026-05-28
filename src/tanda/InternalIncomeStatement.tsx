@@ -23,6 +23,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type ISRow = {
   entity_id: string;
@@ -261,6 +262,11 @@ export default function InternalIncomeStatement() {
             style={{ ...inputStyle, width: 160 }}
           />
         </label>
+        <DateRangePresets
+          from={from}
+          to={to}
+          onChange={(f, t) => { setFrom(f); setTo(t); }}
+        />
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <ExportButton
           rows={(() => {

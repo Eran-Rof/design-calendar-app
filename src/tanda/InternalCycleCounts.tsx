@@ -17,6 +17,7 @@
 import { useEffect, useState, useMemo } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type Status = "in_progress" | "completed" | "cancelled";
 
@@ -182,6 +183,11 @@ export default function InternalCycleCounts() {
           value={toDate}
           onChange={(e) => setToDate(e.target.value)}
           placeholder="To date"
+        />
+        <DateRangePresets
+          from={fromDate}
+          to={toDate}
+          onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
         <div style={{ marginLeft: "auto" }}>
           <ExportButton
