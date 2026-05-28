@@ -13,7 +13,7 @@ Together these four modules close the gap between "the books balance" (P3–P6) 
 ## 0. Scope guardrails
 
 **In scope (this phase):**
-- **M16 — Credit Card Capture for AR Receipts.** Stripe integration. Operator clicks "Charge card" on an AR invoice → captures + posts an `ar_receipts` row (P4) + the matching cash JE through the existing receipt-post path. Tokenized card storage per customer. Webhook handling for async outcomes (charge.succeeded / charge.failed / chargeback). Refund path (full + partial).
+- **M16 — Credit Card Capture for AR Receipts.** **Provider-abstracted** — schema columns and handler interface are processor-agnostic; P7 ships **Stripe** as the first implementation. Square / Authorize.net land later as single-file plug-ins behind the same `provider.js` interface. Admin picks the active processor per entity (and optionally per customer) via a dropdown. Operator clicks "Charge card" on an AR invoice → captures + posts an `ar_receipts` row (P4) + the matching cash JE through the existing receipt-post path. Tokenized card storage per customer. Webhook handling for async outcomes (charge.succeeded / charge.failed / chargeback). Refund path (full + partial).
 - **M17 — Sales Reps & Commissions.** `sales_reps` master + `customer_sales_rep_assignments` (which rep covers which customer). Commission rules engine (per-rep tier table). Commission accrual JE on invoice-post (DR Commission Expense, CR Commissions Payable). Commission settlement JE on rep payout (CR Commissions Payable, DR Cash). Commission report per rep per period.
 - **M9-subset — Operational Reporting.** Five operational reports that the CEO + accountant currently rebuild ad-hoc:
   1. AR Aging *(already shipped P4-6 — relisted under M9 menu group)*
@@ -46,62 +46,150 @@ After P6: dual-basis GL with full close mechanics + four financial statements + 
 
 | # | Decision | Recommendation | Why | Operator confirm? |
 |---|---|---|---|---|
-| D1 | Card processor | **Stripe** | Industry standard, $0 monthly fee, 2.9% + 30¢ per transaction; SDK is best-in-class; Stripe Connect available if we later run a marketplace. Alternatives (Square 2.6%, Authorize.net $25/mo + 2.9%) priced worse for operator's volume. | ☐ |
-| D2 | Commission base | **Net revenue (invoice total − discounts − returns)** at invoice-post time, accrued, settled on rep payout date | Accrual matches what most apparel reps expect; cash-basis settlement keeps the GL clean | ☐ |
-| D3 | Commission timing | **Accrue at invoice-post, settle at payout** (not at customer-payment-received) | Simpler audit trail; reps don't carry receivable risk; matches how the operator runs it today on a spreadsheet | ☐ |
+| D1 | Card processor (**provider-abstracted**) | **Build an abstract provider boundary; ship Stripe as the first implementation in P7.** Future providers (Square, Authorize.net) become single-file plug-ins. Per-entity selection via `entities.default_payment_processor`; per-customer override via `customers.payment_processor`. | Lock-in is a 60+ hour rebuild later; abstraction is ~20% extra upfront in P7-1/P7-2. Stripe wins on fees + DX today, but the operator may swap on a quote/regulatory/M&A trigger. | ✅ confirmed 2026-05-28 |
+| D2 | Commission base | **Net revenue (invoice total − discounts − returns)** at invoice-post time, accrued, settled on rep payout date | Accrual matches what most apparel reps expect; cash-basis settlement keeps the GL clean | ✅ confirmed 2026-05-28 |
+| D3 | Commission timing | **Accrue at invoice-post, settle at payout** (not at customer-payment-received) | Simpler audit trail; reps don't carry receivable risk; matches how the operator runs it today on a spreadsheet | ✅ confirmed 2026-05-28 |
 | D4 | Commission tiers | **Per-rep simple % default + optional tier table** (per-rep override) | Most reps will have a flat % (8–12%); the table supports the 1–2 reps who get bracket bonuses | ☐ |
 | D5 | Clawback policy | **On AR void / write-off**, auto-reverse the original accrual (mirror-JE). On RMA, partial reverse proportional to credit-memo amount. | Keeps Commissions Payable honest; matches commercial norms | ☐ |
 | D6 | Case email-in | **Resend inbound webhook** to a dedicated address (e.g. `cases@<operator-domain>`) | Already using Resend for outbound; inbound is a flip-the-switch feature; saves building a separate IMAP poller | ☐ |
 | D7 | Case-on-RMA link | **Optional FK on `rmas.case_id`** so an RMA can be opened *from* a case, or a case opened *for* an existing RMA | Both flows happen in practice | ☐ |
 | D8 | Reports surface | **New Tangerine top-nav group `📊 Reports`** holding AR Aging, AP Aging, Sales by Rep, Sales by Customer, GL Detail | Operator already asked for nav-clean-up once (P5 group dropdowns); 5+ reports deserves its own menu | ☐ |
-| D9 | Card-on-file storage | **Stripe Customer + Payment Method ids on `customers`** (no raw PANs) | PCI scope = SAQ A only; operator never touches PAN | ☐ |
-| D10 | Stripe webhook auth | **Stripe-Signature header verification with `STRIPE_WEBHOOK_SECRET`** (re-uses the dispatcher pattern we hardened for Plaid) | Same security model as Plaid; one wrinkle — Stripe verification needs raw body, which dispatcher pre-parses. Lift the raw-body fix planned for Plaid first then reuse here. | ☐ |
+| D9 | Card-on-file storage | **Provider-agnostic token columns on `customers`** (`processor_customer_id` + `processor_payment_method_id`); no raw PANs | PCI scope = SAQ A only; operator never touches PAN. Generic column names allow swap without ALTER TABLE. | ☐ |
+| D10 | Webhook auth | **Per-provider signature verification** (Stripe-Signature for Stripe; Square-Signature for Square; X-ANET-Signature for Auth.net). Re-uses the raw-body dispatcher fix planned for Plaid. | Each provider's `verifyWebhook(rawBody, headers)` normalizes to a common event type — downstream receipt-post path is processor-agnostic. | ☐ |
 
 ---
 
-## 3. M16 — Credit Card Capture (Stripe)
+## 3. M16 — Credit Card Capture (provider-abstracted; Stripe first)
 
-### 3.1 Customer-side schema extensions
+The schema and the provider boundary are **processor-agnostic**. P7 ships the Stripe implementation; Square / Authorize.net land later as 1-file plug-ins behind the same interface. Admin chooses per entity via a dropdown.
+
+### 3.1 Generic schema (no Stripe-prefixed column names)
 
 ```sql
+-- Per-entity processor selection (defaults the entity's customers to this processor)
+ALTER TABLE entities
+  ADD COLUMN default_payment_processor text
+    CHECK (default_payment_processor IN ('stripe','square','authnet'));
+
+-- Per-customer override + processor-agnostic token columns
 ALTER TABLE customers
-  ADD COLUMN stripe_customer_id text,                        -- cus_xxx
-  ADD COLUMN default_stripe_payment_method_id text;          -- pm_xxx (default card on file)
-CREATE UNIQUE INDEX uq_customers_stripe_customer ON customers(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
+  ADD COLUMN payment_processor text
+    CHECK (payment_processor IN ('stripe','square','authnet')),
+  ADD COLUMN processor_customer_id        text,   -- Stripe cus_xxx / Square customer_id / Auth.net customerProfileId
+  ADD COLUMN processor_payment_method_id  text,   -- Stripe pm_xxx / Square card_id / Auth.net customerPaymentProfileId
+  ADD COLUMN processor_card_brand         text,   -- visa / mastercard / amex / discover
+  ADD COLUMN processor_card_last4         text;   -- display only; the SAQ-A boundary
 
+CREATE UNIQUE INDEX uq_customers_processor_customer
+  ON customers (payment_processor, processor_customer_id)
+  WHERE processor_customer_id IS NOT NULL;
+
+-- AR receipt rows carry the processor that handled the charge (so future receipts
+-- on the same customer via a swapped processor still reconcile cleanly)
 ALTER TABLE ar_receipts
-  ADD COLUMN stripe_payment_intent_id text,                  -- pi_xxx
-  ADD COLUMN stripe_charge_id text,                          -- ch_xxx
-  ADD COLUMN stripe_fee_cents bigint,                        -- 290 + 30 type fee captured per-charge for reporting
-  ADD COLUMN stripe_status text                              -- requires_action | succeeded | failed | refunded | partial_refunded | chargeback
-    CHECK (stripe_status IN ('requires_action','succeeded','failed','refunded','partial_refunded','chargeback'));
+  ADD COLUMN payment_processor text
+    CHECK (payment_processor IN ('stripe','square','authnet')),
+  ADD COLUMN processor_intent_id   text,   -- Stripe pi_xxx / Square payment_id / Auth.net transId
+  ADD COLUMN processor_charge_id   text,   -- Stripe ch_xxx / Square (same as payment_id) / Auth.net transId
+  ADD COLUMN processor_fee_cents   bigint, -- captured per-charge for reporting
+  ADD COLUMN processor_status      text
+    CHECK (processor_status IN ('requires_action','succeeded','failed','refunded','partial_refunded','chargeback'));
 
--- Extend the AR receipts payment_method enum:
+-- Extend the AR receipts payment_method enum (one new value, generic):
 ALTER TABLE ar_receipts
   DROP CONSTRAINT IF EXISTS ar_receipts_payment_method_check,
   ADD CONSTRAINT ar_receipts_payment_method_check
     CHECK (payment_method IN ('check','wire','ach','cash','credit_card','other'));
 ```
 
-### 3.2 Stripe handlers
+### 3.2 Provider interface
 
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/internal/stripe/setup-intent` | Create a SetupIntent for the customer; frontend uses it to attach a payment method via Stripe Elements. |
-| `POST /api/internal/ar-invoices/:id/charge-card` | Create + confirm a PaymentIntent for an AR invoice; on `succeeded` synchronously, POST `ar_receipts` + sibling cash JE. On `requires_action`, return the client_secret for 3DS confirmation; webhook completes the receipt-post on async success. |
-| `POST /api/internal/ar-receipts/:id/refund` | Issue a Stripe refund (full or partial); post a reverse AR receipt + reverse cash JE. |
-| `POST /api/webhooks/stripe` | Verify Stripe-Signature; handle `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`. |
+`api/_lib/payments/provider.js` exports the abstract contract. Every implementation must satisfy this exact shape:
 
-### 3.3 GL impact
+```js
+// api/_lib/payments/provider.js
+//
+// Abstract payment provider interface. Every concrete provider
+// (stripe.js, square.js, authnet.js) exports these five functions.
 
-- **Successful charge:** existing P4-2 receipt-post path. `ar_receipts.payment_method='credit_card'`. Cash JE = `DR Stripe Clearing` / `CR AR Control` (clearing account: code `1110` Stripe Clearing). Stripe payout (settled 2-day) hits the bank feed (P6); operator reconciles `Stripe Clearing → Bank` via P6 match engine.
-- **Refund:** sibling receipt with `amount_cents` negative + `stripe_refund_id`. Cash JE = `DR AR Control` / `CR Stripe Clearing`.
-- **Chargeback:** `DR Chargeback Expense` (new GL account, code `6610`) / `CR Stripe Clearing`. Triggers an M47 case automatically (assignee = operator).
-- **Stripe fee:** posted as a separate cash JE on the payout date by the existing P6 auto-post fee rules engine — operator configures one rule per Stripe payout pattern (e.g. `match: '^STRIPE.*PAYOUT'`, `target_account_id: <6510 Merchant Fees>`).
+export const NORMALIZED_EVENTS = [
+  "charge.succeeded",
+  "charge.failed",
+  "charge.refunded",
+  "charge.disputed",
+  "charge.dispute_closed",
+  "payout.posted",
+];
 
-### 3.4 PCI scope
+// createCustomer({ name, email, metadata })           → { customerId }
+// attachPaymentMethod({ customerId, clientToken })   → { paymentMethodId, last4, brand }
+// createCharge({ customerId, paymentMethodId,
+//                amount_cents, currency,
+//                statement_descriptor, idempotencyKey })
+//                                                   → { intentId, chargeId, status, feeCents }
+// refundCharge({ chargeId, amount_cents?, reason }) → { refundId, status }
+// verifyWebhook(rawBody, headers)                   → { eventType, payload, providerEventId }
+//
+// All return values use generic IDs (the caller persists them as
+// processor_* columns alongside the processor name).
+// `verifyWebhook` returns one of NORMALIZED_EVENTS; the caller dispatches
+// off that single set regardless of provider.
+```
 
-SAQ A — operator never sees PANs. Stripe Elements iframes the card input. Tokenized payment_method ids are the only card-related data Tangerine stores.
+`api/_lib/payments/index.js` reads the active processor per request (entity or customer override) and returns the right implementation:
+
+```js
+import * as stripe from "./stripe.js";
+// import * as square from "./square.js";  // future
+// import * as authnet from "./authnet.js"; // future
+
+const PROVIDERS = { stripe /*, square, authnet*/ };
+
+export function getProvider(name) {
+  const p = PROVIDERS[name];
+  if (!p) throw new Error(`Payment provider not implemented: ${name}`);
+  return p;
+}
+
+export function resolveProviderForCustomer(customer, entity) {
+  return customer.payment_processor
+      || entity.default_payment_processor
+      || "stripe";   // fallback if neither set (single-tenant ROF default)
+}
+```
+
+### 3.3 Handlers (processor-agnostic)
+
+| Endpoint | Purpose | Calls into provider |
+|---|---|---|
+| `POST /api/internal/payments/setup-intent` | Create a customer + setup-intent for saving a card. Frontend uses returned `clientToken` with the processor's web SDK. | `createCustomer` (if missing) + `attachPaymentMethod` setup |
+| `POST /api/internal/ar-invoices/:id/charge-card` | Charge the saved card on file for the invoice. On synchronous success, POST `ar_receipts` + sibling cash JE through P4 receipt-post path. On `requires_action` (3DS), return `clientToken` for SCA. | `createCharge` |
+| `POST /api/internal/ar-receipts/:id/refund` | Issue refund (full or partial); post reverse receipt + reverse cash JE. | `refundCharge` |
+| `POST /api/webhooks/payments/:provider` | Each provider gets its own webhook URL (Stripe → `/api/webhooks/payments/stripe`, Square → `/api/webhooks/payments/square`). Verifies the signature with that provider's secret, normalizes the event type, then dispatches to the same `handleNormalizedEvent(eventType, payload)` core. | `verifyWebhook` |
+
+The frontend `<CardCaptureForm processor={...}>` is the one piece that conditionally loads the provider SDK (Stripe Elements vs Square Web Payments SDK vs Auth.net Accept.js). One small branch per processor in `src/tanda/components/CardCaptureForm.tsx`. In P7 only the Stripe branch is implemented; the others throw a "Not yet wired — contact engineering" toast and the dropdown grays out non-Stripe choices until those plug-ins ship.
+
+### 3.4 GL impact (processor-agnostic)
+
+- **Successful charge:** existing P4-2 receipt-post path. `ar_receipts.payment_method='credit_card'`. Cash JE = `DR Payment Processor Clearing` / `CR AR Control`. New GL account: code `1110` **Payment Processor Clearing** (generic — same account for all processors; reconciliation is by `processor_charge_id`, not by separate sub-accounts). Processor payout (~T+2 for Stripe / ~T+1 for Square / ~T+2 for Auth.net) hits the bank feed; operator reconciles `Payment Processor Clearing → Bank` via P6 match engine.
+- **Refund:** sibling receipt with `amount_cents` negative + `processor_intent_id` referencing the original charge. Cash JE = `DR AR Control` / `CR Payment Processor Clearing`.
+- **Chargeback:** `DR Chargeback Expense` (new GL account, code `6610`) / `CR Payment Processor Clearing`. Auto-opens an M47 case (assignee = operator) with the original processor dispute payload attached.
+- **Processor fee:** posted on the payout date by P6's auto-post fee rules engine. Operator configures one rule per processor's payout descriptor: e.g. `{match: '^STRIPE.*PAYOUT', target_account_id: <6510 Merchant Fees>}`, plus a similar rule for any other active processor.
+
+### 3.5 PCI scope
+
+SAQ A — operator never sees PANs regardless of processor. All three candidate processors offer hosted card-input SDKs (Stripe Elements / Square Web Payments / Auth.net Accept.js) that iframe the input. Tangerine only stores tokenized identifiers (`processor_*_id` columns) + display fields (`processor_card_last4`, `processor_card_brand`).
+
+### 3.6 Future-provider plug-in checklist
+
+When the operator decides to add Square (or any other processor):
+1. Add `api/_lib/payments/square.js` implementing the 5 interface functions.
+2. Add the Square branch to `<CardCaptureForm processor="square">`.
+3. Add `SQUARE_ACCESS_TOKEN` / `SQUARE_APPLICATION_ID` / `SQUARE_WEBHOOK_SECRET` to Vercel envs.
+4. Register `/api/webhooks/payments/square` route (1-line append per routes-js standing rule).
+5. Add `'square'` to the entities + customers + ar_receipts CHECK constraints (one-line migration: `DROP CONSTRAINT ... ADD CONSTRAINT ...`).
+
+Zero changes to handlers, RPCs, or the receipt-post path. ~1 day of work per provider after the first.
 
 ---
 
@@ -361,9 +449,9 @@ Standard P1 template applied:
 
 | Chunk | Title | Scope | Depends on |
 |---|---|---|---|
-| **P7-1** | M16 schema + Stripe SDK helpers | DB migration (customers + ar_receipts extensions, new 1110 Stripe Clearing + 6610 Chargeback Expense + 6510 Merchant Fees GL accounts). `api/_lib/stripe/client.js` wrapper. `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` env vars in Vercel. | — |
-| **P7-2** | M16 charge / refund / webhook handlers | h+1..h+4: setup-intent, charge-card, refund, webhook (verified). Reuses the P4 receipt-post path. | P7-1 |
-| **P7-3** | M16 UI — Charge Card button on AR Invoice detail + Card-on-file modal in Customer detail | Stripe Elements integration in `src/tanda/InternalARInvoices.tsx` + `src/tanda/InternalCustomerMaster.tsx`. | P7-2 |
+| **P7-1** | M16 generic schema + provider interface skeleton | DB migration: generic columns on customers + ar_receipts + entities (`payment_processor` enum + `processor_*_id` text cols + CHECK constraints). New GL accounts (1110 Payment Processor Clearing + 6510 Merchant Fees + 6610 Chargeback Expense). `api/_lib/payments/provider.js` (interface + NORMALIZED_EVENTS) + `api/_lib/payments/index.js` (resolver). Stripe SDK + env vars (`STRIPE_SECRET_KEY` / `STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET`) added but only used by P7-2. | — |
+| **P7-2** | M16 Stripe implementation + processor-agnostic handlers | `api/_lib/payments/stripe.js` implementing all 5 interface functions. Handlers h+1..h+4: setup-intent, charge-card, refund, `/api/webhooks/payments/stripe` (signature verified). Calls go through `getProvider(...)` → no `stripe.*` direct calls in handler code. Reuses the P4 receipt-post path. | P7-1 |
+| **P7-3** | M16 UI — Charge Card + Card-on-file + processor dropdown | `<CardCaptureForm processor="stripe">` with Stripe Elements; Square/Auth.net branches stubbed with "not yet wired" toast. Charge Card button on AR Invoice detail + Card-on-file modal in Customer detail. Processor dropdown on the Entity settings panel (defaults to 'stripe'). | P7-2 |
 | **P7-4** | M17 schema | DB migration (sales_reps + tiers + assignments + commission_accruals + commission_payouts + 2300/6210 GL accounts). | — (can run parallel to P7-1) |
 | **P7-5** | M17 RPCs + handlers | `commissions_accrue_for_invoice` (called from existing AR post path via trigger), `commissions_reverse_for_invoice`, `commissions_settle_payout`. Handlers for CRUD + settle. | P7-4 |
 | **P7-6** | M17 UI — Sales Reps + Accruals + Payouts panels | Three Tanda panels under 💼 Accounting. | P7-5 |
@@ -404,10 +492,12 @@ Parallel-safe groups (after schemas):
 
 Please mark §2 D1–D10 with answers (or push back). Once those are confirmed I'll kick off P7-1, P7-4, P7-8 in parallel.
 
-**Stripe env vars needed in Vercel before P7-2 ships:**
+**Stripe env vars needed in Vercel before P7-2 ships** (Stripe is the first implementation; envs are per-processor so future providers add their own without touching Stripe's):
 - `STRIPE_SECRET_KEY` (sk_test_… for sandbox, sk_live_… for prod)
 - `STRIPE_PUBLISHABLE_KEY` (pk_test_… / pk_live_… — exposed to frontend)
 - `STRIPE_WEBHOOK_SECRET` (whsec_… — from Stripe dashboard webhook page)
+
+If a future provider is added: `SQUARE_ACCESS_TOKEN` + `SQUARE_APPLICATION_ID` + `SQUARE_WEBHOOK_SECRET` (Square) or `AUTHNET_API_LOGIN_ID` + `AUTHNET_TRANSACTION_KEY` + `AUTHNET_WEBHOOK_SIGNATURE_KEY` (Authorize.net). The dispatcher only reads envs for the active processor at request time.
 
 **Resend inbound setup needed before P7-8 ships:**
 - Operator configures `cases@<domain>` to forward to the Resend inbound endpoint.
