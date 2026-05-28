@@ -332,6 +332,8 @@ import h319 from "./internal/income-statement/index.js";
 import h320 from "./internal/balance-sheet/index.js";
 // P5-5 — Cash Flow Statement GET (h321). APPEND ONLY.
 import h321 from "./internal/cash-flow/index.js";
+// P5-6 — Year-End Close runner (h322 POST). APPEND ONLY.
+import h322 from "./internal/year-end-close/run.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -670,6 +672,8 @@ export const ROUTES = [
   { pattern: "/api/internal/balance-sheet", handler: h320 },
   // P5-5 — Cash Flow Statement GET (h321).
   { pattern: "/api/internal/cash-flow", handler: h321 },
+  // P5-6 — Year-End Close runner.
+  { pattern: "/api/internal/year-end-close/run", handler: h322 },
 ];
 
 export function compileRoutes(routes) {

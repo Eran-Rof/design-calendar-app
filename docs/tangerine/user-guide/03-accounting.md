@@ -570,3 +570,81 @@ Variance = Assets − Liabilities − Equity − Current Year Earnings
 - The view + RPC INCLUDE the current year's revenue / expense impact via the Current Year Earnings calculation. They do NOT include closed-year revenue / expense activity (zeroed by the year-end close JE — see P5-6).
 - Money cells are right-aligned with `tabular-nums` and formatted as `$X,XXX.XX` (cents ÷ 100).
 - The RPC is `STABLE` so Postgres can plan with the current snapshot — re-running with the same args within a transaction is cheap.
+
+---
+
+## Year-End Close (P5-6)
+
+**Where:** Tangerine → 💼 Accounting → 🔚 **Year-End Close**.
+
+The Year-End Close panel posts the FY's closing journal entry — zeros every revenue + expense account and rolls net income (or loss) into the operator's designated **Retained Earnings** equity account. After commit, all 12 periods of that FY flip to `closed_with_closing_jes`, a **terminal status that cannot be reopened**.
+
+### Prerequisite — Retained Earnings account
+
+`entities.default_retained_earnings_account_id` must be set. The P5-6 migration auto-wires it to a `gl_accounts` row with `code='3500'` + `account_type='equity'` if one exists for ROF. If not, the operator picks the account via the Entities admin panel (or seeds the `3500` account first).
+
+### Workflow
+
+```mermaid
+flowchart TD
+  Open[Open the Year-End Close panel] --> Pick[Pick fiscal year]
+  Pick --> Dry[Click 'Preview close' with Dry Run ON]
+  Dry --> Review{Net income looks right?}
+  Review -- no --> Investigate[Fix unposted JEs / unbalanced books<br/>via Periods panel + Trial Balance]
+  Investigate --> Dry
+  Review -- yes --> Uncheck[Uncheck Dry Run]
+  Uncheck --> Live[Click 'POST closing JE'<br/>confirm prompt]
+  Live --> Done[ACCRUAL + CASH JEs posted, sibling-linked.<br/>12 periods flipped to closed_with_closing_jes.<br/>Notification fans out to admin + accountant.]
+```
+
+### What the RPC does
+
+For each basis (ACCRUAL, then CASH):
+
+1. Aggregates revenue + contra_revenue + expense activity for the FY via the same shape the Income Statement (P5-3) uses.
+2. Builds a single JE: DR each revenue account by its net credit (zeroing it); CR each expense account by its net debit (zeroing it); plug Retained Earnings with net income (CR if profit, DR if loss).
+3. If both bases have non-zero activity, posts both JEs and sibling-links them via `gl_link_sibling_je`.
+4. Uses `journal_type='gl_year_end_close'` — this is one of the historical-bypass journal types from P4-1, so the JE writes through even though some periods may be in `closed` status.
+5. Updates all 12 periods of the FY to `closed_with_closing_jes` (terminal). Re-running errors with "already has N periods in closed_with_closing_jes."
+
+### Skipped bases
+
+If a basis has no revenue/expense activity for the FY (e.g. the cash book never recognized anything for a backfill-only FY), that basis's JE is skipped entirely. The breakdown panel surfaces this with a `skipped_reason` row.
+
+### Post-close verification
+
+| Report | Expected post-close |
+|---|---|
+| **Income Statement** for the closed FY | All accounts $0 — revenue + expense zeroed by the close |
+| **Balance Sheet** as-of the FY end | Retained Earnings increased by net income; Current Year Earnings line is $0 |
+| **Trial Balance** for the closed FY range | Balances unchanged (full JE history still readable) |
+| **Periods** panel | All 12 periods of the FY show terminal `closed_with_closing_jes` badge |
+
+### Corrections after year-end close
+
+`closed_with_closing_jes` periods are **immutable**. To correct a closed FY, file an adjustment JE in the next FY's opening period referencing the original closing entry as documentation. The audit trail stays intact.
+
+### API surface
+
+```
+POST /api/internal/year-end-close/run
+body: { fiscal_year: <int>, dry_run: <bool, default true>, actor_user_id: <uuid> }
+```
+
+Response (both modes return the same shape; live run additionally writes JEs + flips periods):
+
+```json
+{
+  "entity_id": "...",
+  "fiscal_year": 2024,
+  "dry_run": false,
+  "accrual_je_id": "...",
+  "cash_je_id": "...",
+  "periods_flipped": 12,
+  "basis_breakdown": {
+    "ACCRUAL": { "net_income_cents": 12345600, "line_count": 17, "projected_lines": [...] },
+    "CASH":    { "net_income_cents": 11200000, "line_count": 14, "projected_lines": [...] }
+  }
+}
+```
+
