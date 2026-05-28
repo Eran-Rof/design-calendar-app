@@ -9,6 +9,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 
 type JELine = {
   id?: string;
@@ -73,6 +74,7 @@ type JE = {
   sibling_je_id: string | null;
   reverses_je_id: string | null;
   reversed_by_je_id: string | null;
+  source?: string | null;
   created_at: string;
 };
 
@@ -121,6 +123,7 @@ export default function InternalJournalEntry() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [basisFilter, setBasisFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const [postOpen, setPostOpen] = useState(false);
   const [detail, setDetail] = useState<JE | null>(null);
@@ -131,6 +134,7 @@ export default function InternalJournalEntry() {
     try {
       const params = new URLSearchParams({ limit: "200" });
       if (basisFilter) params.set("basis", basisFilter);
+      if (sourceFilter) params.set("source", sourceFilter);
       if (includeDrafts) params.set("include_drafts", "true");
       const r = await fetch(`/api/internal/journal-entries?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -142,7 +146,7 @@ export default function InternalJournalEntry() {
     }
   }
 
-  useEffect(() => { void load(); }, [basisFilter, includeDrafts]);
+  useEffect(() => { void load(); }, [basisFilter, sourceFilter, includeDrafts]);
 
   async function reverse(je: JE) {
     if (je.status !== "posted") {
@@ -181,6 +185,15 @@ export default function InternalJournalEntry() {
           <option value="ACCRUAL">ACCRUAL</option>
           <option value="CASH">CASH</option>
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          style={{ ...inputStyle, width: 180 }}
+          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
+        >
+          <option value="">All sources</option>
+          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeDrafts} onChange={(e) => setIncludeDrafts(e.target.checked)} />
           Include drafts
@@ -194,6 +207,7 @@ export default function InternalJournalEntry() {
             { key: "journal_type",      header: "Type" },
             { key: "basis",             header: "Basis" },
             { key: "description",       header: "Description" },
+            { key: "source",            header: "Source" },
             { key: "source_module",     header: "Source Module" },
             { key: "source_table",      header: "Source Table" },
             { key: "source_id",         header: "Source ID" },
@@ -245,7 +259,10 @@ export default function InternalJournalEntry() {
                   <td style={td}>{je.posting_date}</td>
                   <td style={td}>{je.journal_type}</td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{je.basis}</td>
-                  <td style={td}>{je.description}</td>
+                  <td style={td}>
+                    {je.description}
+                    <SourceBadge source={je.source} />
+                  </td>
                   <td style={{ ...td, fontSize: 12, color: C.textMuted }}>{je.source_table || "—"}{je.source_id ? ` / ${je.source_id.slice(0, 8)}…` : ""}</td>
                   <td style={td}>
                     <span style={{ color: statusColor(je.status), fontWeight: 600 }}>● {je.status}</span>

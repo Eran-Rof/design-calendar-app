@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 
 type GlStatus =
   | "draft" | "unposted" | "pending_approval" | "sent"
@@ -34,6 +35,7 @@ type ARInvoice = {
   total_amount_cents: string;
   paid_amount_cents: string;
   description: string | null;
+  source?: string | null;
   created_at: string;
 };
 
@@ -143,6 +145,7 @@ export default function InternalARInvoices() {
 
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
   const [customerFilter, setCustomerFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -160,6 +163,7 @@ export default function InternalARInvoices() {
       const params = new URLSearchParams({ limit: String(limit) });
       if (statusFilter) params.set("status", statusFilter);
       if (customerFilter) params.set("customer_id", customerFilter);
+      if (sourceFilter) params.set("source", sourceFilter);
       if (search.trim()) params.set("q", search.trim());
       if (fromDate) params.set("from", fromDate);
       if (toDate) params.set("to", toDate);
@@ -174,7 +178,7 @@ export default function InternalARInvoices() {
     }
   }
 
-  useEffect(() => { void load(); }, [statusFilter, customerFilter, includeVoid, fromDate, toDate, limit]);
+  useEffect(() => { void load(); }, [statusFilter, customerFilter, sourceFilter, includeVoid, fromDate, toDate, limit]);
 
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000")
@@ -278,6 +282,15 @@ export default function InternalARInvoices() {
           <option value="">All customers</option>
           {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          style={{ ...inputStyle, width: 150 }}
+          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
+        >
+          <option value="">All sources</option>
+          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <input
           type="text" placeholder="Search invoice #" value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -314,6 +327,7 @@ export default function InternalARInvoices() {
             customer: customerMap[inv.customer_id]?.name || inv.customer_id,
             invoice_kind: inv.invoice_kind,
             gl_status: inv.gl_status,
+            source: inv.source || "manual",
             total_amount_cents: inv.total_amount_cents,
             paid_amount_cents: inv.paid_amount_cents,
             balance_cents: (BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")).toString(),
@@ -329,6 +343,7 @@ export default function InternalARInvoices() {
             { key: "customer",           header: "Customer" },
             { key: "invoice_kind",       header: "Kind" },
             { key: "gl_status",          header: "Status" },
+            { key: "source",             header: "Source" },
             { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
             { key: "paid_amount_cents",  header: "Paid",    format: "currency_cents" },
             { key: "balance_cents",      header: "Balance", format: "currency_cents" },
@@ -380,7 +395,10 @@ export default function InternalARInvoices() {
                     onClick={() => { setEditing(inv); setEditOpen(true); }}
                     style={{ cursor: "pointer", ...(isVoid ? { opacity: 0.5 } : {}) }}
                   >
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{inv.invoice_number}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                      {inv.invoice_number}
+                      <SourceBadge source={inv.source} />
+                    </td>
                     <td style={td}>{inv.invoice_date}</td>
                     <td style={td}>{customerMap[inv.customer_id]?.name || inv.customer_id.slice(0, 8)}</td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>

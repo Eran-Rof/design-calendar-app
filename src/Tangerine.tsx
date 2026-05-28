@@ -56,6 +56,8 @@ import InternalCrmOpportunities       from "./tanda/InternalCrmOpportunities";
 import InternalCrmActivities          from "./tanda/InternalCrmActivities";
 import InternalCrmTasks               from "./tanda/InternalCrmTasks";
 import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
+// Cross-cutter T10-7 — Shadow Mirror Status panel (Xoro → Tangerine nightly mirror dashboard).
+import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 
@@ -121,9 +123,11 @@ type ModuleKey =
   | "crm_opportunities"
   | "crm_activities"
   | "crm_tasks"
-  | "crm_pipeline_report";
+  | "crm_pipeline_report"
+  // Cross-cutter T10-7 — Shadow Mirror Status (Xoro → Tangerine nightly mirror).
+  | "shadow_mirror";
 
-type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service";
+type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -137,7 +141,7 @@ type ModuleDef = {
 // "invoice posts → check pipeline → log activity" so it follows Accounting and
 // precedes the cross-functional Reports group.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
@@ -147,6 +151,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Reports":          "📊",
   "Inventory":        "📦",
   "Customer Service": "🤝",
+  "Shadow Mirror":    "🔁",
   "Approvals":        "✅",
   "Notifications":    "🔔",
   "HR":               "👥",
@@ -210,6 +215,8 @@ const MODULES: ModuleDef[] = [
   { key: "crm_activities",      label: "Activities",        emoji: "📋", group: "CRM" },
   { key: "crm_tasks",           label: "Tasks",             emoji: "✅", group: "CRM" },
   { key: "crm_pipeline_report", label: "Pipeline Report",   emoji: "📊", group: "CRM" },
+  // Cross-cutter T10-7 — Shadow Mirror Status dashboard (single panel under 🔁).
+  { key: "shadow_mirror",       label: "Mirror Status",     emoji: "🔁", group: "Shadow Mirror" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -383,6 +390,8 @@ export default function Tangerine() {
         {activeModule === "crm_activities"      && <InternalCrmActivities />}
         {activeModule === "crm_tasks"           && <InternalCrmTasks />}
         {activeModule === "crm_pipeline_report" && <InternalCrmPipelineReport />}
+        {/* Cross-cutter T10-7 — Shadow Mirror Status dashboard */}
+        {activeModule === "shadow_mirror"       && <InternalShadowMirrorStatus />}
       </main>
     </div>
   );
@@ -837,6 +846,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const inventoryModules = MODULES.filter((m) => m.group === "Inventory");
   const opsModules = MODULES.filter((m) => m.group === "Operations");
   const csModules = MODULES.filter((m) => m.group === "Customer Service");
+  const mirrorModules = MODULES.filter((m) => m.group === "Shadow Mirror");
 
   return (
     <div>
@@ -904,6 +914,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Customer Service (P7)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {csModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Shadow Mirror (T10)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {mirrorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 

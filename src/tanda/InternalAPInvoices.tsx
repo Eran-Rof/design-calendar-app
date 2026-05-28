@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 
 type GlStatus = "draft" | "unposted" | "pending_approval" | "posted" | "paid" | "void" | "reversed";
 
@@ -29,6 +30,7 @@ type APInvoice = {
   cash_je_id: string | null;
   total_amount_cents: string;
   paid_amount_cents: string;
+  source?: string | null;
   created_at: string;
 };
 
@@ -138,6 +140,7 @@ export default function InternalAPInvoices() {
 
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
   const [vendorFilter, setVendorFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [includeVoid, setIncludeVoid] = useState(false);
 
@@ -153,6 +156,7 @@ export default function InternalAPInvoices() {
       const params = new URLSearchParams({ limit: "200" });
       if (statusFilter) params.set("status", statusFilter);
       if (vendorFilter) params.set("vendor_id", vendorFilter);
+      if (sourceFilter) params.set("source", sourceFilter);
       if (search.trim()) params.set("q", search.trim());
       if (includeVoid) params.set("include_void", "true");
       const r = await fetch(`/api/internal/ap-invoices?${params.toString()}`);
@@ -165,7 +169,7 @@ export default function InternalAPInvoices() {
     }
   }
 
-  useEffect(() => { void load(); }, [statusFilter, vendorFilter, includeVoid]);
+  useEffect(() => { void load(); }, [statusFilter, vendorFilter, sourceFilter, includeVoid]);
 
   useEffect(() => {
     fetch("/api/internal/vendors")
@@ -245,6 +249,15 @@ export default function InternalAPInvoices() {
           <option value="">All vendors</option>
           {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          style={{ ...inputStyle, width: 150 }}
+          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
+        >
+          <option value="">All sources</option>
+          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <input
           type="text" placeholder="Search invoice #" value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -264,6 +277,7 @@ export default function InternalAPInvoices() {
             invoice_number: inv.invoice_number,
             invoice_kind: inv.invoice_kind,
             gl_status: inv.gl_status,
+            source: inv.source || "manual",
             total_amount_cents: inv.total_amount_cents,
             paid_amount_cents: inv.paid_amount_cents,
             balance_cents: (BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")).toString(),
@@ -278,6 +292,7 @@ export default function InternalAPInvoices() {
             { key: "invoice_number",     header: "Invoice #" },
             { key: "invoice_kind",       header: "Kind" },
             { key: "gl_status",          header: "Status" },
+            { key: "source",             header: "Source" },
             { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
             { key: "paid_amount_cents",  header: "Paid",    format: "currency_cents" },
             { key: "balance_cents",      header: "Balance", format: "currency_cents" },
@@ -328,7 +343,10 @@ export default function InternalAPInvoices() {
                     <td style={td}>{inv.posting_date}</td>
                     <td style={td}>{inv.due_date || "—"}</td>
                     <td style={td}>{vendorMap[inv.vendor_id]?.name || inv.vendor_id.slice(0, 8)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{inv.invoice_number}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                      {inv.invoice_number}
+                      <SourceBadge source={inv.source} />
+                    </td>
                     <td style={td}>
                       <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>
                     </td>
