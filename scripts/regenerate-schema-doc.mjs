@@ -216,6 +216,12 @@ function applyCreate(tables, origin, ct, tag) {
     // Merge — keep first-seen definition
     const t = tables.get(ct.name);
     for (const [k, v] of cols) if (!t.columns.has(k)) t.columns.set(k, v);
+    // If the table was previously seen via ALTER only, this CREATE
+    // (typically a backfill migration for a table created via the
+    // Supabase Dashboard) clarifies the origin. Replace the "alter
+    // only" tag so the doc reads accurately.
+    const existing = origin.get(ct.name) || "";
+    if (existing.includes("(alter only)")) origin.set(ct.name, tag);
   }
 }
 
