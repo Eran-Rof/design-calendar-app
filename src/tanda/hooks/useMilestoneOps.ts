@@ -196,7 +196,17 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
     }
     console.log("[MS-DBG] upsert REQUEST", { id: m.id, po: m.po_number, phase: m.phase, status: m.status, updated_at: m.updated_at, updated_by: m.updated_by });
     const { data: upData, error: upErr } = await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
-    console.log("[MS-DBG] upsert RESPONSE", { id: m.id, error: upErr, returnedRow: upData });
+    const returnedFirst = Array.isArray(upData) ? upData[0] : upData;
+    const returnedData = (returnedFirst as any)?.data || {};
+    console.log("[MS-DBG] upsert RESPONSE", {
+      id: m.id,
+      error: upErr,
+      returnedRowId: (returnedFirst as any)?.id,
+      returnedStatus: returnedData.status,
+      returnedUpdatedAt: returnedData.updated_at,
+      returnedUpdatedBy: returnedData.updated_by,
+      rawJSON: JSON.stringify(upData),
+    });
     if (upErr) {
       console.error("[MS] saveMilestone DB error:", upErr);
       throw new Error((upErr as any)?.message || "saveMilestone failed");
