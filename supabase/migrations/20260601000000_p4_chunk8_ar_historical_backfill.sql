@@ -117,7 +117,7 @@ DECLARE
   v_deleted int;
 BEGIN
   DELETE FROM gl_periods
-   WHERE end_date < DATE '2024-08-01'
+   WHERE ends_on < DATE '2024-08-01'
      AND NOT EXISTS (
        SELECT 1 FROM journal_entries je WHERE je.period_id = gl_periods.id
      );
