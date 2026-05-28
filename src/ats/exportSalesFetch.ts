@@ -157,17 +157,31 @@ async function sbGet<T>(path: string): Promise<T[]> {
   return r.json();
 }
 
+// Supabase enforces `db-max-rows` (1000 in our project) which silently
+// caps every response below the requested `limit=N`. The old loop
+// compared `chunk.length < pageSize` to detect the last page — but with
+// pageSize > 1000, the very first response was already smaller than
+// requested, so the loop broke after one page and silently truncated
+// the result to ~1000 rows. (Confirmed via diagnostic 2026-05-27: LY
+// 2025 had 13,297 rows in DB but Sales Comps showed totals matching
+// only the first 1000.) Adapt to whatever stride the server actually
+// returns by treating the first response's size as authoritative.
 async function sbGetAll<T>(pathWithoutLimit: string, pageSize = 1000): Promise<T[]> {
   if (!SB_URL) throw new Error("Supabase URL not configured");
   const out: T[] = [];
-  for (let offset = 0; ; offset += pageSize) {
+  let stride: number | null = null;
+  let offset = 0;
+  while (true) {
     const sep = pathWithoutLimit.includes("?") ? "&" : "?";
     const url = `${SB_URL}/rest/v1/${pathWithoutLimit}${sep}limit=${pageSize}&offset=${offset}`;
     const r = await fetch(url, { headers: SB_HEADERS });
     if (!r.ok) throw new Error(`sales fetch ${url} failed: ${r.status} ${await r.text()}`);
     const chunk = (await r.json()) as T[];
     out.push(...chunk);
-    if (chunk.length < pageSize) break;
+    if (chunk.length === 0) break;
+    if (stride === null) stride = chunk.length;
+    if (chunk.length < stride) break;
+    offset += stride;
     if (offset > 1_000_000) break;
   }
   return out;
