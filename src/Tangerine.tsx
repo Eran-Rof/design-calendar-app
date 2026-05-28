@@ -44,6 +44,7 @@ import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers"
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
 import InternalScannerSessions         from "./tanda/InternalScannerSessions";
+import InternalCases                   from "./tanda/InternalCases";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 
@@ -97,9 +98,10 @@ type ModuleKey =
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
-  | "scanner_sessions";
+  | "scanner_sessions"
+  | "cases";
 
-type GroupKey = "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations";
+type GroupKey = "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -110,17 +112,18 @@ type ModuleDef = {
 
 // Order groups appear in the top nav. Also where the per-group icon comes from.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "Inventory", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "Inventory", "Customer Service", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
-  "Master Data":   "📚",
-  "Accounting":    "💼",
-  "Inventory":     "📦",
-  "Approvals":     "✅",
-  "Notifications": "🔔",
-  "HR":            "👥",
-  "Operations":    "⚙️",
+  "Master Data":      "📚",
+  "Accounting":       "💼",
+  "Inventory":        "📦",
+  "Customer Service": "🤝",
+  "Approvals":        "✅",
+  "Notifications":    "🔔",
+  "HR":               "👥",
+  "Operations":       "⚙️",
 };
 
 const MODULES: ModuleDef[] = [
@@ -163,6 +166,8 @@ const MODULES: ModuleDef[] = [
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
   { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Operations" },
+  // P7-9: M47 Customer Service / Cases panel.
+  { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,6 +329,7 @@ export default function Tangerine() {
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
         {activeModule === "scanner_sessions"    && <InternalScannerSessions />}
+        {activeModule === "cases"               && <InternalCases />}
       </main>
     </div>
   );
@@ -775,6 +781,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const hrModules = MODULES.filter((m) => m.group === "HR");
   const inventoryModules = MODULES.filter((m) => m.group === "Inventory");
   const opsModules = MODULES.filter((m) => m.group === "Operations");
+  const csModules = MODULES.filter((m) => m.group === "Customer Service");
 
   return (
     <div>
@@ -824,6 +831,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Operations (P3)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {opsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Customer Service (P7)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {csModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
