@@ -1,97 +1,65 @@
 // src/tanda/exports/ExportButton.tsx
 //
-// Tangerine universal export button — every report/list panel embeds one so the
-// operator can yank the visible data into Excel without copy-paste.
+// Tangerine T3 cross-cutter — universal table export button.
 //
-// Renders a single "Export CSV" button styled to match the dark Tanda palette.
-// Caller passes:
-//   - filename: stem used for the downloaded file (".csv" appended automatically)
-//   - columns:  [{ key: "code", label: "Code", format?: (raw, row) => string }]
-//   - rows:     array of plain objects mirroring the table <tbody> rows
+// **T8 update (2026-05-28):** xlsx-only. Single-click download; no dropdown,
+// no CSV option. Operator-confirmed standardization — Excel is the only
+// supported deliverable going forward. CSV behavior survives as a low-level
+// helper in useTableExport.ts for any internal caller that genuinely needs
+// it, but the user-facing button never emits CSV.
 //
-// CSV is RFC-4180-ish: double-quote-escapes embedded quotes, wraps any field
-// containing comma/quote/newline.
+// Usage:
+//   <ExportButton rows={rows} filename="ar-aging" />
+//   <ExportButton rows={rows} columns={cols} filename="trial-balance" sheetName="Trial Balance" />
+//
+// The button:
+// - Disabled when `rows` is empty (cursor + opacity + title tooltip)
+// - Shows row count in the label, e.g. ⬇ Export (47)
+// - Filename gets a YYYY-MM-DD stamp appended automatically
+// - WYSIWYG — operates on whatever rows the caller passes (filtered / sorted)
 
-import { useState } from "react";
+import { useTableExport, todayStamp, type ExportColumn } from "./useTableExport";
 
-export type ExportColumn<R> = {
-  key: string;
-  label: string;
-  format?: (raw: unknown, row: R) => string;
-};
-
-type Props<R> = {
+type Props<T extends Record<string, unknown>> = {
+  rows: T[];
+  columns?: ExportColumn<T>[];
   filename: string;
-  columns: ExportColumn<R>[];
-  rows: R[];
-  disabled?: boolean;
+  sheetName?: string;
+  buttonStyle?: React.CSSProperties;
+  label?: string;
 };
 
-function csvEscape(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  if (/[",\r\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
+const defaultBtn: React.CSSProperties = {
+  background: "transparent",
+  color: "#CBD5E1",
+  border: "1px solid #334155",
+  padding: "6px 10px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 12,
+};
 
-export default function ExportButton<R extends Record<string, unknown>>({
-  filename,
-  columns,
-  rows,
-  disabled,
-}: Props<R>) {
-  const [busy, setBusy] = useState(false);
+export default function ExportButton<T extends Record<string, unknown>>(props: Props<T>) {
+  const { rows, columns, filename, sheetName, buttonStyle, label } = props;
+  const stampedFilename = `${filename}-${todayStamp()}`;
+  const { exportNow } = useTableExport({ rows, columns, filename: stampedFilename, sheetName, format: "xlsx" });
 
-  function handleClick() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const header = columns.map((c) => csvEscape(c.label)).join(",");
-      const body = rows.map((row) =>
-        columns
-          .map((c) => {
-            const raw = row[c.key as keyof R];
-            const cell = c.format ? c.format(raw, row) : raw;
-            return csvEscape(cell);
-          })
-          .join(","),
-      );
-      const csv = [header, ...body].join("\r\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const stamp = new Date().toISOString().slice(0, 10);
-      a.download = `${filename}-${stamp}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const disabled = !rows || rows.length === 0;
 
   return (
     <button
       type="button"
-      onClick={handleClick}
-      disabled={disabled || busy || rows.length === 0}
+      onClick={() => !disabled && exportNow("xlsx")}
+      disabled={disabled}
       style={{
-        background: "#1E293B",
-        color: "#CBD5E1",
-        border: "1px solid #334155",
-        padding: "6px 12px",
-        borderRadius: 6,
-        cursor: disabled || rows.length === 0 ? "not-allowed" : "pointer",
-        fontSize: 12,
-        opacity: disabled || rows.length === 0 ? 0.5 : 1,
+        ...defaultBtn,
+        ...buttonStyle,
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
       }}
-      title={rows.length === 0 ? "No rows to export" : `Export ${rows.length} row${rows.length === 1 ? "" : "s"} as CSV`}
+      title={disabled ? "No rows to export" : `Download ${rows.length} row${rows.length === 1 ? "" : "s"} as Excel`}
     >
-      {busy ? "Exporting…" : "Export CSV"}
+      ⬇ {label || "Export"}{rows && rows.length > 0 ? ` (${rows.length})` : ""}
     </button>
   );
 }
