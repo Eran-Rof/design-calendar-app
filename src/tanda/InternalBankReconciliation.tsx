@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -398,13 +399,16 @@ function AutoPostRulesModal({ account, onClose, onSaved }: { account: BankAccoun
                              placeholder="none" min={1} />
                     </td>
                     <td style={td}>
-                      <select value={r.target_account_id} onChange={(e) => updateRule(i, { target_account_id: e.target.value })}
-                              style={{ ...inputStyle, width: "100%", fontSize: 11 }}>
-                        <option value="">— pick an account —</option>
-                        {accounts.map((a) => (
-                          <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                        ))}
-                      </select>
+                      <SearchableSelect
+                        value={r.target_account_id || null}
+                        onChange={(v) => updateRule(i, { target_account_id: v })}
+                        options={[
+                          { value: "", label: "— pick an account —" },
+                          ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                        ]}
+                        placeholder="— pick an account —"
+                        inputStyle={{ fontSize: 11 }}
+                      />
                     </td>
                     <td style={td}>
                       <input type="text" value={r.label ?? ""} onChange={(e) => updateRule(i, { label: e.target.value || null })}
@@ -518,10 +522,17 @@ function TransactionsTab() {
   return (
     <div>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <select value={filterAcct} onChange={(e) => setFilterAcct(e.target.value)} style={inputStyle}>
-          <option value="">All accounts</option>
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.mask ? ` ••${a.mask}` : ""}</option>)}
-        </select>
+        <div style={{ minWidth: 200 }}>
+          <SearchableSelect
+            value={filterAcct || null}
+            onChange={(v) => setFilterAcct(v)}
+            options={[
+              { value: "", label: "All accounts" },
+              ...accounts.map((a) => ({ value: a.id, label: `${a.name}${a.mask ? ` ••${a.mask}` : ""}` })),
+            ]}
+            placeholder="All accounts"
+          />
+        </div>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as BankTxn["status"] | "all")} style={inputStyle}>
           <option value="unmatched">Unmatched ({counts.unmatched || 0})</option>
           <option value="matched">Matched ({counts.matched || 0})</option>
@@ -742,12 +753,15 @@ function CreateJeModal({ txn, onClose, onDone }: { txn: BankTxn; onClose: () => 
         </div>
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Target GL Account</div>
-          <select value={targetAccount} onChange={(e) => setTargetAccount(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
-            <option value="">— pick an account —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.code} — {a.name} ({a.account_type})</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={targetAccount || null}
+            onChange={(v) => setTargetAccount(v)}
+            options={[
+              { value: "", label: "— pick an account —" },
+              ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name} (${a.account_type})` })),
+            ]}
+            placeholder="— pick an account —"
+          />
         </div>
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Memo (optional)</div>

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Status = "open" | "in_progress" | "done" | "cancelled";
 type Priority = "low" | "normal" | "high" | "urgent";
@@ -306,21 +307,27 @@ export default function InternalCrmTasks() {
         </div>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Customer</label>
-          <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            placeholder="All"
+          />
         </div>
         <div style={{ minWidth: 240, flex: 1 }}>
           <label style={labelStyle}>Opportunity</label>
-          <select value={oppFilter} onChange={(e) => setOppFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {opportunities.map((o) => (
-              <option key={o.id} value={o.id}>{o.opportunity_number} — {truncate(o.title, 40)}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={oppFilter || null}
+            onChange={(v) => setOppFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
+            ]}
+            placeholder="All"
+          />
         </div>
       </div>
 
@@ -573,20 +580,26 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Customer">
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={inputStyle}>
-                <option value="">(none)</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={customerId || null}
+                onChange={(v) => setCustomerId(v)}
+                options={[
+                  { value: "", label: "(none)" },
+                  ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+                ]}
+                placeholder="(none)"
+              />
             </Field>
             <Field label="Opportunity">
-              <select value={oppId} onChange={(e) => setOppId(e.target.value)} style={inputStyle}>
-                <option value="">(none)</option>
-                {opportunities.map((o) => (
-                  <option key={o.id} value={o.id}>{o.opportunity_number} — {truncate(o.title, 40)}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={oppId || null}
+                onChange={(v) => setOppId(v)}
+                options={[
+                  { value: "", label: "(none)" },
+                  ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
+                ]}
+                placeholder="(none)"
+              />
             </Field>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
@@ -694,20 +707,26 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Customer">
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={inputStyle}>
-            <option value="">(none)</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerId || null}
+            onChange={(v) => setCustomerId(v)}
+            options={[
+              { value: "", label: "(none)" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            placeholder="(none)"
+          />
         </Field>
         <Field label="Opportunity">
-          <select value={oppId} onChange={(e) => setOppId(e.target.value)} style={inputStyle}>
-            <option value="">(none)</option>
-            {opportunities.map((o) => (
-              <option key={o.id} value={o.id}>{o.opportunity_number} — {truncate(o.title, 40)}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={oppId || null}
+            onChange={(v) => setOppId(v)}
+            options={[
+              { value: "", label: "(none)" },
+              ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
+            ]}
+            placeholder="(none)"
+          />
         </Field>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>

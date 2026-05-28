@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
 
@@ -280,12 +281,15 @@ export default function InternalCrmOpportunities() {
         </div>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Customer</label>
-          <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            placeholder="All"
+          />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
           <label style={labelStyle}>Search title</label>
@@ -615,17 +619,21 @@ function OpportunityDetailModal({ id, onClose, customers }: {
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
             <Field label="Customer">
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={inputStyle}>
-                <option value="">(none)</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {(c.code ? `${c.code} — ` : "") + c.name}
-                  </option>
-                ))}
-                {customerId && !customerById.has(customerId) && (
-                  <option value={customerId}>{customerId}</option>
-                )}
-              </select>
+              <SearchableSelect
+                value={customerId || null}
+                onChange={(v) => setCustomerId(v)}
+                options={[
+                  { value: "", label: "(none)" },
+                  ...customers.map((c) => ({
+                    value: c.id,
+                    label: (c.code ? `${c.code} — ` : "") + c.name,
+                  })),
+                  ...(customerId && !customerById.has(customerId)
+                    ? [{ value: customerId, label: customerId }]
+                    : []),
+                ]}
+                placeholder="(none)"
+              />
             </Field>
             <Field label="Expected close">
               <input
@@ -854,12 +862,15 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
         <Field label="Customer">
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={inputStyle}>
-            <option value="">(none)</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerId || null}
+            onChange={(v) => setCustomerId(v)}
+            options={[
+              { value: "", label: "(none)" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            placeholder="(none)"
+          />
         </Field>
         <Field label="Stage">
           <select value={stage} onChange={(e) => setStage(e.target.value as Stage)} style={inputStyle}>

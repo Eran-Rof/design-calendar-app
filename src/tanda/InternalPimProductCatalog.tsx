@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import InternalPimStyleDetail from "./InternalPimStyleDetail";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Category = {
   id: string;
@@ -378,16 +379,17 @@ export default function InternalPimProductCatalog() {
         />
         <button onClick={() => void loadStyles()} style={btnSecondary}>Search</button>
 
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          style={{ ...inputStyle, maxWidth: 280 } as React.CSSProperties}
-        >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{catPaths.get(c.id) || c.name}</option>
-          ))}
-        </select>
+        <div style={{ width: 280 }}>
+          <SearchableSelect
+            value={categoryFilter || null}
+            onChange={(v) => setCategoryFilter(v)}
+            options={[
+              { value: "", label: "All categories" },
+              ...categories.map((c) => ({ value: c.id, label: catPaths.get(c.id) || c.name })),
+            ]}
+            placeholder="All categories"
+          />
+        </div>
 
         <select
           value={publishFilter}

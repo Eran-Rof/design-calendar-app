@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Case = {
   id: string;
@@ -667,14 +668,18 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
         <Field label="Customer">
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={inputStyle}>
-            <option value="">(none)</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {(c.code ? `${c.code} — ` : "") + c.name}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerId || null}
+            onChange={(v) => setCustomerId(v)}
+            options={[
+              { value: "", label: "(none)" },
+              ...customers.map((c) => ({
+                value: c.id,
+                label: (c.code ? `${c.code} — ` : "") + c.name,
+              })),
+            ]}
+            placeholder="(none)"
+          />
         </Field>
         <Field label="Severity">
           <select value={severity} onChange={(e) => setSeverity(e.target.value as Case["severity"])} style={inputStyle}>

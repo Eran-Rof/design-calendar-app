@@ -10,6 +10,7 @@ import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
+import SearchableSelect from "./components/SearchableSelect";
 
 type GlStatus =
   | "draft" | "unposted" | "pending_approval" | "sent"
@@ -278,10 +279,17 @@ export default function InternalARInvoices() {
           <option value="reversed">Reversed</option>
           <option value="posted_historical">Posted (historical)</option>
         </select>
-        <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={{ ...inputStyle, width: 240 }}>
-          <option value="">All customers</option>
-          {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        <div style={{ width: 240 }}>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All customers" },
+              ...customers.map((c) => ({ value: c.id, label: c.name })),
+            ]}
+            placeholder="All customers"
+          />
+        </div>
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
@@ -702,10 +710,13 @@ function ARInvoiceModal({
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Customer">
-                <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(pick customer…)</option>
-                  {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={customerId || null}
+                  onChange={(v) => setCustomerId(v)}
+                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                  placeholder="(pick customer…)"
+                  disabled={!editable}
+                />
                 {!customerId && (
                   <input
                     type="text" placeholder="…or paste customer uuid"
@@ -731,48 +742,70 @@ function ARInvoiceModal({
                 <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Payment terms">
-                <select value={paymentTermsId} onChange={(e) => setPaymentTermsId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(none — set due date manually)</option>
-                  {paymentTerms.map((pt) => <option key={pt.id} value={pt.id}>{pt.code} — {pt.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={paymentTermsId || null}
+                  onChange={(v) => setPaymentTermsId(v)}
+                  options={[
+                    { value: "", label: "(none — set due date manually)" },
+                    ...paymentTerms.map((pt) => ({ value: pt.id, label: `${pt.code} — ${pt.name}` })),
+                  ]}
+                  placeholder="(none — set due date manually)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="Due date">
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="AR account (override)">
-                <select value={arAccountId} onChange={(e) => setArAccountId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(entity default)</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={arAccountId || null}
+                  onChange={(v) => setArAccountId(v)}
+                  options={[
+                    { value: "", label: "(entity default)" },
+                    ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                  ]}
+                  placeholder="(entity default)"
+                  disabled={!editable}
+                />
               </Field>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Revenue (default)">
-                <select value={revenueAccountId} onChange={(e) => setRevenueAccountId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(entity default)</option>
-                  {accounts.filter((a) => a.is_postable).map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={revenueAccountId || null}
+                  onChange={(v) => setRevenueAccountId(v)}
+                  options={[
+                    { value: "", label: "(entity default)" },
+                    ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                  ]}
+                  placeholder="(entity default)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="COGS account">
-                <select value={cogsAccountId} onChange={(e) => setCogsAccountId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(entity default)</option>
-                  {accounts.filter((a) => a.is_postable).map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={cogsAccountId || null}
+                  onChange={(v) => setCogsAccountId(v)}
+                  options={[
+                    { value: "", label: "(entity default)" },
+                    ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                  ]}
+                  placeholder="(entity default)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="Inventory asset">
-                <select value={inventoryAccountId} onChange={(e) => setInventoryAccountId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(entity default)</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={inventoryAccountId || null}
+                  onChange={(v) => setInventoryAccountId(v)}
+                  options={[
+                    { value: "", label: "(entity default)" },
+                    ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                  ]}
+                  placeholder="(entity default)"
+                  disabled={!editable}
+                />
               </Field>
             </div>
 
@@ -827,12 +860,16 @@ function ARInvoiceModal({
                         <input type="text" value={l.line_total_dollars} onChange={(e) => updateLine(idx, { line_total_dollars: e.target.value })} disabled={!editable || (!!l.unit_price_dollars && !!l.quantity)} placeholder="0.00" style={inputStyle} />
                       </td>
                       <td style={td}>
-                        <select value={l.revenue_account_id} onChange={(e) => updateLine(idx, { revenue_account_id: e.target.value })} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                          <option value="">(header default)</option>
-                          {accounts.filter((a) => a.is_postable).map((a) => (
-                            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                          ))}
-                        </select>
+                        <SearchableSelect
+                          value={l.revenue_account_id || null}
+                          onChange={(v) => updateLine(idx, { revenue_account_id: v })}
+                          options={[
+                            { value: "", label: "(header default)" },
+                            ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                          ]}
+                          placeholder="(header default)"
+                          disabled={!editable}
+                        />
                       </td>
                       <td style={td}>
                         {editable && lines.length > 1 && (
