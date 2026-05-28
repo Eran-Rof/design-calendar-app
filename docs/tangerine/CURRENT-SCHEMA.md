@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (165 migration files). Latest: `20260615000000_p7_chunk10_crosscutter_seeds.sql`.
+> Generated from `supabase/migrations/*.sql` (166 migration files). Latest: `20260616000000_p8_chunk1_crm_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 216 tables · 206 CREATE TABLE · 409 ALTER TABLE
+**Stats:** 219 tables · 209 CREATE TABLE · 412 ALTER TABLE
 
 ---
 
@@ -609,6 +609,63 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `entity_id` uuid → `entities`
+
+## `crm_activities`  _(P8-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `customer_id` uuid → `customers`
+- `opportunity_id` uuid → `crm_opportunities`
+- `case_id` uuid → `cases`
+- `activity_type` text NOT NULL CHECK `activity_type IN ('note','call','email_in','email_out','meeting','task_done','stage_change','system')`
+- `subject` text NOT NULL
+- `body` text
+- `occurred_at` timestamptz NOT NULL DEFAULT now()
+- `duration_minutes` int CHECK `duration_minutes IS NULL OR duration_minutes >= 0`
+- `external_email` text
+- `payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `is_hidden` boolean NOT NULL DEFAULT false
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `created_by_user_id` uuid → `auth.users`
+
+## `crm_opportunities`  _(P8-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `customer_id` uuid → `customers`
+- `opportunity_number` text NOT NULL
+- `title` text NOT NULL
+- `stage` text NOT NULL DEFAULT 'new' CHECK `stage IN ('new','qualified','proposal','won','lost')`
+- `stage_changed_at` timestamptz NOT NULL DEFAULT now()
+- `expected_cents` bigint CHECK `expected_cents IS NULL OR expected_cents >= 0`
+- `probability_pct` smallint NOT NULL DEFAULT 50 CHECK `probability_pct BETWEEN 0 AND 100`
+- `expected_close_date` date
+- `actual_close_date` date
+- `loss_reason` text
+- `owner_user_id` uuid → `auth.users`
+- `description` text
+- `metadata` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+- `created_by_user_id` uuid → `auth.users`
+
+## `crm_tasks`  _(P8-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `customer_id` uuid → `customers`
+- `opportunity_id` uuid → `crm_opportunities`
+- `title` text NOT NULL
+- `description` text
+- `due_date` date
+- `status` text NOT NULL DEFAULT 'open' CHECK `status IN ('open','in_progress','done','cancelled')`
+- `priority` text NOT NULL DEFAULT 'normal' CHECK `priority IN ('low','normal','high','urgent')`
+- `assignee_user_id` uuid → `auth.users`
+- `completed_at` timestamptz
+- `completed_by_user_id` uuid → `auth.users`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+- `created_by_user_id` uuid → `auth.users`
 
 ## `currency_rates`  _((pre-P))_
 
