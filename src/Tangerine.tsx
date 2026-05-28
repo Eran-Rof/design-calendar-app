@@ -72,6 +72,9 @@ import EntitySwitcher from "./components/EntitySwitcher";
 // Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
+import InternalSalesReps               from "./tanda/InternalSalesReps";
+import InternalCommissionAccruals      from "./tanda/InternalCommissionAccruals";
+import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -147,7 +150,10 @@ type ModuleKey =
   // Tangerine P12-99 — Marketplaces status (Shopify / FBA / Walmart / Faire).
   | "marketplace_status"
   // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit).
-  | "audit_log";
+  | "audit_log"
+  | "sales_reps"
+  | "commission_accruals"
+  | "commission_payouts";
 
 type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit";
 
@@ -219,6 +225,10 @@ const MODULES: ModuleDef[] = [
   { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "🏦", group: "Accounting" },
   // P6-6: Per (bank_account, period) reconciliation report.
   { key: "bank_recon_report", label: "Recon Report",      emoji: "⚖️", group: "Accounting" },
+  // P7-6: M44 Sales Reps master + Commission Accruals + Commission Payouts.
+  { key: "sales_reps",            label: "Sales Reps",            emoji: "🧑‍💼", group: "Accounting" },
+  { key: "commission_accruals",   label: "Commission Accruals",   emoji: "💰", group: "Accounting" },
+  { key: "commission_payouts",    label: "Commission Payouts",    emoji: "📜", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -452,6 +462,9 @@ export default function Tangerine() {
         {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
         {/* Cross-cutter T11-3 — Universal audit log admin panel */}
         {activeModule === "audit_log"           && <InternalAuditLog />}
+        {activeModule === "sales_reps"            && <InternalSalesReps />}
+        {activeModule === "commission_accruals"   && <InternalCommissionAccruals />}
+        {activeModule === "commission_payouts"    && <InternalCommissionPayouts />}
       </main>
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
