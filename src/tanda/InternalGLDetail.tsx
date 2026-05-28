@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Account = {
   id: string;
@@ -158,18 +159,17 @@ export default function InternalGLDetail() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Account
-          <select
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            style={selectStyle}
-          >
-            <option value="">— Pick account —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.code} — {a.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ width: 340 }}>
+            <SearchableSelect
+              value={accountId || null}
+              onChange={(v) => setAccountId(v)}
+              options={[
+                { value: "", label: "— Pick account —" },
+                ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+              ]}
+              placeholder="— Pick account —"
+            />
+          </div>
         </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           From

@@ -20,6 +20,7 @@ import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
+import SearchableSelect from "./components/SearchableSelect";
 
 type ARReceipt = {
   id: string;
@@ -239,16 +240,17 @@ export default function InternalARReceipts() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-        <select
-          value={customerFilter}
-          onChange={(e) => setCustomerFilter(e.target.value)}
-          style={{ ...inputStyle, width: 220 }}
-        >
-          <option value="">All customers</option>
-          {customers.map((c) => (
-            <option key={c.id} value={c.id}>{c.code ? `${c.code} — ${c.name}` : c.name}</option>
-          ))}
-        </select>
+        <div style={{ width: 220 }}>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All customers" },
+              ...customers.map((c) => ({ value: c.id, label: c.code ? `${c.code} — ${c.name}` : c.name })),
+            ]}
+            placeholder="All customers"
+          />
+        </div>
         <select
           value={method}
           onChange={(e) => setMethod(e.target.value)}
@@ -565,12 +567,17 @@ function AddReceiptModal({
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 16 }}>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Customer *
-            <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ ...inputStyle, marginTop: 4 }}>
-              <option value="">— select —</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.code ? `${c.code} — ${c.name}` : c.name}</option>
-              ))}
-            </select>
+            <div style={{ marginTop: 4 }}>
+              <SearchableSelect
+                value={customerId || null}
+                onChange={(v) => setCustomerId(v)}
+                options={customers.map((c) => ({
+                  value: c.id,
+                  label: c.code ? `${c.code} — ${c.name}` : c.name,
+                }))}
+                placeholder="— select —"
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Receipt date *
@@ -594,12 +601,14 @@ function AddReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank account *
-            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} style={{ ...inputStyle, marginTop: 4 }}>
-              <option value="">— select —</option>
-              {bankAccountChoices.map((a) => (
-                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-              ))}
-            </select>
+            <div style={{ marginTop: 4 }}>
+              <SearchableSelect
+                value={bankAccountId || null}
+                onChange={(v) => setBankAccountId(v)}
+                options={bankAccountChoices.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))}
+                placeholder="— select —"
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Reference (check# / wire conf.)
@@ -884,11 +893,15 @@ function DetailReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank
-            <select value={editBank} onChange={(e) => setEditBank(e.target.value)} disabled={!editable} style={{ ...inputStyle, marginTop: 4, opacity: editable ? 1 : 0.6 }}>
-              {bankAccountChoices.map((a) => (
-                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-              ))}
-            </select>
+            <div style={{ marginTop: 4, opacity: editable ? 1 : 0.6 }}>
+              <SearchableSelect
+                value={editBank || null}
+                onChange={(v) => setEditBank(v)}
+                options={bankAccountChoices.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))}
+                placeholder="— select —"
+                disabled={!editable}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Reference

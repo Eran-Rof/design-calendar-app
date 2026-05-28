@@ -11,6 +11,7 @@ import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
+import SearchableSelect from "./components/SearchableSelect";
 
 type GlStatus = "draft" | "unposted" | "pending_approval" | "posted" | "paid" | "void" | "reversed";
 
@@ -245,10 +246,17 @@ export default function InternalAPInvoices() {
           <option value="paid">Paid</option>
           <option value="void">Void</option>
         </select>
-        <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} style={{ ...inputStyle, width: 240 }}>
-          <option value="">All vendors</option>
-          {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+        <div style={{ width: 240 }}>
+          <SearchableSelect
+            value={vendorFilter || null}
+            onChange={(v) => setVendorFilter(v)}
+            options={[
+              { value: "", label: "All vendors" },
+              ...vendors.map((v) => ({ value: v.id, label: v.name })),
+            ]}
+            placeholder="All vendors"
+          />
+        </div>
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
@@ -626,10 +634,13 @@ function APInvoiceModal({
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Vendor">
-                <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(pick vendor…)</option>
-                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={vendorId || null}
+                  onChange={(v) => setVendorId(v)}
+                  options={vendors.map((v) => ({ value: v.id, label: v.name }))}
+                  placeholder="(pick vendor…)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="Invoice number">
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={!editable} style={inputStyle} />
@@ -651,20 +662,28 @@ function APInvoiceModal({
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Default expense account">
-                <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(none — set per line)</option>
-                  {accounts.filter((a) => a.is_postable).map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={expenseAccountId || null}
+                  onChange={(v) => setExpenseAccountId(v)}
+                  options={[
+                    { value: "", label: "(none — set per line)" },
+                    ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                  ]}
+                  placeholder="(none — set per line)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="AP account">
-                <select value={apAccountId} onChange={(e) => setApAccountId(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="">(entity default)</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={apAccountId || null}
+                  onChange={(v) => setApAccountId(v)}
+                  options={[
+                    { value: "", label: "(entity default)" },
+                    ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                  ]}
+                  placeholder="(entity default)"
+                  disabled={!editable}
+                />
               </Field>
             </div>
 
@@ -707,12 +726,16 @@ function APInvoiceModal({
                       </td>
                       <td style={td}>
                         {l.kind === "expense" ? (
-                          <select value={l.expense_account_id} onChange={(e) => updateLine(idx, { expense_account_id: e.target.value })} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                            <option value="">(pick account…)</option>
-                            {accounts.filter((a) => a.is_postable).map((a) => (
-                              <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                            ))}
-                          </select>
+                          <SearchableSelect
+                            value={l.expense_account_id || null}
+                            onChange={(v) => updateLine(idx, { expense_account_id: v })}
+                            options={[
+                              { value: "", label: "(pick account…)" },
+                              ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+                            ]}
+                            placeholder="(pick account…)"
+                            disabled={!editable}
+                          />
                         ) : (
                           <input
                             type="text" value={l.inventory_item_id}

@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Account = {
   id: string;
@@ -339,10 +340,15 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
             <input type="text" value={form.account_subtype} onChange={(e) => setForm({ ...form, account_subtype: e.target.value })} style={inputStyle} placeholder="e.g. current_asset, ar, cogs" />
           </Field>
           <Field label="Parent account">
-            <select value={form.parent_account_id} onChange={(e) => setForm({ ...form, parent_account_id: e.target.value })} style={inputStyle as React.CSSProperties}>
-              <option value="">(none)</option>
-              {parentOptions.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.parent_account_id || null}
+              onChange={(v) => setForm({ ...form, parent_account_id: v })}
+              options={[
+                { value: "", label: "(none)" },
+                ...parentOptions.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })),
+              ]}
+              placeholder="(none)"
+            />
           </Field>
           <Field label="Status">
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as "active" | "inactive" })} style={inputStyle as React.CSSProperties}>
