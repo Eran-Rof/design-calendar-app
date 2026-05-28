@@ -328,6 +328,8 @@ import h317 from "./internal/gl-periods/reopen.js";
 import h318 from "./internal/trial-balance/index.js";
 // P5-3 — Income Statement GET (h319). APPEND ONLY.
 import h319 from "./internal/income-statement/index.js";
+// P5-4 — Balance Sheet GET (h320). APPEND ONLY.
+import h320 from "./internal/balance-sheet/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -662,6 +664,8 @@ export const ROUTES = [
   { pattern: "/api/internal/trial-balance", handler: h318 },
   // P5-3 — Income Statement GET (h319).
   { pattern: "/api/internal/income-statement", handler: h319 },
+  // P5-4 — Balance Sheet GET (h320).
+  { pattern: "/api/internal/balance-sheet", handler: h320 },
 ];
 
 export function compileRoutes(routes) {

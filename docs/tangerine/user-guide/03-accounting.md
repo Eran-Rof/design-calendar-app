@@ -440,3 +440,57 @@ In practice this should never happen — the trigger guard catches it. The varia
 - `from` / `to` (both-or-neither) — if both provided, calls the `trial_balance(entity_id, basis, from, to)` RPC. If both omitted, reads the view `v_trial_balance` (cumulative across all posted history).
 
 Response: `{ basis, from, to, rows: [...] }` sorted by account code ASC.
+
+---
+
+## 📋 Balance Sheet (P5-4)
+
+The Balance Sheet panel renders **assets**, **liabilities**, and **equity** as of a chosen date, in a three-column layout. Available at `Accounting → 📋 Balance Sheet`.
+
+### Controls
+
+- **Basis toggle** — `ACCRUAL` (default) or `CASH`. Reads the parallel sibling JEs posted by AP / AR / inventory rules.
+- **As-of date picker** — defaults to today. The handler ALWAYS calls the parameterized `balance_sheet_as_of(entity_id, basis, as_of_date)` RPC so any historical snapshot is queryable.
+
+### Layout
+
+| Column | Sources |
+|---|---|
+| **Assets** | `account_type='asset'` + `account_type='contra_asset'` (the latter rendered with negative balance + slight indent so it visually nets against parent assets) |
+| **Liabilities** | `account_type='liability'` |
+| **Equity** | `account_type='equity'` PLUS a synthetic **Current Year Earnings** line at the bottom |
+
+Each column has a per-section subtotal footer; the Equity column's footer is `equity + current_year_earnings`.
+
+### Current Year Earnings
+
+This synthetic line is computed in the UI from a sibling `/api/internal/income-statement?basis=X&from=YYYY-01-01&to=<as_of>` fetch:
+
+```
+Current Year Earnings = Σ(revenue net credits) − Σ(contra_revenue) − Σ(expense net debits)
+                        for posting_date in [year_start .. as_of_date]
+```
+
+Until the year-end close JE runs (P5-6), this is how the BS stays balanced — closing the books rolls Current Year Earnings into the operator's designated **Retained Earnings** equity account and zeros out the underlying revenue + expense accounts. From that point on, prior-year activity shows up as Retained Earnings on the BS instead of as Current Year Earnings.
+
+### Variance footer
+
+The accounting equation is:
+
+```
+Assets = Liabilities + Equity + Current Year Earnings
+```
+
+The footer shows:
+
+```
+Variance = Assets − Liabilities − Equity − Current Year Earnings
+```
+
+**This should always be `$0.00`** — any non-zero value renders in red bold and indicates corruption (an out-of-balance JE somewhere, a basis mismatch, or a stale schema). The JE post trigger already rejects unbalanced lines, so this is rare in practice; the footer exists as defense-in-depth + a quick visual sanity check.
+
+### Notes
+
+- The view + RPC INCLUDE the current year's revenue / expense impact via the Current Year Earnings calculation. They do NOT include closed-year revenue / expense activity (zeroed by the year-end close JE — see P5-6).
+- Money cells are right-aligned with `tabular-nums` and formatted as `$X,XXX.XX` (cents ÷ 100).
+- The RPC is `STABLE` so Postgres can plan with the current snapshot — re-running with the same args within a transaction is cheap.
