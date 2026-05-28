@@ -408,3 +408,57 @@ Response shape:
 }
 ```
 
+
+---
+
+## Historical backfill (P4-8)
+
+Backfills `ar_invoices` + `journal_entries` from the existing `ip_sales_history_wholesale` Xoro feed. **Window: 2024-08-01 → today** (per Xoro initial-use cutoff; earlier `gl_periods` are purged and `entities.posting_locked_through` is pinned to `2024-07-31` so nothing earlier can ever be posted).
+
+### What the runner does
+
+For each month in the window:
+
+1. Reads `ip_sales_history_wholesale` rows with `invoice_number IS NOT NULL`.
+2. Groups by `(invoice_number, txn_date, customer_id)`.
+3. Resolves the legacy `ip_customer_master.customer_id` to a `customers` row — by `customer_code`, then by name match. Synthesizes a `code='HIST_<legacy>'` row when nothing matches, logged to `bf_unmatched_customers_log`.
+4. Inserts one `ar_invoices` row per group with `invoice_kind='customer_invoice_historical'` + `gl_status='posted_historical'`.
+5. Posts a `journal_entries` row with `journal_type='ar_invoice_historical'` — the trigger bypasses the period lock for that journal type (P4-1 wired this).
+6. **FIFO is NOT touched.** COGS comes from `unit_cost_at_sale` directly. Lines where that's null are logged to `bf_skipped_cogs_log` and the revenue side still posts.
+7. Records per-month progress in `bf_backfill_checkpoint_log`.
+
+Re-runs are idempotent: the `(entity_id, invoice_number)` unique index on `ar_invoices` makes ON CONFLICT skip already-inserted rows.
+
+### Operator workflow
+
+```mermaid
+flowchart TD
+  A[Paste p4-8-ar-backfill-scaffold.sql in Supabase] --> B[Open Tangerine → AR Backfill]
+  B --> C[Set window + leave Dry Run checked]
+  C --> D[Click Preview → review summary JSON]
+  D --> E{Counts look right?}
+  E -- no --> F[Adjust window or fix source data]
+  F --> C
+  E -- yes --> G[Uncheck Dry Run, confirm prompt, Run]
+  G --> H[Inspect Checkpoint log + Reconciliation rows]
+  H --> I{Any variance > $0.01?}
+  I -- yes --> J[Review unmatched / skipped audits, manual-adjust via JE]
+  I -- no --> K[Done — historical AR available in panels]
+```
+
+### Reconciliation view
+
+`v_ar_backfill_reconciliation` compares `ip_sales_history_wholesale` source totals to `ar_invoices` (historical) totals per month. Rows where `ABS(variance) > 0.01` need operator review.
+
+```sql
+SELECT * FROM v_ar_backfill_reconciliation WHERE ABS(variance) > 0.01;
+```
+
+### Payment-side backfill (deferred)
+
+Historical receipts are NOT included in this chunk — historical invoices land with `paid_amount_cents=0`. The operator can mark-paid through the AR Receipts panel using a single bulk receipt per customer. A future chunk will add a Xoro Customer-Receipts CSV importer if needed.
+
+### Trigger safety
+
+The bypass is structurally locked to the `*_historical` journal_types — operator UI cannot set `journal_type` directly. The hard-lock on the entity (`posting_locked_through=2024-07-31`) ensures even backfill calls can't push into the pre-Xoro era.
+
