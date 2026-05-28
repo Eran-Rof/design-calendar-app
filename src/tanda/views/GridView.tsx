@@ -1000,6 +1000,12 @@ export function GridView({
                     const SortHdr = ({ k, label, justify, boundary }: { k: SortKey; label: string; justify?: "center" | "flex-end"; boundary?: boolean }) => {
                       const active = sortKey === k;
                       const arrow = active ? (sortDir === "asc" ? "▲" : "▼") : "";
+                      // Boundary overlay only renders when freeze is active. When active, the
+                      // freeze CSS makes this cell position:sticky — that serves as the
+                      // positioned ancestor for the absolute overlay. NOT using
+                      // phaseDividerHost here — its inline `position: relative` would
+                      // override the CSS sticky and break the freeze (see PR #403 hotfix).
+                      const showBoundary = !!boundary && effectiveFreezeCount > 0;
                       return (
                         <span
                           onClick={() => onHeaderClick(k)}
@@ -1007,13 +1013,13 @@ export function GridView({
                           style={{
                             ...hdr1,
                             ...(justify ? { justifyContent: justify } : {}),
-                            ...(boundary ? phaseDividerHost : {}),
+                            ...(showBoundary ? { overflow: "visible" } : {}),
                             cursor: "pointer",
                             userSelect: "none" as const,
                             color: active ? "#C4B5FD" : undefined,
                           }}
                         >
-                          {boundary && <span style={phaseDividerOverlayBoundary} />}
+                          {showBoundary && <span style={phaseDividerOverlayBoundary} />}
                           {label}
                           <span style={{ marginLeft: 4, fontSize: 10, opacity: active ? 1 : 0.3 }}>
                             {arrow || "↕"}
@@ -1058,12 +1064,14 @@ export function GridView({
                 {/* Row 2 */}
                 <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct }}>
                   {Array.from({ length: 8 }).map((_, i) => {
-                    // 8th cell (Days from DDP, i===7) carries the fixed/phase boundary
-                    // divider on its right edge so the divider freezes with col 8.
-                    const isBoundary = i === 7;
+                    // 8th cell (Days from DDP, i===7) hosts the fixed/phase boundary
+                    // divider, but ONLY when freeze is active — see SortHdr comment
+                    // above for why we can't use phaseDividerHost (would override the
+                    // freeze CSS's position:sticky).
+                    const showBoundary = i === 7 && effectiveFreezeCount > 0;
                     return (
-                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(isBoundary ? phaseDividerHost : {}) }}>
-                        {isBoundary && <span style={phaseDividerOverlayBoundary} />}
+                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(showBoundary ? { overflow: "visible" } : {}) }}>
+                        {showBoundary && <span style={phaseDividerOverlayBoundary} />}
                       </span>
                     );
                   })}
@@ -1212,13 +1220,20 @@ export function GridView({
                       />
                     </span>
 
-                    {/* Days from DDP — carries the fixed/phase boundary divider on
-                        its right edge so the divider freezes with col 8 (otherwise
-                        it scrolls off with the Due Date cell of phase 1). */}
-                    <span style={{ ...cell, justifyContent: "flex-end", color: daysClr, fontWeight: 700, ...phaseDividerHost }}>
-                      <span style={phaseDividerOverlayBoundary} />
-                      {daysTxt}
-                    </span>
+                    {/* Days from DDP — hosts the fixed/phase boundary divider when
+                        freeze is active so it freezes with col 8 (otherwise the phase-1
+                        left divider scrolls off). NOT using phaseDividerHost — its
+                        position:relative would override the freeze CSS's position:sticky.
+                        See SortHdr above for the same pattern. */}
+                    {(() => {
+                      const showBoundary = effectiveFreezeCount > 0;
+                      return (
+                        <span style={{ ...cell, justifyContent: "flex-end", color: daysClr, fontWeight: 700, ...(showBoundary ? { overflow: "visible" } : {}) }}>
+                          {showBoundary && <span style={phaseDividerOverlayBoundary} />}
+                          {daysTxt}
+                        </span>
+                      );
+                    })()}
 
                     {/* Phase sub-cells */}
                     {phases.map((phase, pi) => {
