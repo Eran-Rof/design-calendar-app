@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (166 migration files). Latest: `20260616000000_p8_chunk1_crm_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (167 migration files). Latest: `20260617000000_p8_chunk5_pim_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 219 tables · 209 CREATE TABLE · 412 ALTER TABLE
+**Stats:** 224 tables · 214 CREATE TABLE · 417 ALTER TABLE
 
 ---
 
@@ -617,15 +617,11 @@ _(no columns parsed)_
 - `customer_id` uuid → `customers`
 - `opportunity_id` uuid → `crm_opportunities`
 - `case_id` uuid → `cases`
-- `activity_type` text NOT NULL CHECK `activity_type IN ('note','call','email_in','email_out','meeting','task_done','stage_change','system')`
 - `subject` text NOT NULL
 - `body` text
 - `occurred_at` timestamptz NOT NULL DEFAULT now()
 - `duration_minutes` int CHECK `duration_minutes IS NULL OR duration_minutes >= 0`
 - `external_email` text
-- `payload` jsonb NOT NULL DEFAULT '{}'::jsonb
-- `is_hidden` boolean NOT NULL DEFAULT false
-- `created_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 
 ## `crm_opportunities`  _(P8-1)_
@@ -634,7 +630,6 @@ _(no columns parsed)_
 - `entity_id` uuid → `entities` NOT NULL
 - `customer_id` uuid → `customers`
 - `opportunity_number` text NOT NULL
-- `title` text NOT NULL
 - `stage` text NOT NULL DEFAULT 'new' CHECK `stage IN ('new','qualified','proposal','won','lost')`
 - `stage_changed_at` timestamptz NOT NULL DEFAULT now()
 - `expected_cents` bigint CHECK `expected_cents IS NULL OR expected_cents >= 0`
@@ -2418,6 +2413,82 @@ _(no columns parsed)_
 - `set_by` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `product_attribute_definitions`  _(P8-5)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `category_id` uuid → `product_categories`
+- `attribute_key` text NOT NULL
+- `label` text NOT NULL
+- `value_type` text NOT NULL CHECK `value_type IN ('enum','number','text','boolean','date')`
+- `options` jsonb
+- `is_required` boolean NOT NULL DEFAULT false
+- `sort_order` int NOT NULL DEFAULT 0
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `product_attributes`  _(P8-5)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `style_id` uuid → `style_master` NOT NULL
+- `attribute_key` text NOT NULL
+- `value` jsonb NOT NULL
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+- `updated_by_user_id` uuid → `auth.users`
+
+## `product_categories`  _(P8-5)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `parent_category_id` uuid → `product_categories`
+- `code` text NOT NULL
+- `name` text NOT NULL
+- `sort_order` int NOT NULL DEFAULT 0
+- `is_active` boolean NOT NULL DEFAULT true
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `product_descriptions`  _(P8-5)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `style_id` uuid → `style_master` NOT NULL
+- `locale` text NOT NULL DEFAULT 'en-US'
+- `short_description` text
+- `long_description` text
+- `bullet_1` text
+- `bullet_2` text
+- `bullet_3` text
+- `bullet_4` text
+- `bullet_5` text
+- `seo_title` text
+- `seo_description` text
+- `publish_status` text NOT NULL DEFAULT 'draft' CHECK `publish_status IN ('draft','published')`
+- `published_at` timestamptz
+- `published_by_user_id` uuid → `auth.users`
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+- `updated_by_user_id` uuid → `auth.users`
+
+## `product_images`  _(P8-5)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `style_id` uuid → `style_master` NOT NULL
+- `image_kind` text NOT NULL DEFAULT 'flat' CHECK `image_kind IN ('flat','lifestyle','spec','swatch','other')`
+- `storage_path` text NOT NULL
+- `storage_path_thumb` text
+- `storage_path_web` text
+- `storage_path_print` text
+- `alt_text` text
+- `sort_order` int NOT NULL DEFAULT 0
+- `is_primary` boolean NOT NULL DEFAULT false
+- `mime_type` text
+- `bytes` bigint
+- `width` int
+- `height` int
+- `uploaded_by_user_id` uuid → `auth.users`
+- `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `push_notifications`  _((pre-P))_
 
