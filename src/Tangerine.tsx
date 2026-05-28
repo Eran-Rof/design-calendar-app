@@ -50,6 +50,11 @@ import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustment
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
 import InternalScannerSessions         from "./tanda/InternalScannerSessions";
 import InternalCases                   from "./tanda/InternalCases";
+// P8-3 — M25 CRM panels (Opportunities + Activities + Tasks + Pipeline Report).
+import InternalCrmOpportunities       from "./tanda/InternalCrmOpportunities";
+import InternalCrmActivities          from "./tanda/InternalCrmActivities";
+import InternalCrmTasks               from "./tanda/InternalCrmTasks";
+import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 
@@ -109,9 +114,14 @@ type ModuleKey =
   | "ap_aging"
   | "sales_by_rep"
   | "sales_by_customer"
-  | "gl_detail";
+  | "gl_detail"
+  // P8-3 — M25 CRM under new 🤝 CRM nav group.
+  | "crm_opportunities"
+  | "crm_activities"
+  | "crm_tasks"
+  | "crm_pipeline_report";
 
-type GroupKey = "Master Data" | "Accounting" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service";
+type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -121,13 +131,17 @@ type ModuleDef = {
 };
 
 // Order groups appear in the top nav. Also where the per-group icon comes from.
+// P8-3: CRM positioned between Accounting and Reports — operator workflow is
+// "invoice posts → check pipeline → log activity" so it follows Accounting and
+// precedes the cross-functional Reports group.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "Reports", "Inventory", "Customer Service", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
   "Accounting":       "💼",
+  "CRM":              "🤝",
   "Reports":          "📊",
   "Inventory":        "📦",
   "Customer Service": "🤝",
@@ -186,6 +200,11 @@ const MODULES: ModuleDef[] = [
   { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Reports" },
   { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Reports" },
   { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
+  // P8-3 — M25 CRM panels under new 🤝 CRM nav group.
+  { key: "crm_opportunities",   label: "Opportunities",     emoji: "💼", group: "CRM" },
+  { key: "crm_activities",      label: "Activities",        emoji: "📋", group: "CRM" },
+  { key: "crm_tasks",           label: "Tasks",             emoji: "✅", group: "CRM" },
+  { key: "crm_pipeline_report", label: "Pipeline Report",   emoji: "📊", group: "CRM" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -353,6 +372,11 @@ export default function Tangerine() {
         {activeModule === "sales_by_rep"        && <InternalSalesByRep />}
         {activeModule === "sales_by_customer"   && <InternalSalesByCustomer />}
         {activeModule === "gl_detail"           && <InternalGLDetail />}
+        {/* P8-3 — M25 CRM panels */}
+        {activeModule === "crm_opportunities"   && <InternalCrmOpportunities />}
+        {activeModule === "crm_activities"      && <InternalCrmActivities />}
+        {activeModule === "crm_tasks"           && <InternalCrmTasks />}
+        {activeModule === "crm_pipeline_report" && <InternalCrmPipelineReport />}
       </main>
     </div>
   );
@@ -799,6 +823,7 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
 function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => void }) {
   const masterModules = MODULES.filter((m) => m.group === "Master Data");
   const acctModules = MODULES.filter((m) => m.group === "Accounting");
+  const crmModules = MODULES.filter((m) => m.group === "CRM");
   const reportsModules = MODULES.filter((m) => m.group === "Reports");
   const approvalsModules = MODULES.filter((m) => m.group === "Approvals");
   const notifModules = MODULES.filter((m) => m.group === "Notifications");
@@ -825,6 +850,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Accounting">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {acctModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="CRM (P8)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {crmModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
