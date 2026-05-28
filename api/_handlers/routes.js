@@ -388,6 +388,11 @@ import h374 from "./internal/pim/styles/[style_id].js";
 import h375 from "./internal/pim/styles/[style_id]/attributes.js";
 import h376 from "./internal/pim/styles/[style_id]/description/index.js";
 import h377 from "./internal/pim/styles/[style_id]/description/publish.js";
+// P8-7 — PIM image upload + Sharp pipeline (h380-h383). APPEND ONLY.
+import h380 from "./internal/pim/styles/[style_id]/images/index.js";
+import h381 from "./internal/pim/styles/[style_id]/images/[id].js";
+import h382 from "./internal/pim/styles/[style_id]/images/[id]/delete.js";
+import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -773,6 +778,13 @@ export const ROUTES = [
   { pattern: "/api/internal/crm/tasks/:id",                           handler: h366 },
   { pattern: "/api/internal/crm/tasks",                               handler: h365 },
   { pattern: "/api/internal/crm/pipeline-report",                     handler: h367 },
+  // P8-7 — PIM images. Specific subpaths BEFORE the bare /:id route.
+  // Image routes must come BEFORE the bare /:style_id route from P8-6 so
+  // /styles/:style_id/images/... gets matched first.
+  { pattern: "/api/internal/pim/styles/:style_id/images/:id/signed-url", handler: h383 },
+  { pattern: "/api/internal/pim/styles/:style_id/images/:id/delete",     handler: h382 },
+  { pattern: "/api/internal/pim/styles/:style_id/images/:id",            handler: h381 },
+  { pattern: "/api/internal/pim/styles/:style_id/images",                handler: h380 },
   // P8-6 — PIM (M42) non-image endpoints.
   // Subpath actions MUST come before bare /:style_id and /:id routes.
   { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
