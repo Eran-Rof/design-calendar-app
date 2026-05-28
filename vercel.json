@@ -48,6 +48,7 @@
     { "path": "/api/cron/ip-normalize", "schedule": "*/30 * * * *" },
     { "path": "/api/cron/notification-digest-flush", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/po-issued-notify", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/ai-proactive-insights", "schedule": "0 13 * * *" }
+    { "path": "/api/cron/ai-proactive-insights", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/ar-aging-overdue-email", "schedule": "30 14 * * *" }
   ]
 }

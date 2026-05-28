@@ -316,6 +316,8 @@ import h309 from "./internal/ar-receipts/[id].js";
 import h310 from "./internal/ar-receipts/post.js";
 import h311 from "./internal/ar-receipts/void.js";
 import h312 from "./internal/ar-receipt-applications/[id].js";
+// P4-6 — AR Aging GET (h313). APPEND ONLY.
+import h313 from "./internal/ar-aging/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -638,6 +640,8 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-receipts/:id", handler: h309 },
   { pattern: "/api/internal/ar-receipts", handler: h308 },
   { pattern: "/api/internal/ar-receipt-applications/:id", handler: h312 },
+  // P4-6 — AR Aging GET (h313).
+  { pattern: "/api/internal/ar-aging", handler: h313 },
 ];
 
 export function compileRoutes(routes) {

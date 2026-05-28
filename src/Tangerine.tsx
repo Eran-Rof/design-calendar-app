@@ -27,6 +27,7 @@ import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
+import InternalARAging            from "./tanda/InternalARAging";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -73,6 +74,7 @@ type ModuleKey =
   | "ap_payments"
   | "ar_invoices"
   | "ar_receipts"
+  | "ar_aging"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -105,6 +107,8 @@ const MODULES: ModuleDef[] = [
   // P4-5: AR Receipts (customer payments + applications). Sibling to AR
   // Invoices above (P4-4).
   { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Accounting" },
+  // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
+  { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -258,6 +262,7 @@ export default function Tangerine() {
         {activeModule === "ap_payments"       && <InternalAPPayments />}
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
+        {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}

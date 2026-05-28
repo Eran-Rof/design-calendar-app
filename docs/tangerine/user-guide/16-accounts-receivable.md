@@ -318,3 +318,93 @@ ar_receipt_applications
 | Customer's check bounced after posting | Open receipt → enter void reason ("NSF bounce") → Void posted receipt. Both JEs reverse; the parent invoices auto-flip from `paid` back to `sent` via the trigger chain. |
 | Misapplied a payment to wrong invoice (still draft) | Open the draft receipt → click × next to the wrong application → re-apply via the apply-more action (or void + recreate). |
 | Misapplied a payment to wrong invoice (already posted) | Void the entire posted receipt → create a new one. (Unapply on posted receipts is blocked — audit-trail rule.) |
+
+---
+
+## Aging report + overdue cron (P4-6)
+
+### The Aging panel
+
+Navigate to **Tangerine → Accounting → AR Aging** (📅). The panel shows one row per customer with non-zero open AR, broken into five buckets relative to invoice due dates:
+
+| Bucket | Definition |
+|---|---|
+| **Current** | due date is in the future (or today) |
+| **1-30** | 1-30 days past due (yellow) |
+| **31-60** | 31-60 days past due (orange) |
+| **61-90** | 61-90 days past due (red) |
+| **91-120+** | 91+ days past due (deep red, bolded) |
+
+Each row's "Total Open" matches the sum across all five buckets. The footer row totals each column across the filtered customer set.
+
+### Modes
+
+- **Default mode** (no `as_of` parameter): reads the `v_ar_aging` view which uses `CURRENT_DATE`. Fast — view is computed live by the DB.
+- **As-of mode** (pick a date in the past): calls the `ar_aging_as_of(p_entity_id, p_as_of_date)` RPC. Useful for retroactive close-of-period reports. Slightly slower than the view because the RPC re-aggregates.
+
+The mode badge in the header ("mode: current" / "mode: as_of") shows which path is active.
+
+### Daily overdue notification cron
+
+`api/cron/ar-aging-overdue-email.js` runs daily at 14:30 UTC (= 6:30 PT / 09:30 ET) per `vercel.json`. Per entity:
+
+```mermaid
+flowchart TD
+  C[Cron fires 14:30 UTC] --> E[for each entity]
+  E --> A[SELECT * FROM v_ar_aging WHERE entity_id=X]
+  A --> R[for each customer row]
+  R --> B[for each non-zero bucket]
+  B --> D{INSERT into notifications_overdue_log\n entity, customer, bucket, sent_on=today}
+  D -- unique violation 23505 --> S[skip — already sent today]
+  D -- new row --> N[enqueue customer_overdue_30d / 60d / 90d]
+  S --> X[next bucket]
+  N --> X
+```
+
+**Dedup table** (`notifications_overdue_log`) prevents same-day re-fires. Schema:
+
+```sql
+notifications_overdue_log (
+  id           uuid PK,
+  entity_id    uuid → entities,
+  customer_id  uuid → customers,
+  bucket       text  CHECK in (30d, 60d, 90d, 120d_plus),
+  sent_on      date  DEFAULT current_date,
+  open_cents   bigint,
+  UNIQUE (entity_id, customer_id, bucket, sent_on)
+)
+```
+
+Re-running the cron on the same day is a clean no-op (`duplicates_skipped` increments; no duplicate emails go out).
+
+### Notification kinds
+
+| Kind | Bucket(s) | Severity |
+|---|---|---|
+| `customer_overdue_30d` | 1-30 | info |
+| `customer_overdue_60d` | 31-60 | warn |
+| `customer_overdue_90d` | 61-90 AND 91-120+ | warn / alert |
+
+Recipient: `recipient_roles=['admin','accountant']`. To silence a kind for a specific user, use the **Notification Preferences** panel (P2-4).
+
+### Manual trigger
+
+Hit the endpoint with a service-role bearer (or via `vercel dev`):
+
+```
+curl -X POST https://<your-host>/api/cron/ar-aging-overdue-email
+```
+
+Response shape:
+
+```json
+{
+  "ok": true,
+  "entities_scanned": 1,
+  "customers_scanned": 47,
+  "notifications_enqueued": 12,
+  "duplicates_skipped": 23,
+  "errors": []
+}
+```
+
