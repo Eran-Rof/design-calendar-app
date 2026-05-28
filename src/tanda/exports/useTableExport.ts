@@ -17,7 +17,7 @@
 //   - No styling beyond bold header row + autofit columns (cap 60 chars).
 //   - For CSV, RFC 4180 quoting; UTF-8 BOM so Excel opens it cleanly.
 
-import XLSX from "xlsx";
+import * as XLSX from "xlsx";
 
 export type ExportColumn<T = Record<string, unknown>> = {
   key: keyof T & string;
