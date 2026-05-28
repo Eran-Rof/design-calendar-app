@@ -10,6 +10,8 @@
 // save flow is unchanged.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Style = {
   id: string;
@@ -133,6 +135,27 @@ export default function InternalStyleMaster() {
           />
           Show deleted
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="style-master"
+          sheetName="Style Master"
+          columns={[
+            { key: "style_code",       header: "Style Number" },
+            { key: "style_name",       header: "Style Name" },
+            { key: "description",      header: "Description" },
+            { key: "gender_code",      header: "Gender" },
+            { key: "season",           header: "Season" },
+            { key: "design_year",      header: "Year", format: "number" },
+            { key: "lifecycle_status", header: "Lifecycle" },
+            { key: "is_apparel",       header: "Apparel" },
+            { key: "planning_class",   header: "Planning Class" },
+            { key: "base_fabric",      header: "Base Fabric" },
+            { key: "launch_date",      header: "Launch Date", format: "date" },
+            { key: "created_at",       header: "Created", format: "datetime" },
+            { key: "updated_at",       header: "Updated", format: "datetime" },
+            { key: "deleted_at",       header: "Deleted", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

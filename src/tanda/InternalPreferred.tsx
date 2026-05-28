@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Preferred {
   pref_id: string;
@@ -83,6 +85,36 @@ export default function InternalPreferred() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Preferred vendors</h2>
         <div style={{ display: "flex", gap: 8 }}>
+          <ExportButton
+            rows={(data?.categories || []).flatMap((g) => g.vendors.map((p) => ({
+              category: g.category,
+              rank: p.rank,
+              vendor_name: p.vendor.name,
+              vendor_id: p.vendor.id,
+              health_overall: p.health.overall,
+              health_delivery: p.health.delivery,
+              health_quality: p.health.quality,
+              health_compliance: p.health.compliance,
+              on_time_delivery_pct: p.kpi?.on_time_delivery_pct ?? null,
+              invoice_accuracy_pct: p.kpi?.invoice_accuracy_pct ?? null,
+              notes: p.notes,
+            }))) as unknown as Array<Record<string, unknown>>}
+            filename="preferred-vendors"
+            sheetName="Preferred Vendors"
+            columns={[
+              { key: "category",             header: "Category" },
+              { key: "rank",                 header: "Rank",          format: "number" },
+              { key: "vendor_name",          header: "Vendor" },
+              { key: "vendor_id",            header: "Vendor ID" },
+              { key: "health_overall",       header: "Health Overall", format: "number" },
+              { key: "health_delivery",      header: "Health Delivery", format: "number" },
+              { key: "health_quality",       header: "Health Quality",  format: "number" },
+              { key: "health_compliance",    header: "Health Compliance", format: "number" },
+              { key: "on_time_delivery_pct", header: "On-time %",     format: "number" },
+              { key: "invoice_accuracy_pct", header: "Invoice Acc %", format: "number" },
+              { key: "notes",                header: "Notes" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setSuggestOpen(true)} style={btnSecondary}>🔎 Suggest</button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add</button>
         </div>

@@ -9,6 +9,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Adjustment = {
   id: string;
@@ -262,6 +264,24 @@ export default function InternalInventoryAdjustments() {
           onChange={(e) => setFilterTo(e.target.value)}
           placeholder="To"
         />
+        <div style={{ marginLeft: "auto" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="inventory-adjustments"
+            sheetName="Inventory Adjustments"
+            columns={[
+              { key: "created_at",       header: "When",           format: "datetime" },
+              { key: "adjustment_type",  header: "Type" },
+              { key: "item_id",          header: "Item ID" },
+              { key: "qty_delta",        header: "Qty",            format: "number" },
+              { key: "unit_cost_cents",  header: "Unit Cost",      format: "currency_cents" },
+              { key: "gl_account_id",    header: "Counter Account" },
+              { key: "reason",           header: "Reason" },
+              { key: "posted_je_id",     header: "Posted JE" },
+              { key: "posted_at",        header: "Posted At",      format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {err && (

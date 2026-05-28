@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import InternalEntityBranding from "./InternalEntityBranding";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Entity {
   id: string;
@@ -37,6 +39,32 @@ export default function InternalEntities() {
   }
   useEffect(() => { void load(); }, []);
 
+  // Flatten the entity tree into a row-per-entity list for export (depth indicates hierarchy).
+  // Called before any conditional returns to obey Rules of Hooks.
+  const flatRows = useMemo(() => {
+    const out: Array<Record<string, unknown>> = [];
+    function walk(nodes: Entity[], depth: number, parentName: string | null) {
+      for (const e of nodes) {
+        const branding = Array.isArray(e.branding) ? e.branding[0] || null : (e.branding || null);
+        out.push({
+          depth,
+          name: e.name,
+          display_name: branding?.company_display_name || e.name,
+          slug: e.slug,
+          status: e.status,
+          parent_name: parentName,
+          parent_entity_id: e.parent_entity_id,
+          custom_domain: branding?.custom_domain ?? null,
+          primary_color: branding?.primary_color ?? null,
+          logo_url: branding?.logo_url ?? null,
+        });
+        if (e.children && e.children.length > 0) walk(e.children, depth + 1, e.name);
+      }
+    }
+    walk(tree, 0, null);
+    return out;
+  }, [tree]);
+
   if (editBranding) {
     return <InternalEntityBranding entityId={editBranding} onClose={() => setEditBranding(null)} onSaved={() => { setEditBranding(null); void load(); }} />;
   }
@@ -48,7 +76,26 @@ export default function InternalEntities() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Entities</h2>
-        <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add entity</button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            rows={flatRows}
+            filename="entities"
+            sheetName="Entities"
+            columns={[
+              { key: "depth",            header: "Depth", format: "number" },
+              { key: "name",             header: "Name" },
+              { key: "display_name",     header: "Display Name" },
+              { key: "slug",             header: "Slug" },
+              { key: "status",           header: "Status" },
+              { key: "parent_name",      header: "Parent" },
+              { key: "parent_entity_id", header: "Parent Entity ID" },
+              { key: "custom_domain",    header: "Custom Domain" },
+              { key: "primary_color",    header: "Primary Color" },
+              { key: "logo_url",         header: "Logo URL" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+          <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add entity</button>
+        </div>
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px" }}>

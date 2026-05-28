@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Card {
   id: string;
@@ -83,6 +85,28 @@ export default function InternalVirtualCards() {
             <option value="">All</option>
           </select>
           <button onClick={() => setIssueOpen(true)} style={btnPrimary}>+ Issue card</button>
+          <ExportButton
+            rows={rows.map((c) => ({
+              ...c,
+              vendor_name: c.vendor?.name || c.vendor_id,
+              invoice_number: c.invoice?.invoice_number || null,
+              expiry: `${String(c.expiry_month).padStart(2, "0")}/${c.expiry_year}`,
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="virtual-cards"
+            sheetName="Virtual Cards"
+            columns={[
+              { key: "vendor_name",          header: "Vendor" },
+              { key: "invoice_number",       header: "Invoice #" },
+              { key: "card_number_last4",    header: "Last 4" },
+              { key: "expiry",               header: "Expiry" },
+              { key: "credit_limit",         header: "Limit",      format: "number" },
+              { key: "amount_spent",         header: "Spent",      format: "number" },
+              { key: "provider",             header: "Provider" },
+              { key: "status",               header: "Status" },
+              { key: "issued_at",            header: "Issued",     format: "datetime" },
+              { key: "expires_at",           header: "Expires",    format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

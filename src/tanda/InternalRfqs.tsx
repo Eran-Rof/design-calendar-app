@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import InternalRfqDetail from "./InternalRfqDetail";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Rfq {
   id: string;
@@ -64,6 +66,20 @@ export default function InternalRfqs() {
             <option value="closed">Closed</option>
             <option value="awarded">Awarded</option>
           </select>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="rfqs"
+            sheetName="RFQs"
+            columns={[
+              { key: "title",                header: "Title" },
+              { key: "category",             header: "Category" },
+              { key: "submission_deadline",  header: "Deadline",       format: "date" },
+              { key: "submitted_count",      header: "Submitted",      format: "number" },
+              { key: "quote_count",          header: "Quotes Invited", format: "number" },
+              { key: "status",               header: "Status" },
+              { key: "created_at",           header: "Created",        format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setCreate(true)} style={btnPrimary}>+ New RFQ</button>
         </div>
       </div>

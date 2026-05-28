@@ -9,6 +9,8 @@
 // 91-120+ (deeper red).
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type AgingRow = {
   entity_id: string;
@@ -151,6 +153,46 @@ export default function InternalARAging() {
           style={{ ...inputStyle, maxWidth: 320 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
+        <ExportButton
+          rows={(() => {
+            const out: Array<Record<string, unknown>> = filtered.map((r) => ({
+              kind: "row",
+              customer_code: r.customer_code,
+              customer_name: r.customer_name,
+              bucket_current_cents: r.bucket_current_cents,
+              bucket_30_cents: r.bucket_30_cents,
+              bucket_60_cents: r.bucket_60_cents,
+              bucket_90_cents: r.bucket_90_cents,
+              bucket_120plus_cents: r.bucket_120plus_cents,
+              total_open_cents: r.total_open_cents,
+            }));
+            out.push({
+              kind: "total",
+              customer_code: "",
+              customer_name: `TOTAL (${filtered.length})`,
+              bucket_current_cents: totals.current,
+              bucket_30_cents: totals.b30,
+              bucket_60_cents: totals.b60,
+              bucket_90_cents: totals.b90,
+              bucket_120plus_cents: totals.b120plus,
+              total_open_cents: totals.total,
+            });
+            return out;
+          })()}
+          filename={`ar-aging-${asOf}`}
+          sheetName="AR Aging"
+          columns={[
+            { key: "kind",                 header: "Kind" },
+            { key: "customer_code",        header: "Code" },
+            { key: "customer_name",        header: "Customer" },
+            { key: "bucket_current_cents", header: "Current", format: "currency_cents" },
+            { key: "bucket_30_cents",      header: "1-30",    format: "currency_cents" },
+            { key: "bucket_60_cents",      header: "31-60",   format: "currency_cents" },
+            { key: "bucket_90_cents",      header: "61-90",   format: "currency_cents" },
+            { key: "bucket_120plus_cents", header: "91-120+", format: "currency_cents" },
+            { key: "total_open_cents",     header: "Total Open", format: "currency_cents" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

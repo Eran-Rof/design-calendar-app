@@ -12,6 +12,8 @@
 // rendered in red whenever non-zero.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Row = {
   entity_id: string;
@@ -188,6 +190,21 @@ export default function InternalTrialBalance() {
         <button onClick={() => void load()} style={btnPrimary} disabled={loading}>
           {loading ? "Loading…" : "Refresh"}
         </button>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename={`trial-balance-${basis}-${fromDate}-to-${toDate}`}
+          sheetName="Trial Balance"
+          columns={[
+            { key: "code",            header: "Code" },
+            { key: "name",            header: "Account" },
+            { key: "account_type",    header: "Type" },
+            { key: "normal_balance",  header: "Normal" },
+            { key: "debit_cents",     header: "Debits",       format: "currency_cents" },
+            { key: "credit_cents",    header: "Credits",      format: "currency_cents" },
+            { key: "net_debit_cents", header: "Net Debit",    format: "currency_cents" },
+            { key: "net_credit_cents",header: "Net Credit",   format: "currency_cents" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

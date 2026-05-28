@@ -16,6 +16,8 @@
 //      bumped by net income.
 
 import { useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -159,13 +161,53 @@ export default function InternalYearEndClose() {
 
       {result && (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 16 }}>
-          <div style={{ fontSize: 13, color: C.textSub, marginBottom: 12 }}>
-            {result.dry_run ? "DRY RUN preview" : "LIVE RUN result"} — FY {result.fiscal_year}
-            {!result.dry_run && (
-              <span style={{ marginLeft: 8, fontSize: 11, color: C.success }}>
-                ✓ {result.periods_flipped} periods flipped to terminal
-              </span>
-            )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: C.textSub }}>
+              {result.dry_run ? "DRY RUN preview" : "LIVE RUN result"} — FY {result.fiscal_year}
+              {!result.dry_run && (
+                <span style={{ marginLeft: 8, fontSize: 11, color: C.success }}>
+                  ✓ {result.periods_flipped} periods flipped to terminal
+                </span>
+              )}
+            </div>
+            <ExportButton
+              rows={(() => {
+                const out: Array<Record<string, unknown>> = [];
+                for (const basis of ["ACCRUAL", "CASH"] as const) {
+                  const b = result.basis_breakdown[basis];
+                  if (!b) continue;
+                  for (const ln of b.projected_lines || []) {
+                    out.push({
+                      basis,
+                      kind: "row",
+                      code: ln.code,
+                      name: ln.name,
+                      side: ln.side,
+                      amount_cents: ln.amount_cents,
+                    });
+                  }
+                  out.push({
+                    basis,
+                    kind: "total",
+                    code: "",
+                    name: "Net Income",
+                    side: "",
+                    amount_cents: b.net_income_cents,
+                  });
+                }
+                return out;
+              })()}
+              filename={`year-end-close-FY${result.fiscal_year}${result.dry_run ? "-dryrun" : ""}`}
+              sheetName="Year-End Close"
+              columns={[
+                { key: "basis",        header: "Basis" },
+                { key: "kind",         header: "Kind" },
+                { key: "code",         header: "Code" },
+                { key: "name",         header: "Account" },
+                { key: "side",         header: "Side" },
+                { key: "amount_cents", header: "Amount", format: "currency_cents" },
+              ] as ExportColumn<Record<string, unknown>>[]}
+            />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, marginBottom: 16 }}>

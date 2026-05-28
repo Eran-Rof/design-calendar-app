@@ -7,6 +7,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type JELine = {
   id?: string;
@@ -183,6 +185,26 @@ export default function InternalJournalEntry() {
           <input type="checkbox" checked={includeDrafts} onChange={(e) => setIncludeDrafts(e.target.checked)} />
           Include drafts
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="journal-entries"
+          sheetName="Journal Entries"
+          columns={[
+            { key: "posting_date",      header: "Posting Date", format: "date" },
+            { key: "journal_type",      header: "Type" },
+            { key: "basis",             header: "Basis" },
+            { key: "description",       header: "Description" },
+            { key: "source_module",     header: "Source Module" },
+            { key: "source_table",      header: "Source Table" },
+            { key: "source_id",         header: "Source ID" },
+            { key: "status",            header: "Status" },
+            { key: "posted_at",         header: "Posted At",       format: "datetime" },
+            { key: "sibling_je_id",     header: "Sibling JE" },
+            { key: "reverses_je_id",    header: "Reverses JE" },
+            { key: "reversed_by_je_id", header: "Reversed By JE" },
+            { key: "created_at",        header: "Created",         format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

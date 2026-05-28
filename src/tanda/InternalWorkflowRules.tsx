@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Rule {
   id: string;
@@ -85,6 +87,20 @@ export default function InternalWorkflowRules() {
           <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
             {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="workflow-rules"
+            sheetName="Workflow Rules"
+            columns={[
+              { key: "name",          header: "Name" },
+              { key: "trigger_event", header: "Trigger" },
+              { key: "conditions",    header: "Conditions" },
+              { key: "actions",       header: "Actions" },
+              { key: "is_active",     header: "Active" },
+              { key: "created_at",    header: "Created", format: "datetime" },
+              { key: "updated_at",    header: "Updated", format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New rule</button>
         </div>
       </div>

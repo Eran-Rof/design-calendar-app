@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Anomaly {
   id: string;
@@ -90,6 +92,21 @@ export default function InternalAnomalies() {
           ["dismissed", "Dismissed"],
           ["escalated", "Escalated"],
         ]} />
+        <div style={{ marginLeft: "auto", alignSelf: "flex-end" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="anomalies"
+            sheetName="Anomalies"
+            columns={[
+              { key: "detected_at",  header: "Detected",   format: "datetime" },
+              { key: "vendor_id",    header: "Vendor ID" },
+              { key: "type",         header: "Type" },
+              { key: "severity",     header: "Severity" },
+              { key: "status",       header: "Status" },
+              { key: "description",  header: "Description" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>

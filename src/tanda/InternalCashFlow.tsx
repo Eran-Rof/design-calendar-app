@@ -17,6 +17,8 @@
 // so the panel doesn't need a separate /api/internal/balance-sheet roundtrip.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Row = {
   section: string;
@@ -176,6 +178,34 @@ export default function InternalCashFlow() {
         <button onClick={() => void load()} style={{ ...btnSecondary, background: C.primary, color: "white", borderColor: C.primary }}>
           Run
         </button>
+        <ExportButton
+          rows={(() => {
+            const out: Array<Record<string, unknown>> = [];
+            for (const sec of ["operating", "investing", "financing"] as const) {
+              for (const r of sectionRows[sec]) {
+                const isSubtotal = r.line_item.toLowerCase().startsWith("net cash from");
+                out.push({
+                  section: SECTION_META[sec].label,
+                  kind: isSubtotal ? "subtotal" : "row",
+                  line_item: r.line_item,
+                  amount_cents: r.amount_cents,
+                });
+              }
+            }
+            out.push({ section: "Reconciliation", kind: "row", line_item: "Beginning Cash", amount_cents: beginningCash });
+            out.push({ section: "Reconciliation", kind: "subtotal", line_item: "Net Change in Cash", amount_cents: netChange });
+            out.push({ section: "Reconciliation", kind: "total", line_item: "Ending Cash", amount_cents: endingCash });
+            return out;
+          })()}
+          filename={`cash-flow-${basis}-${from}-to-${to}`}
+          sheetName="Cash Flow"
+          columns={[
+            { key: "section",      header: "Section" },
+            { key: "kind",         header: "Kind" },
+            { key: "line_item",    header: "Line Item" },
+            { key: "amount_cents", header: "Amount", format: "currency_cents" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface DocType { id: string; name: string; code: string }
 interface Entity { id: string; name: string }
@@ -98,6 +100,19 @@ export default function InternalComplianceAutomation() {
             {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
           <button onClick={() => void runNow()} style={btnSecondary}>Run now</button>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="compliance-automation-rules"
+            sheetName="Automation Rules"
+            columns={[
+              { key: "document_type_id",      header: "Document Type ID" },
+              { key: "trigger_type",          header: "Trigger" },
+              { key: "days_before_expiry",    header: "Days Before",   format: "number" },
+              { key: "auto_request",          header: "Auto Request" },
+              { key: "escalation_after_days", header: "Escalate After", format: "number" },
+              { key: "is_active",             header: "Active" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New rule</button>
         </div>
       </div>

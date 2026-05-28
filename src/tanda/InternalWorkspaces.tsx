@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -80,6 +82,24 @@ export default function InternalWorkspaces() {
             <option value="archived">Archived</option>
           </select>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New workspace</button>
+          <ExportButton
+            rows={rows.map((w) => ({
+              ...w,
+              vendor_name: w.vendor?.name || "—",
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="workspaces"
+            sheetName="Workspaces"
+            columns={[
+              { key: "name",             header: "Name" },
+              { key: "vendor_name",      header: "Vendor" },
+              { key: "description",      header: "Description" },
+              { key: "status",           header: "Status" },
+              { key: "pin_count",        header: "Pins",      format: "number" },
+              { key: "open_task_count",  header: "Open Tasks", format: "number" },
+              { key: "task_count",       header: "Total Tasks", format: "number" },
+              { key: "created_at",       header: "Created",   format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

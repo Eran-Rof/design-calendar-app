@@ -7,6 +7,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type GlStatus =
   | "draft" | "unposted" | "pending_approval" | "sent"
@@ -303,6 +305,36 @@ export default function InternalARInvoices() {
           <input type="checkbox" checked={includeVoid} onChange={(e) => setIncludeVoid(e.target.checked)} />
           Include void
         </label>
+        <ExportButton
+          rows={rows.map((inv) => ({
+            invoice_number: inv.invoice_number,
+            invoice_date: inv.invoice_date,
+            posting_date: inv.posting_date,
+            due_date: inv.due_date,
+            customer: customerMap[inv.customer_id]?.name || inv.customer_id,
+            invoice_kind: inv.invoice_kind,
+            gl_status: inv.gl_status,
+            total_amount_cents: inv.total_amount_cents,
+            paid_amount_cents: inv.paid_amount_cents,
+            balance_cents: (BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")).toString(),
+            description: inv.description,
+          })) as unknown as Array<Record<string, unknown>>}
+          filename="ar-invoices"
+          sheetName="AR Invoices"
+          columns={[
+            { key: "invoice_number",     header: "Invoice #" },
+            { key: "invoice_date",       header: "Invoice Date", format: "date" },
+            { key: "posting_date",       header: "Posting Date", format: "date" },
+            { key: "due_date",           header: "Due Date",     format: "date" },
+            { key: "customer",           header: "Customer" },
+            { key: "invoice_kind",       header: "Kind" },
+            { key: "gl_status",          header: "Status" },
+            { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
+            { key: "paid_amount_cents",  header: "Paid",    format: "currency_cents" },
+            { key: "balance_cents",      header: "Balance", format: "currency_cents" },
+            { key: "description",        header: "Description" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (

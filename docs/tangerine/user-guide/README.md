@@ -30,6 +30,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 15. [Fabric Codes (P3 / Chunk 11)](15-fabric-codes.md) — textile-specific master + many-to-many junction to Style Master; precursor to M42 PIM. Seeded with 9 common apparel fabrics.
 16. [Accounts Receivable (M4)](16-accounts-receivable.md) — **P4 COMPLETE (2026-05-27 night)** — invoices, receipts (multi-application with sibling-linked accrual+cash JEs), aging report, daily overdue cron, customer credit-limit gate, and historical backfill (Aug 2024 onward). All four AR admin panels live under **💼 Accounting** in the top-nav group dropdown.
 17. [Bank Reconciliation (M7 + M8)](17-bank-reconciliation.md) — **P6 COMPLETE (2026-05-27 night)** — Plaid Link + CSV upload + ±5d match engine + recon report + period-close pre-flight check + auto-post fee rules cron. Bank panel + Bank Recon Report panel live under **🏦 Bank** in the top-nav group dropdown.
+18. [Table export — every panel](18-table-export.md) — **T3 cross-cutter (2026-05-28)** — universal `<ExportButton>` on every list / report / master panel. WYSIWYG xlsx + csv download with autofit columns and proper currency / date typing.
 
 ## 30-second quickstart
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Rule {
   id: string;
@@ -119,7 +121,28 @@ export default function InternalTax() {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "12px 0 8px" }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Rules</h3>
-        <button onClick={() => setCreateRuleOpen(true)} style={btnPrimary}>+ New rule</button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            rows={rules.map((r) => ({
+              ...r,
+              exemptions_list: (r.vendor_type_exemptions || []).join("; "),
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="tax-rules"
+            sheetName="Tax Rules"
+            columns={[
+              { key: "jurisdiction",      header: "Jurisdiction" },
+              { key: "tax_type",          header: "Type" },
+              { key: "rate_pct",          header: "Rate %",        format: "number" },
+              { key: "applies_to",        header: "Applies to" },
+              { key: "threshold_amount",  header: "Threshold",     format: "number" },
+              { key: "exemptions_list",   header: "Exemptions" },
+              { key: "effective_from",    header: "Effective From", format: "date" },
+              { key: "effective_to",      header: "Effective To",   format: "date" },
+              { key: "is_active",         header: "Active" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+          <button onClick={() => setCreateRuleOpen(true)} style={btnPrimary}>+ New rule</button>
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>
@@ -152,7 +175,25 @@ export default function InternalTax() {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "12px 0 8px" }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Remittance records</h3>
-        <button onClick={() => setCreateRemittanceOpen(true)} style={btnPrimary}>+ Record filing</button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            rows={remittances as unknown as Array<Record<string, unknown>>}
+            filename="tax-remittances"
+            sheetName="Remittances"
+            columns={[
+              { key: "jurisdiction",              header: "Jurisdiction" },
+              { key: "tax_type",                  header: "Type" },
+              { key: "period_start",              header: "Period Start",   format: "date" },
+              { key: "period_end",                header: "Period End",     format: "date" },
+              { key: "total_taxable_amount",      header: "Taxable",        format: "number" },
+              { key: "total_tax_amount",         header: "Tax Paid",       format: "number" },
+              { key: "status",                    header: "Status" },
+              { key: "payment_reference",         header: "Reference" },
+              { key: "filed_at",                  header: "Filed",          format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+          <button onClick={() => setCreateRemittanceOpen(true)} style={btnPrimary}>+ Record filing</button>
+        </div>
       </div>
       {remittances.length === 0 ? (
         <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>No filings recorded.</div>

@@ -7,6 +7,8 @@
 // for forward compatibility; this panel renders rows once they exist.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type InventoryTransfer = {
   id: string;
@@ -124,6 +126,23 @@ export default function InternalInventoryTransfers() {
           value={toLoc}
           onChange={(e) => setToLoc(e.target.value)}
         />
+        <div style={{ marginLeft: "auto" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="inventory-transfers"
+            sheetName="Inventory Transfers"
+            columns={[
+              { key: "transfer_date",  header: "Date",          format: "date" },
+              { key: "item_id",        header: "Item ID" },
+              { key: "qty",            header: "Qty",           format: "number" },
+              { key: "from_location",  header: "From" },
+              { key: "to_location",    header: "To" },
+              { key: "notes",          header: "Notes" },
+              { key: "posted_je_id",   header: "Posted JE" },
+              { key: "created_at",     header: "Created",       format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {err && (

@@ -5,6 +5,8 @@
 // active employees. Soft-delete via PATCH is_active=false.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Employee = {
   id: string;
@@ -111,6 +113,28 @@ export default function InternalEmployees() {
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Show inactive
         </label>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="employees"
+          sheetName="Employees"
+          columns={[
+            { key: "code",                header: "Code" },
+            { key: "display_name",        header: "Name" },
+            { key: "first_name",          header: "First Name" },
+            { key: "last_name",           header: "Last Name" },
+            { key: "email",               header: "Email" },
+            { key: "phone",               header: "Phone" },
+            { key: "title",               header: "Title" },
+            { key: "department",          header: "Department" },
+            { key: "manager_employee_id", header: "Manager ID" },
+            { key: "hire_date",           header: "Hire Date",        format: "date" },
+            { key: "termination_date",    header: "Termination Date", format: "date" },
+            { key: "is_active",           header: "Active" },
+            { key: "auth_user_id",        header: "Auth User ID" },
+            { key: "created_at",          header: "Created", format: "datetime" },
+            { key: "updated_at",          header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}

@@ -6,6 +6,8 @@
 
 import { useEffect, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Step = {
   id: string;
@@ -149,6 +151,24 @@ export default function InternalApprovalRequests() {
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
         />
+        <div style={{ marginLeft: "auto" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="approval-requests"
+            sheetName="Approval Requests"
+            columns={[
+              { key: "created_at",              header: "Created",       format: "datetime" },
+              { key: "kind",                    header: "Kind" },
+              { key: "context_table",           header: "Context Table" },
+              { key: "context_id",              header: "Context ID" },
+              { key: "requested_amount_cents",  header: "Amount",        format: "currency_cents" },
+              { key: "currency",                header: "Currency" },
+              { key: "status",                  header: "Status" },
+              { key: "final_decided_at",        header: "Decided At",    format: "datetime" },
+              { key: "expires_at",              header: "Expires At",    format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}

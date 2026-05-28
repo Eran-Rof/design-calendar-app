@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Workflow {
   id: string;
@@ -58,6 +60,20 @@ export default function InternalOnboarding() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Onboarding review</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="onboarding-workflows"
+            sheetName="Onboarding"
+            columns={[
+              { key: "vendor_id",         header: "Vendor ID" },
+              { key: "status",            header: "Status" },
+              { key: "current_step",      header: "Current Step",  format: "number" },
+              { key: "completed_steps",   header: "Completed Steps" },
+              { key: "started_at",        header: "Started",       format: "datetime" },
+              { key: "completed_at",      header: "Completed",     format: "datetime" },
+              { key: "rejection_reason",  header: "Rejection Reason" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setShowInvite(true)} style={btnPrimary}>+ Invite vendor to portal</button>
           <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6 }}>
             <option value="pending_review">Pending review</option>

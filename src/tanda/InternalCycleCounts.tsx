@@ -15,6 +15,8 @@
 // Dark theme matching other Internal*.tsx panels.
 
 import { useEffect, useState, useMemo } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type Status = "in_progress" | "completed" | "cancelled";
 
@@ -181,6 +183,21 @@ export default function InternalCycleCounts() {
           onChange={(e) => setToDate(e.target.value)}
           placeholder="To date"
         />
+        <div style={{ marginLeft: "auto" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="cycle-counts"
+            sheetName="Cycle Counts"
+            columns={[
+              { key: "count_date",  header: "Count Date", format: "date" },
+              { key: "location",    header: "Location" },
+              { key: "status",      header: "Status" },
+              { key: "created_at",  header: "Created",    format: "datetime" },
+              { key: "updated_at",  header: "Updated",    format: "datetime" },
+              { key: "id",          header: "ID" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {err && (

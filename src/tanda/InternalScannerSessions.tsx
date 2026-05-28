@@ -11,6 +11,8 @@
 // panel is for admin troubleshooting only.
 
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type ScannerSession = {
   id: string;
@@ -141,6 +143,21 @@ export default function InternalScannerSessions() {
           <option value="count">count</option>
         </select>
         <button style={{ ...btnSecondary, marginLeft: "auto" }} onClick={() => void load()}>Refresh</button>
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="scanner-sessions"
+          sheetName="Scanner Sessions"
+          columns={[
+            { key: "created_at",      header: "Created",      format: "datetime" },
+            { key: "mode",            header: "Mode" },
+            { key: "target_kind",     header: "Target Kind" },
+            { key: "target_id",       header: "Target ID" },
+            { key: "status",          header: "Status" },
+            { key: "device_user_id",  header: "Device User" },
+            { key: "scanned_at",      header: "Last Scan",    format: "datetime" },
+            { key: "submitted_at",    header: "Submitted",    format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}

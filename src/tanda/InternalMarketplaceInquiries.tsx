@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Inquiry {
   id: string;
@@ -54,9 +56,29 @@ export default function InternalMarketplaceInquiries() {
 
   return (
     <div style={{ color: C.text }}>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace inquiries</h2>
-        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Inquiries you've sent, vendor responses, and RFQ conversions.</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace inquiries</h2>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Inquiries you've sent, vendor responses, and RFQ conversions.</div>
+        </div>
+        <ExportButton
+          rows={rows.map((q) => ({
+            ...q,
+            listing_title: q.listing?.title || q.listing_id,
+          })) as unknown as Array<Record<string, unknown>>}
+          filename="marketplace-inquiries"
+          sheetName="Inquiries"
+          columns={[
+            { key: "created_at",     header: "Sent",         format: "datetime" },
+            { key: "listing_title",  header: "Listing" },
+            { key: "inquired_by",    header: "Inquired By" },
+            { key: "message",        header: "Message" },
+            { key: "status",         header: "Status" },
+            { key: "response",       header: "Response" },
+            { key: "responded_at",   header: "Responded",    format: "datetime" },
+            { key: "rfq_id",         header: "RFQ ID" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>

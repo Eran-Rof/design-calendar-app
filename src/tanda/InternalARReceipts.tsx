@@ -17,6 +17,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 type ARReceipt = {
   id: string;
@@ -279,6 +281,38 @@ export default function InternalARReceipts() {
           <option value="500">500</option>
         </select>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
+        <ExportButton
+          rows={rows.map((r) => {
+            const cust = customerMap[r.customer_id];
+            const bank = accountMap[r.bank_account_id];
+            return {
+              receipt_date: r.receipt_date,
+              customer: cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : r.customer_id,
+              amount_cents: r.amount_cents,
+              applied_cents: r.applied_cents || "0",
+              unapplied_cents: r.unapplied_cents || "0",
+              method: r.customer_payment_method,
+              bank: bank ? `${bank.code} — ${bank.name}` : r.bank_account_id,
+              reference: r.reference,
+              notes: r.notes,
+              status: statusLabel(r).label,
+            };
+          }) as unknown as Array<Record<string, unknown>>}
+          filename="ar-receipts"
+          sheetName="AR Receipts"
+          columns={[
+            { key: "receipt_date",    header: "Date",      format: "date" },
+            { key: "customer",        header: "Customer" },
+            { key: "amount_cents",    header: "Amount",    format: "currency_cents" },
+            { key: "applied_cents",   header: "Applied",   format: "currency_cents" },
+            { key: "unapplied_cents", header: "Unapplied", format: "currency_cents" },
+            { key: "method",          header: "Method" },
+            { key: "bank",            header: "Bank" },
+            { key: "reference",       header: "Reference" },
+            { key: "notes",           header: "Notes" },
+            { key: "status",          header: "Status" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
         <div style={{ marginLeft: "auto", fontSize: 12, color: C.textMuted }}>
           Active total: <strong style={{ color: C.text, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{fmtCents(totalCents.toString())}</strong>
         </div>

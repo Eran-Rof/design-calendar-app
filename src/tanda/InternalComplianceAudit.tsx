@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Row {
   id: string;
@@ -55,10 +57,26 @@ export default function InternalComplianceAudit() {
           <h2 style={{ margin: 0, fontSize: 22 }}>Compliance audit trail</h2>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Every upload, review, expiry, and automation action. Newest first.</div>
         </div>
-        <select value={action} onChange={(e) => setAction(e.target.value)} style={selectSt}>
-          <option value="">All actions</option>
-          {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={action} onChange={(e) => setAction(e.target.value)} style={selectSt}>
+            <option value="">All actions</option>
+            {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="compliance-audit-trail"
+            sheetName="Compliance Audit"
+            columns={[
+              { key: "created_at",         header: "When",       format: "datetime" },
+              { key: "action",             header: "Action" },
+              { key: "vendor_id",          header: "Vendor ID" },
+              { key: "document_id",        header: "Document ID" },
+              { key: "performed_by_type",  header: "By Type" },
+              { key: "performed_by",       header: "By" },
+              { key: "notes",              header: "Notes" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>
