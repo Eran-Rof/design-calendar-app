@@ -393,6 +393,11 @@ import h380 from "./internal/pim/styles/[style_id]/images/index.js";
 import h381 from "./internal/pim/styles/[style_id]/images/[id].js";
 import h382 from "./internal/pim/styles/[style_id]/images/[id]/delete.js";
 import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
+// T10-2 — Cross-cutter Xoro shadow mirror, AR domain manual trigger. APPEND ONLY.
+// h400 reserved for T10-2 AR mirror; h401 reserved for T10-3 AP mirror;
+// h402 reserved for T10-4 inventory rebuild. (h390-h399 reserved for P8-9
+// and other follow-ups.)
+import h400 from "./internal/xoro-mirror/ar.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -778,6 +783,8 @@ export const ROUTES = [
   { pattern: "/api/internal/crm/tasks/:id",                           handler: h366 },
   { pattern: "/api/internal/crm/tasks",                               handler: h365 },
   { pattern: "/api/internal/crm/pipeline-report",                     handler: h367 },
+  // T10-2 — Cross-cutter Xoro shadow mirror, AR domain manual trigger.
+  { pattern: "/api/internal/xoro-mirror/ar",                          handler: h400 },
   // P8-7 — PIM images. Specific subpaths BEFORE the bare /:id route.
   // Image routes must come BEFORE the bare /:style_id route from P8-6 so
   // /styles/:style_id/images/... gets matched first.
