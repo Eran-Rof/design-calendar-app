@@ -51,16 +51,20 @@ function teallSubtotalStyle(num: boolean): any {
 }
 
 function fmtMMDDYYYY(iso: string): string {
+  // Canonical app-wide date format: MMM/DD/YYYY (matches fmtDateDisplay).
+  // Name kept for back-compat with existing call sites in this file.
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d.getTime())) return iso;
-  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
 export type AgedInvenResult = "empty" | ReportPayload;
 
 export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, category = "All"): AgedInvenResult {
   const today    = new Date();
-  const todayStr = `${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const todayStr = `${months[today.getMonth()]}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
 
   const categoryLabel = category !== "All" ? ` – ${category}` : "";
 

@@ -5,7 +5,7 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
-import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
+import { addDays, fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
@@ -447,17 +447,21 @@ function ATSReport() {
 
   // ── Display periods: what columns to render in the table ─────────────────
   const displayPeriods = useMemo(() => {
+    // Canonical period-label format: MMM/DD/YYYY (matches fmtDateDisplay).
+    // Days  → single date.
+    // Weeks → "MMM/DD/YYYY – MMM/DD/YYYY" range.
+    // Months → period-end date in MMM/DD/YYYY (last day of month).
     if (rangeUnit === "days") {
-      return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateHeader(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
+      return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateDisplay(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
     }
     if (rangeUnit === "weeks") {
       const start = new Date(startDate + "T00:00:00");
       return Array.from({ length: rangeValue }, (_, i) => {
         const wStart = addDays(start, i * 7);
         const wEnd   = addDays(wStart, 4);
-        const s = wStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        const e = wEnd.toLocaleDateString("en-US",   { month: "short", day: "numeric" });
-        return { key: fmtDate(wEnd), periodStart: fmtDate(wStart), endDate: fmtDate(wEnd), label: `${s} – ${e}`, isToday: false, isWeekend: false };
+        const sIso = fmtDate(wStart);
+        const eIso = fmtDate(wEnd);
+        return { key: eIso, periodStart: sIso, endDate: eIso, label: `${fmtDateDisplay(sIso)} – ${fmtDateDisplay(eIso)}`, isToday: false, isWeekend: false };
       });
     }
     const start = new Date(startDate + "T00:00:00");
@@ -466,11 +470,12 @@ function ATSReport() {
       m.setMonth(m.getMonth() + i);
       const firstDay = new Date(m.getFullYear(), m.getMonth(), 1);
       const lastDay  = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      const lastIso = fmtDate(lastDay);
       return {
-        key:         fmtDate(lastDay),
+        key:         lastIso,
         periodStart: fmtDate(firstDay),
-        endDate:     fmtDate(lastDay),
-        label:       m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        endDate:     lastIso,
+        label:       fmtDateDisplay(lastIso),
         isToday:     false,
         isWeekend:   false,
       };
