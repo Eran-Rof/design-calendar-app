@@ -124,7 +124,8 @@ function growthCell(ty: number, ly: number, style: any): any {
   if (!Number.isFinite(ty)) ty = 0;
   if (!Number.isFinite(ly)) ly = 0;
   if (ty <= 0 && ly <= 0) return { v: "", t: "s", s: style };
-  if (ty <= 0) return { v: "GONE", t: "s", s: style };
+  // "Only LY" matches the modal's fmtGrowth label (was "GONE", drifted from modal).
+  if (ty <= 0) return { v: "Only LY", t: "s", s: style };
   const frac = (ty - ly) / ty;
   return { v: frac, t: "n", s: { ...style, numFmt: "+0.0%;-0.0%;0.0%" } };
 }
