@@ -822,7 +822,7 @@ function TandAApp() {
 
   // ── Load notes from Supabase ──────────────────────────────────────────────
   const loadNotes = useCallback(async () => {
-    const { data } = await sb.from("tanda_notes").select("*").order("created_at", { ascending: false });
+    const { data } = await sb.from("tanda_notes").select("*", "order=created_at.desc");
     setNotes(Array.isArray(data) ? (data as LocalNote[]) : []);
   }, []);
 

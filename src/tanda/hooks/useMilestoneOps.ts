@@ -193,7 +193,11 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         return; // Don't save yet — modal callbacks handle it
       }
     }
-    await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+    const { error: upErr } = await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+    if (upErr) {
+      console.error("[MS] saveMilestone DB error:", upErr);
+      throw new Error((upErr as any)?.message || "saveMilestone failed");
+    }
     store.updateMilestone(m.po_number, m.id, m);
     // Clear collapsed overrides for this PO so auto-collapse/expand recalculates
     if (!skipHistory) {
