@@ -26,6 +26,14 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 
+type AutoPostRule = {
+  match: string;
+  target_account_id: string;
+  max_amount_cents: number | null;
+  direction: "deposit" | "withdrawal" | "both";
+  label: string | null;
+};
+
 type BankAccount = {
   id: string;
   name: string;
@@ -38,6 +46,7 @@ type BankAccount = {
   is_active: boolean;
   gl_account_id: string;
   gl_accounts: { code: string; name: string } | null;
+  auto_post_fee_rules?: AutoPostRule[];
   created_at: string;
 };
 
@@ -156,6 +165,7 @@ function AccountsTab() {
   const [rows, setRows] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [rulesModal, setRulesModal] = useState<BankAccount | null>(null);
   async function load() {
     setLoading(true); setErr(null);
     try {
@@ -187,6 +197,7 @@ function AccountsTab() {
             <th style={th}>Last Sync</th>
             <th style={{ ...th, textAlign: "right" }}>Balance</th>
             <th style={th}>Status</th>
+            <th style={th}>Auto-post</th>
           </tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -200,11 +211,201 @@ function AccountsTab() {
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{r.last_synced_at ? new Date(r.last_synced_at).toLocaleString() : "never"}</td>
                 <td style={tdNum}>{fmtCents(r.current_balance_cents)}</td>
                 <td style={{ ...td, color: r.is_active ? C.success : C.textMuted }}>{r.is_active ? "active" : "inactive"}</td>
+                <td style={td}>
+                  <button style={btnSecondary} onClick={() => setRulesModal(r)}>
+                    Edit rules{Array.isArray(r.auto_post_fee_rules) && r.auto_post_fee_rules.length > 0 ? ` (${r.auto_post_fee_rules.length})` : ""}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+      {rulesModal && (
+        <AutoPostRulesModal
+          account={rulesModal}
+          onClose={() => setRulesModal(null)}
+          onSaved={() => { setRulesModal(null); void load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AutoPostRulesModal({ account, onClose, onSaved }: { account: BankAccount; onClose: () => void; onSaved: () => void }) {
+  const [rules, setRules] = useState<AutoPostRule[]>([]);
+  const [accounts, setAccounts] = useState<Array<{ id: string; code: string; name: string; account_type: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [accResp, glResp] = await Promise.all([
+          fetch(`/api/internal/bank-accounts/${account.id}`),
+          fetch("/api/internal/gl-accounts?limit=500"),
+        ]);
+        if (accResp.ok) {
+          const data = await accResp.json();
+          const r = Array.isArray(data.auto_post_fee_rules) ? data.auto_post_fee_rules : [];
+          setRules(r.map(normalizeRule));
+        }
+        if (glResp.ok) {
+          const data = await glResp.json();
+          setAccounts((Array.isArray(data) ? data : []).filter((a: { is_postable?: boolean }) => a.is_postable !== false));
+        }
+      } finally { setLoading(false); }
+    })();
+  }, [account.id]);
+
+  function normalizeRule(r: Partial<AutoPostRule>): AutoPostRule {
+    return {
+      match: r.match || "",
+      target_account_id: r.target_account_id || "",
+      max_amount_cents: r.max_amount_cents ?? null,
+      direction: (r.direction as AutoPostRule["direction"]) || "both",
+      label: r.label || null,
+    };
+  }
+  function addRule() {
+    setRules((rs) => [...rs, { match: "", target_account_id: "", max_amount_cents: null, direction: "both", label: null }]);
+  }
+  function delRule(i: number) {
+    setRules((rs) => rs.filter((_, idx) => idx !== i));
+  }
+  function updateRule(i: number, patch: Partial<AutoPostRule>) {
+    setRules((rs) => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  }
+  async function save() {
+    setSaving(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/bank-accounts/${account.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_post_fee_rules: rules }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setErr(data.error || `HTTP ${r.status}`); return; }
+      onSaved();
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSaving(false); }
+  }
+  async function runDry() {
+    setRunResult("Running…");
+    try {
+      const r = await fetch(`/api/cron/bank-auto-post-fees?bank_account_id=${account.id}&dry_run=true`, { method: "POST" });
+      const data = await r.json();
+      if (!r.ok) { setRunResult(`Error: ${data.error || `HTTP ${r.status}`}`); return; }
+      const acct = (data.per_account || [])[0];
+      const matched = acct ? acct.matched_in_dry_run.length : 0;
+      setRunResult(`Would auto-post ${matched} transaction(s). Scanned ${acct?.txns_scanned ?? 0} unmatched rows.`);
+    } catch (e: unknown) { setRunResult(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  async function runNow() {
+    if (!confirm(`Run auto-post on ${account.name} now? This will POST journal entries for any matching unmatched transactions. Make sure to dry-run first.`)) return;
+    setRunResult("Running…");
+    try {
+      const r = await fetch(`/api/cron/bank-auto-post-fees?bank_account_id=${account.id}`, { method: "POST" });
+      const data = await r.json();
+      if (!r.ok) { setRunResult(`Error: ${data.error || `HTTP ${r.status}`}`); return; }
+      const acct = (data.per_account || [])[0];
+      setRunResult(`Auto-posted ${acct?.posted ?? 0} transaction(s). Errors: ${acct?.errors?.length ?? 0}.`);
+    } catch (e: unknown) { setRunResult(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(95vw, 980px)", maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 18 }}>Auto-post fee rules — {account.name}</h3>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16, lineHeight: 1.5 }}>
+          Rules run nightly (16:00 UTC) against this account's unmatched transactions.
+          First match wins (top-to-bottom). On match, a 2-line JE is posted via{" "}
+          <code>bank_create_je_for_transaction</code> and the txn flips to <strong>manual_je_created</strong>.
+        </div>
+
+        {loading ? (
+          <div style={{ color: C.textMuted, padding: 12 }}>Loading…</div>
+        ) : (
+          <>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr>
+                <th style={{ ...th, width: 28 }}>#</th>
+                <th style={th}>Match (regex, case-insens.)</th>
+                <th style={th}>Direction</th>
+                <th style={{ ...th, textAlign: "right" }}>Max amt (¢)</th>
+                <th style={th}>Target GL account</th>
+                <th style={th}>Label</th>
+                <th style={{ ...th, width: 40 }}></th>
+              </tr></thead>
+              <tbody>
+                {rules.length === 0 && (
+                  <tr><td colSpan={7} style={{ ...td, color: C.textMuted, textAlign: "center", padding: 18 }}>
+                    No rules. Click "Add rule" to define one.
+                  </td></tr>
+                )}
+                {rules.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ ...td, color: C.textMuted }}>{i + 1}</td>
+                    <td style={td}>
+                      <input type="text" value={r.match} onChange={(e) => updateRule(i, { match: e.target.value })}
+                             style={{ ...inputStyle, width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                             placeholder="e.g. ^MONTHLY SERVICE FEE" />
+                    </td>
+                    <td style={td}>
+                      <select value={r.direction} onChange={(e) => updateRule(i, { direction: e.target.value as AutoPostRule["direction"] })}
+                              style={{ ...inputStyle, padding: "4px 6px" }}>
+                        <option value="both">both</option>
+                        <option value="deposit">deposit</option>
+                        <option value="withdrawal">withdrawal</option>
+                      </select>
+                    </td>
+                    <td style={td}>
+                      <input type="number" value={r.max_amount_cents ?? ""} onChange={(e) => updateRule(i, { max_amount_cents: e.target.value === "" ? null : Math.max(0, Math.round(Number(e.target.value))) })}
+                             style={{ ...inputStyle, width: 100, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                             placeholder="none" min={1} />
+                    </td>
+                    <td style={td}>
+                      <select value={r.target_account_id} onChange={(e) => updateRule(i, { target_account_id: e.target.value })}
+                              style={{ ...inputStyle, width: "100%", fontSize: 11 }}>
+                        <option value="">— pick an account —</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td style={td}>
+                      <input type="text" value={r.label ?? ""} onChange={(e) => updateRule(i, { label: e.target.value || null })}
+                             style={{ ...inputStyle, width: "100%" }} placeholder="optional" maxLength={80} />
+                    </td>
+                    <td style={td}>
+                      <button onClick={() => delRule(i)} style={btnWarn} title="Delete rule">✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={addRule} style={btnSecondary}>+ Add rule</button>
+              <button onClick={() => void runDry()} style={btnSecondary} disabled={rules.length === 0}>Dry-run on this account</button>
+              <button onClick={() => void runNow()} style={btnSecondary} disabled={rules.length === 0}>Run now</button>
+            </div>
+            {runResult && (
+              <div style={{ marginTop: 10, fontSize: 12, color: runResult.startsWith("Error") ? C.danger : C.textSub, background: "#0b1220", border: `1px solid ${C.cardBdr}`, padding: "8px 10px", borderRadius: 6 }}>
+                {runResult}
+              </div>
+            )}
+          </>
+        )}
+
+        {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "12px 0", fontSize: 12 }}>{err}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={saving}>Cancel</button>
+          <button onClick={() => void save()} style={btnPrimary} disabled={saving || loading}>{saving ? "Saving…" : "Save rules"}</button>
+        </div>
+      </div>
     </div>
   );
 }

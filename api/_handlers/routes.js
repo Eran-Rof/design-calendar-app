@@ -351,6 +351,9 @@ import h332 from "./internal/bank-transactions/apply-match.js";
 import h333 from "./internal/bank-transactions/unmatch.js";
 import h334 from "./internal/bank-transactions/create-je.js";
 import h335 from "./internal/bank-transactions/ignore.js";
+// P6-7 — Auto-post fee rules (h339 PATCH bank_account + h340 cron). APPEND ONLY.
+import h339 from "./internal/bank-accounts/[id].js";
+import h340 from "../cron/bank-auto-post-fees.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -707,7 +710,10 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-transactions/:id/create-je",         handler: h334 },
   { pattern: "/api/internal/bank-transactions/:id/ignore",            handler: h335 },
   { pattern: "/api/internal/bank-transactions",                       handler: h330 },
+  { pattern: "/api/internal/bank-accounts/:id",                       handler: h339 },
   { pattern: "/api/internal/bank-accounts",                           handler: h329 },
+  // P6-7 — Auto-post fee rules cron + manual trigger.
+  { pattern: "/api/cron/bank-auto-post-fees",                         handler: h340 },
 ];
 
 export function compileRoutes(routes) {
