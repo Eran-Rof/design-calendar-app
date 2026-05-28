@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import ExportButton from "./exports/ExportButton";
 
 type Case = {
   id: string;
@@ -121,49 +122,9 @@ function truncate(s: string | null, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-/**
- * Universal-export rule (P7 standing convention): every list view exposes
- * an Export button. Renders the currently-loaded rows to CSV.
- */
-function ExportButton({ rows, filename }: { rows: Case[]; filename: string }) {
-  function handleClick() {
-    if (rows.length === 0) {
-      alert("Nothing to export — no rows loaded.");
-      return;
-    }
-    const cols = [
-      "case_number", "status", "severity",
-      "subject", "customer_code", "customer_name",
-      "assignee_user_id", "external_email",
-      "created_at", "updated_at", "last_activity_at",
-    ];
-    const header = cols.join(",");
-    const lines = rows.map((r) => cols.map((c) => {
-      let v: string | number | null | undefined;
-      switch (c) {
-        case "customer_code": v = r.customer?.code ?? null; break;
-        case "customer_name": v = r.customer?.name ?? null; break;
-        default: v = (r as unknown as Record<string, string | number | null | undefined>)[c];
-      }
-      if (v == null) return "";
-      const s = String(v).replace(/"/g, '""');
-      return /[",\n]/.test(s) ? `"${s}"` : s;
-    }).join(","));
-    const csv = [header, ...lines].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-  return (
-    <button type="button" onClick={handleClick} style={btnSecondary} title="Export current list to CSV">
-      ⬇ Export
-    </button>
-  );
-}
+// Universal export uses the shared canonical ExportButton (T3 cross-cutter,
+// xlsx-only after T8). Flattens the joined customer fields so they appear
+// as their own columns in the export.
 
 export default function InternalCases() {
   const [rows, setRows] = useState<Case[]>([]);
@@ -248,7 +209,36 @@ export default function InternalCases() {
           Customer service tickets (M47)
         </span>
         <div style={{ flex: 1 }} />
-        <ExportButton rows={rows} filename={`cases-${new Date().toISOString().slice(0,10)}.csv`} />
+        <ExportButton
+          rows={rows.map((r) => ({
+            case_number: r.case_number,
+            status: r.status,
+            severity: r.severity,
+            subject: r.subject,
+            customer_code: r.customer?.code ?? null,
+            customer_name: r.customer?.name ?? null,
+            assignee_user_id: r.assignee_user_id,
+            external_email: r.external_email,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            last_activity_at: r.last_activity_at,
+          })) as unknown as Array<Record<string, unknown>>}
+          filename="cases"
+          sheetName="Cases"
+          columns={[
+            { key: "case_number",      header: "Case #" },
+            { key: "status",           header: "Status" },
+            { key: "severity",         header: "Severity" },
+            { key: "subject",          header: "Subject" },
+            { key: "customer_code",    header: "Customer Code" },
+            { key: "customer_name",    header: "Customer" },
+            { key: "assignee_user_id", header: "Assignee" },
+            { key: "external_email",   header: "External Email" },
+            { key: "created_at",       header: "Created",  format: "datetime" },
+            { key: "updated_at",       header: "Updated",  format: "datetime" },
+            { key: "last_activity_at", header: "Last Activity", format: "datetime" },
+          ]}
+        />
         <button type="button" style={btnPrimary} onClick={() => setAddOpen(true)}>
           + New case
         </button>
