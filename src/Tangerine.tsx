@@ -28,6 +28,11 @@ import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
+// P7-7 — M9-subset operational reports under the new 📊 Reports group.
+import InternalAPAging            from "./tanda/InternalAPAging";
+import InternalSalesByRep         from "./tanda/InternalSalesByRep";
+import InternalSalesByCustomer    from "./tanda/InternalSalesByCustomer";
+import InternalGLDetail           from "./tanda/InternalGLDetail";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
@@ -99,9 +104,14 @@ type ModuleKey =
   | "inventory_adjustments"
   | "cycle_counts"
   | "scanner_sessions"
-  | "cases";
+  | "cases"
+  // P7-7 — M9-subset reports under the new 📊 Reports group.
+  | "ap_aging"
+  | "sales_by_rep"
+  | "sales_by_customer"
+  | "gl_detail";
 
-type GroupKey = "Master Data" | "Accounting" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service";
+type GroupKey = "Master Data" | "Accounting" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -112,12 +122,13 @@ type ModuleDef = {
 
 // Order groups appear in the top nav. Also where the per-group icon comes from.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "Inventory", "Customer Service", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "Reports", "Inventory", "Customer Service", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
   "Accounting":       "💼",
+  "Reports":          "📊",
   "Inventory":        "📦",
   "Customer Service": "🤝",
   "Approvals":        "✅",
@@ -168,6 +179,13 @@ const MODULES: ModuleDef[] = [
   { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Operations" },
   // P7-9: M47 Customer Service / Cases panel.
   { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
+  // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by
+  // Customer + GL Detail). AR Aging stays under Accounting per its existing
+  // P4-6 slot; the Reports menu group hosts the four NEW reports.
+  { key: "ap_aging",          label: "AP Aging",          emoji: "📅", group: "Reports" },
+  { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Reports" },
+  { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Reports" },
+  { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -330,6 +348,11 @@ export default function Tangerine() {
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
         {activeModule === "scanner_sessions"    && <InternalScannerSessions />}
         {activeModule === "cases"               && <InternalCases />}
+        {/* P7-7 — Reports menu group */}
+        {activeModule === "ap_aging"            && <InternalAPAging />}
+        {activeModule === "sales_by_rep"        && <InternalSalesByRep />}
+        {activeModule === "sales_by_customer"   && <InternalSalesByCustomer />}
+        {activeModule === "gl_detail"           && <InternalGLDetail />}
       </main>
     </div>
   );
@@ -776,6 +799,7 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
 function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => void }) {
   const masterModules = MODULES.filter((m) => m.group === "Master Data");
   const acctModules = MODULES.filter((m) => m.group === "Accounting");
+  const reportsModules = MODULES.filter((m) => m.group === "Reports");
   const approvalsModules = MODULES.filter((m) => m.group === "Approvals");
   const notifModules = MODULES.filter((m) => m.group === "Notifications");
   const hrModules = MODULES.filter((m) => m.group === "HR");
@@ -801,6 +825,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Accounting">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {acctModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Reports (P7-7)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {reportsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 

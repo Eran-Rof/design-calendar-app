@@ -360,8 +360,12 @@ import h342 from "./internal/commissions/reverse.js";
 import h343 from "./internal/commissions/settle.js";
 import h344 from "./internal/commissions/accruals.js";
 import h345 from "./internal/commissions/payouts.js";
+// P7-7 — M9-subset operational reports (h346-h349 GET). APPEND ONLY.
+import h346 from "./internal/ap-aging/index.js";
+import h347 from "./internal/sales-by-rep/index.js";
+import h348 from "./internal/sales-by-customer/index.js";
+import h349 from "./internal/gl-detail/index.js";
 // P7-9 — Cases UI + Resend inbound webhook (h350-h353). APPEND ONLY.
-// Range h346-h349 reserved for parallel chunk P7-7.
 import h350 from "./internal/cases/index.js";
 import h351 from "./internal/cases/[id].js";
 import h352 from "./internal/cases/[id]/comments.js";
@@ -732,6 +736,11 @@ export const ROUTES = [
   { pattern: "/api/internal/commissions/settle",                      handler: h343 },
   { pattern: "/api/internal/commissions/accruals",                    handler: h344 },
   { pattern: "/api/internal/commissions/payouts",                     handler: h345 },
+  // P7-7 — M9-subset operational reports under the new 📊 Reports menu group.
+  { pattern: "/api/internal/ap-aging",                                handler: h346 },
+  { pattern: "/api/internal/sales-by-rep",                            handler: h347 },
+  { pattern: "/api/internal/sales-by-customer",                       handler: h348 },
+  { pattern: "/api/internal/gl-detail",                               handler: h349 },
   // P7-9 — Customer Service / Cases. Subpath BEFORE bare /:id route.
   { pattern: "/api/internal/cases/:id/comments",                      handler: h352 },
   { pattern: "/api/internal/cases/:id",                               handler: h351 },
