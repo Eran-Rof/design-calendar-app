@@ -321,6 +321,9 @@ import h313 from "./internal/ar-aging/index.js";
 // P4-8 — AR historical backfill runner (h314) + status (h315). APPEND ONLY.
 import h314 from "./internal/ar-backfill/run.js";
 import h315 from "./internal/ar-backfill/status.js";
+// P5-1 — Period close mechanics (h316 close + h317 reopen). APPEND ONLY.
+import h316 from "./internal/gl-periods/close.js";
+import h317 from "./internal/gl-periods/reopen.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -648,6 +651,9 @@ export const ROUTES = [
   // P4-8 — AR historical backfill (h314 POST run + h315 GET status).
   { pattern: "/api/internal/ar-backfill/run", handler: h314 },
   { pattern: "/api/internal/ar-backfill/status", handler: h315 },
+  // P5-1 — Period close mechanics.
+  { pattern: "/api/internal/gl-periods/:id/close", handler: h316 },
+  { pattern: "/api/internal/gl-periods/:id/reopen", handler: h317 },
 ];
 
 export function compileRoutes(routes) {
