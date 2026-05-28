@@ -343,6 +343,14 @@ import h326 from "../cron/bank-feed-sync.js";
 import h327 from "../webhooks/plaid.js";
 // P6-3 — Bank CSV upload (h328 POST). APPEND ONLY.
 import h328 from "./internal/bank-feeds/csv-upload.js";
+// P6-5 — Bank reconciliation admin handlers (h329-h335). APPEND ONLY.
+import h329 from "./internal/bank-accounts/index.js";
+import h330 from "./internal/bank-transactions/index.js";
+import h331 from "./internal/bank-transactions/match-candidates.js";
+import h332 from "./internal/bank-transactions/apply-match.js";
+import h333 from "./internal/bank-transactions/unmatch.js";
+import h334 from "./internal/bank-transactions/create-je.js";
+import h335 from "./internal/bank-transactions/ignore.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -692,6 +700,14 @@ export const ROUTES = [
   { pattern: "/api/webhooks/plaid",                 handler: h327 },
   // P6-3 — Bank CSV upload.
   { pattern: "/api/internal/bank-feeds/csv-upload", handler: h328 },
+  // P6-5 — Bank reconciliation admin endpoints. Subpath actions BEFORE bare /:id semantics.
+  { pattern: "/api/internal/bank-transactions/:id/match-candidates", handler: h331 },
+  { pattern: "/api/internal/bank-transactions/:id/apply-match",       handler: h332 },
+  { pattern: "/api/internal/bank-transactions/:id/unmatch",           handler: h333 },
+  { pattern: "/api/internal/bank-transactions/:id/create-je",         handler: h334 },
+  { pattern: "/api/internal/bank-transactions/:id/ignore",            handler: h335 },
+  { pattern: "/api/internal/bank-transactions",                       handler: h330 },
+  { pattern: "/api/internal/bank-accounts",                           handler: h329 },
 ];
 
 export function compileRoutes(routes) {
