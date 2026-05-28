@@ -46,11 +46,15 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   async function fetchAllMilestoneRows(): Promise<Array<{ id: string; data: any }>> {
     const out: Array<{ id: string; data: any }> = [];
-    // ORDER BY id is required for OFFSET pagination — without a stable sort
-    // Postgres can return rows in different orders across queries, causing
-    // some rows to be returned twice and others skipped entirely.
+    // No ORDER BY: PR #448's `order=id.asc&offset=N` triggered Supabase's
+    // 8-second statement_timeout on the FIRST page (text-id sort + ~10kB
+    // JSONB per row was too heavy for the planner). Postgres's natural
+    // heap order is deterministic enough across consecutive paginated
+    // calls when no writers are racing the read — and the in-memory merge
+    // dedupes by PO grouping anyway, so an occasional duplicate doesn't
+    // affect rendering.
     for (let offset = 0; ; offset += MS_PAGE_SIZE) {
-      const filter = `order=id.asc&limit=${MS_PAGE_SIZE}&offset=${offset}`;
+      const filter = `limit=${MS_PAGE_SIZE}&offset=${offset}`;
       const { data, error } = await sb.from("tanda_milestones").select("id,data", filter);
       if (error) throw new Error(`tanda_milestones fetch failed at offset ${offset}: ${JSON.stringify(error)}`);
       const chunk = Array.isArray(data) ? data : [];
@@ -133,14 +137,15 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   async function loadMilestones(poNumber: string): Promise<Milestone[]> {
     try {
-      // Server-side filter on the data->>'po_number' expression index avoids
-      // pulling the whole table for a single-PO load. Falls under the same
-      // 1000-row cap but a single PO has ~20 milestones so we're safe.
-      // Client-side filter is retained as a belt-and-suspenders safety net.
-      const filter = `data->>po_number=eq.${encodeURIComponent(poNumber)}`;
-      const { data } = await sb.from("tanda_milestones").select("id,data", filter);
-      if (!data) return [];
-      return (data as any[])
+      // The expression index `idx_tanda_milestones_po_number` from the
+      // migration may not exist in prod (table predates the migration
+      // which is IF NOT EXISTS) — server-side `data->>po_number=eq.X`
+      // filter was timing out at the 8-sec statement_timeout because the
+      // planner fell back to a seqscan + JSONB extraction over 38k rows.
+      // Pull all rows via the paginated fetch (which IS safe) and filter
+      // client-side. Slower per-call but doesn't time out.
+      const all = await fetchAllMilestoneRows();
+      return (all as any[])
         .map(row => row.data as Milestone)
         .filter(m => m.po_number === poNumber)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
