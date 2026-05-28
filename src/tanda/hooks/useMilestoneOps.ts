@@ -133,11 +133,13 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
       // Server-side filter on the data->>'po_number' expression index avoids
       // pulling the whole table for a single-PO load. Falls under the same
       // 1000-row cap but a single PO has ~20 milestones so we're safe.
+      // Client-side filter is retained as a belt-and-suspenders safety net.
       const filter = `data->>po_number=eq.${encodeURIComponent(poNumber)}`;
       const { data } = await sb.from("tanda_milestones").select("id,data", filter);
       if (!data) return [];
       return (data as any[])
         .map(row => row.data as Milestone)
+        .filter(m => m.po_number === poNumber)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     } catch { return []; }
   }
