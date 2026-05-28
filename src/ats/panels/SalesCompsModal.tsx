@@ -1045,8 +1045,16 @@ export const SalesCompsModal: React.FC<Props> = ({
           // mode — operator can investigate without a silent drop.
           const skuKey = master?.sku_code ?? `__unresolved:${skuId.slice(0, 8)}`;
           const row = ensure(entry.customerName, skuKey);
-          row.tyQty += agg.t3.qty; row.tyRev += agg.t3.totalPrice; row.tyMrgn += agg.t3.marginAmount;
-          row.lyQty += agg.ly.qty; row.lyRev += agg.ly.totalPrice; row.lyMrgn += agg.ly.marginAmount;
+          // result.byCustomer.bySku qty is UNIT GRAIN (qty_units = eaches)
+          // — see exportSalesFetch.ts:807. The customer-dim aggregator
+          // (aggregateExplodeAware "customer" branch) expects NATIVE
+          // grain just like rawSkuAggs above; without this divide PPK
+          // rows get pack_size² in explode-ON. See [[ppk-grain-rule-canonical]]
+          // §7 (PR #387 fixed rawSkuAggs; this is the matching path).
+          const ps = classifyMasterGrain(master) === "ppk" ? packSizeFor(master) : 1;
+          const qDiv = ps > 1 ? ps : 1;
+          row.tyQty += agg.t3.qty / qDiv; row.tyRev += agg.t3.totalPrice; row.tyMrgn += agg.t3.marginAmount;
+          row.lyQty += agg.ly.qty / qDiv; row.lyRev += agg.ly.totalPrice; row.lyMrgn += agg.ly.marginAmount;
         }
       }
     }
