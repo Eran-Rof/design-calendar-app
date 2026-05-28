@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (162 migration files). Latest: `20260612000000_p7_chunk8_cases_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (163 migration files). Latest: `20260613000000_p7_chunk5_commission_rpcs.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 

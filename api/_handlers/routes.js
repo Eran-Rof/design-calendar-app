@@ -354,6 +354,12 @@ import h335 from "./internal/bank-transactions/ignore.js";
 // P6-7 — Auto-post fee rules (h339 PATCH bank_account + h340 cron). APPEND ONLY.
 import h339 from "./internal/bank-accounts/[id].js";
 import h340 from "../cron/bank-auto-post-fees.js";
+// P7-5 — Commission accrue/reverse/settle RPCs + list endpoints (h341-h345). APPEND ONLY.
+import h341 from "./internal/commissions/accrue.js";
+import h342 from "./internal/commissions/reverse.js";
+import h343 from "./internal/commissions/settle.js";
+import h344 from "./internal/commissions/accruals.js";
+import h345 from "./internal/commissions/payouts.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -714,6 +720,12 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-accounts",                           handler: h329 },
   // P6-7 — Auto-post fee rules cron + manual trigger.
   { pattern: "/api/cron/bank-auto-post-fees",                         handler: h340 },
+  // P7-5 — Commission accrue/reverse/settle RPCs + list endpoints.
+  { pattern: "/api/internal/commissions/accrue",                      handler: h341 },
+  { pattern: "/api/internal/commissions/reverse",                     handler: h342 },
+  { pattern: "/api/internal/commissions/settle",                      handler: h343 },
+  { pattern: "/api/internal/commissions/accruals",                    handler: h344 },
+  { pattern: "/api/internal/commissions/payouts",                     handler: h345 },
 ];
 
 export function compileRoutes(routes) {
