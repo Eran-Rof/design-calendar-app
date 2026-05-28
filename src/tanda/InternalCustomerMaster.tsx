@@ -54,6 +54,8 @@ type Customer = {
   default_currency: string;
   tax_exempt: boolean;
   credit_limit: number | string | null;
+  credit_limit_cents: number | string | null;
+  credit_limit_currency: string | null;
   status: string;
   billing_address: Record<string, unknown>;
   shipping_address: Record<string, unknown>;
@@ -377,16 +379,26 @@ interface ModalProps {
 }
 
 function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: ModalProps) {
+  // Initial credit_limit display value (in dollars). Prefer the canonical
+  // credit_limit_cents (P4-7) and fall back to the legacy numeric credit_limit
+  // column for rows that haven't been re-saved since P4-7.
+  const initCreditLimitDollars =
+    customer?.credit_limit_cents != null && customer.credit_limit_cents !== ""
+      ? String(Number(customer.credit_limit_cents) / 100)
+      : customer?.credit_limit != null
+        ? String(customer.credit_limit)
+        : "";
   const [form, setForm] = useState({
-    name:             customer?.name             ?? "",
-    code:             customer?.code             ?? "",
-    customer_type:    customer?.customer_type    ?? "wholesale",
-    country:          customer?.country          ?? "",
-    payment_terms_id: customer?.payment_terms_id ?? "",
-    default_currency: customer?.default_currency ?? "USD",
-    tax_exempt:       customer?.tax_exempt       ?? false,
-    credit_limit:     customer?.credit_limit != null ? String(customer.credit_limit) : "",
-    status:           customer?.status           ?? "active",
+    name:                  customer?.name                  ?? "",
+    code:                  customer?.code                  ?? "",
+    customer_type:         customer?.customer_type         ?? "wholesale",
+    country:               customer?.country               ?? "",
+    payment_terms_id:      customer?.payment_terms_id      ?? "",
+    default_currency:      customer?.default_currency      ?? "USD",
+    tax_exempt:            customer?.tax_exempt            ?? false,
+    credit_limit:          initCreditLimitDollars,
+    credit_limit_currency: customer?.credit_limit_currency ?? "USD",
+    status:                customer?.status                ?? "active",
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -414,17 +426,27 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     setSubmitting(true);
     setErr(null);
     try {
+      const dollars =
+        form.credit_limit.trim() === "" ? null : parseFloat(form.credit_limit);
+      // P4-7: write BOTH legacy credit_limit (dollars) AND canonical
+      // credit_limit_cents so the credit-gate has a single source of truth.
+      const creditCents =
+        dollars == null || !Number.isFinite(dollars) ? null : Math.round(dollars * 100);
       const body: Record<string, unknown> = {
-        name:             form.name.trim(),
-        code:             form.code.trim() || null,
-        customer_type:    form.customer_type,
-        country:          form.country.trim() || null,
+        name:                  form.name.trim(),
+        code:                  form.code.trim() || null,
+        customer_type:         form.customer_type,
+        country:               form.country.trim() || null,
         // P3-9: structured FK. Legacy text column stays read-only display.
-        payment_terms_id: form.payment_terms_id || null,
-        default_currency: form.default_currency.trim().toUpperCase() || "USD",
-        tax_exempt:       !!form.tax_exempt,
-        credit_limit:     form.credit_limit.trim() === "" ? null : parseFloat(form.credit_limit),
-        status:           form.status,
+        payment_terms_id:      form.payment_terms_id || null,
+        default_currency:      form.default_currency.trim().toUpperCase() || "USD",
+        tax_exempt:            !!form.tax_exempt,
+        credit_limit:          dollars,
+        credit_limit_cents:    creditCents,
+        credit_limit_currency: creditCents == null
+          ? null
+          : (form.credit_limit_currency.trim().toUpperCase() || "USD"),
+        status:                form.status,
       };
       let url: string;
       let method: string;
@@ -507,7 +529,27 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             <input type="text" value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value.toUpperCase() })} style={inputStyle} placeholder="USD" maxLength={3} />
           </Field>
           <Field label="Credit limit">
-            <input type="number" min="0" step="0.01" value={form.credit_limit} onChange={(e) => setForm({ ...form, credit_limit: e.target.value })} style={inputStyle} placeholder="0.00" />
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.credit_limit}
+                onChange={(e) => setForm({ ...form, credit_limit: e.target.value })}
+                style={{ ...inputStyle, flex: 1 }}
+                placeholder="0.00"
+                title="0 or blank = no credit limit (no gate)"
+              />
+              <input
+                type="text"
+                value={form.credit_limit_currency}
+                onChange={(e) => setForm({ ...form, credit_limit_currency: e.target.value.toUpperCase() })}
+                style={{ ...inputStyle, width: 64 }}
+                placeholder="USD"
+                maxLength={3}
+                aria-label="Credit limit currency"
+              />
+            </div>
           </Field>
           <Field label="Status">
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle as React.CSSProperties}>

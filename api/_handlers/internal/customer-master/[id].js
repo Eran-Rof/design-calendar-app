@@ -20,7 +20,9 @@ const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
 const MUTABLE_FIELDS = new Set([
   "name", "code", "customer_type", "country", "payment_terms", "payment_terms_id",
-  "default_currency", "tax_exempt", "credit_limit", "status",
+  "default_currency", "tax_exempt", "credit_limit",
+  "credit_limit_cents", "credit_limit_currency",
+  "status",
   "billing_address", "shipping_address",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
   "parent_customer_id",
@@ -179,6 +181,35 @@ export function validatePatch(body) {
         return { error: "credit_limit must be >= 0" };
       }
       out.credit_limit = n;
+    }
+  }
+
+  // P4-7: canonical credit-gate fields.
+  if ("credit_limit_cents" in out) {
+    if (out.credit_limit_cents == null || out.credit_limit_cents === "") {
+      out.credit_limit_cents = null;
+    } else {
+      const n = typeof out.credit_limit_cents === "number"
+        ? out.credit_limit_cents
+        : parseInt(out.credit_limit_cents, 10);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        return { error: "credit_limit_cents must be an integer" };
+      }
+      if (n < 0) {
+        return { error: "credit_limit_cents must be >= 0" };
+      }
+      out.credit_limit_cents = n;
+    }
+  }
+  if ("credit_limit_currency" in out) {
+    if (out.credit_limit_currency == null || out.credit_limit_currency === "") {
+      out.credit_limit_currency = null;
+    } else {
+      const ccy = String(out.credit_limit_currency).toUpperCase();
+      if (!/^[A-Z]{3}$/.test(ccy)) {
+        return { error: "credit_limit_currency must be a 3-letter ISO code (e.g. USD)" };
+      }
+      out.credit_limit_currency = ccy;
     }
   }
 

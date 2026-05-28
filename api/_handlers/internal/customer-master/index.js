@@ -30,6 +30,7 @@ const LIST_COLUMNS = [
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
   "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit",
+  "credit_limit_cents", "credit_limit_currency",
   "status", "billing_address", "shipping_address", "attributes",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
@@ -119,6 +120,8 @@ export default async function handler(req, res) {
       default_currency: v.data.default_currency || "USD",
       tax_exempt: v.data.tax_exempt === true,
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
+      credit_limit_cents: v.data.credit_limit_cents ?? null,
+      credit_limit_currency: v.data.credit_limit_currency ?? null,
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
@@ -188,6 +191,31 @@ export function validateInsert(body) {
     out.credit_limit = n;
   } else {
     out.credit_limit = null;
+  }
+  // P4-7: credit_limit_cents (bigint cents) is the canonical credit-gate field.
+  // credit_limit (numeric dollars) is kept for legacy back-compat.
+  if (out.credit_limit_cents != null && out.credit_limit_cents !== "") {
+    const n = typeof out.credit_limit_cents === "number"
+      ? out.credit_limit_cents
+      : parseInt(out.credit_limit_cents, 10);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) {
+      return { error: "credit_limit_cents must be an integer" };
+    }
+    if (n < 0) {
+      return { error: "credit_limit_cents must be >= 0" };
+    }
+    out.credit_limit_cents = n;
+  } else {
+    out.credit_limit_cents = null;
+  }
+  if (out.credit_limit_currency != null && out.credit_limit_currency !== "") {
+    const ccy = String(out.credit_limit_currency).toUpperCase();
+    if (!/^[A-Z]{3}$/.test(ccy)) {
+      return { error: "credit_limit_currency must be a 3-letter ISO code (e.g. USD)" };
+    }
+    out.credit_limit_currency = ccy;
+  } else {
+    out.credit_limit_currency = null;
   }
   if (out.tax_exempt != null && typeof out.tax_exempt !== "boolean") {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
