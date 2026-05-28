@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
+import InternalPimProductCatalog  from "./tanda/InternalPimProductCatalog";
 import InternalFabricCodes        from "./tanda/InternalFabricCodes";
 import InternalVendorMaster       from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
@@ -76,6 +77,7 @@ const C = {
 // ─────────────────────────────────────────────────────────────────────────────
 type ModuleKey =
   | "style_master"
+  | "pim_catalog"
   | "fabric_codes"
   | "vendor_master"
   | "customer_master"
@@ -139,6 +141,9 @@ const GROUP_ICON: Record<GroupKey, string> = {
 
 const MODULES: ModuleDef[] = [
   { key: "style_master",      label: "Style Master",      emoji: "🎨", group: "Master Data" },
+  // P8-8: PIM Product Catalog — metadata (attributes / descriptions / images)
+  // on top of the styles created in Style Master.
+  { key: "pim_catalog",       label: "Product Catalog",   emoji: "🏷️", group: "Master Data" },
   { key: "fabric_codes",      label: "Fabric Codes",      emoji: "🧵", group: "Master Data" },
   { key: "vendor_master",     label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
   { key: "customer_master",   label: "Customer Master",   emoji: "🤝", group: "Master Data" },
@@ -319,6 +324,7 @@ export default function Tangerine() {
       <main style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
         {activeModule === null && <HomeLanding onSelectModule={setActiveModule} />}
         {activeModule === "style_master"    && <InternalStyleMaster />}
+        {activeModule === "pim_catalog"     && <InternalPimProductCatalog />}
         {activeModule === "fabric_codes"    && <InternalFabricCodes />}
         {activeModule === "vendor_master"   && <InternalVendorMaster />}
         {activeModule === "customer_master" && <InternalCustomerMaster />}
