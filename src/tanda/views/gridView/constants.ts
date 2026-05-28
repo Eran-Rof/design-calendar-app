@@ -78,3 +78,20 @@ export const phaseDividerOverlayRight: React.CSSProperties = {
   pointerEvents: "none",
   zIndex: 3,
 };
+
+// Boundary divider — extends 4px PAST the host's right edge, landing at the
+// same x as the phase-1 left-edge divider. Used on the Days-from-DDP cell
+// (and the expanded-strip merged cell) so the fixed/phase boundary divider
+// freezes together with col 8 when the operator expands a PO. With both
+// overlays rendering at the same x, the frozen one stays visible while the
+// phase-1 cell scrolls away underneath.
+export const phaseDividerOverlayBoundary: React.CSSProperties = {
+  position: "absolute",
+  top: -2,
+  right: -4,
+  width: 4,
+  height: "calc(100% + 2px)",
+  background: PHASE_DIV_COLOR,
+  pointerEvents: "none",
+  zIndex: 3,
+};
