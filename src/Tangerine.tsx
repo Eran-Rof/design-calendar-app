@@ -32,6 +32,7 @@ import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
 import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
+import InternalCashFlow           from "./tanda/InternalCashFlow";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -83,6 +84,7 @@ type ModuleKey =
   | "trial_balance"
   | "income_statement"
   | "balance_sheet"
+  | "cash_flow"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -142,6 +144,8 @@ const MODULES: ModuleDef[] = [
   { key: "income_statement",  label: "Income Statement",  emoji: "📈", group: "Accounting" },
   // P5-4: Balance Sheet (assets / liabilities / equity as-of).
   { key: "balance_sheet",     label: "Balance Sheet",     emoji: "📋", group: "Accounting" },
+  // P5-5: Cash Flow Statement (indirect method).
+  { key: "cash_flow",         label: "Cash Flow",         emoji: "💧", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -300,6 +304,7 @@ export default function Tangerine() {
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
         {activeModule === "income_statement"  && <InternalIncomeStatement />}
         {activeModule === "balance_sheet"     && <InternalBalanceSheet />}
+        {activeModule === "cash_flow"         && <InternalCashFlow />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}

@@ -330,6 +330,8 @@ import h318 from "./internal/trial-balance/index.js";
 import h319 from "./internal/income-statement/index.js";
 // P5-4 — Balance Sheet GET (h320). APPEND ONLY.
 import h320 from "./internal/balance-sheet/index.js";
+// P5-5 — Cash Flow Statement GET (h321). APPEND ONLY.
+import h321 from "./internal/cash-flow/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -666,6 +668,8 @@ export const ROUTES = [
   { pattern: "/api/internal/income-statement", handler: h319 },
   // P5-4 — Balance Sheet GET (h320).
   { pattern: "/api/internal/balance-sheet", handler: h320 },
+  // P5-5 — Cash Flow Statement GET (h321).
+  { pattern: "/api/internal/cash-flow", handler: h321 },
 ];
 
 export function compileRoutes(routes) {
