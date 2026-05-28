@@ -12,11 +12,106 @@ Updated whenever a phase ships.
 
 ---
 
+## ⚠️ Reframe note — 2026-05-28 (post-conversation with operator)
+
+The original v1 of this doc framed "partial decom" as a path: flip AR / AP / GL / Cash to Tangerine-truth while keeping Xoro for everything else. **That framing was wrong** and has been struck through below.
+
+**Why it doesn't work:** ROF's Xoro is end-to-end integrated. AR invoices, AP bills, COGS postings are not typed by operator — they materialize automatically from EDI / 3PL / Shopify events:
+
+```
+Tangerine PO → EDI 850 → 3PL physically receives →
+  EDI 943/856 back → Xoro auto-creates AP bill on user approval
+
+SO entry → EDI wave to 3PL → 3PL ships → EDI 856 back →
+  Xoro auto-creates customer invoice + posts COGS
+
+Shopify order → Xoro pulls → Xoro creates AR + posts COGS
+Amazon FBA / Walmart / Faire — same automated pattern
+```
+
+You can't flip AR to Tangerine-truth while Xoro still receives the EDI / Shopify / FBA events. Tangerine would have zero auto-created invoices. The operator would have to hand-type every customer invoice for 24+ months. Unworkable.
+
+**Real-talk timeline (revised):**
+
+```
+Today
+  ↓
+Now through P22 (~24 mo): Tangerine = SHADOW LEDGER + STANDALONE modules
+  ↓
+P22 ships (M14 EDI): Tangerine can originate + receive EDI natively
+  ↓
+P9 Parallel-run (now meaningful — both systems generate events)
+  60-90 days validation
+  ↓
+P23 Full Xoro decom (~24-30 months from today)
+```
+
+**What we CAN use Tangerine for today** without dual-entry:
+
+- **Bank Reconciliation** (Plaid talks directly to your bank; Xoro not in the loop)
+- **PIM** (product catalog, images, descriptions — one-way data)
+- **CRM** (opportunities, activities, tasks — standalone sales pipeline)
+- **Cases** (customer service ticketing — standalone)
+- **Sales Reps master + Commission rules** (configuration only; accrual waits)
+- **Reports** built on top of the **nightly Xoro feed** (see T10 Shadow Mirror below)
+
+Everything else stays Xoro-driven until P11-P22 ship.
+
+**The Shadow Mirror (T10 cross-cutter, planned 2026-05-28):**
+
+A near-term cross-cutter that reads the existing nightly Xoro fetch (`ip_sales_history_wholesale`, `tanda_pos`, `ip_inventory_snapshot`, `item_costing`) and mirrors it into Tangerine's sub-ledgers (`ar_invoices`, `invoices`, `inventory_layers`) + posts daily summary JEs. This makes Tangerine reports + CRM + Cases work against real numbers, without operator dual-entry. See `docs/tangerine/T10-shadow-mirror-architecture.md`.
+
+---
+
+## ⚠️ Sales channel reconciliation scope (P11 / P12 — flagged 2026-05-28)
+
+Whatever Tangerine builds for Shopify (P11) / Amazon FBA / Walmart / other marketplaces (P12) **must fully reconcile** the channel — not just import orders. That means **every** dollar tied to that channel gets a Tangerine entry:
+
+| Channel | Items to reconcile |
+|---|---|
+| **Shopify** | order revenue, shipping income, sales tax collected, discounts, Shopify Payments fees (2.9% + 30¢), platform fees, refunds (full + partial), returns (inventory back + COGS reversal), chargebacks, payout reconciliation (Shopify deposits NET amount) |
+| **Amazon FBA** | item revenue, shipping income, sales tax, FBA fees, storage fees, long-term storage fees, return shipping, refunds, A-to-Z claims, settlement reports |
+| **Walmart** | item revenue, shipping income, Walmart commission, return shipping, refunds, settlement reports |
+| **Faire / other wholesale marketplaces** | order revenue, commission, processing fees, refunds, chargebacks, payout reconciliation |
+
+Per-channel daily reconciliation against the platform's settlement report — same pattern as Bank Reconciliation (P6) but at the channel level. If a channel's daily reconciled-diff > 0, it's a variance row in the eventual P9 framework.
+
+This expands P11 / P12 scope from "import orders" to "import + fee + return + payout reconcile." Track it in the P11 / P12 arch docs when those get drafted.
+
+---
+
 ## Readiness legend
 
 - ✅ **Ready** — Tangerine module live in prod, no Xoro dependency
 - 🟡 **Partial** — module exists but downstream (e.g. AR ↔ inventory) still needs Xoro data
 - 🔴 **Not built** — Xoro is the only source; phase scheduled but not started
+
+---
+
+## 🔧 Standing architectural principle — every function has a manual option (except EDI itself)
+
+**Operator-locked 2026-05-28.**
+
+Every Tangerine module that wraps an external integration MUST also support direct manual entry. The integration is the ergonomic happy-path; manual entry is the fallback for when the integration fails / lags / can't reach a particular case.
+
+The only exception is EDI delivery itself — by definition EDI is the data-interchange protocol, so "manual EDI" would just be the underlying manual entry it transports.
+
+Examples this rule applies to:
+
+| Auto path | Manual fallback path |
+|---|---|
+| 3PL EDI 856 → PO receipt → auto-AP bill | Operator types AP bill directly in AP panel |
+| Shopify webhook → AR invoice → auto-COGS | Operator types AR invoice manually in AR panel |
+| Plaid sync → bank transactions auto-matched | Operator uploads CSV / pastes statement manually (P6 already has this) |
+| 3PL EDI 945 ship confirmation → AR + COGS | Operator marks SO shipped manually |
+| EDI 850 PO ack | Operator marks PO acknowledged manually |
+| Amazon FBA settlement report → AR + fees | Operator types FBA payout summary manually |
+| Walmart settlement → AR + commission | Operator types Walmart payout summary manually |
+| Faire payout → AR + commission | Operator types Faire payout summary manually |
+
+**Why this matters for the decom path:** because manual fallback exists for every function, operator can use Tangerine *today* for any one-off entries — they just won't get the auto-creation magic for the EDI / Shopify / FBA flows yet. Tangerine becomes the manual-fallback-now-auto-later layer; Xoro stays the system-of-record for the EDI-driven majority until those integrations land in P11-P22.
+
+**Forward rule:** any new Tangerine module that wraps an external integration must ship the manual entry path in the SAME chunk as the integration (not a separate follow-up). Forward-looking architecture docs must call out both paths in §0 scope.
 
 ---
 
@@ -91,7 +186,9 @@ Updated whenever a phase ships.
 
 ---
 
-## Realistic decom sequence
+## Realistic decom sequence ~~(original v1 framing — see strike-through note above)~~
+
+~~The original v1 partial-decom sequence is shown below for historical reference. It assumed AR / AP / GL / Cash could flip independently. They cannot — see the EDI-loop explanation at the top of this doc. The actual decom sequence is the "real-talk timeline" in the reframe note above. Strike-through preserved for audit.~~
 
 ```
 Today
@@ -149,7 +246,13 @@ You paste the bundle, your COA matches Xoro within 1 paste cycle.
 
 ---
 
-## §B. Data flow when AR / AP move to Tangerine
+## §B. ~~Data flow when AR / AP move to Tangerine~~ (obsolete — see Shadow Mirror)
+
+~~The original §B described what happens when AR / AP flip to Tangerine-truth. That flip is not viable today (see EDI-loop reframe at top). The data flow that's actually relevant is the **Shadow Mirror** described in `docs/tangerine/T10-shadow-mirror-architecture.md` — Tangerine reads the existing nightly Xoro fetch and mirrors AR / AP / inventory_layers + posts daily summary JEs. Operator dual-entry not required.~~
+
+~~The original §B contents are preserved for audit but should be ignored for present-day planning:~~
+
+~~### Today's flow (still accurate)~~
 
 **Today's flow:**
 
@@ -208,7 +311,11 @@ My recommendation: **option 2** for partial decom (good enough COGS) + **option 
 
 ---
 
-## §C. Optional bridge tools (build when partial decom approaches)
+## §C. ~~Optional bridge tools (build when partial decom approaches)~~ (obsolete)
+
+~~The original §C listed three optional bridge scripts for the partial-decom transition. None of those scripts get built because partial decom isn't a viable path. The closest analog is the **T10 Shadow Mirror** (`docs/tangerine/T10-shadow-mirror-architecture.md`) which does similar work but for shadow-ledger purposes, not decom.~~
+
+~~Original §C preserved for audit:~~
 
 - **`tanda_pos` → AP bill draft** — when a Xoro PO is fully received, optionally create a Tangerine AP bill draft pre-populated from the PO data. Operator reviews + posts. ~1 day of work.
 - **`ip_sales_history_wholesale` → AR invoice draft** — for legacy Xoro SOs that hit Tangerine *after* AR decom, similar pre-populate logic. ~1 day.
@@ -222,4 +329,5 @@ None of these are in the roadmap as scheduled chunks — they're "bridge" tools 
 
 When a new phase ships, the matrix gets updated. The doc is intentionally not auto-generated — it's a human-reviewed map. Update timestamps:
 
-- **2026-05-28** — created after P8 Data + CRM shipped + P9 arch drafted
+- **2026-05-28 (morning)** — created after P8 Data + CRM shipped + P9 arch drafted (v1, with partial-decom framing)
+- **2026-05-28 (afternoon, revision)** — operator clarified EDI-loop reality + manual-fallback principle. Reframed entire doc: partial decom not viable; Tangerine = shadow-ledger + standalone-modules layer until P22 ships; manual entry path required on every external-integration module; sales-channel reconciliation scope (Shopify / FBA / Walmart / Faire) flagged for P11/P12.

@@ -1,10 +1,24 @@
 # Tangerine P9 — Parallel-Run Architecture Pass
 
-Status: **DRAFT** (2026-05-28). Operator review gate before implementation chunks kick off. Auto-merges on CI green per the standing plan-approval-not-implementation rule.
+Status: **DRAFT — DEFERRED to post-P22** (revised 2026-05-28 afternoon).
 
 P9 is **not** a software-build phase like P1–P8. It's the **2-month live-alongside-Xoro period** that has to land before P10 Tenancy + the eventual Xoro decom (P23). The deliverable isn't new code — it's *evidence* that Tangerine reproduces Xoro's numbers within tolerance, per domain, every day, for long enough that the operator + the future accountant trust it as source-of-truth.
 
 This doc plans the **scaffolding** that makes parallel-run tractable: daily reconciliation jobs, per-domain parity dashboards, variance taxonomy, decom gates, and the per-domain runbooks for flipping each module from "Xoro-truth" to "Tangerine-truth."
+
+---
+
+## ⚠️ Scheduling reframe — 2026-05-28 afternoon
+
+**P9 implementation is deferred until after P22 EDI ships** (approximately 18-24 months out).
+
+Why: ROF's Xoro is end-to-end EDI-integrated. AR / AP / COGS aren't typed by operator — they materialize from EDI / 3PL / Shopify events. Until Tangerine can originate POs (P13), receive EDI (P22), and talk to 3PL (P21), Tangerine has zero auto-created invoices to reconcile against Xoro's full ledger. Running P9 today would compare Tangerine's empty AR table to Xoro's full one — meaningless.
+
+See `docs/tangerine/XORO-DECOM-MAP.md` for the full reframe + revised timeline.
+
+**What replaces "P9 next":** the **T10 Shadow Mirror** cross-cutter (`docs/tangerine/T10-shadow-mirror-architecture.md`). Shadow Mirror keeps Tangerine sub-ledgers continuously in sync with the nightly Xoro fetch — so reports + CRM + Cases work against real numbers without operator dual-entry. T10 is the immediate-next work; P9 is the eventual decom gate.
+
+**The technical content of P9 below is still correct** — same 5 domains, variance taxonomy, decom gates, sign-off ceremony. Only the *when* moves. The §2 D2 thresholds operator confirmed (AP $1/$100, AR $1/$100, cash $0.50/$3, GL $5/$25, inventory $50/$250) carry forward to the eventual P9 implementation unchanged.
 
 ---
 
@@ -325,4 +339,4 @@ Please mark §2 D1–D10 with answers. Once confirmed I'll kick off P9-1 + P9-7 
 
 **Estimated lift:** 5-7 days end-to-end. P9 is process-heavy — most chunks are small schema + UI; the real work is the operator running parallel-run for 60 days and documenting variance causes. Code is the easy part.
 
-**P23 (Xoro decom) reachability:** earliest theoretical date = `today + 60 days` from when *all 5 domains* pass sign-off. Practically the slow domain will be GL (lags everything). Realistic P23 ETA after P9 ships: 90-120 days.
+**P23 (Xoro decom) reachability — revised 2026-05-28 afternoon:** P22 ETA is ~18-24 months out (M11 → M14 + all the dependencies). P9 starts after P22. P9 itself is 60-90 days of validation. Realistic P23 ETA from today: **~24-30 months**. The original "90-120 days after P9 ships" line assumed P9 could start now; it can't, because partial decom isn't viable when AR/AP/COGS materialize from EDI events Tangerine can't yet originate.
