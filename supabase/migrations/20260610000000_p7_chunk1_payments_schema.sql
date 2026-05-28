@@ -132,18 +132,18 @@ BEGIN
   END IF;
 
   -- 1110 Payment Processor Clearing
-  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable, is_active)
-    VALUES (v_rof, '1110', 'Payment Processor Clearing', 'asset', 'DEBIT', true, true)
+  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable)
+    VALUES (v_rof, '1110', 'Payment Processor Clearing', 'asset', 'DEBIT', true)
     ON CONFLICT (entity_id, code) DO NOTHING;
 
   -- 6510 Merchant Fees
-  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable, is_active)
-    VALUES (v_rof, '6510', 'Merchant Fees', 'expense', 'DEBIT', true, true)
+  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable)
+    VALUES (v_rof, '6510', 'Merchant Fees', 'expense', 'DEBIT', true)
     ON CONFLICT (entity_id, code) DO NOTHING;
 
   -- 6610 Chargeback Expense
-  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable, is_active)
-    VALUES (v_rof, '6610', 'Chargeback Expense', 'expense', 'DEBIT', true, true)
+  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable)
+    VALUES (v_rof, '6610', 'Chargeback Expense', 'expense', 'DEBIT', true)
     ON CONFLICT (entity_id, code) DO NOTHING;
 END $$;
 
