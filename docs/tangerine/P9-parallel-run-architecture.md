@@ -47,7 +47,7 @@ After P8: 8 phases shipped (Foundation → Cross-cutters → Acc Core AP → AR 
 | # | Decision | Recommendation | Why | Operator confirm? |
 |---|---|---|---|---|
 | D1 | Reconciliation cadence | **Daily, post-Xoro-fetch** (~21:30 local) | Xoro fetch lands ~21:00; reconciliation needs both sides up-to-date. Daily is sufficient per arch §6 timing. | ☐ |
-| D2 | $-tolerance threshold | **$10 per variance row + $100 per domain total** by default; per-domain override via `parallel_run_thresholds` table | Roadmap locked-decision §5 set the spirit ("$-tolerance decom"); these numbers are starting points. AR / AP probably tighter; inventory looser. | ☐ |
+| D2 | $-tolerance thresholds (per-domain, operator-locked 2026-05-28) | **AP $1 / $100 · AR $1 / $100 · Cash $0.50 / $3 · GL $5 / $25 · Inventory $50 / $250** (per-row / per-domain). Seeded into `parallel_run_thresholds` by the P9-1 migration; operator can adjust in-app post-launch via the Decom Status panel. | Operator confirmed values reflect ROF's expected variance modes: cash should be exact-to-penny (bank discipline); AP/AR per-vendor accuracy expected within $1; GL tolerance slightly looser as the integrative rollup; inventory accommodates snapshot-vs-real-time timing noise. | ✅ confirmed 2026-05-28 |
 | D3 | Variance taxonomy | **6 categories** — `timing` / `fx` / `rounding` / `cutoff` / `missing_entry` / `bug` | Covers the apparel-wholesale accounting variance modes. `bug` triggers a P1-P8 hotfix; `cutoff` is informational only; others usually self-resolve next cycle. | ☐ |
 | D4 | Sign-off ceremony per domain | **N consecutive days under threshold** AND **manual operator sign-off** in the dashboard, recorded in `decom_signoffs` table | Avoids "the system thinks we're ready" autopilot. Operator is CEO, decom is a board-relevant decision. | ☐ |
 | D5 | N for D4 | **30 consecutive days** | Aligns with "2-month parallel run" — 30 days under threshold = stable enough; first 30 days are typically variance-spike (catching real bugs). | ☐ |
@@ -104,13 +104,35 @@ CREATE INDEX IF NOT EXISTS idx_prv_open           ON parallel_run_variances (res
 CREATE TABLE IF NOT EXISTS parallel_run_thresholds (
   entity_id              uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
   domain                 text NOT NULL CHECK (domain IN ('ap','ar','gl','inventory','cash')),
-  per_row_threshold_cents bigint NOT NULL DEFAULT 1000,    -- $10
-  per_domain_threshold_cents bigint NOT NULL DEFAULT 10000, -- $100
+  per_row_threshold_cents bigint NOT NULL DEFAULT 100,     -- $1.00 fallback; per-domain seeds override below
+  per_domain_threshold_cents bigint NOT NULL DEFAULT 10000, -- $100 fallback
   required_consecutive_days int NOT NULL DEFAULT 30,
   updated_at             timestamptz NOT NULL DEFAULT now(),
   updated_by_user_id     uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   PRIMARY KEY (entity_id, domain)
 );
+
+-- Operator-confirmed seeds 2026-05-28 (idempotent — INSERT WHERE NOT EXISTS):
+--   AP        $1 / $100
+--   AR        $1 / $100
+--   Cash      $0.50 / $3
+--   GL        $5 / $25
+--   Inventory $50 / $250
+INSERT INTO parallel_run_thresholds (entity_id, domain, per_row_threshold_cents, per_domain_threshold_cents)
+SELECT e.id, d.domain, d.per_row, d.per_domain
+FROM entities e,
+     (VALUES
+       ('ap',         100,    10000),    -- $1 / $100
+       ('ar',         100,    10000),    -- $1 / $100
+       ('cash',       50,     300),      -- $0.50 / $3
+       ('gl',         500,    2500),     -- $5 / $25
+       ('inventory',  5000,   25000)     -- $50 / $250
+     ) AS d(domain, per_row, per_domain)
+WHERE e.code = 'ROF'
+  AND NOT EXISTS (
+    SELECT 1 FROM parallel_run_thresholds prt
+    WHERE prt.entity_id = e.id AND prt.domain = d.domain
+  );
 
 CREATE TABLE IF NOT EXISTS decom_signoffs (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
