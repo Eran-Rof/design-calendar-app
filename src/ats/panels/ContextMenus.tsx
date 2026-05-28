@@ -238,7 +238,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
               <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
                 Committed Sales Orders — {soList.length} order{soList.length !== 1 ? "s" : ""} · {isPrepack
                   ? `${totalSoQtyPacks.toLocaleString()} pack${totalSoQtyPacks !== 1 ? "s" : ""} (${totalSoQtyUnits.toLocaleString()} units)`
-                  : `${totalSoQtyPacks.toLocaleString()} units`}{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
+                  : `${totalSoQtyPacks.toLocaleString()} units`}{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(totalSoVal / totalSoQtyPacks / ppkMult).toFixed(2)}` : ""}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
               {Object.keys(soByStore).length > 1 && (
                 <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -477,7 +477,7 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
                 Sales Orders ({soList.length}) · {isPrepack
                   ? `${tQtyPacks.toLocaleString()} pack${tQtyPacks !== 1 ? "s" : ""} (${tQtyUnits.toLocaleString()} units)`
-                  : `${tQtyPacks.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
+                  : `${tQtyPacks.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(tVal / tQtyPacks / ppkMult).toFixed(2)}` : ""}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
               {soList.map((g, i) => {
                 // Weighted-avg unit price across the collapsed lines.
