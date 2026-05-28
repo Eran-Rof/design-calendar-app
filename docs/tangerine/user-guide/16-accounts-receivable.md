@@ -1,5 +1,7 @@
 # 16. Accounts Receivable (M4)
 
+> **P4 status (2026-05-27 night):** all 8 chunks shipped, all migrations applied to prod, all four AR admin panels live in Tangerine → Accounting. PRs #370, #371, #372, #373, #377, #378, #380, #382, #384, #386.
+
 The Accounts Receivable module records customer invoices, drives them through GL posting (with FIFO COGS recognition for inventory lines), captures customer payments, and surfaces the receivables ledger + aging report. AR is the AP module flipped to the customer side: where AP debits an expense / inventory asset and credits AP control, AR debits AR control and credits revenue (plus a FIFO COGS pair per inventory line).
 
 Tangerine P4 Chunk 4 (this chapter) ships the AR Invoices admin UI + handlers on top of the P4 Chunk 1 schema (`ar_invoices`, `ar_invoice_lines`, `ar_receipts`, `ar_receipt_applications`). Receipts UI ships in P4-5 — see the placeholder at the bottom of this page.
