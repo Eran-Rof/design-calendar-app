@@ -46,8 +46,11 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   async function fetchAllMilestoneRows(): Promise<Array<{ id: string; data: any }>> {
     const out: Array<{ id: string; data: any }> = [];
+    // ORDER BY id is required for OFFSET pagination — without a stable sort
+    // Postgres can return rows in different orders across queries, causing
+    // some rows to be returned twice and others skipped entirely.
     for (let offset = 0; ; offset += MS_PAGE_SIZE) {
-      const filter = `limit=${MS_PAGE_SIZE}&offset=${offset}`;
+      const filter = `order=id.asc&limit=${MS_PAGE_SIZE}&offset=${offset}`;
       const { data, error } = await sb.from("tanda_milestones").select("id,data", filter);
       if (error) throw new Error(`tanda_milestones fetch failed at offset ${offset}: ${JSON.stringify(error)}`);
       const chunk = Array.isArray(data) ? data : [];
