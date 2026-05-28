@@ -1,22 +1,33 @@
 // api/webhooks/resend-inbound
 //
 // POST endpoint for Resend inbound email routing. Configured operator-side
-// by pointing `cases@<domain>` MX at Resend and setting this URL as the
-// inbound webhook target. Until that's configured, the handler sits idle.
+// by pointing `cases@<domain>` and `contact@<domain>` MX at Resend and
+// setting this URL as the inbound webhook target. Until that's configured,
+// the handler sits idle.
 //
 // Behavior:
 //   1. Verify HMAC signature using RESEND_WEBHOOK_SECRET (shared with
 //      outbound). Soft-fail if the env var isn't set yet (operator hasn't
 //      finished setup).
-//   2. Parse the inbound payload. Only act when `to` contains the configured
-//      cases address (CASES_INBOUND_EMAIL, default cases@ringoffireclothing.com).
+//   2. Parse the inbound payload. Branch on the `to` address:
+//        - `cases@<domain>` (CASES_INBOUND_EMAIL)   → cases / case_comments
+//          (P7-9 behavior, unchanged).
+//        - `contact@<domain>` (CONTACT_INBOUND_EMAIL) → crm_activities row
+//          with activity_type='email_in' (P8-4 extension, arch §4).
+//        - anything else → 200 + warning log (idempotent; never error).
 //   3. Match sender → customer via customers.billing_address->>'email'.
-//   4. If subject contains an existing [CASE-YYYY-NNNNN] tag pointing at an
-//      OPEN case in this entity, append a case_comments row.
-//   5. Else create a new cases row (status='open', external_email=<from>).
+//      (Architecture doc names this `customer_users.email` for the future
+//      portal; today the customer record lives on `customers` with the
+//      contact email nested in billing_address. Same code path the cases
+//      branch already uses.)
+//   4. For cases branch: subject contains [CASE-YYYY-NNNNN] → append a
+//      case_comments row; else create a new cases row.
+//   5. For contact branch: insert a crm_activities row regardless. Raw
+//      Resend event goes into the `payload` JSONB so operator can drill
+//      into headers later.
 //   6. Always 200 quickly.
 //
-// Tangerine P7-9 (arch §6.2).
+// Tangerine P7-9 (cases@) + P8-4 (contact@ extension, arch §4).
 
 import { createClient } from "@supabase/supabase-js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -24,7 +35,8 @@ import { nextCaseNumber } from "../internal/cases/index.js";
 
 export const config = { maxDuration: 30 };
 
-const DEFAULT_INBOUND_EMAIL = "cases@ringoffireclothing.com";
+const DEFAULT_CASES_INBOUND_EMAIL   = "cases@ringoffireclothing.com";
+const DEFAULT_CONTACT_INBOUND_EMAIL = "contact@ringoffireclothing.com";
 
 function client() {
   const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -70,10 +82,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ignored: "no inbound payload" });
     }
 
-    const target = (process.env.CASES_INBOUND_EMAIL || DEFAULT_INBOUND_EMAIL).toLowerCase();
-    const matchesCasesAddress = event.toList.some((addr) => addr.toLowerCase() === target);
-    if (!matchesCasesAddress) {
-      return res.status(200).json({ ok: true, ignored: "to does not match cases address" });
+    const casesTarget   = (process.env.CASES_INBOUND_EMAIL   || DEFAULT_CASES_INBOUND_EMAIL).toLowerCase();
+    const contactTarget = (process.env.CONTACT_INBOUND_EMAIL || DEFAULT_CONTACT_INBOUND_EMAIL).toLowerCase();
+    const route = routeForToList(event.toList, { casesTarget, contactTarget });
+    if (!route) {
+      console.warn(
+        "[resend inbound] to does not match cases@ or contact@ target; ignoring",
+        { to: event.toList, casesTarget, contactTarget },
+      );
+      return res.status(200).json({ ok: true, ignored: "to does not match cases or contact address" });
     }
 
     const admin = client();
@@ -81,7 +98,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, skipped: "supabase not configured" });
     }
 
-    // Resolve default entity (ROF) — required FK on cases.entity_id.
+    // Resolve default entity (ROF) — required FK on cases.entity_id /
+    // crm_activities.entity_id.
     const { data: entity } = await admin
       .from("entities")
       .select("id")
@@ -93,7 +111,10 @@ export default async function handler(req, res) {
     }
     const entityId = entity.id;
 
-    // Best-effort customer match via billing_address->>'email'.
+    // Best-effort customer match via billing_address->>'email'. Same lookup
+    // used by both branches — the architecture doc names the future
+    // `customer_users.email` here, but until that portal table ships we
+    // dereference the email out of the customers row.
     let customerId = null;
     if (event.fromEmail) {
       const { data: cust } = await admin
@@ -106,6 +127,34 @@ export default async function handler(req, res) {
       if (cust) customerId = cust.id;
     }
 
+    // ── contact@ branch (P8-4) — log to crm_activities, return. ──────────
+    if (route === "contact") {
+      const { data: inserted, error: insErr } = await admin
+        .from("crm_activities")
+        .insert({
+          entity_id: entityId,
+          customer_id: customerId,
+          activity_type: "email_in",
+          subject: (event.subject || "(no subject)").slice(0, 500),
+          body: event.text || null,
+          external_email: event.fromEmail,
+          payload: parsed && typeof parsed === "object" ? parsed : {},
+        })
+        .select()
+        .single();
+      if (insErr) {
+        console.warn("[resend inbound] failed to insert crm_activity:", insErr.message);
+        return res.status(200).json({ ok: true, error: insErr.message });
+      }
+      return res.status(200).json({
+        ok: true,
+        action: "activity_logged",
+        activity_id: inserted.id,
+        customer_id: customerId,
+      });
+    }
+
+    // ── cases@ branch (P7-9, unchanged below) ────────────────────────────
     // Subject-line case-number extraction. Append to existing open case if
     // we find one; else create.
     const caseNumber = extractCaseNumber(event.subject);
@@ -181,6 +230,23 @@ export default async function handler(req, res) {
 // ────────────────────────────────────────────────────────────────────────
 // Helpers — exported for unit tests.
 // ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Decide which inbound branch (cases vs contact) handles a Resend payload's
+ * `to` list. Returns "cases" / "contact" / null. Exported for tests.
+ *
+ * Exact-match against the configured target addresses (already lowercased
+ * by the caller). If both happen to appear (e.g. operator BCCs both
+ * mailboxes — Resend would normally split these), cases@ wins so we don't
+ * silently drop a real case into the generic activity log.
+ */
+export function routeForToList(toList, { casesTarget, contactTarget }) {
+  if (!Array.isArray(toList) || toList.length === 0) return null;
+  const lower = toList.map((s) => String(s || "").toLowerCase()).filter(Boolean);
+  if (casesTarget && lower.includes(casesTarget)) return "cases";
+  if (contactTarget && lower.includes(contactTarget)) return "contact";
+  return null;
+}
 
 /**
  * Pull the [CASE-YYYY-NNNNN] tag out of a subject like
