@@ -344,3 +344,48 @@ Periods in `closed_with_closing_jes` cannot be reopened — that status is reser
 
 Every status transition writes one row to `gl_period_status_log` (entity_id, period_id, from_status, to_status, reason, actor_user_id, performed_at). The audit row is populated by an `AFTER UPDATE` trigger reading session-local vars set by the `gl_period_transition_status` RPC — so the actor + reason are captured atomically with the status flip.
 
+---
+
+## Trial Balance (P5-2)
+
+The **Trial Balance** is the foundation report for every other financial statement (Income Statement, Balance Sheet, Cash Flow). It rolls up every posted journal entry line per account and tells you — for the date window you choose — the total debit, total credit, and the net in either direction.
+
+Open it from **💼 Accounting → 📊 Trial Balance**.
+
+### What it shows
+
+One row per account that has been touched by a posted JE in the window:
+
+- **Code / Name** — from the COA.
+- **Type** (asset / liability / equity / revenue / expense / contra_*) and **Normal** (DEBIT / CREDIT) — same source.
+- **Debit** — `SUM(journal_entry_lines.debit)` across posted JEs in the window.
+- **Credit** — `SUM(journal_entry_lines.credit)` across posted JEs in the window.
+- **Net** — `Debit − Credit`. Positive (green) means the account has net debits; negative (yellow) means net credits.
+
+Rows are grouped by account type with a per-group subtotal row and one grand-total footer row.
+
+### Operator workflow
+
+1. Pick **Basis** — `ACCRUAL` for the audited book (recommended default), `CASH` to see only cash-basis posting impact.
+2. Set **From** and **To** dates. The default range is the last 90 days; widen for a year-end review, narrow for a single-period check.
+3. Click **Refresh**. The grid loads.
+4. Scan each account type's subtotal row — does the asset total match what you expect? Did revenue land where it should?
+
+### Key invariant — the grand-total must net to $0.00
+
+A trial balance proves out double-entry. If every posted JE is internally balanced (debits = credits), then summing across all of them MUST also balance — every dollar debited to one account is credited to another.
+
+**The grand-total Net row should always read $0.00.**
+
+If it doesn't, the variance row is rendered in red with a warning. That means an unbalanced JE somehow slipped past the P1 posting guard (which is supposed to reject unbalanced inserts at the trigger level). It's a corruption indicator — investigate by querying `journal_entry_lines` for the date range and looking for any `journal_entry_id` where `SUM(debit) ≠ SUM(credit)`.
+
+In practice this should never happen — the trigger guard catches it. The variance row is defense in depth so a bug in the trigger doesn't silently corrupt downstream reports.
+
+### API surface
+
+`GET /api/internal/trial-balance?basis=ACCRUAL|CASH&from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+- `basis` (required) — `ACCRUAL` or `CASH`.
+- `from` / `to` (both-or-neither) — if both provided, calls the `trial_balance(entity_id, basis, from, to)` RPC. If both omitted, reads the view `v_trial_balance` (cumulative across all posted history).
+
+Response: `{ basis, from, to, rows: [...] }` sorted by account code ASC.
