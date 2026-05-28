@@ -31,6 +31,7 @@ import InternalARAging            from "./tanda/InternalARAging";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
+import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -81,6 +82,7 @@ type ModuleKey =
   | "ar_backfill"
   | "trial_balance"
   | "income_statement"
+  | "balance_sheet"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -138,6 +140,8 @@ const MODULES: ModuleDef[] = [
   { key: "trial_balance",     label: "Trial Balance",     emoji: "📊", group: "Accounting" },
   // P5-3: Income Statement (P&L) — revenue + COGS + opex with subtotals.
   { key: "income_statement",  label: "Income Statement",  emoji: "📈", group: "Accounting" },
+  // P5-4: Balance Sheet (assets / liabilities / equity as-of).
+  { key: "balance_sheet",     label: "Balance Sheet",     emoji: "📋", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -295,6 +299,7 @@ export default function Tangerine() {
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
         {activeModule === "income_statement"  && <InternalIncomeStatement />}
+        {activeModule === "balance_sheet"     && <InternalBalanceSheet />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}
