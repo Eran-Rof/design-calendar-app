@@ -360,6 +360,12 @@ import h342 from "./internal/commissions/reverse.js";
 import h343 from "./internal/commissions/settle.js";
 import h344 from "./internal/commissions/accruals.js";
 import h345 from "./internal/commissions/payouts.js";
+// P7-9 — Cases UI + Resend inbound webhook (h350-h353). APPEND ONLY.
+// Range h346-h349 reserved for parallel chunk P7-7.
+import h350 from "./internal/cases/index.js";
+import h351 from "./internal/cases/[id].js";
+import h352 from "./internal/cases/[id]/comments.js";
+import h353 from "./webhooks/resend-inbound.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -726,6 +732,11 @@ export const ROUTES = [
   { pattern: "/api/internal/commissions/settle",                      handler: h343 },
   { pattern: "/api/internal/commissions/accruals",                    handler: h344 },
   { pattern: "/api/internal/commissions/payouts",                     handler: h345 },
+  // P7-9 — Customer Service / Cases. Subpath BEFORE bare /:id route.
+  { pattern: "/api/internal/cases/:id/comments",                      handler: h352 },
+  { pattern: "/api/internal/cases/:id",                               handler: h351 },
+  { pattern: "/api/internal/cases",                                   handler: h350 },
+  { pattern: "/api/webhooks/resend-inbound",                          handler: h353 },
 ];
 
 export function compileRoutes(routes) {
