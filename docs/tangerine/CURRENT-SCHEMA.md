@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (170 migration files). Latest: `20260621000000_t5_backfill_tanda_pos_create_table.sql`.
+> Generated from `supabase/migrations/*.sql` (171 migration files). Latest: `20260622000000_t4_chunk1_personalization_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,11 +10,15 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 225 tables · 216 CREATE TABLE · 430 ALTER TABLE
+**Stats:** 228 tables · 217 CREATE TABLE · 433 ALTER TABLE
 
 ---
 
 ## `RENAME`  _(P1 (alter only))_
+
+_(no columns parsed)_
+
+## `additions`  _((pre-P) (alter only))_
 
 _(no columns parsed)_
 
@@ -2900,7 +2904,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 
-## `tanda_pos`  _((pre-P))_
+## `tanda_pos`  _((pre-P) (alter only))_
 
 - `vendor_id` uuid → `vendors`
 - `buyer_po` text
@@ -2908,16 +2912,6 @@ _(no columns parsed)_
 - `date_expected_delivery` text
 - `uuid_id` uuid DEFAULT gen_random_uuid()
 - `entity_id` uuid → `entities`
-- `id` uuid PK DEFAULT gen_random_uuid()
-- `po_number` text NOT NULL
-- `vendor` text NOT NULL DEFAULT ''
-- `date_order` date
-- `date_expected` date
-- `status` text NOT NULL DEFAULT ''
-- `data` jsonb NOT NULL DEFAULT '{}'::jsonb
-- `synced_at` timestamptz NOT NULL DEFAULT now()
-- `created_at` timestamptz NOT NULL DEFAULT now()
-- `updated_at` timestamptz NOT NULL DEFAULT now()
 
 ## `tasks`  _((pre-P))_
 
@@ -2997,6 +2991,23 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `sku_id` uuid → `ip_item_master`
+
+## `user_menu_usage`  _((pre-P))_
+
+- `user_id` uuid → `auth.users` NOT NULL
+- `entity_id` uuid → `entities` NOT NULL
+- `menu_key` text NOT NULL
+- `click_count_30d` int NOT NULL DEFAULT 0
+- `click_count_alltime` int NOT NULL DEFAULT 0
+- `last_clicked_at` timestamptz NOT NULL DEFAULT now()
+
+## `user_preferences`  _((pre-P))_
+
+- `user_id` uuid → `auth.users` NOT NULL
+- `entity_id` uuid → `entities` NOT NULL
+- `key` text NOT NULL
+- `value` jsonb NOT NULL
+- `updated_at` timestamptz NOT NULL DEFAULT now()
 
 ## `vendor_api_keys`  _((pre-P))_
 
