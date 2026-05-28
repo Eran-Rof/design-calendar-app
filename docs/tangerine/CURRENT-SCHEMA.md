@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (168 migration files). Latest: `20260618000000_p8_chunk2_crm_rpcs.sql`.
+> Generated from `supabase/migrations/*.sql` (169 migration files). Latest: `20260620000000_t10_chunk1_source_columns.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 224 tables · 214 CREATE TABLE · 417 ALTER TABLE
+**Stats:** 225 tables · 215 CREATE TABLE · 430 ALTER TABLE
 
 ---
 
@@ -137,6 +137,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+- `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
 
 ## `ar_invoices`  _(P4-1)_
 
@@ -166,6 +167,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+- `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
 
 ## `ar_receipt_applications`  _(P4-1)_
 
@@ -204,6 +206,7 @@ _(no columns parsed)_
 - `processor_charge_id` text
 - `processor_fee_cents` bigint
 - `processor_status` text CHECK `IN ('requires_action','succeeded','failed','refunded','partial_refunded','chargeback')`
+- `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
 
 ## `attachments`  _((pre-P))_
 
@@ -1123,10 +1126,11 @@ _(no columns parsed)_
 - `remaining_qty` numeric(18,4) NOT NULL
 - `unit_cost_cents` bigint NOT NULL
 - `source_kind` text NOT NULL CHECK `IN ('ap_invoice',
-    'adjustment',
-    'opening_balance',
-    'transfer_in',
-    'credit_memo_return')`
+      'adjustment',
+      'opening_balance',
+      'transfer_in',
+      'credit_memo_return',
+      'xoro_mirror_snapshot')`
 - `source_invoice_id` uuid → `invoices`
 - `notes` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
@@ -1221,6 +1225,7 @@ _(no columns parsed)_
 - `payment_terms_id` uuid → `payment_terms`
 - `posting_date` date
 - `description` text
+- `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
 
 ## `ip_action_templates`  _((pre-P))_
 
@@ -2049,6 +2054,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+- `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
 
 ## `journal_entry_lines`  _(P1)_
 
@@ -3203,6 +3209,21 @@ _(no columns parsed)_
 - `created_by` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `xoro_mirror_runs`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `domain` text NOT NULL CHECK `domain IN ('ar','ap','inventory','summary_je')`
+- `mirror_date` date NOT NULL
+- `rows_upserted` int NOT NULL DEFAULT 0
+- `rows_deleted` int NOT NULL DEFAULT 0
+- `rows_unchanged` int NOT NULL DEFAULT 0
+- `je_id` uuid → `journal_entries`
+- `errors` jsonb NOT NULL DEFAULT '[]'::jsonb
+- `started_at` timestamptz NOT NULL DEFAULT now()
+- `completed_at` timestamptz
+- `status` text NOT NULL DEFAULT 'running' CHECK `status IN ('running','complete','failed','skipped_no_change','skipped_stale_xoro')`
 
 ## `xoro_sync_logs`  _((pre-P))_
 
