@@ -324,6 +324,8 @@ import h315 from "./internal/ar-backfill/status.js";
 // P5-1 — Period close mechanics (h316 close + h317 reopen). APPEND ONLY.
 import h316 from "./internal/gl-periods/close.js";
 import h317 from "./internal/gl-periods/reopen.js";
+// P5-2 — Trial Balance GET (h318). APPEND ONLY.
+import h318 from "./internal/trial-balance/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -654,6 +656,8 @@ export const ROUTES = [
   // P5-1 — Period close mechanics.
   { pattern: "/api/internal/gl-periods/:id/close", handler: h316 },
   { pattern: "/api/internal/gl-periods/:id/reopen", handler: h317 },
+  // P5-2 — Trial Balance GET (h318).
+  { pattern: "/api/internal/trial-balance", handler: h318 },
 ];
 
 export function compileRoutes(routes) {
