@@ -409,9 +409,12 @@ interface TopNavProps {
 }
 
 function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, onSignOut }: TopNavProps) {
-  // Group-dropdown nav: one button per group, expands into a menu of modules.
-  // openGroup === null means all closed.
+  // Group-dropdown nav: hover the group → opens its menu; mouse leaves the
+  // group container (button + dropdown) → closes immediately. openGroup is
+  // also driven by click (keyboard / accessibility fallback) and Esc.
   const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
+  // hoveredKey: per-dropdown highlighted item, drives the row background.
+  const [hoveredKey, setHoveredKey] = useState<ModuleKey | null>(null);
 
   // Close on Esc, and close when activeModule changes (selection collapses the menu).
   useEffect(() => {
@@ -424,6 +427,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
   // Auto-close after selection.
   function handleSelect(m: ModuleKey) {
     setOpenGroup(null);
+    setHoveredKey(null);
     onSelectModule(m);
   }
 
@@ -485,7 +489,12 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           const containsActive = modules.some((m) => m.key === activeModule);
           const isOpen = openGroup === group;
           return (
-            <div key={group} style={{ position: "relative" }}>
+            <div
+              key={group}
+              style={{ position: "relative" }}
+              onMouseEnter={() => setOpenGroup(group)}
+              onMouseLeave={() => { setOpenGroup(null); setHoveredKey(null); }}
+            >
               <button
                 type="button"
                 onClick={() => setOpenGroup(isOpen ? null : group)}
@@ -509,61 +518,56 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                 <span style={{ fontSize: 10 }}>{isOpen ? "▴" : "▾"}</span>
               </button>
               {isOpen && (
-                <>
-                  {/* Click-outside guard — covers the rest of the viewport but
-                      not the dropdown menu itself. */}
-                  <div
-                    onClick={() => setOpenGroup(null)}
-                    style={{ position: "fixed", inset: 0, zIndex: 50 }}
-                    aria-hidden="true"
-                  />
-                  <div
-                    role="menu"
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 4px)",
-                      left: 0,
-                      minWidth: 240,
-                      background: C.card,
-                      border: `1px solid ${C.cardBdr}`,
-                      borderRadius: 8,
-                      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                      padding: 6,
-                      zIndex: 60,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    {modules.map((m) => {
-                      const active = activeModule === m.key;
-                      return (
-                        <button
-                          key={m.key}
-                          type="button"
-                          role="menuitem"
-                          onClick={() => handleSelect(m.key)}
-                          style={{
-                            background: active ? "#0b1220" : "transparent",
-                            border: 0,
-                            color: active ? C.text : C.textSub,
-                            padding: "8px 10px",
-                            borderRadius: 4,
-                            fontSize: 13,
-                            cursor: "pointer",
-                            textAlign: "left",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
-                          <span>{m.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
+                <div
+                  role="menu"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    minWidth: 240,
+                    background: C.card,
+                    border: `1px solid ${C.cardBdr}`,
+                    borderRadius: 8,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                    padding: 6,
+                    zIndex: 60,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                  }}
+                >
+                  {modules.map((m) => {
+                    const active = activeModule === m.key;
+                    const hovered = hoveredKey === m.key;
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => handleSelect(m.key)}
+                        onMouseEnter={() => setHoveredKey(m.key)}
+                        onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
+                        style={{
+                          background: hovered ? C.primary : active ? "#0b1220" : "transparent",
+                          border: 0,
+                          color: hovered ? "white" : active ? C.text : C.textSub,
+                          padding: "8px 10px",
+                          borderRadius: 4,
+                          fontSize: 13,
+                          cursor: "pointer",
+                          textAlign: "left",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          transition: "background 60ms ease, color 60ms ease",
+                        }}
+                      >
+                        <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
+                        <span>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
           );
