@@ -408,6 +408,17 @@ import h404 from "../cron/xoro-mirror-nightly.js";
 import h426 from "./internal/search/index.js";
 // T4-1 — Cross-cutter Personalization nightly click-decay cron.
 import h420 from "../cron/menu-usage-decay.js";
+// T4-2 — Cross-cutter Personalization registry + me/preferences + menu-click API.
+//   h421 = GET  /api/internal/users/me/preferences
+//   h422 = PUT  /api/internal/users/me/preferences/favorites
+//   h423 = PUT  /api/internal/users/me/preferences/home-route
+//   h424 = POST /api/internal/users/me/menu-click
+//   h425 = GET  /api/internal/users/me/menu-usage/top
+import h421 from "./internal/users/me/preferences/index.js";
+import h422 from "./internal/users/me/preferences/favorites.js";
+import h423 from "./internal/users/me/preferences/home-route.js";
+import h424 from "./internal/users/me/menu-click/index.js";
+import h425 from "./internal/users/me/menu-usage/top.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -822,6 +833,15 @@ export const ROUTES = [
   { pattern: "/api/internal/xoro-mirror/ap",                           handler: h401 },
   // T6-2 — Global full-text search across the 11 v1 entities.
   { pattern: "/api/internal/search",                                   handler: h426 },
+  // T4-2 — Cross-cutter Personalization (favorites + auto-landing + click telemetry).
+  // Subpath PUT/POST routes registered BEFORE the bare /preferences GET so
+  // /preferences/favorites and /preferences/home-route match their dedicated
+  // handlers (not the bare-GET map) when the dispatcher walks ROUTES top-down.
+  { pattern: "/api/internal/users/me/preferences/favorites",           handler: h422 },
+  { pattern: "/api/internal/users/me/preferences/home-route",          handler: h423 },
+  { pattern: "/api/internal/users/me/preferences",                     handler: h421 },
+  { pattern: "/api/internal/users/me/menu-click",                      handler: h424 },
+  { pattern: "/api/internal/users/me/menu-usage/top",                  handler: h425 },
 ];
 
 export function compileRoutes(routes) {
