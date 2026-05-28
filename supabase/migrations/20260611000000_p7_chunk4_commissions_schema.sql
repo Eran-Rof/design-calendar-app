@@ -175,13 +175,13 @@ BEGIN
   END IF;
 
   -- 2300 Commissions Payable (liability, CREDIT-normal)
-  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable, is_active)
-    VALUES (v_rof, '2300', 'Commissions Payable', 'liability', 'CREDIT', true, true)
+  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable)
+    VALUES (v_rof, '2300', 'Commissions Payable', 'liability', 'CREDIT', true)
     ON CONFLICT (entity_id, code) DO NOTHING;
 
   -- 6210 Sales Commissions Expense (expense, DEBIT-normal)
-  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable, is_active)
-    VALUES (v_rof, '6210', 'Sales Commissions Expense', 'expense', 'DEBIT', true, true)
+  INSERT INTO gl_accounts (entity_id, code, name, account_type, normal_balance, is_postable)
+    VALUES (v_rof, '6210', 'Sales Commissions Expense', 'expense', 'DEBIT', true)
     ON CONFLICT (entity_id, code) DO NOTHING;
 END $$;
 
