@@ -13,7 +13,7 @@
 // now (they're reusable; importing across folders is fine). A future cleanup
 // can rename them to src/tangerine/*Panel.tsx for clarity but it's cosmetic.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
 import InternalFabricCodes        from "./tanda/InternalFabricCodes";
@@ -416,16 +416,44 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
   // hoveredKey: per-dropdown highlighted item, drives the row background.
   const [hoveredKey, setHoveredKey] = useState<ModuleKey | null>(null);
 
-  // Close on Esc, and close when activeModule changes (selection collapses the menu).
+  // Hover-menu close debouncing. The absolute-positioned dropdown sits 4px
+  // below the button — when the mouse traverses that gap on its way into
+  // the menu, it briefly leaves the parent div's bounding box (absolutely
+  // positioned children don't extend the parent's layout box). Without a
+  // delay, that fires onMouseLeave and closes the menu before the cursor
+  // reaches an item. A 140ms scheduled close lets the cursor land on the
+  // dropdown (which cancels the timer via its own onMouseEnter) before the
+  // close fires.
+  const closeTimerRef = useRef<number | null>(null);
+  function cancelClose() {
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+  function scheduleClose() {
+    cancelClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpenGroup(null);
+      setHoveredKey(null);
+      closeTimerRef.current = null;
+    }, 140);
+  }
+  useEffect(() => () => cancelClose(), []);
+
+  // Close on Esc.
   useEffect(() => {
     if (openGroup == null) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenGroup(null); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { cancelClose(); setOpenGroup(null); setHoveredKey(null); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [openGroup]);
 
   // Auto-close after selection.
   function handleSelect(m: ModuleKey) {
+    cancelClose();
     setOpenGroup(null);
     setHoveredKey(null);
     onSelectModule(m);
@@ -492,8 +520,8 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             <div
               key={group}
               style={{ position: "relative" }}
-              onMouseEnter={() => setOpenGroup(group)}
-              onMouseLeave={() => { setOpenGroup(null); setHoveredKey(null); }}
+              onMouseEnter={() => { cancelClose(); setOpenGroup(group); }}
+              onMouseLeave={() => scheduleClose()}
             >
               <button
                 type="button"
@@ -520,9 +548,14 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
               {isOpen && (
                 <div
                   role="menu"
+                  onMouseEnter={() => cancelClose()}
+                  onMouseLeave={() => scheduleClose()}
                   style={{
                     position: "absolute",
-                    top: "calc(100% + 4px)",
+                    // Flush against the button bottom (no visual gap) so the
+                    // mouse can traverse from button into dropdown without
+                    // leaving the parent's bounding box.
+                    top: "100%",
                     left: 0,
                     minWidth: 240,
                     background: C.card,
@@ -548,9 +581,17 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                         onMouseEnter={() => setHoveredKey(m.key)}
                         onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
                         style={{
-                          background: hovered ? C.primary : active ? "#0b1220" : "transparent",
+                          // Faded hover: translucent blue overlay, keeps text
+                          // at default color (no pop). Active uses a slightly
+                          // darker base so the "current panel" cue is still
+                          // distinct from "what I'm about to click."
+                          background: hovered
+                            ? "rgba(59, 130, 246, 0.14)"
+                            : active
+                              ? "#0b1220"
+                              : "transparent",
                           border: 0,
-                          color: hovered ? "white" : active ? C.text : C.textSub,
+                          color: hovered || active ? C.text : C.textSub,
                           padding: "8px 10px",
                           borderRadius: 4,
                           fontSize: 13,
@@ -559,7 +600,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                           display: "flex",
                           alignItems: "center",
                           gap: 8,
-                          transition: "background 60ms ease, color 60ms ease",
+                          transition: "background 80ms ease, color 80ms ease",
                         }}
                       >
                         <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
