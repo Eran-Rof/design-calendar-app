@@ -406,6 +406,8 @@ import h404 from "../cron/xoro-mirror-nightly.js";
 // T6-2 — Global search RPC handler. Numbered h426 to reserve h405-h425
 // for the T4-2 personalization batch landing concurrently on main.
 import h426 from "./internal/search/index.js";
+// T4-1 — Cross-cutter Personalization nightly click-decay cron.
+import h420 from "../cron/menu-usage-decay.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -797,6 +799,8 @@ export const ROUTES = [
   { pattern: "/api/internal/xoro-mirror/summary-je",                  handler: h403 },
   // T10-6 — Nightly Xoro mirror orchestrator cron (Vercel schedule 30 1 * * *).
   { pattern: "/api/cron/xoro-mirror-nightly",                         handler: h404 },
+  // T4-1 — Cross-cutter Personalization click-decay cron (Vercel schedule 0 3 * * *).
+  { pattern: "/api/cron/menu-usage-decay",                            handler: h420 },
   // P8-7 — PIM images. Specific subpaths BEFORE the bare /:id route.
   // Image routes must come BEFORE the bare /:style_id route from P8-6 so
   // /styles/:style_id/images/... gets matched first.
