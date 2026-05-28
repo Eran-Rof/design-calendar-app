@@ -336,6 +336,11 @@ import h321 from "./internal/cash-flow/index.js";
 import h322 from "./internal/year-end-close/run.js";
 // P5-7 — Period-close pre-flight check (h323 GET). APPEND ONLY.
 import h323 from "./internal/gl-periods/preflight.js";
+// P6-2 — Plaid link-token (h324) + exchange (h325) + sync cron (h326) + webhook (h327). APPEND ONLY.
+import h324 from "./internal/bank-feeds/link-token.js";
+import h325 from "./internal/bank-feeds/exchange.js";
+import h326 from "../cron/bank-feed-sync.js";
+import h327 from "../webhooks/plaid.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -678,6 +683,11 @@ export const ROUTES = [
   { pattern: "/api/internal/year-end-close/run", handler: h322 },
   // P5-7 — Period-close pre-flight check.
   { pattern: "/api/internal/gl-periods/:id/preflight", handler: h323 },
+  // P6-2 — Plaid Link integration + sync cron + webhook.
+  { pattern: "/api/internal/bank-feeds/link-token", handler: h324 },
+  { pattern: "/api/internal/bank-feeds/exchange",   handler: h325 },
+  { pattern: "/api/cron/bank-feed-sync",            handler: h326 },
+  { pattern: "/api/webhooks/plaid",                 handler: h327 },
 ];
 
 export function compileRoutes(routes) {
