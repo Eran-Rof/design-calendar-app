@@ -99,14 +99,11 @@ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Extend payment_method enum to include 'credit_card'. The CHECK is
--- recreated additively — existing rows in the legacy set still pass.
-ALTER TABLE ar_receipts
-  DROP CONSTRAINT IF EXISTS ar_receipts_payment_method_check;
-
-ALTER TABLE ar_receipts
-  ADD CONSTRAINT ar_receipts_payment_method_check
-    CHECK (payment_method IN ('check','wire','ach','cash','credit_card','other'));
+-- (No payment_method enum extension needed — P4-1 named the column
+-- `customer_payment_method` and its CHECK already lists 'credit_card'
+-- in the valid set. Verified against supabase/migrations/
+-- 20260528100000_p4_chunk1_ar_schema.sql lines 253-267 on 2026-05-28
+-- after a bundle paste-error pointed it out.)
 
 CREATE INDEX IF NOT EXISTS idx_ar_receipts_processor_charge
   ON ar_receipts (processor_charge_id)
