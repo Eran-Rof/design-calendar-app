@@ -17,6 +17,10 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 15 };
 
 const BASIS_VALUES = ["ACCRUAL", "CASH"];
+const SOURCE_VALUES = [
+  "manual", "xoro_mirror", "shopify", "fba", "walmart",
+  "faire", "edi_3pl", "plaid_sync", "api", "system",
+];
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -57,12 +61,17 @@ export default async function handler(req, res) {
     const basis       = (url.searchParams.get("basis") || "").trim();
     const srcTable    = (url.searchParams.get("source_table") || "").trim();
     const srcId       = (url.searchParams.get("source_id") || "").trim();
+    const source      = (url.searchParams.get("source") || "").trim();
     const includeDrafts = url.searchParams.get("include_drafts") === "true";
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
 
+    if (source && !SOURCE_VALUES.includes(source)) {
+      return res.status(400).json({ error: `source must be one of ${SOURCE_VALUES.join(", ")}` });
+    }
+
     let query = admin
       .from("journal_entries")
-      .select("id, entity_id, period_id, basis, journal_type, posting_date, source_module, source_table, source_id, description, status, posted_at, sibling_je_id, reversed_by_je_id, reverses_je_id, created_at")
+      .select("id, entity_id, period_id, basis, journal_type, posting_date, source_module, source_table, source_id, source, description, status, posted_at, sibling_je_id, reversed_by_je_id, reverses_je_id, created_at")
       .eq("entity_id", entityId)
       .order("posting_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -73,6 +82,7 @@ export default async function handler(req, res) {
     if (basis)          query = query.eq("basis", basis);
     if (srcTable)       query = query.eq("source_table", srcTable);
     if (srcId)          query = query.eq("source_id", srcId);
+    if (source)         query = query.eq("source", source);
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });

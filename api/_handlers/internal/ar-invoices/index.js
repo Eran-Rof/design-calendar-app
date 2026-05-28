@@ -107,7 +107,7 @@ export default async function handler(req, res) {
         "invoice_date, posting_date, due_date, payment_terms_id, " +
         "ar_account_id, revenue_account_id, cogs_account_id, inventory_asset_account_id, " +
         "accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
-        "description, created_at, updated_at",
+        "description, source, created_at, updated_at",
       )
       .eq("entity_id", entityId)
       .order("invoice_date", { ascending: false })
@@ -123,6 +123,7 @@ export default async function handler(req, res) {
     if (from)       query = query.gte("invoice_date", from);
     if (to)         query = query.lte("invoice_date", to);
     if (q)          query = query.ilike("invoice_number", `%${q}%`);
+    if (parsed.data.source) query = query.eq("source", parsed.data.source);
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
@@ -231,6 +232,11 @@ export function isUuid(s) {
  * Parses + validates list-query parameters into a structured shape, isolated
  * from the request lifecycle for unit-testing.
  */
+export const SOURCE_VALUES = [
+  "manual", "xoro_mirror", "shopify", "fba", "walmart",
+  "faire", "edi_3pl", "plaid_sync", "api", "system",
+];
+
 export function parseListQuery(rawUrl, host) {
   const url = new URL(rawUrl, `https://${host || "localhost"}`);
   const status      = (url.searchParams.get("status") || "").trim();
@@ -239,6 +245,7 @@ export function parseListQuery(rawUrl, host) {
   const to          = (url.searchParams.get("to") || "").trim();
   const includeVoid = url.searchParams.get("include_void") === "true";
   const q           = (url.searchParams.get("q") || "").trim();
+  const source      = (url.searchParams.get("source") || "").trim();
   let limit = parseInt(url.searchParams.get("limit") || "100", 10);
   if (Number.isNaN(limit) || limit < 1) limit = 100;
   if (limit > 500) limit = 500;
@@ -255,8 +262,11 @@ export function parseListQuery(rawUrl, host) {
   if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
     return { error: "to must be YYYY-MM-DD" };
   }
+  if (source && !SOURCE_VALUES.includes(source)) {
+    return { error: `source must be one of ${SOURCE_VALUES.join(", ")}` };
+  }
 
-  return { data: { status, customerId, from, to, includeVoid, q, limit } };
+  return { data: { status, customerId, from, to, includeVoid, q, source, limit } };
 }
 
 /**

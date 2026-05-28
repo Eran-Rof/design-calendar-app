@@ -33,6 +33,10 @@ export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_VALUES = ["draft", "unposted", "pending_approval", "posted", "paid", "void", "reversed"];
+const SOURCE_VALUES = [
+  "manual", "xoro_mirror", "shopify", "fba", "walmart",
+  "faire", "edi_3pl", "plaid_sync", "api", "system",
+];
 const KIND_VALUES = ["vendor_bill", "vendor_credit_memo", "expense_report"];
 
 function corsHeaders(res) {
@@ -77,6 +81,7 @@ export default async function handler(req, res) {
     const to          = (url.searchParams.get("to") || "").trim();
     const includeVoid = url.searchParams.get("include_void") === "true";
     const q           = (url.searchParams.get("q") || "").trim();
+    const source      = (url.searchParams.get("source") || "").trim();
     let limit = parseInt(url.searchParams.get("limit") || "100", 10);
     if (Number.isNaN(limit) || limit < 1) limit = 100;
     if (limit > 500) limit = 500;
@@ -93,6 +98,9 @@ export default async function handler(req, res) {
     if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
       return res.status(400).json({ error: "to must be YYYY-MM-DD" });
     }
+    if (source && !SOURCE_VALUES.includes(source)) {
+      return res.status(400).json({ error: `source must be one of ${SOURCE_VALUES.join(", ")}` });
+    }
 
     let query = admin
       .from("invoices")
@@ -100,7 +108,7 @@ export default async function handler(req, res) {
         "id, entity_id, vendor_id, invoice_number, invoice_kind, gl_status, " +
         "posting_date, due_date, description, expense_account_id, ap_account_id, " +
         "accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
-        "created_at, updated_at"
+        "source, created_at, updated_at"
       )
       .eq("entity_id", entityId)
       .order("posting_date", { ascending: false })
@@ -117,6 +125,7 @@ export default async function handler(req, res) {
     if (from)     query = query.gte("posting_date", from);
     if (to)       query = query.lte("posting_date", to);
     if (q)        query = query.ilike("invoice_number", `%${q}%`);
+    if (source)   query = query.eq("source", source);
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });

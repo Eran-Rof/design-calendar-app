@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     const v = parseListQuery(params);
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { customer_id, method, from, to, includeVoid, limit, offset } = v.data;
+    const { customer_id, method, from, to, includeVoid, source, limit, offset } = v.data;
 
     let query = admin
       .from("ar_receipts")
@@ -79,7 +79,7 @@ export default async function handler(req, res) {
         "id, entity_id, customer_id, receipt_date, amount_cents, " +
         "bank_account_id, customer_payment_method, reference, notes, " +
         "accrual_je_id, cash_je_id, is_void, voided_at, void_reason, " +
-        "created_at, updated_at",
+        "source, created_at, updated_at",
       )
       .eq("entity_id", entityId)
       .order("receipt_date", { ascending: false })
@@ -91,6 +91,7 @@ export default async function handler(req, res) {
     if (from)        query = query.gte("receipt_date", from);
     if (to)          query = query.lte("receipt_date", to);
     if (!includeVoid) query = query.eq("is_void", false);
+    if (source)      query = query.eq("source", source);
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
@@ -221,12 +222,18 @@ export function isUuid(s) {
   return typeof s === "string" && UUID_RE.test(s);
 }
 
+export const SOURCE_VALUES = [
+  "manual", "xoro_mirror", "shopify", "fba", "walmart",
+  "faire", "edi_3pl", "plaid_sync", "api", "system",
+];
+
 export function parseListQuery(params) {
   const customer_id = (params.customer_id || "").trim();
   const method      = (params.method || "").trim();
   const from        = (params.from || "").trim();
   const to          = (params.to || "").trim();
   const includeVoid = params.include_void === "true";
+  const source      = (params.source || "").trim();
 
   let limit = parseInt(params.limit || "100", 10);
   if (Number.isNaN(limit) || limit < 1) limit = 100;
@@ -246,6 +253,9 @@ export function parseListQuery(params) {
   if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
     return { error: "to must be YYYY-MM-DD" };
   }
+  if (source && !SOURCE_VALUES.includes(source)) {
+    return { error: `source must be one of ${SOURCE_VALUES.join(", ")}` };
+  }
 
   return {
     data: {
@@ -253,6 +263,7 @@ export function parseListQuery(params) {
       method: method || null,
       from: from || null,
       to: to || null,
+      source: source || null,
       includeVoid,
       limit,
       offset,
