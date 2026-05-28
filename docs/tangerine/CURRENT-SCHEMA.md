@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (171 migration files). Latest: `20260623000000_t6_chunk1_fts_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (174 migration files). Latest: `20260624000000_t6_chunk2_global_search_view.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 226 tables · 215 CREATE TABLE · 442 ALTER TABLE
+**Stats:** 228 tables · 217 CREATE TABLE · 446 ALTER TABLE
 
 ---
 
@@ -3001,6 +3001,18 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `sku_id` uuid → `ip_item_master`
+
+## `user_menu_usage`  _((pre-P))_
+
+- `user_id` uuid → `auth.users` NOT NULL
+- `entity_id` uuid → `entities` NOT NULL
+- `menu_key` text NOT NULL
+
+## `user_preferences`  _((pre-P))_
+
+- `user_id` uuid → `auth.users` NOT NULL
+- `entity_id` uuid → `entities` NOT NULL
+- `key` text NOT NULL
 
 ## `vendor_api_keys`  _((pre-P))_
 
