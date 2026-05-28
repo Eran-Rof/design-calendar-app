@@ -648,3 +648,53 @@ Response (both modes return the same shape; live run additionally writes JEs + f
 }
 ```
 
+
+---
+
+## Close Pre-flight Checks (P5-7)
+
+The Periods panel now has structured Close / Reopen / **Run checks** buttons per period (the old "change status" dropdown was a P1 placeholder that didn't write the audit log). Behind them: the new `gl_period_close_preflight(entity_id, period_id)` RPC, which returns one row per check and feeds both the manual modal AND the close handler.
+
+### What gets checked
+
+| Check | Severity | What it verifies |
+|---|---|---|
+| `period_status_allows_close` | blocking | Period isn't already in `closed_with_closing_jes` (terminal) |
+| `accrual_trial_balanced` | blocking | Sum of accrual JE debits − credits for this period is $0.00 |
+| `cash_trial_balanced` | blocking | Same for the cash book |
+| `no_draft_jes` | blocking | No `journal_entries` rows in status `draft`/`pending_approval`/`unposted` for this period |
+| `no_unposted_ar_invoices` | warning | No AR invoices with `gl_status` in pre-posted states for this period's date range |
+| `no_unposted_ap_invoices` | warning | Same for legacy AP invoices |
+| `no_unposted_inventory_adjustments` | warning | No `inventory_adjustments` still draft (posted_at IS NULL) for this period |
+| `no_unapplied_receipts` | warning | No AR receipts with unapplied balance for this period |
+| `fifo_negative_layers` | blocking | No `inventory_layers` with `remaining_qty < 0` — corruption indicator |
+
+**Blocking** = the close is rejected with `409` if any blocking row fails. **Warning** = surfaced for operator visibility but doesn't block.
+
+### Operator workflow
+
+```mermaid
+flowchart TD
+  RunChecks[Click 'Run checks' on a period] --> Modal[Modal shows green/red/yellow per check]
+  Modal --> Review{All blocking checks green?}
+  Review -- no --> Fix[Investigate via Trial Balance / Inventory Adjustments / AP+AR panels]
+  Fix --> RunChecks
+  Review -- yes --> Soft[Click 'Soft close']
+  Soft --> Hard{Ready to hard-close?}
+  Hard -- yes --> Close[Click 'Close' — pre-flight runs again automatically]
+  Close --> Done[Period is closed; notification fires]
+  Hard -- no --> Wait[Leave in soft_close until ready]
+```
+
+### Reopening a closed period
+
+Click **Reopen**. Operator is prompted for: (1) a reason (recorded in the audit log + notification body), (2) their `auth_user_id` (must hold `role='admin'` on the entity — non-admins get 403). The terminal `closed_with_closing_jes` status (from year-end close P5-6) is the one case that cannot be reopened — file a correcting JE in the next FY's opening period instead.
+
+### API surface
+
+```
+GET  /api/internal/gl-periods/:id/preflight    → { period_id, rows, summary }
+POST /api/internal/gl-periods/:id/close        → runs preflight + transitions on pass
+POST /api/internal/gl-periods/:id/reopen       → admin-only with reason
+```
+
