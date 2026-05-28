@@ -400,6 +400,8 @@ import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
 import h400 from "./internal/xoro-mirror/ar.js";
 // T10-5 — Cross-cutter daily summary JE poster. APPEND ONLY.
 import h403 from "./internal/xoro-mirror/summary-je.js";
+// T10-6 — Nightly Xoro mirror orchestrator cron.
+import h404 from "../cron/xoro-mirror-nightly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -789,6 +791,8 @@ export const ROUTES = [
   { pattern: "/api/internal/xoro-mirror/ar",                          handler: h400 },
   // T10-5 — Cross-cutter Xoro shadow mirror, daily summary JE poster.
   { pattern: "/api/internal/xoro-mirror/summary-je",                  handler: h403 },
+  // T10-6 — Nightly Xoro mirror orchestrator cron (Vercel schedule 30 1 * * *).
+  { pattern: "/api/cron/xoro-mirror-nightly",                         handler: h404 },
   // P8-7 — PIM images. Specific subpaths BEFORE the bare /:id route.
   // Image routes must come BEFORE the bare /:style_id route from P8-6 so
   // /styles/:style_id/images/... gets matched first.
