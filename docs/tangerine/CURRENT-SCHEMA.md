@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (170 migration files). Latest: `20260621000000_t5_backfill_tanda_pos_create_table.sql`.
+> Generated from `supabase/migrations/*.sql` (171 migration files). Latest: `20260623000000_t6_chunk1_fts_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,11 +10,15 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 225 tables · 216 CREATE TABLE · 430 ALTER TABLE
+**Stats:** 226 tables · 215 CREATE TABLE · 442 ALTER TABLE
 
 ---
 
 ## `RENAME`  _(P1 (alter only))_
+
+_(no columns parsed)_
+
+## `additions`  _((pre-P) (alter only))_
 
 _(no columns parsed)_
 
@@ -168,6 +172,7 @@ _(no columns parsed)_
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 - `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
+- `search_doc` tsvector
 
 ## `ar_receipt_applications`  _(P4-1)_
 
@@ -277,6 +282,7 @@ _(no columns parsed)_
 - `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+- `search_doc` tsvector
 
 ## `banking_details`  _((pre-P))_
 
@@ -425,6 +431,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+- `search_doc` tsvector
 
 ## `catalog_items`  _((pre-P))_
 
@@ -715,6 +722,7 @@ _(no columns parsed)_
 - `processor_payment_method_id` text
 - `processor_card_brand` text
 - `processor_card_last4` text
+- `search_doc` tsvector
 
 ## `data_quality_issues`  _((pre-P))_
 
@@ -1025,6 +1033,7 @@ _(no columns parsed)_
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 - `updated_by_user_id` uuid → `auth.users`
+- `search_doc` tsvector
 
 ## `gl_period_status_log`  _(P5-1)_
 
@@ -1226,6 +1235,7 @@ _(no columns parsed)_
 - `posting_date` date
 - `description` text
 - `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
+- `search_doc` tsvector
 
 ## `ip_action_templates`  _((pre-P))_
 
@@ -1642,6 +1652,7 @@ _(no columns parsed)_
 - `fit` text
 - `style_id` uuid → `style_master`
 - `is_apparel` boolean NOT NULL DEFAULT true
+- `search_doc` tsvector
 
 ## `ip_job_runs`  _((pre-P))_
 
@@ -2684,6 +2695,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+- `search_doc` tsvector
 
 ## `scale_master`  _((pre-P))_
 
@@ -2840,6 +2852,7 @@ _(no columns parsed)_
 - `created_by_user_id` uuid → `auth.users`
 - `deleted_at` timestamptz
 - `style_name` text
+- `search_doc` tsvector
 
 ## `supply_chain_finance_programs`  _((pre-P))_
 
@@ -2900,7 +2913,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 
-## `tanda_pos`  _((pre-P))_
+## `tanda_pos`  _((pre-P) (alter only))_
 
 - `vendor_id` uuid → `vendors`
 - `buyer_po` text
@@ -2908,16 +2921,7 @@ _(no columns parsed)_
 - `date_expected_delivery` text
 - `uuid_id` uuid DEFAULT gen_random_uuid()
 - `entity_id` uuid → `entities`
-- `id` uuid PK DEFAULT gen_random_uuid()
-- `po_number` text NOT NULL
-- `vendor` text NOT NULL DEFAULT ''
-- `date_order` date
-- `date_expected` date
-- `status` text NOT NULL DEFAULT ''
-- `data` jsonb NOT NULL DEFAULT '{}'::jsonb
-- `synced_at` timestamptz NOT NULL DEFAULT now()
-- `created_at` timestamptz NOT NULL DEFAULT now()
-- `updated_at` timestamptz NOT NULL DEFAULT now()
+- `search_doc` tsvector
 
 ## `tasks`  _((pre-P))_
 
@@ -3141,6 +3145,7 @@ _(no columns parsed)_
 - `created_by_user_id` uuid → `auth.users`
 - `updated_by_user_id` uuid → `auth.users`
 - `payment_terms_id` uuid → `payment_terms`
+- `search_doc` tsvector
 
 ## `virtual_cards`  _((pre-P))_
 
