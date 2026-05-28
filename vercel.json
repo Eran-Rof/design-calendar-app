@@ -51,6 +51,7 @@
     { "path": "/api/cron/ai-proactive-insights", "schedule": "0 13 * * *" },
     { "path": "/api/cron/ar-aging-overdue-email", "schedule": "30 14 * * *" },
     { "path": "/api/cron/bank-feed-sync", "schedule": "0 */4 * * *" },
-    { "path": "/api/cron/bank-auto-post-fees", "schedule": "0 16 * * *" }
+    { "path": "/api/cron/bank-auto-post-fees", "schedule": "0 16 * * *" },
+    { "path": "/api/cron/xoro-mirror-nightly", "schedule": "30 1 * * *" }
   ]
 }
