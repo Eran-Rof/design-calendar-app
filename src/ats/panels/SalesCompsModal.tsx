@@ -1127,12 +1127,14 @@ export const SalesCompsModal: React.FC<Props> = ({
   };
 
 
+  // Each scope facet lists the actual selected values joined by "/", matching
+  // the export's buildScopeText. Operator wanted the names visible, not a count.
   const scopeLine = [
-    customer.length > 0 && `customer ${customer.length === 1 ? customer[0] : `${customer.length} selected`}`,
-    selStores.length > 0 && `stores ${selStores.join("/")}`,
-    selCategories.length > 0 && `categories ${selCategories.length}`,
-    selSubCategories.length > 0 && `sub-cats ${selSubCategories.length}`,
-    selStyles.length > 0 && `styles ${selStyles.length}`,
+    customer.length        > 0 && `customer ${customer.join("/")}`,
+    selStores.length       > 0 && `stores ${selStores.join("/")}`,
+    selCategories.length   > 0 && `categories ${selCategories.join("/")}`,
+    selSubCategories.length> 0 && `sub-cats ${selSubCategories.join("/")}`,
+    selStyles.length       > 0 && `styles ${selStyles.join("/")}`,
   ].filter(Boolean).join(" · ") || "all";
 
   return (
