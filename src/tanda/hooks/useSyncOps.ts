@@ -99,7 +99,12 @@ async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; 
   }
   let res: Response;
   try {
-    res = await fetch(`/api/xoro-proxy?${params}`, { signal: timeoutCtl.signal });
+    // cache: 'no-store' — Xoro data is point-in-time; the browser was
+    // revalidating prior responses with If-None-Match and Vercel was
+    // returning 304s served from cached body, masking Released->Received
+    // transitions (and re-broke the archive flow). Belt-and-suspenders
+    // with the proxy's Cache-Control: no-store response header.
+    res = await fetch(`/api/xoro-proxy?${params}`, { signal: timeoutCtl.signal, cache: "no-store" });
   } catch (err: any) {
     if (timeoutCtl.signal.aborted && !signal?.aborted) {
       throw new Error("Xoro proxy timed out after 30s");
