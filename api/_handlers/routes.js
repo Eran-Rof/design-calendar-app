@@ -370,8 +370,16 @@ import h350 from "./internal/cases/index.js";
 import h351 from "./internal/cases/[id].js";
 import h352 from "./internal/cases/[id]/comments.js";
 import h353 from "./webhooks/resend-inbound.js";
+// P8-2 — CRM handlers + stage-change RPC (h360-h367). APPEND ONLY.
+import h360 from "./internal/crm/opportunities/index.js";
+import h361 from "./internal/crm/opportunities/[id].js";
+import h362 from "./internal/crm/opportunities/[id]/stage.js";
+import h363 from "./internal/crm/activities/index.js";
+import h364 from "./internal/crm/activities/[id].js";
+import h365 from "./internal/crm/tasks/index.js";
+import h366 from "./internal/crm/tasks/[id].js";
+import h367 from "./internal/crm/pipeline-report/index.js";
 // P8-6 — PIM handlers (non-image: categories + attribute-defs + style composite + attributes + descriptions). APPEND ONLY.
-// h360-h369 reserved for P8-2 (M25 CRM handlers); h380+ reserved for P8-7 (image upload pipeline).
 import h370 from "./internal/pim/categories/index.js";
 import h371 from "./internal/pim/categories/[id].js";
 import h372 from "./internal/pim/attribute-defs/index.js";
@@ -756,6 +764,15 @@ export const ROUTES = [
   { pattern: "/api/internal/cases/:id",                               handler: h351 },
   { pattern: "/api/internal/cases",                                   handler: h350 },
   { pattern: "/api/webhooks/resend-inbound",                          handler: h353 },
+  // P8-2 — CRM (M25). Subpath routes BEFORE bare /:id routes.
+  { pattern: "/api/internal/crm/opportunities/:id/stage",             handler: h362 },
+  { pattern: "/api/internal/crm/opportunities/:id",                   handler: h361 },
+  { pattern: "/api/internal/crm/opportunities",                       handler: h360 },
+  { pattern: "/api/internal/crm/activities/:id",                      handler: h364 },
+  { pattern: "/api/internal/crm/activities",                          handler: h363 },
+  { pattern: "/api/internal/crm/tasks/:id",                           handler: h366 },
+  { pattern: "/api/internal/crm/tasks",                               handler: h365 },
+  { pattern: "/api/internal/crm/pipeline-report",                     handler: h367 },
   // P8-6 — PIM (M42) non-image endpoints.
   // Subpath actions MUST come before bare /:style_id and /:id routes.
   { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
