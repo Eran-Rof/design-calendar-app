@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type Row = {
   section: string;
@@ -175,6 +176,11 @@ export default function InternalCashFlow() {
           To:
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 160 }} />
         </label>
+        <DateRangePresets
+          from={from}
+          to={to}
+          onChange={(f, t) => { setFrom(f); setTo(t); }}
+        />
         <button onClick={() => void load()} style={{ ...btnSecondary, background: C.primary, color: "white", borderColor: C.primary }}>
           Run
         </button>

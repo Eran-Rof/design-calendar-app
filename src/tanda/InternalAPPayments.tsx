@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type APPayment = {
   id: string;
@@ -151,6 +152,11 @@ export default function InternalAPPayments() {
           To&nbsp;
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 150 }} />
         </label>
+        <DateRangePresets
+          from={from}
+          to={to}
+          onChange={(f, t) => { setFrom(f); setTo(t); }}
+        />
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
         <ExportButton
           rows={rows.map((p) => {

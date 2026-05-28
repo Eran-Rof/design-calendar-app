@@ -11,6 +11,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type GlStatus =
   | "draft" | "unposted" | "pending_approval" | "sent"
@@ -314,6 +315,11 @@ export default function InternalARInvoices() {
           type="date" placeholder="To" value={toDate}
           onChange={(e) => setToDate(e.target.value)}
           style={{ ...inputStyle, width: 140 }}
+        />
+        <DateRangePresets
+          from={fromDate}
+          to={toDate}
+          onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
         <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle, width: 110 }}>
           <option value={50}>Limit 50</option>

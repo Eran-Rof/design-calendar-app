@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
+import DateRangePresets from "./components/DateRangePresets.tsx";
 
 type Activity = {
   id: string;
@@ -306,6 +307,13 @@ export default function InternalCrmActivities() {
         <div style={{ minWidth: 140 }}>
           <label style={labelStyle}>To</label>
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
+        </div>
+        <div style={{ paddingTop: 18 }}>
+          <DateRangePresets
+            from={fromDate}
+            to={toDate}
+            onChange={(f, t) => { setFromDate(f); setToDate(t); }}
+          />
         </div>
         <label style={{ color: C.textSub, fontSize: 12, display: "flex", alignItems: "center", gap: 6, paddingTop: 18 }}>
           <input type="checkbox" checked={includeHidden} onChange={(e) => setIncludeHidden(e.target.checked)} />
