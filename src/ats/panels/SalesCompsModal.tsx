@@ -31,6 +31,11 @@ import {
   type RawSkuAgg,
 } from "../salesCompsAggregate";
 import {
+  classifyMasterGrain,
+  firstMasterFor,
+  packSizeFor,
+} from "../salesCompsGrain";
+import {
   downloadSalesCompsWorkbook,
   computeSoCatchallRow,
   type SalesCompsExportInput,
@@ -601,14 +606,39 @@ export const SalesCompsModal: React.FC<Props> = ({
       map.set(sku, fresh);
       return fresh;
     };
-    for (const [sku, a] of result.t3) { const r = ensure(sku); r.tyQty += a.qty; r.tyRev += a.totalPrice; r.tyMrgn += a.marginAmount; }
-    for (const [sku, a] of result.ly) { const r = ensure(sku); r.lyQty += a.qty; r.lyRev += a.totalPrice; r.lyMrgn += a.marginAmount; }
+    // fetchSalesAggregates feeds qty in UNIT GRAIN (qty_units = eaches —
+    // see exportSalesFetch.ts:807). The downstream aggregator
+    // (aggregateExplodeAware) expects NATIVE GRAIN (packs for PPK, eaches
+    // for each) so its explode multiplier doesn't double-count. Convert
+    // back here: divide PPK SKU qty by pack_size; each-grain SKUs are a
+    // no-op (pack_size=1). Verified 2026-05-27: every nightly-synced PPK
+    // row has qty_units == qty * pack_size, so dividing eaches by
+    // pack_size cleanly recovers the original pack count.
+    const toNativeGrain = (sku: string, eachesQty: number): number => {
+      const master = firstMasterFor(sku, resolveItemMasterIds, getItemMasterById);
+      const ps = classifyMasterGrain(master) === "ppk" ? packSizeFor(master) : 1;
+      return ps > 1 ? eachesQty / ps : eachesQty;
+    };
+    for (const [sku, a] of result.t3) {
+      const r = ensure(sku);
+      r.tyQty += toNativeGrain(sku, a.qty);
+      r.tyRev += a.totalPrice;
+      r.tyMrgn += a.marginAmount;
+    }
+    for (const [sku, a] of result.ly) {
+      const r = ensure(sku);
+      r.lyQty += toNativeGrain(sku, a.qty);
+      r.lyRev += a.totalPrice;
+      r.lyMrgn += a.marginAmount;
+    }
     for (const [skuId, e] of result.extraBySkuId) {
       const master = getItemMasterById(skuId);
       if (!master?.sku_code) continue; // drop unresolvable rows
       const r = ensure(master.sku_code);
-      r.tyQty += e.t3Qty; r.tyRev += e.t3Total; r.tyMrgn += e.t3Margin;
-      r.lyQty += e.lyQty; r.lyRev += e.lyTotal; r.lyMrgn += e.lyMargin;
+      const ps = classifyMasterGrain(master) === "ppk" ? packSizeFor(master) : 1;
+      const qDiv = ps > 1 ? ps : 1;
+      r.tyQty += e.t3Qty / qDiv; r.tyRev += e.t3Total; r.tyMrgn += e.t3Margin;
+      r.lyQty += e.lyQty / qDiv; r.lyRev += e.lyTotal; r.lyMrgn += e.lyMargin;
     }
     // Fold in open-SO contributions so a forward-looking window still
     // shows non-zero TY in the per-SKU / Style / Category breakdowns.
