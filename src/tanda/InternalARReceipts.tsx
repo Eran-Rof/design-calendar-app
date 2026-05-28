@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 
 type ARReceipt = {
   id: string;
@@ -39,6 +40,7 @@ type ARReceipt = {
   updated_at: string;
   applied_cents?: string;
   unapplied_cents?: string;
+  source?: string | null;
 };
 
 type ARApplication = {
@@ -163,6 +165,7 @@ export default function InternalARReceipts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [customerFilter, setCustomerFilter] = useState("");
   const [method, setMethod] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [includeVoid, setIncludeVoid] = useState(false);
@@ -179,6 +182,7 @@ export default function InternalARReceipts() {
       const params = new URLSearchParams({ limit: String(limit) });
       if (customerFilter) params.set("customer_id", customerFilter);
       if (method) params.set("method", method);
+      if (sourceFilter) params.set("source", sourceFilter);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       if (includeVoid) params.set("include_void", "true");
@@ -192,7 +196,7 @@ export default function InternalARReceipts() {
     }
   }
 
-  useEffect(() => { void load(); }, [customerFilter, method, from, to, includeVoid, limit]);
+  useEffect(() => { void load(); }, [customerFilter, method, sourceFilter, from, to, includeVoid, limit]);
 
   useEffect(() => {
     fetch("/api/internal/customer-master")
@@ -253,6 +257,15 @@ export default function InternalARReceipts() {
           <option value="">All methods</option>
           {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          style={{ ...inputStyle, width: 150 }}
+          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
+        >
+          <option value="">All sources</option>
+          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           From&nbsp;
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
@@ -296,6 +309,7 @@ export default function InternalARReceipts() {
               reference: r.reference,
               notes: r.notes,
               status: statusLabel(r).label,
+              source: r.source || "manual",
             };
           }) as unknown as Array<Record<string, unknown>>}
           filename="ar-receipts"
@@ -311,6 +325,7 @@ export default function InternalARReceipts() {
             { key: "reference",       header: "Reference" },
             { key: "notes",           header: "Notes" },
             { key: "status",          header: "Status" },
+            { key: "source",          header: "Source" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
         <div style={{ marginLeft: "auto", fontSize: 12, color: C.textMuted }}>
@@ -352,7 +367,10 @@ export default function InternalARReceipts() {
                 return (
                   <tr key={r.id}>
                     <td style={td}>{r.receipt_date}</td>
-                    <td style={td}>{cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : <span style={{ color: C.textMuted }}>{r.customer_id.slice(0, 8)}…</span>}</td>
+                    <td style={td}>
+                      {cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : <span style={{ color: C.textMuted }}>{r.customer_id.slice(0, 8)}…</span>}
+                      <SourceBadge source={r.source} />
+                    </td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.amount_cents)}</td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.applied_cents || "0")}</td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: BigInt(r.unapplied_cents || "0") > 0n ? C.warn : C.textMuted }}>

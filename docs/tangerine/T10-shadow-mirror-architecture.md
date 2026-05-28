@@ -237,7 +237,9 @@ The new **🔁 Shadow Mirror Status** panel shows:
 - **Unmatched customers** + **unmatched vendors** queue (rows the Xoro fetch references but Tangerine masters lack)
 - Manual-fallback reminder card: "Need to enter an invoice for an event Xoro didn't capture? Use the AR Invoices panel directly. Your manual entry won't conflict with the mirror."
 
-All existing list views (AR Invoices, AP Invoices, Inventory) get a `source` filter dropdown so operator can see only manual entries, only mirrored, or both.
+All existing list views (AR Invoices, AR Receipts, AP Invoices, Journal Entries) get a `source` filter dropdown + an inline source badge on each row so operator can see only manual entries, only mirrored, or both.
+
+> **TODO (v2):** there is currently no inventory-layers list panel — T10-4 rebuilds rows nightly but operator views them indirectly via Trial Balance / Balance Sheet. When an inventory-layers admin panel ships (likely under Inventory or a new Inventory Layers module), it MUST adopt the same `source` filter dropdown + badge pattern that T10-7 established for AR/AP/JE. Use `src/tanda/components/SourceBadge.tsx` + `SOURCE_OPTIONS` directly.
 
 ---
 
