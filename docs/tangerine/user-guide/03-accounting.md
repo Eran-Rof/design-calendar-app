@@ -350,6 +350,82 @@ Operators should make a habit of running the IS over the about-to-close FY one f
 
 Both books are kept in parallel — every accrual JE has a sibling cash JE (or vice versa) — so flipping the toggle is instant and always available.
 
+---
+
+## Cash Flow Statement (P5-5)
+
+Tangerine → 💼 Accounting → 💧 **Cash Flow** opens the indirect-method Cash Flow Statement.
+
+### What it computes
+
+The cash flow statement explains how cash moved over a date range by reconciling net income to the actual change in cash on hand. The **indirect method** starts from net income (from the income statement) and adjusts for working-capital changes:
+
+```
+Operating section:
+  Net Income (from the income statement)
+  + Decrease in Accounts Receivable  (or − Increase)
+  + Decrease in Inventory             (or − Increase)
+  + Increase in Accounts Payable      (or − Decrease)
+  = Net cash from operating activities
+
+Investing section:   $0 placeholder until P22+ (Fixed Assets)
+Financing section:   $0 placeholder until P22+ (account tagging)
+
+Beginning Cash + Net Change = Ending Cash
+```
+
+### Controls
+
+- **Basis toggle:** ACCRUAL or CASH. The cash-basis statement is mostly an identity (cash-basis net income ≈ net change in cash) so the ACCRUAL view is the one to read most days.
+- **From / To dates:** default to Jan 1 of the current calendar year through today. Adjustable for any custom window — month-to-date, quarter, prior year, etc.
+
+### How accounts get identified
+
+The RPC must know which accounts represent AR, AP, Inventory, and Cash. It uses two layers:
+
+1. **Entity defaults** (preferred) — `entities.default_ar_account_id`, `default_ap_account_id`, `default_inventory_account_id` (set during P3-1 and P4-1 schema migrations).
+2. **Code-prefix fallback** — if any default is null, the RPC looks up:
+   - AR → first `gl_accounts` row with code `'1200'`
+   - AP → first row with code `'2010'`
+   - Inventory → first row with code `'1300'`
+
+Cash accounts (for the footer reconciliation) are identified by **heuristic**:
+
+```
+account_type = 'asset'
+AND code LIKE '1%'
+AND (name ILIKE '%cash%' OR name ILIKE '%bank%')
+```
+
+If your COA names cash accounts with words like "Petty" or "Operating" only (no "cash" or "bank"), the heuristic will miss them and the footer reconciliation will show a gap. Rename the accounts so they match — an explicit `is_cash boolean` flag will land in P22+ if the operator needs finer control.
+
+### The investing + financing placeholders
+
+Both sections render with a single `$0` placeholder row and a small note "Configure account tagging in P22+." These ship populated once:
+
+- **M22 Fixed Assets** (P25 roadmap) introduces capital purchases/sales — those flow into Investing.
+- **Account tagging UI** (post-P22) lets the operator mark equity/liability accounts as "owner contributions," "loan principal repayments," "dividends paid," etc. Those tags drive the Financing section.
+
+Until then, Net cash from investing = $0 and Net cash from financing = $0. The operating section is fully live.
+
+### The footer reconciliation invariant
+
+The bottom of the panel shows:
+
+```
+Beginning Cash    $X
++ Net Change      $Y
+= Ending Cash     $Z
+```
+
+These must satisfy `X + Y ≈ Z` (within $0.01). If they don't, the panel renders a yellow warning row "Reconciliation gap — investigate." Common causes:
+
+- The cash-account heuristic is missing one of your cash accounts (rename it to include "cash" or "bank").
+- An out-of-balance JE posted historically (extremely rare — the JE post trigger guards against this).
+- The operating section's AR/AP/Inventory deltas aren't catching all the movement because a non-default account was used (check `entities.default_*_account_id` is set correctly).
+
+The reconciliation is a defense-in-depth check — under normal operations it should always be green.
+
 ## Going further
 
 - **Concepts** (dual-basis, control accounts, subledgers, audit immutability): [04-concepts.md](04-concepts.md)
