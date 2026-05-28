@@ -403,6 +403,9 @@ import h401 from "./internal/xoro-mirror/ap.js";
 import h403 from "./internal/xoro-mirror/summary-je.js";
 // T10-6 — Nightly Xoro mirror orchestrator cron.
 import h404 from "../cron/xoro-mirror-nightly.js";
+// T6-2 — Global search RPC handler. Numbered h426 to reserve h405-h425
+// for the T4-2 personalization batch landing concurrently on main.
+import h426 from "./internal/search/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -813,6 +816,8 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/categories",                           handler: h370 },
   // T10-3 — Xoro shadow-mirror AP domain (manual trigger).
   { pattern: "/api/internal/xoro-mirror/ap",                           handler: h401 },
+  // T6-2 — Global full-text search across the 11 v1 entities.
+  { pattern: "/api/internal/search",                                   handler: h426 },
 ];
 
 export function compileRoutes(routes) {
