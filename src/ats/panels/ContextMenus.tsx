@@ -60,6 +60,12 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
   if (!summaryCtx) return null;
   const { type, row, pos, sos } = summaryCtx;
 
+  // Grain — pack-aware. Available to onHand / onOrder / onPO blocks so
+  // every header line can append "/<ppkMult> Each $X" alongside the
+  // /pack avg (per operator request — see PR #393 for the SO column).
+  const ppkMult = row.ppkMult ?? 1;
+  const isPrepack = ppkMult > 1;
+
   const poByStore: Record<string, number> = {};
   for (const p of pos) poByStore[p.store ?? "ROF"] = (poByStore[p.store ?? "ROF"] ?? 0) + p.qty;
   const soByStore: Record<string, number> = {};
@@ -134,7 +140,9 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginTop: 8 }}>
                 {(row.avgCost ?? 0) > 0 && <>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>Avg Cost</span>
-                  <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600, fontSize: 12, textAlign: "right" }}>${(row.avgCost ?? 0).toFixed(2)}</span>
+                  <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600, fontSize: 12, textAlign: "right" }}>{isPrepack
+                    ? `$${((row.avgCost ?? 0) * ppkMult).toFixed(2)}/pack/${ppkMult} Each $${(row.avgCost ?? 0).toFixed(2)}`
+                    : `$${(row.avgCost ?? 0).toFixed(2)}`}</span>
                 </>}
                 {(row.totalAmount ?? 0) > 0 && <>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>Total Value</span>
@@ -145,7 +153,9 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                   <span style={{ color: "#94A3B8", fontFamily: "monospace", fontSize: 12, textAlign: "right" }}>{fmtDateDisplay(row.lastReceiptDate ?? "")}</span>
                 </>}
               </div>
-              {avgCost > 0 && (row.avgCost ?? 0) === 0 && <div style={{ color: "#94A3B8", fontSize: 11, marginTop: 6 }}>Avg Cost (from POs): <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600 }}>${avgCost.toFixed(2)}</span></div>}
+              {avgCost > 0 && (row.avgCost ?? 0) === 0 && <div style={{ color: "#94A3B8", fontSize: 11, marginTop: 6 }}>Avg Cost (from POs): <span style={{ color: "#FCD34D", fontFamily: "monospace", fontWeight: 600 }}>{isPrepack
+                ? `$${avgCost.toFixed(2)}/pack/${ppkMult} Each $${(avgCost / ppkMult).toFixed(2)}`
+                : `$${avgCost.toFixed(2)}`}</span></div>}
             </div>
           </div>
         )}
@@ -331,7 +341,9 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
           const grandValue = poList.reduce((s, p) => s + p.totalValue, 0);
           return (
             <div>
-              <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {poList.length} PO{poList.length !== 1 ? "s" : ""} · {grandQty.toLocaleString()} units{grandValue > 0 ? ` · $${grandValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(grandValue / grandQty).toFixed(2)}/unit` : ""}</div>
+              <div style={{ background: "rgba(16,185,129,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #064E3B" }}>Open Purchase Orders — {poList.length} PO{poList.length !== 1 ? "s" : ""} · {isPrepack
+                ? `${grandQty.toLocaleString()} pack${grandQty !== 1 ? "s" : ""} (${(grandQty * ppkMult).toLocaleString()} units)`
+                : `${grandQty.toLocaleString()} units`}{grandValue > 0 ? ` · $${grandValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(grandValue / grandQty).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(grandValue / grandQty / ppkMult).toFixed(2)}` : ""}` : ""}</div>
               {Object.keys(poByStore).length > 1 && (
                 <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
                   {Object.entries(poByStore).map(([st, qty]) => (
@@ -385,6 +397,12 @@ interface CellContextMenuProps {
 // on that date with totals and click-through to PO WIP.
 export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRef, setCtxMenu }) => {
   if (!ctxMenu) return null;
+
+  // Grain — pack-aware. Used by both the SO and PO sub-blocks below so
+  // each header line can append "/<ppkMult> Each $X" alongside the
+  // /pack avg (operator request, mirrors PR #393's SO change).
+  const ppkMult = ctxMenu.ppkMult ?? 1;
+  const isPrepack = ppkMult > 1;
 
   return (
     <div
@@ -537,7 +555,9 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
           return (
             <div>
               <div style={{ background: "rgba(245,158,11,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
-                Purchase Orders ({poList.length}) · +{tQty.toLocaleString()} units{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQty).toFixed(2)}/unit` : ""}
+                Purchase Orders ({poList.length}) · {isPrepack
+                  ? `+${tQty.toLocaleString()} pack${tQty !== 1 ? "s" : ""} (${(tQty * ppkMult).toLocaleString()} units)`
+                  : `+${tQty.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQty).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(tVal / tQty / ppkMult).toFixed(2)}` : ""}` : ""}
               </div>
               {poList.map((p, i) => (
                 <div
