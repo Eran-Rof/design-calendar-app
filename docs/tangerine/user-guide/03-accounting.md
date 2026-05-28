@@ -299,6 +299,57 @@ The reversal entry lands in an **open** period. If today's period is closed, you
 
 Once `status='posted'`, the JE is immutable by design. PATCH and DELETE on `/api/internal/journal-entries/:id` return 405. The only undo path is reversal. This protects audit integrity — the GL always tells the truth about what was posted and when.
 
+## Income Statement (P5-3)
+
+**Where:** Tangerine → 💼 Accounting → 📈 **Income Statement**.
+
+The Income Statement (P&L) report aggregates posted journal entries from revenue and expense accounts into the three standard sections operators expect on a financial statement. It supports both the **ACCRUAL** and **CASH** books — toggle at the top — and any date range. Default range is current FY (Jan 1) through today.
+
+### The three sections
+
+1. **Revenue** — every account with `account_type IN ('revenue','contra_revenue')`. Contra-revenue accounts (returns, discounts) display alongside revenue rows but reduce the section total. The footer of this section shows **Net Revenue** = gross revenue minus contra revenue.
+
+2. **Cost of Goods Sold (COGS)** — expense accounts whose `code` starts with `'5'`. This is a convention-based heuristic following ROF's chart-of-accounts layout where the 5xxx range is reserved for direct product cost.
+
+3. **Operating Expenses (OPEX)** — every other expense account (`account_type='expense'` and code does NOT start with `'5'`). Typically 6xxx-7xxx in ROF's COA (rent, salaries, marketing, etc).
+
+Each section is collapsible (default open). Accounts within a section list code + name + amount, right-aligned with tabular numerals so columns align cleanly.
+
+### Subtotals + Net Income
+
+The footer below the three sections shows the standard P&L roll-up:
+
+| Line | Formula |
+|---|---|
+| Net Revenue | Revenue section total |
+| − COGS | COGS section total |
+| **Gross Margin** | Net Revenue − COGS — green if positive, red if negative |
+| − Operating Expenses | OPEX section total |
+| **Operating Income** | Gross Margin − OPEX |
+| **NET INCOME** | Operating Income (until M22 Fixed Assets adds depreciation) |
+
+### The COGS heuristic (code starts with '5')
+
+The system identifies COGS rows by checking whether the gl_accounts code begins with `5`. This is a convention, not a hard schema rule. If your COA uses a different numbering scheme (e.g., 50000-series instead of 5xxx, or you have non-COGS accounts that happen to start with 5), you'll see misclassifications — talk to engineering about adding an explicit `gl_accounts.is_cogs boolean` flag. Per arch §13, the heuristic is the MVP default; the flag ships only if range-based detection turns out wrong for your COA.
+
+### Post-close caveat (important)
+
+After the **Year-End Close** RPC runs (P5-6, ships later), all revenue and expense accounts are zeroed out into Retained Earnings via a closing JE dated the last day of the FY. If you then run the Income Statement over a closed fiscal year, the **report shows $0** in every section — because the underlying revenue/expense balances are now zero by design.
+
+This is correct behavior, not a bug. To review the historical activity of a closed FY:
+
+- Run the Income Statement BEFORE year-end close (during the soft-close window, or right after a hard month close but before year-end).
+- For post-close audit, query the GL directly against the closing JE itself (it carries the zeroing journal lines and the net-income rollover to Retained Earnings).
+
+Operators should make a habit of running the IS over the about-to-close FY one final time during soft-close — and attaching the PDF to the period's close package (Document Attachments) — before flipping the year-end terminal close.
+
+### Choosing the basis
+
+- **ACCRUAL** — revenue is recognized when the invoice is sent (AR invoice posts), expenses when the bill is approved (AP invoice posts). Matches GAAP / tax filings.
+- **CASH** — revenue is recognized when the customer's payment is received, expenses when the vendor is actually paid. Useful for cash-flow visibility but doesn't match GAAP.
+
+Both books are kept in parallel — every accrual JE has a sibling cash JE (or vice versa) — so flipping the toggle is instant and always available.
+
 ## Going further
 
 - **Concepts** (dual-basis, control accounts, subledgers, audit immutability): [04-concepts.md](04-concepts.md)
