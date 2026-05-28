@@ -370,6 +370,16 @@ import h350 from "./internal/cases/index.js";
 import h351 from "./internal/cases/[id].js";
 import h352 from "./internal/cases/[id]/comments.js";
 import h353 from "./webhooks/resend-inbound.js";
+// P8-6 — PIM handlers (non-image: categories + attribute-defs + style composite + attributes + descriptions). APPEND ONLY.
+// h360-h369 reserved for P8-2 (M25 CRM handlers); h380+ reserved for P8-7 (image upload pipeline).
+import h370 from "./internal/pim/categories/index.js";
+import h371 from "./internal/pim/categories/[id].js";
+import h372 from "./internal/pim/attribute-defs/index.js";
+import h373 from "./internal/pim/attribute-defs/[id].js";
+import h374 from "./internal/pim/styles/[style_id].js";
+import h375 from "./internal/pim/styles/[style_id]/attributes.js";
+import h376 from "./internal/pim/styles/[style_id]/description/index.js";
+import h377 from "./internal/pim/styles/[style_id]/description/publish.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -746,6 +756,16 @@ export const ROUTES = [
   { pattern: "/api/internal/cases/:id",                               handler: h351 },
   { pattern: "/api/internal/cases",                                   handler: h350 },
   { pattern: "/api/webhooks/resend-inbound",                          handler: h353 },
+  // P8-6 — PIM (M42) non-image endpoints.
+  // Subpath actions MUST come before bare /:style_id and /:id routes.
+  { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
+  { pattern: "/api/internal/pim/styles/:style_id/description",         handler: h376 },
+  { pattern: "/api/internal/pim/styles/:style_id/attributes",          handler: h375 },
+  { pattern: "/api/internal/pim/styles/:style_id",                     handler: h374 },
+  { pattern: "/api/internal/pim/attribute-defs/:id",                   handler: h373 },
+  { pattern: "/api/internal/pim/attribute-defs",                       handler: h372 },
+  { pattern: "/api/internal/pim/categories/:id",                       handler: h371 },
+  { pattern: "/api/internal/pim/categories",                           handler: h370 },
 ];
 
 export function compileRoutes(routes) {
