@@ -491,6 +491,15 @@ import h486 from "./internal/audit/log.js";
 // P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
 //   h484 = POST /api/internal/recon/run-inventory (manual trigger)
 import h484 from "./internal/recon/run-inventory.js";
+// P9-7 — Reconciliation dashboard read handlers + clear flow (APPEND-ONLY).
+//   h487 = GET  /api/internal/recon/runs
+//   h488 = GET  /api/internal/recon/variances
+//   h489 = POST /api/internal/recon/variances/:id/clear
+//   h490 = GET  /api/internal/recon/cutovers
+import h487 from "./internal/recon/runs.js";
+import h488 from "./internal/recon/variances.js";
+import h489 from "./internal/recon/clear.js";
+import h490 from "./internal/recon/cutovers.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -964,6 +973,13 @@ export const ROUTES = [
   { pattern: "/api/internal/audit/log",                                handler: h486 },
   // P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
   { pattern: "/api/internal/recon/run-inventory",                      handler: h484 },
+  // P9-7 — Reconciliation dashboard read handlers + clear flow. Subpath
+  // /variances/:id/clear MUST come before the bare /variances list route
+  // so the dispatcher matches it first (regex order = ROUTES order).
+  { pattern: "/api/internal/recon/variances/:id/clear",                handler: h489 },
+  { pattern: "/api/internal/recon/variances",                          handler: h488 },
+  { pattern: "/api/internal/recon/runs",                               handler: h487 },
+  { pattern: "/api/internal/recon/cutovers",                           handler: h490 },
 ];
 
 export function compileRoutes(routes) {
