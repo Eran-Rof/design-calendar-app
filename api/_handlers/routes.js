@@ -489,6 +489,24 @@ import h474 from "../cron/faire-returns-weekly.js";
 import h485 from "./internal/audit/row-history.js";
 import h486 from "./internal/audit/log.js";
 
+// Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+// Handler vars shifted past audit's h485/h486 — search/sales-reps onwards
+// use h493-h496 instead of h485-h488 to avoid collision.
+import h475 from "./internal/costing/projects/index.js";
+import h476 from "./internal/costing/projects/[id]/index.js";
+import h477 from "./internal/costing/projects/[id]/lines.js";
+import h478 from "./internal/costing/lines/[line_id]/index.js";
+import h479 from "./internal/costing/lines/[line_id]/quotes/index.js";
+import h480 from "./internal/costing/lines/[line_id]/quotes/[quote_id].js";
+import h481 from "./internal/costing/lines/[line_id]/select-quote.js";
+import h482 from "./internal/costing/search/styles.js";
+import h483 from "./internal/costing/search/vendors.js";
+import h484 from "./internal/costing/search/customers.js";
+import h493 from "./internal/costing/search/sales-reps.js";
+import h494 from "./internal/costing/search/fabrics.js";
+import h495 from "./internal/costing/search/categories.js";
+import h496 from "./internal/costing/search/scales.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -958,6 +976,21 @@ export const ROUTES = [
   // Cross-cutter T11-3 — Universal audit log read endpoints.
   { pattern: "/api/internal/audit/row-history",                        handler: h485 },
   { pattern: "/api/internal/audit/log",                                handler: h486 },
+  // Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+  { pattern: "/api/internal/costing/projects",                         handler: h475 },
+  { pattern: "/api/internal/costing/projects/:id",                     handler: h476 },
+  { pattern: "/api/internal/costing/projects/:id/lines",               handler: h477 },
+  { pattern: "/api/internal/costing/lines/:line_id",                   handler: h478 },
+  { pattern: "/api/internal/costing/lines/:line_id/quotes",            handler: h479 },
+  { pattern: "/api/internal/costing/lines/:line_id/quotes/:quote_id",  handler: h480 },
+  { pattern: "/api/internal/costing/lines/:line_id/select-quote",      handler: h481 },
+  { pattern: "/api/internal/costing/search/styles",                    handler: h482 },
+  { pattern: "/api/internal/costing/search/vendors",                   handler: h483 },
+  { pattern: "/api/internal/costing/search/customers",                 handler: h484 },
+  { pattern: "/api/internal/costing/search/sales-reps",                handler: h493 },
+  { pattern: "/api/internal/costing/search/fabrics",                   handler: h494 },
+  { pattern: "/api/internal/costing/search/categories",                handler: h495 },
+  { pattern: "/api/internal/costing/search/scales",                    handler: h496 },
 ];
 
 export function compileRoutes(routes) {
