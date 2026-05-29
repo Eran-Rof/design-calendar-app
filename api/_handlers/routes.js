@@ -452,6 +452,11 @@ import h445 from "../cron/shopify-payouts-daily.js";
 // h443 = GET/POST /api/cron/shopify-backfill
 import h442 from "./internal/shopify/backfill.js";
 import h443 from "../cron/shopify-backfill.js";
+// P12a-2 — Amazon FBA SP-API client + orders ingest cron.
+//   h450 = POST /api/internal/fba/sync-orders  (manual single-account trigger)
+//   h451 = GET/POST /api/cron/fba-orders-nightly (Vercel cron, 03:00 UTC)
+import h450 from "./internal/fba/sync-orders.js";
+import h451 from "../cron/fba-orders-nightly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -901,6 +906,9 @@ export const ROUTES = [
   // P11-4 — Shopify backfill cron + manual trigger (webhook-drop safety net).
   { pattern: "/api/internal/shopify/backfill",                         handler: h442 },
   { pattern: "/api/cron/shopify-backfill",                             handler: h443 },
+  // P12a-2 — Amazon FBA SP-API orders ingest.
+  { pattern: "/api/internal/fba/sync-orders",                          handler: h450 },
+  { pattern: "/api/cron/fba-orders-nightly",                           handler: h451 },
 ];
 
 export function compileRoutes(routes) {
