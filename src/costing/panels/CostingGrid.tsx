@@ -12,6 +12,7 @@
 import React, { useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
+import { usePlanFlow } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
 import { fetchStyleSeedSku } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
@@ -74,11 +75,20 @@ export default function CostingGrid() {
   const lines = useCostingStore((s) => s.lines);
   const vendorQuotes = useCostingStore((s) => s.vendorQuotes);
   const selectedLineId = useCostingStore((s) => s.selectedLineId);
+  const stageFilter = useCostingStore((s) => s.stageFilter);
   const addLine = useCostingStore((s) => s.addLine);
   const updateLine = useCostingStore((s) => s.updateLine);
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
+
+  // Chunk 6 — Plan Flow widget writes stageFilter to the store; we filter the
+  // visible rows by per-line derived stage. lineStageById comes from the same
+  // hook the widget uses, so counts and visible rows always match.
+  const { lineStageById } = usePlanFlow();
+  const visibleLines = stageFilter
+    ? lines.filter((l) => lineStageById[l.id] === stageFilter)
+    : lines;
 
   const [dragId, setDragId] = useState<string | null>(null);
 
@@ -154,7 +164,8 @@ export default function CostingGrid() {
     <div style={{ marginTop: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
-          Costing grid · {lines.length} {lines.length === 1 ? "line" : "lines"}
+          Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
+          {stageFilter && <span style={{ color: "#F59E0B", marginLeft: 8, fontSize: 11 }}>(filtered: {stageFilter})</span>}
         </h3>
         <button
           onClick={onAdd}
@@ -189,7 +200,12 @@ export default function CostingGrid() {
             No lines yet — click "Add row" to start. Pick a style to auto-fill metadata + seed target cost.
           </div>
         )}
-        {lines.map((line) => {
+        {lines.length > 0 && visibleLines.length === 0 && (
+          <div style={{ padding: 24, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>
+            No lines match the current stage filter. Clear the Plan Flow filter to see all {lines.length}.
+          </div>
+        )}
+        {visibleLines.map((line) => {
           const math = computeLineMath(line);
           const selected = vendorQuotes[line.id]?.find((q) => q.status === "selected");
           const isFocused = selectedLineId === line.id;

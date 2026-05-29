@@ -23,6 +23,10 @@ type State = {
   vendorQuotes: Record<string, CostingLineVendor[]>;
   compliance: Record<string, CostingLineCompliance[]>;
   selectedLineId: string | null;
+  // Chunk 6 — Plan Flow widget filters the grid by per-line stage.
+  // Null = no filter (show all lines). Stage names are derived in usePlanFlow.
+  stageFilter: string | null;
+  setStageFilter: (stage: string | null) => void;
   loading: boolean;
   error: string | null;
 
@@ -64,6 +68,8 @@ export const useCostingStore = create<State>((set, get) => ({
   vendorQuotes: {},
   compliance: {},
   selectedLineId: null,
+  stageFilter: null,
+  setStageFilter(stage) { set({ stageFilter: stage }); },
   loading: false,
   error: null,
 
