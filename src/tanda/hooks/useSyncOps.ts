@@ -99,7 +99,12 @@ async function fetchXoroPOs(opts: XoroFetchOpts = {}): Promise<{ pos: XoroPO[]; 
   }
   let res: Response;
   try {
-    res = await fetch(`/api/xoro-proxy?${params}`, { signal: timeoutCtl.signal });
+    // cache: 'no-store' — Xoro data is point-in-time; the browser was
+    // revalidating prior responses with If-None-Match and Vercel was
+    // returning 304s served from cached body, masking Released->Received
+    // transitions (and re-broke the archive flow). Belt-and-suspenders
+    // with the proxy's Cache-Control: no-store response header.
+    res = await fetch(`/api/xoro-proxy?${params}`, { signal: timeoutCtl.signal, cache: "no-store" });
   } catch (err: any) {
     if (timeoutCtl.signal.aborted && !signal?.aborted) {
       throw new Error("Xoro proxy timed out after 30s");
@@ -381,7 +386,14 @@ export function useSyncOps(deps: SyncOpsDeps) {
 
       const archiveDecisions = getArchiveDecisions(all, cachedRows, isFullSync ? statusesWithResults : null);
       const archiveFailures: Array<{ poNumber: string; error: string }> = [];
+      // Count only NEWLY archived POs in the "Removed" stat. Source 1 doesn't
+      // check the cached _archived flag, so an already-archived PO that Xoro
+      // keeps returning as terminal gets re-archived (idempotent no-op) on
+      // every sync. Counting those as "Removed" makes the sync look like it's
+      // doing work when it isn't.
+      let newlyArchivedCount = 0;
       for (const { poNumber, freshData } of archiveDecisions) {
+        const wasArchived = ((existingMap.get(poNumber) as any)?._archived) === true;
         try {
           if (freshData) {
             // Source 1: Xoro returned the PO as terminal — archive with fresh data so
@@ -400,13 +412,14 @@ export function useSyncOps(deps: SyncOpsDeps) {
             // Xoro status buckets (deleted). Archive using existing DB data.
             await deps.archivePO(poNumber);
           }
+          if (!wasArchived) newlyArchivedCount++;
         } catch (err: any) {
           const msg = err?.message || String(err);
           console.warn(`Archive failed for ${poNumber}:`, msg);
           archiveFailures.push({ poNumber, error: msg });
         }
       }
-      const deletedCount = archiveDecisions.length - archiveFailures.length;
+      const deletedCount = newlyArchivedCount;
       if (archiveFailures.length > 0) {
         const sample = archiveFailures.slice(0, 3).map(f => f.poNumber).join(", ");
         const more = archiveFailures.length > 3 ? ` +${archiveFailures.length - 3} more` : "";
