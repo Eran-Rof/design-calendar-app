@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (185 migration files). Latest: `20260629700000_p12c_chunk4_returns.sql`.
+> Generated from `supabase/migrations/*.sql` (186 migration files). Latest: `20260629700000_p12c_chunk4_returns.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 253 tables · 241 CREATE TABLE · 574 ALTER TABLE
+**Stats:** 254 tables · 242 CREATE TABLE · 575 ALTER TABLE
 
 ---
 
@@ -3042,6 +3042,25 @@ _(no columns parsed)_
 - `ship_via` text
 - `invoice_created_at` timestamptz
 - `entity_id` uuid
+
+## `shopify_disputes`  _(P11-8)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `shopify_store_id` uuid → `shopify_stores` NOT NULL
+- `shopify_order_id` uuid → `shopify_orders`
+- `shopify_dispute_id` text NOT NULL
+- `dispute_type` text NOT NULL
+- `dispute_amount_cents` bigint NOT NULL
+- `status` text NOT NULL
+- `reason` text
+- `evidence_due_by` timestamptz
+- `case_id` uuid → `cases`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL
+- `source` text NOT NULL DEFAULT 'shopify' CHECK `source = 'shopify'`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
 
 ## `shopify_order_lines`  _(P11-1)_
 
