@@ -58,6 +58,8 @@ import InternalCrmTasks               from "./tanda/InternalCrmTasks";
 import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 // Cross-cutter T10-7 — Shadow Mirror Status panel (Xoro → Tangerine nightly mirror dashboard).
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
+// Cross-cutter T4-3 — Personalization favorites drawer.
+import FavoritesDrawer from "./components/FavoritesDrawer";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -394,6 +396,8 @@ export default function Tangerine() {
         {/* Cross-cutter T10-7 — Shadow Mirror Status dashboard */}
         {activeModule === "shadow_mirror"       && <InternalShadowMirrorStatus />}
       </main>
+      {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
+      <FavoritesDrawer />
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
           from any module; invisible until the hotkey fires. */}
       <GlobalSearchPaletteAuto />
