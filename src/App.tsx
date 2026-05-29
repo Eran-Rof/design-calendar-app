@@ -20,6 +20,7 @@ import { SB_URL, SB_KEY, supabaseClient } from "./utils/supabase";
 
 // ─── Components ───────────────────────────────────────────────────────────────
 import Avatar from "./components/Avatar";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { Modal, ConfirmModal } from "./components/Modal";
 import ContextMenu from "./components/ContextMenu";
 const ActivityPanel = lazy(() => import("./components/ActivityPanel"));
@@ -1316,6 +1317,9 @@ function App() {
           appFilter="design"
         />
       )}
+
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
 
       <AskAIPanel
         open={aiOpen}

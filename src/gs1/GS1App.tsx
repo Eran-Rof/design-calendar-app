@@ -15,6 +15,7 @@ import LabelTemplatesPanel from "./panels/LabelTemplatesPanel";
 import ExceptionsPanel from "./panels/ExceptionsPanel";
 import NotificationsPage from "../components/notifications/NotificationsPage";
 import NotificationsShell from "../components/notifications/NotificationsShell";
+import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import { supabaseClient } from "../utils/supabase";
 
 function readPlmUserId(): string | null {
@@ -69,6 +70,8 @@ export default function GS1App() {
           appFilter="gs1"
         />
       )}
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
     </div>
   );
 }

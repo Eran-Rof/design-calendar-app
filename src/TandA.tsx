@@ -72,6 +72,7 @@ import type { CoreState } from "./tanda/state/core/coreTypes";
 import { useTandaStore } from "./tanda/store/index";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -2025,6 +2026,9 @@ function TandAApp() {
           appFilter="tanda"
         />
       )}
+
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
 
       <AskAIPanel
         open={aiOpen}
