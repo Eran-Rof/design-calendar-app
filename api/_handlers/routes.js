@@ -426,6 +426,11 @@ import h425 from "./internal/users/me/menu-usage/top.js";
 import h430 from "./internal/users/me/entity-switch.js";
 import h431 from "./internal/users/me/entity-default.js";
 import h432 from "./internal/users/me/entities/index.js";
+// P12b-2 — Walmart Marketplace orders ingest (manual + cron).
+//   h452 = POST /api/internal/walmart/sync-orders
+//   h453 = POST /api/cron/walmart-orders-nightly
+import h452 from "./internal/walmart/sync-orders.js";
+import h453 from "../cron/walmart-orders-nightly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -857,6 +862,9 @@ export const ROUTES = [
   { pattern: "/api/internal/users/me/entity-switch",                   handler: h430 },
   { pattern: "/api/internal/users/me/entity-default",                  handler: h431 },
   { pattern: "/api/internal/users/me/entities",                        handler: h432 },
+  // P12b-2 — Walmart Marketplace orders ingest.
+  { pattern: "/api/internal/walmart/sync-orders",                      handler: h452 },
+  { pattern: "/api/cron/walmart-orders-nightly",                       handler: h453 },
 ];
 
 export function compileRoutes(routes) {
