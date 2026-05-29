@@ -23,7 +23,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   GlobalSearchPalette,
   routeFor,
+  RECENTS_STORAGE_KEY,
   type SearchResult,
+  type RecentSearch,
 } from "../../components/GlobalSearchPalette";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -74,9 +76,11 @@ function sampleResults(): SearchResult[] {
 function Wrapper({
   initialOpen = true,
   navigate,
+  openInNewTab,
 }: {
   initialOpen?: boolean;
   navigate?: (url: string) => void;
+  openInNewTab?: (url: string) => void;
 }) {
   const [open, setOpen] = useState(initialOpen);
   return (
@@ -85,8 +89,15 @@ function Wrapper({
       onClose={() => setOpen(false)}
       onToggle={(next) => setOpen(next)}
       navigate={navigate}
+      openInNewTab={openInNewTab}
     />
   );
+}
+
+// Pre-populate the recents localStorage entry before the palette mounts. Tests
+// that exercise the recents UI use this helper.
+function seedRecents(entries: RecentSearch[]) {
+  window.localStorage.setItem(RECENTS_STORAGE_KEY, JSON.stringify(entries));
 }
 
 // ─── Setup / teardown ──────────────────────────────────────────────────────
@@ -100,6 +111,9 @@ const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // Reset localStorage between tests so recents seeded in one test don't
+  // leak into the next.
+  try { window.localStorage.clear(); } catch { /* ignore */ }
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -397,5 +411,290 @@ describe("routeFor — per-entity URL mapping", () => {
 
   it("falls back to /tanda for unknown entity_type", () => {
     expect(routeFor(row("unknown_thing", "x"))).toBe("/tanda");
+  });
+});
+
+// ─── T6-4 polish: recents, pills, keyboard polish, result-count footer ─────
+
+describe("GlobalSearchPalette — T6-4 recent searches", () => {
+  it("shows the static empty hint when storage has no recents", () => {
+    render(<Wrapper />);
+    expect(screen.getByTestId("global-search-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("global-search-recents")).not.toBeInTheDocument();
+  });
+
+  it("shows the recents list when input is empty and storage is populated", () => {
+    seedRecents([
+      {
+        query: "iherb",
+        clickedAt: new Date().toISOString(),
+        resultEntityType: "customer",
+        resultTitle: "iHerb Wholesale",
+      },
+      {
+        query: "po 4521",
+        clickedAt: new Date().toISOString(),
+        resultEntityType: "po",
+        resultTitle: "ROF-P004521",
+      },
+    ]);
+    render(<Wrapper />);
+    expect(screen.getByTestId("global-search-recents")).toBeInTheDocument();
+    // Static hint should NOT render when recents are visible.
+    expect(screen.queryByTestId("global-search-empty")).not.toBeInTheDocument();
+    expect(screen.getByTestId("global-search-recent-0").textContent).toMatch(/iherb/);
+    expect(screen.getByTestId("global-search-recent-0").textContent).toMatch(/iHerb Wholesale/);
+    expect(screen.getByTestId("global-search-recent-1").textContent).toMatch(/po 4521/);
+    expect(screen.getByTestId("global-search-recent-1").textContent).toMatch(/ROF-P004521/);
+  });
+
+  it("clicking a recent re-runs that query (fills the input)", async () => {
+    seedRecents([
+      {
+        query: "iherb",
+        clickedAt: new Date().toISOString(),
+        resultEntityType: "customer",
+        resultTitle: "iHerb Wholesale",
+      },
+    ]);
+    mockFetchOnceJson({ results: sampleResults() });
+    render(<Wrapper />);
+
+    fireEvent.click(screen.getByTestId("global-search-recent-0"));
+
+    const input = screen.getByTestId("global-search-input") as HTMLInputElement;
+    expect(input.value).toBe("iherb");
+
+    // The debounced fetch should kick in with the re-run query.
+    await sleep(DEBOUNCE_WAIT_MS);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const calledUrl = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl).toContain("q=iherb");
+  });
+
+  it("picking a result writes a recent entry into localStorage", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    const navigate = vi.fn();
+    render(<Wrapper navigate={navigate} />);
+
+    const input = screen.getByTestId("global-search-input");
+    fireEvent.change(input, { target: { value: "acme" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("Acme Apparel Co")).toBeInTheDocument());
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(navigate).toHaveBeenCalled();
+
+    const stored = JSON.parse(window.localStorage.getItem(RECENTS_STORAGE_KEY) || "[]");
+    expect(stored).toHaveLength(1);
+    expect(stored[0].query).toBe("acme");
+    expect(stored[0].resultEntityType).toBe("customer");
+    expect(stored[0].resultTitle).toBe("Acme Apparel Co");
+  });
+});
+
+describe("GlobalSearchPalette — T6-4 keyboard polish", () => {
+  it("Tab cycles result rows like ArrowDown", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    render(<Wrapper />);
+    const input = screen.getByTestId("global-search-input");
+    fireEvent.change(input, { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("Acme Apparel Co")).toBeInTheDocument());
+
+    expect(screen.getByTestId("global-search-result-0").getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.getByTestId("global-search-result-1").getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.getByTestId("global-search-result-2").getAttribute("aria-selected")).toBe("true");
+
+    // Wrap to start.
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(screen.getByTestId("global-search-result-0").getAttribute("aria-selected")).toBe("true");
+
+    // Shift-Tab goes backward and wraps to the last row.
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(screen.getByTestId("global-search-result-2").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("Cmd+Enter calls openInNewTab with the highlighted row's URL", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    const navigate = vi.fn();
+    const openInNewTab = vi.fn();
+    render(<Wrapper navigate={navigate} openInNewTab={openInNewTab} />);
+
+    const input = screen.getByTestId("global-search-input");
+    fireEvent.change(input, { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("Acme Apparel Co")).toBeInTheDocument());
+
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+    expect(openInNewTab).toHaveBeenCalledTimes(1);
+    expect(openInNewTab).toHaveBeenCalledWith("/tanda?view=customers&open=cust-1");
+    // Plain navigate should NOT have been called.
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+Enter falls back to window.open(url, '_blank') when openInNewTab not provided", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    const winOpen = vi.fn();
+    const origWindowOpen = window.open;
+    window.open = winOpen as unknown as typeof window.open;
+
+    try {
+      render(<Wrapper navigate={() => { /* swallow */ }} />);
+      const input = screen.getByTestId("global-search-input");
+      fireEvent.change(input, { target: { value: "acm" } });
+      await sleep(DEBOUNCE_WAIT_MS);
+      await waitFor(() => expect(screen.getByText("Acme Apparel Co")).toBeInTheDocument());
+
+      fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+
+      expect(winOpen).toHaveBeenCalledTimes(1);
+      const args = winOpen.mock.calls[0];
+      expect(args[0]).toBe("/tanda?view=customers&open=cust-1");
+      expect(args[1]).toBe("_blank");
+    } finally {
+      window.open = origWindowOpen;
+    }
+  });
+
+  it("Cmd+1 jumps directly to row 0 and navigates", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    const navigate = vi.fn();
+    render(<Wrapper navigate={navigate} />);
+
+    const input = screen.getByTestId("global-search-input");
+    fireEvent.change(input, { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("Acme Apparel Co")).toBeInTheDocument());
+
+    fireEvent.keyDown(input, { key: "1", metaKey: true });
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/tanda?view=customers&open=cust-1");
+  });
+
+  it("Cmd+3 jumps directly to row 2 (the route_hint row)", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    const navigate = vi.fn();
+    render(<Wrapper navigate={navigate} />);
+
+    const input = screen.getByTestId("global-search-input");
+    fireEvent.change(input, { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("PO-12345")).toBeInTheDocument());
+
+    fireEvent.keyDown(input, { key: "3", ctrlKey: true });
+    expect(navigate).toHaveBeenCalledWith("/custom/route?id=po-3");
+  });
+
+  it("Cmd+N is a no-op when N exceeds the result count", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    const navigate = vi.fn();
+    render(<Wrapper navigate={navigate} />);
+
+    const input = screen.getByTestId("global-search-input");
+    fireEvent.change(input, { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("Acme Apparel Co")).toBeInTheDocument());
+
+    fireEvent.keyDown(input, { key: "9", metaKey: true });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("GlobalSearchPalette — T6-4 entity-type pills", () => {
+  it("renders pills when results span ≥2 entity types", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    render(<Wrapper />);
+    fireEvent.change(screen.getByTestId("global-search-input"), { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByTestId("global-search-pills")).toBeInTheDocument());
+
+    // "All" + the three entity types present (customer, vendor, po).
+    expect(screen.getByTestId("global-search-pill-__all__")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-pill-customer")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-pill-vendor")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-pill-po")).toBeInTheDocument();
+    // Pills for entity types not present should be omitted.
+    expect(screen.queryByTestId("global-search-pill-sku")).not.toBeInTheDocument();
+  });
+
+  it("hides pills when the result set has only one entity type", async () => {
+    mockFetchOnceJson({
+      results: [
+        {
+          entity_type: "customer",
+          entity_id: "cust-only",
+          title: "Solo Customer",
+          subtitle: null,
+          rank: 1,
+          route_hint: null,
+        },
+      ],
+    });
+    render(<Wrapper />);
+    fireEvent.change(screen.getByTestId("global-search-input"), { target: { value: "solo" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByText("Solo Customer")).toBeInTheDocument());
+
+    expect(screen.queryByTestId("global-search-pills")).not.toBeInTheDocument();
+  });
+
+  it("clicking a pill filters the displayed result list client-side", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    render(<Wrapper />);
+    fireEvent.change(screen.getByTestId("global-search-input"), { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByTestId("global-search-pills")).toBeInTheDocument());
+
+    // Initially all three rows render (All filter).
+    expect(screen.getByTestId("global-search-result-0")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-result-1")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-result-2")).toBeInTheDocument();
+
+    // Click the vendor pill — only the vendor row should remain.
+    fireEvent.click(screen.getByTestId("global-search-pill-vendor"));
+    expect(screen.getByTestId("global-search-result-0").textContent).toMatch(/Bravo Mills/);
+    expect(screen.queryByTestId("global-search-result-1")).not.toBeInTheDocument();
+
+    // Click "All" → all three rows back.
+    fireEvent.click(screen.getByTestId("global-search-pill-__all__"));
+    expect(screen.getByTestId("global-search-result-0")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-result-1")).toBeInTheDocument();
+    expect(screen.getByTestId("global-search-result-2")).toBeInTheDocument();
+  });
+});
+
+describe("GlobalSearchPalette — T6-4 result count footer", () => {
+  it("renders 'Showing N of M' with the total result count when results present", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    render(<Wrapper />);
+    fireEvent.change(screen.getByTestId("global-search-input"), { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByTestId("global-search-count")).toBeInTheDocument());
+    expect(screen.getByTestId("global-search-count").textContent).toMatch(/Showing 3 of 3/);
+  });
+
+  it("count reflects the pill filter when narrowed", async () => {
+    mockFetchOnceJson({ results: sampleResults() });
+    render(<Wrapper />);
+    fireEvent.change(screen.getByTestId("global-search-input"), { target: { value: "acm" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByTestId("global-search-count")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("global-search-pill-vendor"));
+    expect(screen.getByTestId("global-search-count").textContent).toMatch(/Showing 1 of 3/);
+  });
+
+  it("count is hidden when there are zero results", async () => {
+    mockFetchOnceJson({ results: [] });
+    render(<Wrapper />);
+    fireEvent.change(screen.getByTestId("global-search-input"), { target: { value: "zzzqq" } });
+    await sleep(DEBOUNCE_WAIT_MS);
+    await waitFor(() => expect(screen.getByTestId("global-search-no-results")).toBeInTheDocument());
+    expect(screen.queryByTestId("global-search-count")).not.toBeInTheDocument();
   });
 });

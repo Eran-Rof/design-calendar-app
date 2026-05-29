@@ -1,6 +1,16 @@
 # Cross-cutter T6 — Global Search Architecture
 
-Status: **PLAN ONLY** (2026-05-28). Operator ask: "global search bar visible on all views searching full app for any string". No implementation yet — this doc plans the design so it can drop in cleanly when implementation kicks off.
+Status: **DONE** (2026-05-28). T6-1 through T6-4 shipped; ⌘K palette mounted in all 6 app shells. Operator ask was "global search bar visible on all views searching full app for any string" — now fulfilled by the modal palette opened via ⌘K / Ctrl-K from anywhere in the suite.
+
+## Chunk status
+
+| Chunk | Status | PR |
+|---|---|---|
+| T6-1 — tsvector + GIN schema | DONE | [#464](https://github.com/Eran-Rof/design-calendar-app/pull/464) |
+| T6-2 — `v_global_search` view + `global_search` RPC + `/api/internal/search` | DONE | [#468](https://github.com/Eran-Rof/design-calendar-app/pull/468) |
+| T6-3 — ⌘K palette UI (`<GlobalSearchPalette>` + `useGlobalSearchHotkey`) | DONE | [#474](https://github.com/Eran-Rof/design-calendar-app/pull/474) |
+| T6-4 — close-out polish (recents, pills, Cmd+N shortcuts, result-count footer, arch doc) | DONE | this PR |
+| T6-5 — User guide chapter 20 | pending |
 
 This is a **cross-app** feature (Design Calendar, PO WIP, Tech Packs, ATS, GS1, Planning, Vendor Portal, Tangerine). Joins the cross-cutter T-chunk stream alongside T1 (shell), T2 (OAuth), T3 (table export), T4 (personalization), T5 (schema snapshot).
 
@@ -241,6 +251,87 @@ Estimated **2-3 days** end-to-end. T6-1 + T6-2 can run in parallel with the per-
 - [[T5 Schema snapshot]] — the per-entity tsvector + trigger pattern reuses the same column reference style the snapshot uses.
 
 ---
+
+## 9.1 Adoption (T6-3 + T6-4)
+
+`<GlobalSearchPaletteAuto>` is mounted at the root of every app shell so ⌘K / Ctrl-K works app-wide. Each mount renders nothing visible until the operator hits the hotkey; there's no per-app config.
+
+| Shell | File | Mount line (approx) |
+|---|---|---|
+| Design Calendar | `src/App.tsx` | `<GlobalSearchPaletteAuto />` near app root |
+| Tangerine | `src/Tangerine.tsx` | end of top-level layout |
+| PO WIP (Tanda) | `src/TandA.tsx` | end of top-level layout |
+| Tech Packs | `src/TechPack.tsx` | end of top-level layout |
+| ATS | `src/ats/renderPanel.tsx` | end of panel root |
+| GS1 Prepack Label | `src/gs1/GS1App.tsx` | end of app root |
+
+Six shells total. The palette ships its own modal portal-style overlay (`position: fixed; inset: 0`), so it floats above app chrome regardless of which shell mounts it.
+
+## 9.2 Indexed entities + column-substitution notes (T6-2)
+
+The `v_global_search` view (T6-2) unions 11 entity sources. Several tables don't have the "canonical" column name the arch sketch in §3 assumed — the view substitutes the actual columns at SELECT time. Recording the substitutions here so future schema changes don't silently break the index:
+
+| `entity_type` | Source table | Primary label column | Secondary label column | Notes |
+|---|---|---|---|---|
+| `customer` | `customers` | `code` | `coalesce(name, legal_name)` | as drafted |
+| `vendor` | `vendors` | `code` | `name` | as drafted |
+| `ar_invoice` | `ar_invoices` | `invoice_number` | `description` | as drafted |
+| `ap_invoice` | `invoices` | `invoice_number` | `description` | NB: AP table is named `invoices`, not `ap_invoices` |
+| `po` | `tanda_pos` | `po_number` | `vendor_name` | as drafted |
+| `style` | `style_master` | `style_code` | `description` | column was `style_code`, not `code` |
+| `sku` | `ip_item_master` | `sku` | `description` | uses `ip_item_master`, not `skus` |
+| `gl_account` | `gl_accounts` | `account_code` | `name` | column was `account_code`, not `code` |
+| `case` | `cases` | `case_number` | `subject` | column was `case_number`, not `number` |
+| `sales_rep` | `sales_reps` | `code` | `name` | as drafted |
+| `bank_transaction` | `bank_transactions` | `reference` | `description` | column was `reference`, not `number` |
+
+Every source table has a `search_doc` tsvector (T6-1) plus BEFORE INSERT/UPDATE trigger. Adding a new entity = one ALTER TABLE + one trigger + one UNION ALL branch in `v_global_search`.
+
+## 9.3 T6-4 polish — recents, pills, Cmd+N shortcuts
+
+T6-4 layers four pieces of operator-facing polish on top of the T6-3 palette. All client-side; no schema or RPC changes.
+
+### Recents (localStorage-backed)
+
+When the operator picks a result (Enter, click, Cmd+Enter, or Cmd+N), the palette prepends `{query, clickedAt, resultEntityType, resultTitle}` to `localStorage["global_search_recents"]`, deduped by `query` and capped at the last 10 entries. The empty-input state now shows the recents list (instead of the static type-to-search hint) when storage has any entries. Clicking a recent fills the input and re-runs the debounced fetch.
+
+Storage shape:
+
+```json
+[
+  {
+    "query": "iherb",
+    "clickedAt": "2026-05-28T17:23:11.401Z",
+    "resultEntityType": "customer",
+    "resultTitle": "iHerb Wholesale"
+  },
+  ...
+]
+```
+
+Read/write helpers are exported (`readRecents`, `pushRecent`, `RECENTS_STORAGE_KEY`, `RECENTS_CAP`) so other components can clear or inspect the list later (e.g. a "Clear recent searches" preference toggle).
+
+No server-side recents tracking — when (if) we want cross-device sync, we'd move this to `auth_user_preferences` (T4 chunk), but localStorage is enough for v1.
+
+### Entity-type filter pills
+
+A small row of pills above the result list (`All · Customer · Vendor · AR · AP · PO · Style · SKU · GL · Case · Rep · Bank`) acts as a client-side filter over the current result set — no API change. Each pill shows the count of matching rows; pills for entity types not present in the current result set are hidden. The pill row is hidden entirely when results span only one entity type, so single-entity searches don't get visual noise.
+
+### Keyboard polish
+
+Beyond the existing ↑/↓ + Enter + Esc handling:
+
+| Shortcut | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | Cycle the highlighted row (forward / backward) |
+| `Cmd+Enter` / `Ctrl+Enter` | Open the highlighted result in a new tab (`window.open(url, "_blank")`) — palette stays open so power users can chain multiple opens |
+| `Cmd+1` … `Cmd+9` | Jump directly to result row N (1-indexed). No-op if N exceeds the visible row count |
+
+The footer hint line in the palette is updated to reflect the new shortcuts.
+
+### Result-count footer
+
+A small italic `Showing N of M (limit 30)` line renders above the keyboard-hint footer when a result set is present. `M` is the total returned from the API (capped at 30 per current limit); `N` reflects the pill filter (so `Showing 1 of 3` after the operator clicks a pill). Helps the operator decide whether to refine the query before paging.
 
 ## 10. T4 menu-item search (related but separate)
 
