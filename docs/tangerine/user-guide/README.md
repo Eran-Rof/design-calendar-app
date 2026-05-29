@@ -67,9 +67,9 @@ Login is the same for both; access to the data inside each panel is gated by Row
 
 ## How this guide stays current
 
-Per the project's "memorize at every chunk completion" rule (see `feedback_memorize_each_chunk.md` in memory): every future Tangerine chunk that adds or changes a UI surface MUST update the matching section of this guide in the same PR. Stale docs are a bug.
+Forward, this guide ships chunk-by-chunk: every Tangerine PR that adds or changes a UI surface includes the matching guide update in the same PR. This is a doc-maintenance convention, not a contract you need to know about — but if you spot a discrepancy between what you read here and what the panel actually does, that's a stale-doc bug we want to hear about.
 
-If you read something here that doesn't match what you see in the UI, please flag it — that's the chunk owner's failure to update the guide alongside the code.
+The initial 6 P1 panels (this chapter set: 01–06) were back-filled in a single catch-up sweep against the post-P1 state of the code (`/tangerine` app, top-nav group dropdowns, P5-1 period close mechanics, P2-5/P2-6 document attachments on master records). Each chapter has been grounded against the matching source files; if you find a claim that doesn't match the UI, that's a sweep miss and we owe you a fix.
 
 ## Feedback
 

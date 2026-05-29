@@ -69,6 +69,12 @@ The schema stores `tax_id` (EIN/VAT) and `bank_account_encrypted` (AES-256 ciphe
 
 When you need to capture a vendor's tax ID or bank account, that flows through a separate (planned) PII-aware endpoint — never the admin UI. This matches the CLAUDE.md security mandate "never log PII, never return in API responses."
 
+### Supporting documents (M29 / P2-6)
+
+The Vendor Edit modal renders the reusable `<DocumentAttachmentList>` widget below the form fields. Seeded document kinds: `contract`, `w9`, `coa`, `insurance`, `other`. Upload a file, the system stores it in the `tangerine-documents` Supabase Storage bucket and renders a row with kind + filename + uploader + timestamp; click Download for a short-lived signed URL, or Archive to soft-delete (the row stays for audit but disappears from the default list).
+
+For the widget to work, an operator with admin access to Supabase must have created the `tangerine-documents` bucket once. See [09-documents.md](09-documents.md) for the full workflow + setup.
+
 ## 🤝 Customer Master
 
 ### What differs from Style Master
@@ -86,6 +92,10 @@ When you need to capture a vendor's tax ID or bank account, that flows through a
 
 ![Customer Master list view](screenshots/02-customer-master-list.png)
 <!-- screenshot needed: Customer Master list with type filter visible -->
+
+### Supporting documents (M29 / P2-6)
+
+The Customer Edit modal renders the same `<DocumentAttachmentList>` widget as Vendor Master. Seeded document kinds: `contract`, `tax_exempt`, `credit_app`, `other`. The widget appears below the form fields once the customer is in `mode='edit'`. Use it to attach signed contracts, tax-exempt certificates, credit applications — see [09-documents.md](09-documents.md).
 
 ## Common patterns
 

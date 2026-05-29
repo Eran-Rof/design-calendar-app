@@ -6,9 +6,11 @@ Common errors, what they mean, and how to fix them. Errors usually appear as a r
 
 | You see… | Likely cause | Fix |
 |---|---|---|
-| `/tanda` won't load | Not logged in, or wrong user role | Sign in via the design-calendar-app login. Confirm your email has the right role assignment in `entity_users`. |
-| Refreshing inside Style Master / etc. drops you back to dashboard | Expected — the panels use state-based navigation, not URL routes | Re-click the menu entry |
-| Menu group "Analytics & Admin" doesn't show the 6 new entries | Stale browser cache after deploy | Hard refresh (Ctrl+Shift+R / Cmd+Shift+R) |
+| `/tangerine` won't load | Not logged in, or wrong user role | Click "Sign in with Microsoft" on the branded login screen. Confirm your email has the right role assignment in `entity_users` (auto-provisioned on first sign-in — see [01-getting-started.md § Auto-provisioning](01-getting-started.md#auto-provisioning-chunk-t3-2026-05-27)). |
+| Bookmarks to `/tanda/...` for the admin panels 404 | Tangerine moved to its own app at `/tangerine` (Chunk T1) | Update bookmarks. The 6 admin panels no longer live inside the Tanda PO WIP app. |
+| Refreshing inside Style Master / etc. drops you back to dashboard | Expected — the panels use state-based navigation, not URL routes | Re-click the module entry from the top-nav group dropdown |
+| Top nav group dropdown doesn't show a module you expect | Stale browser cache after deploy | Hard refresh (Ctrl+Shift+R / Cmd+Shift+R) |
+| "Sign in with Microsoft" popup is blocked | Browser popup blocker | Allow popups for your `<your-domain>` then click the sign-in button again |
 
 ## Master Data errors
 
@@ -35,12 +37,36 @@ Common errors, what they mean, and how to fix them. Errors usually appear as a r
 
 ## Periods errors
 
+The Periods panel exposes three dedicated actions per period — **Run checks**, **Close** (Soft / Hard), and **Reopen** — backed by the P5-1/P5-7 endpoints. Each surfaces its own error shape.
+
+### From the Close action (POST /api/internal/gl-periods/:id/close)
+
 | Error message | Cause | Fix |
 |---|---|---|
-| "Cannot transition from closed to open" — wait, that's not an error, all transitions are valid | n/a | All 9 transitions (3×3 status pairs) are allowed in Tangerine. Same-status is a no-op. |
+| "target_status must be 'soft_close' or 'closed'" | Bad payload | Pick Soft close or Hard close from the panel buttons (don't hand-call the API with arbitrary status) |
+| "Cannot transition '<from>' → '<target>'. Allowed: open→soft_close, soft_close→closed." (409) | You tried to skip a step (e.g. open → closed) | Soft-close first, then hard-close. The dedicated Close endpoint enforces the step order; the legacy PATCH endpoint is more permissive but not what the panel buttons call. |
+| "Period is closed_with_closing_jes (terminal, set by year-end close). Cannot transition." (409) | The period was finalised by Year-End Close (P5-6) | This is by design. File correcting entries as adjustment JEs in the next FY's opening period — see [05-workflows.md § Posting against a soft-closed period](05-workflows.md#posting-against-a-soft-closed-period). |
+| "Pre-flight checks failed (blocking)" (409) with `blocking_failures` array | One of the P5-7 blocking checks failed (unbalanced trial balance, draft JE in the period, negative FIFO layer) | Open the Run checks modal, inspect the red rows, fix the underlying issue, then retry. See [03-accounting.md § Close Pre-flight Checks](03-accounting.md#close-pre-flight-checks-p5-7). |
+| 202 response with `requires_approval: true` | An active `approval_rules` row with `kind='gl_period_close'` routed the close through M27 | The close is parked. An approver must approve it in the Approval Inbox — see chapter 7. |
+
+### From the Reopen action (POST /api/internal/gl-periods/:id/reopen)
+
+| Error message | Cause | Fix |
+|---|---|---|
+| "actor_user_id (uuid) is required" (400) | Reopen UI failed to attach the current user's uuid | Sign out and back in to refresh `localStorage.tangerine.auth_user_id`. If the problem persists, paste your uuid manually. |
+| "reason is required (operator note explaining the reopen)" (400) | You left the reason box blank | Reopens are audited — fill the textarea with why you're reopening. |
+| 403 Forbidden | Caller doesn't hold `role='admin'` on the entity | Only admins can reopen. Ask an admin to do it, or have your role bumped via `entity_users`. |
+| Reopen button disabled / period is in `closed_with_closing_jes` | Terminal status set by year-end close | Cannot be reopened. File correcting JEs in the next FY instead. |
+
+### From the legacy PATCH endpoint (advanced — not surfaced by the panel)
+
+| Error message | Cause | Fix |
+|---|---|---|
 | "Unknown current status: X" | Manual API call with bad input | Pass `open`, `soft_close`, or `closed` |
 | "Periods are bootstrapped by migration; user-create is not supported." (405) | You hit POST /api/internal/gl-periods | Only GET + PATCH are supported. Periods are generated at migration time, not user-created. |
 | "Periods are immutable; deletion is not supported." (405) | You hit DELETE | Same — periods don't get deleted, only their status changes |
+
+> The legacy PATCH endpoint accepts ANY of the 9 status-pair transitions (open ↔ soft_close ↔ closed). It exists for backward compatibility but bypasses pre-flight checks, the approvals gate, and the audit log. The panel buttons all route through the dedicated Close / Reopen endpoints. Prefer those.
 
 ## Journal Entry errors
 

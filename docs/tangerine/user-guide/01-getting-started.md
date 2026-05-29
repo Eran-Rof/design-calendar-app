@@ -142,7 +142,7 @@ If you've never opened Tangerine before, the fastest way to confirm everything w
 4. **📒 Chart of Accounts** — likely **empty** until your accountant supplies the COA list. To test, click "+ Add account" and create:
    - Code `1100`, Name `Cash`, Type `asset` (the form auto-fills `normal_balance=DEBIT`)
    - Code `5000`, Name `Test Expense`, Type `expense` (auto-fills `normal_balance=DEBIT`)
-5. **🗓️ Periods** — should show fiscal years 2021–2030 grouped, 12 periods each, all status `open`. Flip one period to `soft_close` and back — confirm the status color cycles green → yellow → green.
+5. **🗓️ Periods** — should show fiscal years 2021–2030 grouped, 12 periods each, all status `open`. Click **Run checks** on the current period; all blocking rows should be green. Click **Soft close** — confirm the status badge flips yellow. Then click **Reopen**, enter a short reason ("smoke test"), confirm; the badge returns to green. (You'll be prompted for `actor_user_id` only if auto-provisioning didn't cache it — it should have, from your first sign-in.)
 6. **📓 Journal Entries** — click "+ Post manual JE". Pick **basis = ACCRUAL**, today's date, description "Smoke test". Add two lines: line 1 hits Cash with credit `100.00`; line 2 hits Test Expense with debit `100.00`. Footer should show **● Balanced** in green. Click Post. The new entry appears in the list with status `posted`. Click **Reverse** on the row — accept the default reversal date. The original turns red/reversed; a new reversal entry appears with status `posted`.
 
 If steps 1–6 all work, your Tangerine install is healthy.
