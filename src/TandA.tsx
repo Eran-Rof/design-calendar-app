@@ -75,6 +75,8 @@ import type { GridContextSnapshot } from "./ai/tools";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-3 — Personalization: favorites drawer + menu-click telemetry.
 import FavoritesDrawer from "./components/FavoritesDrawer";
+import AutoLandingToast from "./components/AutoLandingToast";
+import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { tandaViewToMenuKey } from "./lib/tandaViewToMenuKey";
 
@@ -288,6 +290,9 @@ export default function TandAAppWrapper() {
 }
 
 function TandAApp() {
+  // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
+  // Fires once per tab session at app-shell root. See useAutoLanding.ts.
+  const landing = useAutoLanding();
   const [, rerender] = useState(0);
   const rafRef = useRef(0);
   useEffect(() => {
@@ -2077,6 +2082,8 @@ function TandAApp() {
       />
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
+      <AutoLandingToast landing={landing} />
     </div>
   );
 

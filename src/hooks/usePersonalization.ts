@@ -121,6 +121,15 @@ export interface UsePersonalization {
   homeRoute: string | null;
   loading: boolean;
   error: string | null;
+  /**
+   * Fetch lifecycle state. T4-4 auto-landing inspects this so it can
+   * distinguish "preferences never fetched yet" (status === "unloaded")
+   * from "fetched and home_route is genuinely null" (status === "ready").
+   * Without this distinction, the auto-lander would prematurely conclude
+   * that the operator has no home_route on the very first render before
+   * the GET /preferences settles.
+   */
+  status: "unloaded" | "loading" | "ready" | "error";
   toggleFavorite: (menuKey: string) => Promise<void>;
   setHomeRoute: (menuKey: string) => Promise<void>;
   logClick: (menuKey: string) => void;
@@ -204,6 +213,7 @@ export function usePersonalization(): UsePersonalization {
     homeRoute: cache.homeRoute,
     loading: cache.loading,
     error: cache.error,
+    status: cache.status,
     toggleFavorite,
     setHomeRoute: setHomeRouteFn,
     logClick,

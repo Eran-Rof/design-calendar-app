@@ -46,6 +46,8 @@ const RoleManager = lazy(() => import("./components/RoleManager"));
 const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
 import FavoritesDrawer from "./components/FavoritesDrawer";
+import AutoLandingToast from "./components/AutoLandingToast";
+import { useAutoLanding } from "./hooks/useAutoLanding";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -60,6 +62,9 @@ export default function AppWrapper() {
 }
 
 function App() {
+  // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
+  // Fires once per tab session at app-shell root. See useAutoLanding.ts.
+  const landing = useAutoLanding();
   const s = useAppStore();
   // dcSet removed — all callers now use useAppStore.getState().setField() directly
   // ── Confirm modal state ────────────────────────────────────────────────
@@ -1356,6 +1361,8 @@ function App() {
       />
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
+      <AutoLandingToast landing={landing} />
     </div>
   );
 }
