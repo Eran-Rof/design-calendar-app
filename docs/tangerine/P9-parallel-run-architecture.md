@@ -1,58 +1,24 @@
-# Tangerine P9 — Parallel-Run Architecture Pass
+# Tangerine P9 — Parallel-Run Architecture (Refreshed)
 
-Status: **DRAFT — DEFERRED to post-P22** (revised 2026-05-28 afternoon).
+Status: **DRAFT (refresh)** — 2026-05-29. Supersedes the earlier 2026-05-28 "deferred to post-P22" version. Auto-merges on CI green per the standing plan-approval-not-implementation rule.
 
-P9 is **not** a software-build phase like P1–P8. It's the **2-month live-alongside-Xoro period** that has to land before P10 Tenancy + the eventual Xoro decom (P23). The deliverable isn't new code — it's *evidence* that Tangerine reproduces Xoro's numbers within tolerance, per domain, every day, for long enough that the operator + the future accountant trust it as source-of-truth.
+P9 was originally drafted before P10/P11/P12 shipped and was DEFERRED on the (then-correct) read that Tangerine had no auto-created invoices to reconcile against Xoro's full ledger — Xoro's EDI loop was creating everything, Tangerine was empty. **That premise no longer holds.** After P10 Tenancy, P11 Shopify, and P12 Marketplaces (FBA + Walmart + Faire) shipped through their direct-API integrations, Tangerine now originates a meaningful share of the operating ledger on its own. Combined with the T10 Shadow Mirror covering everything else, the reconciliation surface against Xoro is concrete and per-domain.
 
-This doc plans the **scaffolding** that makes parallel-run tractable: daily reconciliation jobs, per-domain parity dashboards, variance taxonomy, decom gates, and the per-domain runbooks for flipping each module from "Xoro-truth" to "Tangerine-truth."
-
----
-
-## ⚠️ Scheduling reframe — 2026-05-28 afternoon
-
-**P9 implementation is deferred until after P22 EDI ships** (approximately 18-24 months out).
-
-Why: ROF's Xoro is end-to-end EDI-integrated. AR / AP / COGS aren't typed by operator — they materialize from EDI / 3PL / Shopify events. Until Tangerine can originate POs (P13), receive EDI (P22), and talk to 3PL (P21), Tangerine has zero auto-created invoices to reconcile against Xoro's full ledger. Running P9 today would compare Tangerine's empty AR table to Xoro's full one — meaningless.
-
-See `docs/tangerine/XORO-DECOM-MAP.md` for the full reframe + revised timeline.
-
-**What replaces "P9 next":** the **T10 Shadow Mirror** cross-cutter (`docs/tangerine/T10-shadow-mirror-architecture.md`). Shadow Mirror keeps Tangerine sub-ledgers continuously in sync with the nightly Xoro fetch — so reports + CRM + Cases work against real numbers without operator dual-entry. T10 is the immediate-next work; P9 is the eventual decom gate.
-
-**The technical content of P9 below is still correct** — same 5 domains, variance taxonomy, decom gates, sign-off ceremony. Only the *when* moves. The §2 D2 thresholds operator confirmed (AP $1/$100, AR $1/$100, cash $0.50/$3, GL $5/$25, inventory $50/$250) carry forward to the eventual P9 implementation unchanged.
+P9 builds the **reconciliation discipline layer** ON TOP of that mirror + the new direct integrations. It is **not** a new accounting module — it wires together what P1-P8 + P11 + P12 + T10 already produce, compares it daily against Xoro's nightly fetch, surfaces variances per domain, and gates period close on cleared variances. The exit criterion is the per-domain "go solo" decision — sunset the Xoro mirror one domain at a time, on operator sign-off, after a clean window.
 
 ---
 
-## 0. Scope guardrails
+## 0. Goal
 
-**In scope (this phase):**
-
-- **Daily reconciliation cron** — pulls Xoro's nightly fetch + queries Tangerine's tables + emits one variance row per (domain × entity × date).
-- **Five parity dashboards** under a new top-nav group **🔁 Parallel Run**:
-  1. **AP Parity** — Xoro AP open invoice list vs Tangerine `invoices` (P3 AP) + payments + GL postings
-  2. **AR Parity** — Xoro AR open invoices + receipts vs Tangerine `ar_invoices` + `ar_receipts` (P4)
-  3. **GL Parity** — trial balance comparison per account per period
-  4. **Inventory Parity** — Xoro on-hand vs Tangerine FIFO layers (P3-3) per SKU per warehouse
-  5. **Cash Parity** — Xoro bank balances vs Tangerine cash GL + Bank Recon (P6)
-- **Variance taxonomy + workflow** — every flagged variance gets a category (timing / FX / rounding / cutoff / missing-entry / bug) + an assignee + an investigation note + a resolution flag.
-- **Per-domain decom gates** — explicit thresholds and sign-off ceremonies for cutting each module from Xoro: e.g. *AP decom requires N consecutive days at <$X variance across all open AP*.
-- **Runbook docs** — one per module: how to flip Tangerine to source-of-truth, how to stop the Xoro feed, what breaks downstream.
-- **Cross-cutter wiring** — notifications when a variance crosses a threshold (operator gets emailed before checking the dashboard).
-
-**Explicitly OUT of scope (deferred):**
-
-- **Xoro decom itself** — that's P23. P9 only proves Tangerine is *ready*; pulling the plug is a separate phase.
-- **Net-new accounting modules** — no new schemas for AP/AR/GL/inventory/cash. P9 wires *together* what P3-P8 built.
-- **Tenancy flip (multi-RLS)** — that's P10. P9 stays single-tenant ROF, focused on parity.
-- **Migration of *historical* Xoro data** — operator has been on Xoro since Aug 2024 and P4-8 already backfilled the AR side. AP historical backfill is in P14 / P21 if needed; P9 does not address it.
-- **Real-time / streaming reconciliation** — daily cadence is sufficient. Real-time parity is M46 BI in P24.
-- **Automated variance auto-resolution** — every variance is operator-reviewed in v1. Auto-classification can come later.
-- **Re-flowing Xoro data into Tangerine** — Xoro stays read-only into Tangerine via the existing daily fetch. We don't write back to Xoro from Tangerine; Xoro is the legacy system being retired.
+Reconcile Tangerine's books — sourced from `source='shopify'` (P11), `source='fba'` / `source='walmart'` / `source='faire'` (P12), `source='xoro_mirror'` (T10) for the residue, and `source='manual'` for operator-typed rows — against Xoro's ledger every night. Surface variances per (domain × scope × date) with operator-confirmed thresholds. **Soft-block** Tangerine period close until variances are cleared (override available with reason + audit trail). Drive each domain through a 60-day clean window toward solo cutover (mirror off, Tangerine = system of record for that domain).
 
 ---
 
 ## 1. Existing state (one-paragraph map)
 
-After P8: 8 phases shipped (Foundation → Cross-cutters → Acc Core AP → AR → Close → Bank Recon → Revenue Ops → Data+CRM). Operator's nightly Xoro fetch (`rof_xoro_project`) runs at 21:00 on both Mac (launchd) + Windows (Task Scheduler) and produces CSVs: `currentproducts.csv`, `tanda_pos.csv`, `invoice_detail.csv`, `inventory_byitem.csv`, `item_costing.csv`. These are already ingested into Supabase via the post-scripts (`post_master_data.py`, `post_invoice_detail.py`, etc.) and surface in ATS / PO WIP / Tangerine reports. **What's missing: a per-domain comparison layer** that asks "is Tangerine's number = Xoro's number, and if not, by how much, and why."
+After P1-P12 + T10: Tangerine has the full financial layer, multi-tenant RLS, CRM, PIM, Cases, sales reps, direct integrations to Shopify + FBA + Walmart + Faire (each tagged with its own `source` value and reconciled to its own platform settlement reports), the bank-rec engine on top of Plaid (`source='plaid_sync'`), and a nightly shadow mirror of everything else from Xoro (`source='xoro_mirror'`). The cross-cutters from T10-7 have already added a `source` filter dropdown + badge to every list view; T6 global search ranges across all of it; T7 date-range presets are wired everywhere; T10-4 has `inventory_layers.source` and P12-0 added `inventory_layers.location_id`. **What's still missing:** a per-domain comparison layer that asks "is Tangerine's number — across all its `source` values — equal to Xoro's number on the same business date, scoped to the same unit of comparison, and if not, by how much, why, and who owns the variance."
+
+P5-7's close pre-flight already gates on `bank_recon_clean` and `no_draft_jes`; P12c-17 extends pre-flight with `marketplace_payouts_clean`. P9 extends this same pattern with `parallel_run_variances_cleared` per domain — soft-block at first, hard-block once a domain is signed off as cutover-ready.
 
 ---
 
@@ -60,283 +26,324 @@ After P8: 8 phases shipped (Foundation → Cross-cutters → Acc Core AP → AR 
 
 | # | Decision | Recommendation | Why | Operator confirm? |
 |---|---|---|---|---|
-| D1 | Reconciliation cadence | **Daily, post-Xoro-fetch** (~21:30 local) | Xoro fetch lands ~21:00; reconciliation needs both sides up-to-date. Daily is sufficient per arch §6 timing. | ☐ |
-| D2 | $-tolerance threshold | **$10 per variance row + $100 per domain total** by default; per-domain override via `parallel_run_thresholds` table | Roadmap locked-decision §5 set the spirit ("$-tolerance decom"); these numbers are starting points. AR / AP probably tighter; inventory looser. | ☐ |
-| D3 | Variance taxonomy | **6 categories** — `timing` / `fx` / `rounding` / `cutoff` / `missing_entry` / `bug` | Covers the apparel-wholesale accounting variance modes. `bug` triggers a P1-P8 hotfix; `cutoff` is informational only; others usually self-resolve next cycle. | ☐ |
-| D4 | Sign-off ceremony per domain | **N consecutive days under threshold** AND **manual operator sign-off** in the dashboard, recorded in `decom_signoffs` table | Avoids "the system thinks we're ready" autopilot. Operator is CEO, decom is a board-relevant decision. | ☐ |
-| D5 | N for D4 | **30 consecutive days** | Aligns with "2-month parallel run" — 30 days under threshold = stable enough; first 30 days are typically variance-spike (catching real bugs). | ☐ |
-| D6 | Variance storage | **`parallel_run_variances` append-only** table — one row per (domain, date, scope_key, side) | Append-only mirrors the P5 close audit + P8 CRM activity log pattern. Old variances stay for trend analysis. | ☐ |
-| D7 | Investigation workflow | **Reuse M47 Cases** (P7) — every variance > 3× threshold auto-opens a case linked back to the variance row | One inbox for ops, one place to thread comments. Variance-without-case = unattended. | ☐ |
-| D8 | Notification rules | **Email digest at 22:00 local** summarizing the day's variances per domain — count + worst delta + new-since-yesterday | Pre-empts the operator opening the dashboard cold. M28 cross-cutter handles delivery. | ☐ |
-| D9 | Where the dashboard lives | **New top-nav group `🔁 Parallel Run`** with 5 panels (one per domain) + a Variances queue + a Decom Status overview | Operationally distinct from accounting / reports. Cleanly removable when P23 decom is done. | ☐ |
-| D10 | Tangerine-truth flip per domain | **Per-domain feature flag** on `entities.parallel_run_status` jsonb — `{ap: "xoro_truth"|"tangerine_truth", ar: ..., gl: ..., inventory: ..., cash: ...}`. Flip is a one-time admin action with a confirmation modal that lists what changes (which reports source from where). | Modular flip is the whole point of parallel-run — operator can flip AP first without committing to AR / GL yet. | ☐ |
+| D1 | Reconciliation cadence | **Daily, post-Xoro-fetch (~21:30 local)** | Xoro fetch lands ~21:00 + T10 mirror runs at 21:30; recon runs at 22:00 once both sides are settled. Daily matches the close cadence used everywhere else (bank rec, payout reconciliation, mirror). Weekly drops too much resolution for catching FX/timing variances early. | ☐ |
+| D2 | Variance thresholds (per row / per domain) | **Locked from prior session:** AP $1 / $100, AR $1 / $100, Cash $0.50 / $3, GL $5 / $25, Inventory $50 / $250 | Operator-confirmed. Each domain's tolerance reflects its measurement noise floor — cash is tightest (Plaid is exact), inventory loosest (qty × cost rounding). | ☑ confirmed |
+| D3 | Reconciliation report storage | **`recon_runs` parent (one row per domain × date) + `recon_variances` child (one row per scope key) + `recon_cleared_log` audit (one row per manual clear)** | Mirrors the P12 settlement / P6 bank-rec parent-child pattern. Append-only on `recon_variances` keeps trend analysis intact; `recon_cleared_log` is the audit-trail surface for "who decided this was fine and why." | ☐ |
+| D4 | Block close until cleared? | **Soft-block with override** at first; flips to **hard-block** per-domain once that domain's cutover sign-off is recorded | Soft-block surfaces the discipline without freezing month-end; the override requires a reason recorded in `recon_cleared_log`. Hard-block kicks in only after operator has signed the domain off as solo — at that point unresolved variances mean a real bug. | ☐ |
+| D5 | Auto-resolution for variances under per-row threshold | **Record + log + auto-mark `status='within'`. No notification, no queue entry.** | Per-row threshold IS the noise floor by definition. Surfacing every below-threshold variance would drown the queue. They still get a `recon_variances` row for trend analysis. | ☐ |
+| D6 | Per-domain breakdown | **Five domains:** AP / AR / Cash / GL / Inventory. Each domain has its own engine, its own thresholds, its own cutover gate. | Same five from the original P9 draft. Each maps to a P1-P8 module that already exists; no schema needed beyond `recon_*` tables. | ☐ |
+| D7 | Source-tag-aware reconciliation | **YES — recon engine groups Tangerine side by `source`, compares to Xoro side, and reports variances per source within the domain** | Tangerine AR now has rows tagged `shopify`, `fba`, `walmart`, `faire`, `xoro_mirror`, `manual`. A naive "SUM all AR" comparison would mask the case where Shopify is $0 off but FBA is $100 off and they cancel. Source-tag-aware decomposition surfaces "FBA was off this week" specifically — which is the variance that matters operationally because Tangerine owns FBA directly now. | ☐ |
+| D8 | Cutover criteria — when does each domain "go solo" | **60 consecutive days of clean per-row recon (no variance > per-row threshold) AND domain total under per-domain threshold every day AND zero open M47 cases tagged `recon_bug` for that domain AND manual operator sign-off in the Decom Status panel** | 60 days roughly covers two month-end closes. Sign-off is captured in `recon_cutover_signoffs`. Cutover flips `entities.parallel_run_status->>domain` from `xoro_mirror_active` to `tangerine_solo` — T10 stops mirroring that domain, hard-block kicks in, and the relevant Xoro fetch script can be stopped. | ☐ |
+| D9 | Manual variance investigation tooling | **Variance detail modal:** Tangerine side query result + Xoro side query result + side-by-side row diff + "open as Case" button (auto-opens M47 case linked to variance) + "clear" button (modal asks for reason, writes `recon_cleared_log`, marks status='cleared') + 30-day trend chart for that scope key | Same pattern as the existing bank-recon unmatched-deposit detail modal. Operator's workflow: open variance → look at diff → click "open as Case" if it's a bug or "clear with reason" if it's expected drift. | ☐ |
+| D10 | Notification triggers | **Three triggers:** (a) any domain whose daily total exceeds per-domain threshold → email at 22:30 local; (b) any single variance > 3× per-row threshold → immediate notification + auto-Case (M47); (c) any domain with no recon run for >36h → stale-recon notification | Mirrors P12 settlement notifications + P6 stale-fetch guard. The 3× threshold for auto-Case escalation is the same shape as the original P9 D7. | ☐ |
+| D11 | Historical replay — re-run a date range | **YES — `recon_replay(domain, start_date, end_date)` RPC** that re-runs the domain engine for each date in range, overwrites the existing `recon_runs` rows (UPSERT on `(domain, recon_date)`), and emits a `recon_replayed` notification with the diff vs the previous values | Critical when operator catches a Xoro retroactive edit or a Tangerine bug fix — needs to know if it changes historical variance counts. Same shape as T10's 7-day rolling re-mirror idea but operator-triggered, not automatic. | ☐ |
+| D12 | Operator review cadence | **CEO weekly digest (Monday 8am summary of last 7 days variances per domain) + accountant monthly digest (1st of month with month-over-month variance trend + open Case count + cutover-progress per domain)** | CEO sees the operational rhythm; accountant sees the trend and the cutover progress. Both digests are read-only — they link into the Decom Status + Variances Queue panels for action. | ☐ |
 
 ---
 
-## 3. Reconciliation framework
+## 3. Schema deltas
 
-### 3.1 Tables
+Three new tables. No alterations to existing schemas — every source identifier P9 needs already exists.
 
 ```sql
--- One row per (domain, scope, date). scope_key is the unit of comparison
--- (a vendor_id for AP, a customer_id for AR, an (account, period_id) for GL,
--- an (item, warehouse) for inventory, a bank_account_id for cash).
-CREATE TABLE IF NOT EXISTS parallel_run_variances (
+-- One row per (domain, recon_date). Parent of variances.
+CREATE TABLE IF NOT EXISTS recon_runs (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_id           uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
-  domain              text NOT NULL CHECK (domain IN ('ap','ar','gl','inventory','cash')),
-  scope_key           text NOT NULL,                  -- "vendor:RYV001" / "account:1100/period:2026-04" / etc.
-  scope_label         text,                           -- display string
-  recon_date          date NOT NULL,                  -- the date the reconciliation ran for
-  xoro_value_cents    bigint,
-  tangerine_value_cents bigint,
-  delta_cents         bigint GENERATED ALWAYS AS (
-    COALESCE(tangerine_value_cents, 0) - COALESCE(xoro_value_cents, 0)
+  domain              text NOT NULL CHECK (domain IN ('ap','ar','cash','gl','inventory')),
+  recon_date          date NOT NULL,                        -- operator-local business date
+  status              text NOT NULL DEFAULT 'running'
+                      CHECK (status IN ('running','complete','failed','skipped_stale_xoro','skipped_stale_mirror')),
+  scope_keys_compared int NOT NULL DEFAULT 0,
+  variances_within    int NOT NULL DEFAULT 0,               -- rows where abs(delta) <= per_row_threshold
+  variances_over      int NOT NULL DEFAULT 0,               -- rows where abs(delta) >  per_row_threshold
+  domain_total_delta_cents bigint NOT NULL DEFAULT 0,       -- sum of signed deltas across all scope keys
+  domain_threshold_breached boolean NOT NULL DEFAULT false,
+  started_at          timestamptz NOT NULL DEFAULT now(),
+  completed_at        timestamptz,
+  errors              jsonb NOT NULL DEFAULT '[]'::jsonb,
+  CONSTRAINT recon_runs_unique UNIQUE (entity_id, domain, recon_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recon_runs_recent
+  ON recon_runs (recon_date DESC, domain);
+
+-- One row per (recon_run, scope_key). scope_key is domain-specific (vendor, customer,
+-- account-period, sku-location, bank-account).
+CREATE TABLE IF NOT EXISTS recon_variances (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id           uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
+  recon_run_id        uuid NOT NULL REFERENCES recon_runs(id) ON DELETE CASCADE,
+  domain              text NOT NULL CHECK (domain IN ('ap','ar','cash','gl','inventory')),
+  source_table        text NOT NULL,                        -- 'invoices' / 'ar_invoices' / 'bank_transactions' / 'journal_entry_lines' / 'inventory_layers'
+  scope_key           text NOT NULL,                        -- 'vendor:RYV001' / 'customer:RETAILX' / 'account:4000/period:2026-05' / 'sku:BLK-S/loc:FBA-NA' / 'bank:CHASE-MAIN'
+  scope_label         text,                                 -- display string
+  tangerine_amount_cents bigint,
+  xoro_amount_cents   bigint,
+  variance_amount_cents bigint GENERATED ALWAYS AS (
+    COALESCE(tangerine_amount_cents, 0) - COALESCE(xoro_amount_cents, 0)
   ) STORED,
-  threshold_cents     bigint NOT NULL,                -- the threshold this row was compared against
-  is_over_threshold   boolean GENERATED ALWAYS AS (
-    ABS(COALESCE(tangerine_value_cents, 0) - COALESCE(xoro_value_cents, 0)) > threshold_cents
-  ) STORED,
-  category            text CHECK (category IN ('timing','fx','rounding','cutoff','missing_entry','bug')),
-  case_id             uuid REFERENCES cases(id) ON DELETE SET NULL,  -- auto-opened if > 3× threshold
-  notes               text,
-  resolved_at         timestamptz,
-  resolved_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  resolution_note     text,
+  per_row_threshold_cents bigint NOT NULL,                  -- snapshot of the threshold at recon time
+  source_tag          text,                                 -- nullable; populated for source-tag-aware breakdowns (D7)
+  status              text NOT NULL DEFAULT 'within'
+                      CHECK (status IN ('within','over','cleared')),
+  case_id             uuid REFERENCES cases(id) ON DELETE SET NULL,
   created_at          timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT prv_unique_per_recon UNIQUE (entity_id, domain, scope_key, recon_date)
+  CONSTRAINT recon_variances_unique UNIQUE (recon_run_id, scope_key, source_tag)
 );
 
-CREATE INDEX IF NOT EXISTS idx_prv_recon_date     ON parallel_run_variances (recon_date DESC, domain);
-CREATE INDEX IF NOT EXISTS idx_prv_over_threshold ON parallel_run_variances (recon_date DESC, domain) WHERE is_over_threshold = true;
-CREATE INDEX IF NOT EXISTS idx_prv_open           ON parallel_run_variances (resolved_at) WHERE resolved_at IS NULL;
-```
+CREATE INDEX IF NOT EXISTS idx_recon_variances_open
+  ON recon_variances (domain, status, created_at DESC) WHERE status = 'over';
+CREATE INDEX IF NOT EXISTS idx_recon_variances_run
+  ON recon_variances (recon_run_id);
 
-```sql
--- Operator-configurable per-domain thresholds + the "30 consecutive
--- days under threshold + signed off" gate state.
-CREATE TABLE IF NOT EXISTS parallel_run_thresholds (
-  entity_id              uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
-  domain                 text NOT NULL CHECK (domain IN ('ap','ar','gl','inventory','cash')),
-  per_row_threshold_cents bigint NOT NULL DEFAULT 1000,    -- $10
-  per_domain_threshold_cents bigint NOT NULL DEFAULT 10000, -- $100
-  required_consecutive_days int NOT NULL DEFAULT 30,
-  updated_at             timestamptz NOT NULL DEFAULT now(),
-  updated_by_user_id     uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  PRIMARY KEY (entity_id, domain)
+-- Audit trail for manual clears (D9) and overrides (D4)
+CREATE TABLE IF NOT EXISTS recon_cleared_log (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  recon_variance_id   uuid NOT NULL REFERENCES recon_variances(id) ON DELETE RESTRICT,
+  cleared_by_user_id  uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  cleared_at          timestamptz NOT NULL DEFAULT now(),
+  reason              text NOT NULL,                        -- free text; required by handler
+  cleared_kind        text NOT NULL CHECK (cleared_kind IN ('manual_clear','close_override','auto_within_threshold')),
+  CONSTRAINT recon_cleared_log_unique_per_variance UNIQUE (recon_variance_id, cleared_kind)
 );
 
-CREATE TABLE IF NOT EXISTS decom_signoffs (
-  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  entity_id          uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
-  domain             text NOT NULL CHECK (domain IN ('ap','ar','gl','inventory','cash')),
-  signed_off_at      timestamptz NOT NULL DEFAULT now(),
-  signed_off_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  consecutive_clean_days int NOT NULL,                -- snapshot at signoff time
-  flipped_at         timestamptz,                     -- when entities.parallel_run_status was updated to tangerine_truth
-  notes              text,
-  CONSTRAINT decom_signoffs_unique_per_domain UNIQUE (entity_id, domain)
+-- Cutover sign-off (D8) — flips a domain from xoro_mirror_active to tangerine_solo
+CREATE TABLE IF NOT EXISTS recon_cutover_signoffs (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id                uuid NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
+  domain                   text NOT NULL CHECK (domain IN ('ap','ar','cash','gl','inventory')),
+  signed_off_at            timestamptz NOT NULL DEFAULT now(),
+  signed_off_by_user_id    uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  consecutive_clean_days   int NOT NULL,
+  flipped_at               timestamptz,                     -- when entities.parallel_run_status was actually flipped
+  reverted_at              timestamptz,                     -- non-null if within the 30-day reversibility window operator reverted
+  notes                    text,
+  CONSTRAINT recon_cutover_signoffs_unique_per_domain UNIQUE (entity_id, domain)
 );
+
+-- Per-entity domain state flag
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS parallel_run_status jsonb NOT NULL DEFAULT
+  '{"ap":"xoro_mirror_active","ar":"xoro_mirror_active","cash":"xoro_mirror_active","gl":"xoro_mirror_active","inventory":"xoro_mirror_active"}'::jsonb;
 ```
 
-### 3.2 Reconciliation cron — `cron/parallel-run-reconcile`
-
-Runs daily at 21:30 local (after the Xoro nightly fetch lands). For each domain:
-
-1. Pull the Xoro side from the existing ingested tables (`ip_sales_history_wholesale` for AR, `tanda_pos` for PO+AP, `ip_inventory_snapshot` for inventory, etc.).
-2. Pull the Tangerine side from the canonical tables (`ar_invoices`, `invoices` AP, `inventory_layers`, `gl_accounts` × `journal_entry_lines`, `bank_accounts`).
-3. Compute deltas per scope_key.
-4. Insert / upsert into `parallel_run_variances` with today's threshold values.
-5. For each row where `ABS(delta) > 3 × threshold`, auto-open a Case (M47 P7-9) with the variance payload + assignee = entity-level default investigator.
-6. Emit a `notification_event` for each domain whose total variance crosses the per-domain threshold.
-
-Same write-then-summarize pattern as the existing bank-feed-sync cron.
+RLS templates follow P1 — `auth_internal_*` scoped through `entity_users.auth_id = auth.uid()` for all four new tables.
 
 ---
 
-## 4. Per-domain reconciliation specs
+## 4. Reconciliation engines per domain
 
-### 4.1 AP parity (§4-AP)
+Each engine is a pure async function in `api/_lib/recon/<domain>.js` returning `{ scope_keys: Array<{scope_key, scope_label, source_tag?, tangerine_cents, xoro_cents}>, errors: [] }`. The shared orchestrator at `api/cron/parallel-run-reconcile.js` calls each engine, threshold-classifies the results, and writes the `recon_runs` + `recon_variances` rows.
 
-**Scope_key:** `vendor:<vendor_code>` for the AP open balance comparison.
+### 4.1 AP engine — `api/_lib/recon/ap.js`
 
-| Source | Query |
+| Side | Query |
 |---|---|
-| Xoro AP open | `SUM(amount_open_cents) FROM tanda_pos WHERE status NOT IN ('Closed','Cancelled') AND vendor_code = X` |
-| Tangerine AP open | `SUM(total_amount_cents - paid_amount_cents) FROM invoices WHERE status NOT IN ('paid','void','cancelled') AND vendor_id = (resolve from vendor_code)` |
+| Tangerine | `SELECT vendor_id, source, SUM(total_amount_cents - paid_amount_cents) FROM invoices WHERE status NOT IN ('paid','void','cancelled') AND invoice_date <= :recon_date GROUP BY vendor_id, source` |
+| Xoro | `SELECT vendor_code, SUM(amount_open_cents) FROM tanda_pos WHERE status NOT IN ('Closed','Cancelled') AND received_date <= :recon_date GROUP BY vendor_code` (via T10's normalized view) |
 
-Also at the entity total: AP control account balance (`gl_accounts.code='2100'`) should match the sum of all open AP invoices.
+**Match key:** vendor — canonicalized as `UPPER(TRIM(code))` on both sides. Vendor master joins `vendors.code` ↔ `tanda_pos.vendor_code`.
 
-Edge: vendors that exist in Xoro but not Tangerine vendors_master (or vice versa) emit a special variance row with `category='missing_entry'`.
+**Scope_key:** `vendor:<canonical_code>`. Source-tag-aware breakdown: emits separate rows per `source` value where Tangerine side > 0; xoro side appears with `source_tag='xoro_truth'`.
 
-### 4.2 AR parity (§4-AR)
+Per-row threshold = $1 (D2). Per-domain threshold = $100 (D2).
 
-**Scope_key:** `customer:<customer_code>`.
+Edge: a vendor in Xoro but not in `vendors` master emits `scope_key='vendor:<code>'`, `source_table='tanda_pos'`, `tangerine_cents=NULL`, and the variance auto-categorizes as `missing_master_data`. Auto-Case on the first such row per vendor.
 
-| Source | Query |
+### 4.2 AR engine — `api/_lib/recon/ar.js`
+
+| Side | Query |
 |---|---|
-| Xoro AR open | `SUM(open_invoice_cents) FROM Xoro AR aging extract` (from the existing customer-receivables fetch script) |
-| Tangerine AR open | `SELECT SUM(total_amount_cents - paid_amount_cents) FROM ar_invoices WHERE status IN ('sent','partial_paid') AND customer_id = X` |
+| Tangerine | `SELECT customer_id, source, SUM(total_amount_cents - paid_amount_cents) FROM ar_invoices WHERE status IN ('sent','partial_paid') AND invoice_date <= :recon_date GROUP BY customer_id, source` |
+| Xoro | `SELECT customer_code, SUM(open_invoice_cents) FROM ip_sales_history_wholesale_open AS-OF :recon_date GROUP BY customer_code` |
 
-Receipts side: compare daily total AR receipt $ vs Xoro's daily cash-applied. Mismatches usually = missing receipt entry on the Tangerine side.
+**Match key:** customer (`customers.code` ↔ Xoro customer_code).
 
-### 4.3 GL parity (§4-GL)
+**Scope_key:** `customer:<canonical_code>`. Source-tag-aware: one variance row per `(customer, source)` pair where Tangerine has activity. Critical now that AR rows come from 5 sources (`shopify`, `fba`, `walmart`, `faire`, `xoro_mirror`, `manual`). The recon report shows operator "Shopify is clean, FBA is $0.50 off, Faire is fine, Xoro-mirror residue is clean" — which is the level of detail that makes cutover decisions per-domain-per-channel actionable.
 
-**Scope_key:** `account:<gl_code>/period:<YYYY-MM>`.
+Per-row threshold = $1. Per-domain threshold = $100.
 
-For each posted account × open or recently-closed period:
-- Tangerine: `gl_period_balance(account_id, period_id)` (P5 trial balance basis).
-- Xoro: derived from Xoro's trial balance export (operator pulls monthly; the fetch script normalizes to the same shape).
+### 4.3 Cash engine — `api/_lib/recon/cash.js`
 
-GL parity is the toughest because every other domain rolls up here. The dashboard treats GL as the **lagging indicator** — if AP / AR / inventory / cash are all clean but GL has a $delta, the delta is in a domain we haven't built yet (commissions, prepaid, accrued — usually a missing JE).
-
-### 4.4 Inventory parity (§4-Inventory)
-
-**Scope_key:** `item:<sku>/warehouse:<store_id>`.
-
-| Source | Query |
+| Side | Query |
 |---|---|
-| Xoro on-hand | `ip_inventory_snapshot.qty` for the latest `as_of_date` |
-| Tangerine on-hand | `SUM(remaining_qty) FROM inventory_layers WHERE sku = X AND warehouse = Y` (P3-3 FIFO) |
+| Tangerine | `SELECT bank_account_id, SUM(amount_cents) FROM bank_transactions WHERE posted_date <= :recon_date GROUP BY bank_account_id` + reconciled cash GL balance per bank account |
+| Xoro | Xoro bank GL balance per account as of recon_date (from the nightly cash-GL extract) |
 
-Inventory parity is the messiest because of timing (Xoro snapshot is whenever the script ran; Tangerine is real-time). The reconciliation specifically compares both **as of** the Xoro snapshot timestamp — Tangerine evaluates `SUM(remaining_qty)` minus any layer consumed after the snapshot time.
+**Match key:** bank account (`bank_accounts.gl_account_id` ↔ Xoro cash account code).
 
-### 4.5 Cash parity (§4-Cash)
+**Scope_key:** `bank_account:<bank_account_id>`. No source-tag breakdown — bank txns all come from Plaid (`source='plaid_sync'`) or manual journal entries; the recon is a single number per account.
 
-**Scope_key:** `bank_account:<bank_account_id>`.
+Per-row threshold = $0.50 (D2). Per-domain threshold = $3 (D2). **Tightest by far** — Plaid is the source of truth on the Tangerine side and Xoro's cash ledger should match to the penny modulo timing.
 
-| Source | Query |
+Cash is expected to be the **first domain to cutover** — Plaid has been in place since P6, the integration is mature, and Xoro is not in the loop on bank transactions.
+
+### 4.4 GL engine — `api/_lib/recon/gl.js`
+
+| Side | Query |
 |---|---|
-| Xoro cash | bank balance as of Xoro's cash GL extract |
-| Tangerine cash | bank_recon_runs latest `reconciled_diff_cents` + bank_statement_balance for each bank_account |
+| Tangerine | `SELECT account_id, period_id, SUM(debit_cents - credit_cents) FROM journal_entry_lines JOIN journal_entries ON ... WHERE journal_entries.period_id = :open_or_recent_period GROUP BY account_id, period_id` |
+| Xoro | Xoro trial-balance extract per account_code × period — operator pulls monthly; T10 normalizes to the same shape |
 
-Cash parity should be the **first** clean domain — bank rec engine (P6) is the most directly comparable to Xoro's cash side. If cash isn't clean, nothing else can be.
+**Match key:** `(gl_account.code, period.code)` ↔ `(xoro_account_code, xoro_period)`.
 
----
+**Scope_key:** `account:<code>/period:<YYYY-MM>`.
 
-## 5. Variance investigation workflow
+Per-row threshold = $5. Per-domain threshold = $25.
 
-Each unresolved variance > threshold appears in the **Variances queue** panel (sortable by date / domain / delta / category). Operator workflow:
+GL is the **lagging indicator** — if AP/AR/cash/inventory are clean but GL shows a variance, the missing amount lives in a domain Tangerine doesn't yet originate (commissions accrual, prepaid expenses, depreciation — typically a missing standalone JE). The engine flags this case explicitly: when AP/AR/cash/inv are all `within` for the same recon_date but GL has an `over`, the variance auto-categorizes as `category='missing_standalone_je'` with a hint pointing to which account is off.
 
-1. Open the variance → read the auto-payload (Xoro side, Tangerine side, suspected category based on heuristics).
-2. Click **Categorize** → pick one of the 6 categories (D3). If `bug`, the Investigate button auto-opens a Case linked to the variance.
-3. Add notes.
-4. Click **Resolve** → records `resolved_at` + `resolved_by_user_id` + `resolution_note`. The variance stays in the table for trend analysis but no longer appears in the queue.
-5. Auto-resolution: variances where the next day's recon shows the same `(domain, scope_key)` is clean get auto-marked resolved with `resolution_note='auto: clean next cycle'`.
+### 4.5 Inventory engine — `api/_lib/recon/inventory.js`
 
-The 6 categories aren't mutually exclusive in real life, but for the workflow we pick the dominant cause.
+| Side | Query |
+|---|---|
+| Tangerine | `SELECT item_id, location_id, SUM(remaining_qty), SUM(remaining_qty * layer_cost_cents) FROM inventory_layers GROUP BY item_id, location_id` — as of the snapshot timestamp |
+| Xoro | `SELECT sku, warehouse_id, qty, total_value_cents FROM ip_inventory_snapshot WHERE as_of_date = :recon_date GROUP BY sku, warehouse_id` |
 
----
+**Match key:** `(sku, location)` — joined via `ip_item_master.id ↔ inventory_layers.item_id` and the new `inventory_locations.code` ↔ Xoro warehouse_id.
 
-## 6. Decom gates per domain
+**Scope_key:** `sku:<sku>/loc:<location_code>`.
 
-Each domain has a per-entity gate state:
+Per-row threshold = $50 (D2). Per-domain threshold = $250 (D2).
 
-```
-ap:        xoro_truth → consecutive_clean_days >= 30 + manual_signoff → tangerine_truth
-ar:        same
-gl:        same (typically last since it lags everything)
-inventory: same
-cash:      same (typically first)
-```
-
-The **Decom Status** panel shows for each domain:
-- Current state (`xoro_truth` / `tangerine_truth`)
-- Consecutive clean days
-- Days remaining to gate
-- "Sign off" button (enabled when consecutive ≥ N)
-- Last 60 days variance trend chart
-
-The sign-off ceremony:
-1. Operator clicks **Sign off → AP**.
-2. Modal asks for confirmation + lists what changes when the flip happens (which reports source from where, which integrations switch).
-3. Confirm → INSERT into `decom_signoffs`, UPDATE `entities.parallel_run_status->>'ap'` to `'tangerine_truth'`. The flip is **reversible** for 30 days (set `flipped_at + interval '30 days'` window where a one-click reversion is still possible).
+**Critical interaction with P12:** since P12 added `inventory_locations` and FBA/WFS each have their own location, the inventory recon must compare per-location. FBA inventory mirrors come from SP-API `/fba/inventory/v1/summaries` (P12a-4, daily); Xoro's `ip_inventory_snapshot` does not break out FBA vs the operator's main WH at the same granularity. The recon engine pivots Xoro's flat snapshot against Tangerine's location-aware view using a per-account location map stored in `fba_seller_accounts.inventory_location_id` / `walmart_seller_accounts.inventory_location_id`. For SKU × location combinations Xoro doesn't know about (FBA-specific SKUs), the Xoro side is null and the variance auto-categorizes as `xoro_not_aware` rather than a real variance.
 
 ---
 
-## 7. Runbook docs
+## 5. UI
 
-One markdown per domain at `docs/tangerine/runbooks/`:
+New top-nav group **🔁 Parallel Run** under the existing Internal tooling area:
 
-- `decom-ap-runbook.md` — how to flip AP from Xoro to Tangerine + what downstream reports change + what to monitor in the first week
-- `decom-ar-runbook.md`
-- `decom-gl-runbook.md`
-- `decom-inventory-runbook.md`
-- `decom-cash-runbook.md`
+| Panel | Purpose |
+|---|---|
+| **`InternalReconciliationDashboard.tsx`** | Daily status grid: rows = last 30 recon dates, columns = 5 domains. Each cell shows `complete` / `over` (red) / `within` (green) / `failed` (yellow) / `skipped` (gray) with domain-total delta number. Click cell → drill to that day's variances. Includes T7 `<DateRangePresets>` + T8 `<ExportButton>` (xlsx). |
+| **`InternalReconciliationVariancesQueue.tsx`** | List view of `recon_variances WHERE status='over'`. Filters: domain, source_tag, scope_key search (T6 global search), date range. Each row → variance detail modal. T9 `<SearchableSelect>` for scope_key picker. |
+| **`InternalReconciliationVarianceDetail.tsx`** | Modal: scope_key + tangerine breakdown + xoro breakdown + diff + 30-day trend chart + actions: Open as Case (M47), Clear with Reason (writes `recon_cleared_log`), Replay this scope (runs `recon_replay` for just this scope_key) |
+| **`InternalReconciliationDecomStatus.tsx`** | Cutover progress per domain: current state, consecutive clean days, days to gate (60), Last 60 days trend chart, Sign Off button (enabled when criteria met per D8). Modal lists what changes when the flip happens. |
+| **`InternalReconciliationCutoverLog.tsx`** | Read-only log of `recon_cutover_signoffs` + revert history. Audit-friendly. |
 
-Each runbook follows the template:
-1. **Pre-flip checklist** (parity verified, sign-off in place, communication to accountant)
-2. **Flip steps** (admin action in entities settings)
-3. **Post-flip verification** (which reports to spot-check first day, first week)
-4. **Rollback procedure** (within the 30-day reversibility window)
-5. **What this enables** (e.g. after AP flip, Xoro AP entry is stopped; all AP creation goes through Tangerine)
+All panels honor T7 (date-range presets), T8 (xlsx ExportButton), T9 (searchable dropdowns), T10-7 (`source` filter dropdown), and T6 (global search hooks into variance scope_keys).
 
 ---
 
-## 8. Cross-cutter hooks (M27 / M28 / M29 recap)
-
-- **M27 Approvals**: decom sign-off can require N-of-M approvals (CEO + accountant). Schema supports it; v1 ships CEO-only.
-- **M28 Notifications**: daily variance digest email (D8). Per-variance auto-case-open (M47 + M28 fire together).
-- **M29 Documents**: variances can have file attachments (Xoro export PDFs, screenshot diffs) via the existing P2-5 documents bucket.
-
----
-
-## 9. Chunk split (implementation — DO NOT start until operator confirms §2 decisions)
+## 6. Implementation chunks
 
 | Chunk | Title | Scope | Depends on |
 |---|---|---|---|
-| **P9-1** | Parallel-run schema | 3 tables (parallel_run_variances + parallel_run_thresholds + decom_signoffs) + `entities.parallel_run_status` jsonb extension + RLS. | — |
-| **P9-2** | Reconciliation cron + 5 domain matchers | `api/cron/parallel-run-reconcile.js` + 5 pure matcher functions (one per domain) + 50+ tests. | P9-1 |
-| **P9-3** | Variances queue panel + categorize/resolve UI | `InternalParallelRunVariances.tsx`. Filters by domain / date / threshold / resolved status. | P9-2 |
-| **P9-4** | 5 per-domain parity dashboards | `InternalParallelRunApParity.tsx` + 4 siblings. Each shows scope_key list with daily deltas + drill-into-variance. | P9-3 |
-| **P9-5** | Decom Status panel + sign-off ceremony | `InternalParallelRunDecomStatus.tsx` with the 5 domain gates + sign-off modal + reversibility window. | P9-1 (can run parallel to P9-2/3/4) |
-| **P9-6** | Daily variance digest cron + notifications + auto-case-open | Adds digest email + auto-opens M47 Case when variance > 3× threshold. Notification rule seeds. | P9-2 |
-| **P9-7** | 5 runbook docs (markdown only) | `docs/tangerine/runbooks/decom-{ap,ar,gl,inventory,cash}-runbook.md`. | — (parallel-safe) |
-| **P9-8** | User guide chapter 22 + memory close-out | Doc + cross-cutter memory rule. | All above |
+| **P9-1** | Schema + RLS + `parallel_run_status` jsonb + threshold seeds | 4 new tables + entities ALTER + threshold seed migration encoding D2 values per entity | — |
+| **P9-2** | AP recon engine + tests | `api/_lib/recon/ap.js` + ~30 vitest cases | P9-1 |
+| **P9-3** | AR recon engine + tests (source-tag-aware per D7) | `api/_lib/recon/ar.js` + ~40 vitest cases (Shopify, FBA, Walmart, Faire, xoro_mirror, manual sources) | P9-1 |
+| **P9-4** | Cash recon engine + tests | `api/_lib/recon/cash.js` + ~20 vitest cases | P9-1 |
+| **P9-5** | GL recon engine + tests (lagging-indicator logic) | `api/_lib/recon/gl.js` + ~30 vitest cases + the `missing_standalone_je` auto-categorization | P9-1 |
+| **P9-6** | Inventory recon engine + tests (location-aware per P12) | `api/_lib/recon/inventory.js` + ~30 vitest cases (FBA, WFS, main WH, multi-location) | P9-1 + P12-0 |
+| **P9-7** | Dashboard UI + Variances Queue + Variance Detail modal | `InternalReconciliationDashboard.tsx` + `InternalReconciliationVariancesQueue.tsx` + `InternalReconciliationVarianceDetail.tsx` + `recon_replay()` RPC + manual-clear RPC | P9-2..6 |
+| **P9-8** | Notification triggers + cron orchestrator + close pre-flight extension | `api/cron/parallel-run-reconcile.js` (orchestrator) + notification rule seeds (D10) + `gl_period_close_preflight` extended with `parallel_run_variances_cleared` check (D4 soft-block) | P9-2..6 |
+| **P9-9** | Cutover automation (domain-by-domain solo flip) | `InternalReconciliationDecomStatus.tsx` + `InternalReconciliationCutoverLog.tsx` + `recon_cutover_signoff(domain)` RPC + flip flow updating `entities.parallel_run_status` + T10 mirror skip-domain logic + close pre-flight hard-block per signed-off domain | P9-7 + P9-8 |
+| **P9-99** | Close-out — user guide chapter 24 + memory rule + matrix module entry | Doc chapter + memory rule for "every external integration eventually goes through P9 cutover" + Tangerine status matrix in roadmap | All above |
 
 Parallel waves:
-- **Wave A (after operator confirms §2):** P9-1 + P9-7.
-- **Wave B:** P9-2 + P9-5.
-- **Wave C:** P9-3 + P9-4 + P9-6.
-- **Wave D:** P9-8.
-
-~5-7 days end-to-end with parallel agents.
-
----
-
-## 10. Risks
-
-- **Xoro data freshness.** Reconciliation runs at 21:30 local; if the Xoro nightly fetch fails at 21:00 (it occasionally does — `daily_check` flags it), reconciliation runs against yesterday's Xoro data, producing fake variances. Mitigation: cron checks `last_successful_xoro_fetch_at` timestamp and skips today's recon if Xoro is stale, emitting a `parallel_run_skipped` notification instead.
-- **Timezone confusion.** Xoro is on-prem operator's local TZ; Supabase is UTC. Recon dates are operator-local "the close of business of date X." Mitigation: explicit TZ handling in the matchers — Xoro timestamps land as `posted_at_local`, compared against Tangerine UTC normalized to local.
-- **Scope_key drift.** Vendor codes in Xoro vs Tangerine `vendor_master.code` can have whitespace / case variations. Mitigation: matcher canonicalizes both sides (`UPPER(TRIM(code))`) before comparison; variances on lookup failures auto-categorize `missing_entry`.
-- **First-week variance noise.** The first 7 days of parallel-run will show enormous variances as the operator catches edge cases that never came up in P1-P8 testing. That's the point. Operator should expect ~50-100 variances/day in week 1, dropping to ~5/day by week 4.
-- **Decom sign-off political pressure.** "We've been at parity for 28 days, can we flip early?" — the 30-day floor is policy. The arch doc's job is to make it cheap to NOT short-circuit.
-- **Reversibility window edge cases.** If the operator flips AP → tangerine_truth, then within 30 days an AP issue surfaces and they want to revert, the 30 days of AP entry that happened in Tangerine post-flip needs to be back-fed to Xoro. Runbook §4 (rollback) addresses this — operator runs an export script.
+- **Wave A (after operator confirms §2):** P9-1.
+- **Wave B (after P9-1):** P9-2 + P9-3 + P9-4 + P9-5 + P9-6 in parallel (5 engines, 5 agents).
+- **Wave C:** P9-7 + P9-8 in parallel.
+- **Wave D:** P9-9.
+- **Wave E:** P9-99.
 
 ---
 
-## 11. Tests
+## 7. Cutover playbook — `docs/tangerine/runbooks/recon-cutover-<domain>.md` per domain
 
-- Matchers (one per domain) — pure functions with mocked input pairs. ~100 unit tests total.
-- Reconciliation cron — mock Xoro fetch state + Tangerine state; verify variance row shape + auto-case-open trigger.
-- Decom sign-off RPC — only fires when consecutive_clean_days >= required; rejects if any unresolved variance exists.
-- Reversibility — flip + revert produces clean audit trail in `decom_signoffs` + `entities.parallel_run_status` history.
-- TZ handling — same date in NYC vs UTC vs operator local doesn't double-count or skip.
+Each runbook follows the template:
+
+1. **Pre-flip checklist** — automated checks the panel runs:
+   - 60 consecutive days with `recon_runs.variances_over = 0` for this domain
+   - All `recon_runs.domain_threshold_breached = false` for this domain in that window
+   - Zero open M47 cases tagged `recon_bug` for this domain
+   - Accountant sign-off (via M27 approval if operator opted in)
+2. **Flip steps** — admin action (CEO-only) in `InternalReconciliationDecomStatus`:
+   - Sign Off button → modal lists what changes (which T10 mirror domains stop, which Xoro fetch scripts can be turned off, which close pre-flight check becomes a hard-block)
+   - Confirm → INSERT into `recon_cutover_signoffs`, UPDATE `entities.parallel_run_status->>'<domain>'` to `'tangerine_solo'`
+   - T10 mirror cron auto-detects the flag and stops mirroring this domain on next run
+3. **Post-flip verification** — first week the operator checks:
+   - Daily recon still runs (Xoro side now empty / null for the cutover domain; recon shows `xoro_amount_cents=NULL`, surfaces nothing)
+   - Reports + CRM + Cases continue to work against Tangerine-direct rows only
+4. **30-day reversibility window** — modal explicitly says "for the next 30 days, a one-click revert is possible. After 30 days, reverting requires re-enabling T10 and accepting that 30 days of Tangerine-direct activity won't be back-fed to Xoro (it stays Tangerine-only)."
+5. **What this enables** — domain-specific. E.g. Cash cutover enables turning off Xoro's bank GL maintenance entirely; AR cutover means Xoro stops being the system of record for sales.
+
+Expected cutover sequence:
+- **Cash first** (P6 Plaid is mature, simplest match)
+- **AR for Shopify channel** (P11 direct integration, source-tag-aware recon shows this clean first)
+- **AR for FBA + Walmart + Faire** (P12 channels, after their parallel runs settle)
+- **AR Xoro residue** (EDI-only wholesale customers; requires P22 EDI to ship, otherwise stays mirror-active indefinitely)
+- **AP** (depends on P21 3PL receiving + P13 PO origination)
+- **Inventory** (depends on P21 receiving + P12 FBA/WFS mirrors stabilizing)
+- **GL last** (lagging indicator; trails the rest by definition)
+
+---
+
+## 8. Risks
+
+- **Xoro retroactive edits poison historical recon.** If Xoro back-edits an invoice from 5 days ago, today's recon is clean but the 5-day-ago `recon_runs` row is now wrong. **Mitigation:** `recon_replay(domain, start, end)` RPC (D11) re-runs the window. Operator triggers manually when they spot a retroactive edit via Xoro's audit log.
+- **Source-tag drift.** A Shopify order that was originally tagged `source='xoro_mirror'` during T10 era then migrated to `source='shopify'` after P11 cutover changes the source-tag-aware recon shape. **Mitigation:** the AR engine treats source_tag changes within the same `(customer, invoice_number)` pair as expected during cutover windows; the recon detail modal calls this out as "migrated source" rather than variance.
+- **Per-domain cutover creates "Tangerine partial truth" period.** Once Cash flips solo but AR is still parallel-running, the GL recon will show a permanent variance equal to the cash side's Tangerine-only activity that Xoro never sees. **Mitigation:** the GL engine subtracts known cutover-domain activity from its expected Xoro side; the math is explicit in the engine code and documented in the GL runbook.
+- **P12 FBA fee timing.** FBA settlement events post ~14 days after the order. During the 14-day lag, Tangerine has the AR row but no fee JE yet, while Xoro (via its own Amazon connector during parallel run) might have already posted the fee JE based on Amazon's pre-settlement estimate. **Mitigation:** AR engine excludes FBA orders younger than 14 days from the variance check; older orders should have settled fee JEs on both sides.
+- **GL threshold breached on first-of-month.** Period-end JEs (accruals, deferred revenue, depreciation) hit on the 1st before the JE posting completes on both sides. **Mitigation:** GL engine skips period-rollover days (the first 3 business days of each month) for variances over the threshold, logging them as `skipped_period_rollover` instead.
+- **Cutover sign-off political pressure.** "We've been at parity for 55 days, can we flip early?" — the 60-day floor is policy and the Sign Off button is disabled until day 60. The arch's job is to make it cheap to NOT short-circuit.
+- **Variance Queue gets noisy in week 1.** Same risk as the original P9 draft. The 5x-recon-engine wave will catch real bugs immediately; operator should expect 50-100 variances/day in week 1, dropping to <5/day by week 4. The auto-Case threshold (3× per-row, D10) prevents the M47 inbox from flooding.
+
+---
+
+## 9. Tests
+
+- Each engine: pure-function unit tests with mocked Tangerine + Xoro inputs covering match, miss, partial match, source-tag breakdown, threshold edge cases. ~150 tests total across the 5 engines.
+- Orchestrator cron: skip-on-stale-Xoro guard, skip-on-stale-T10-mirror guard, idempotency on rerun for same `(domain, recon_date)`.
+- Manual clear RPC: writes `recon_cleared_log`, flips variance status, rejects empty reason.
+- `recon_replay`: re-runs the window, updates `recon_runs` rows (UPSERT), emits notification with diff vs previous.
+- Cutover sign-off RPC: only enables on 60-day clean window; flips `entities.parallel_run_status`; T10 mirror cron skips the cutover domain on next run.
+- Close pre-flight extension: soft-block returns `blocking=false` with the variance count; hard-block (post-cutover) returns `blocking=true`.
+- Source-tag-aware recon: AR engine produces separate variance rows per `(customer, source)` pair.
+- P12 location-aware inventory recon: scope_keys include location, FBA-only SKUs categorize as `xoro_not_aware`.
+
+---
+
+## 10. References
+
+- **`docs/tangerine/T10-shadow-mirror-architecture.md`** — the data foundation. T10 keeps Tangerine's sub-ledgers in sync with Xoro nightly; P9 reconciles on top of that mirror + the new direct sources.
+- **`docs/tangerine/P11-shopify-architecture.md`** — D7 source-tag handling for `source='shopify'`. The AR engine's per-source breakdown is what makes P11 cutover (P11 D12) actually decidable.
+- **`docs/tangerine/P12-marketplaces-architecture.md`** — D7 source-tag handling for `source='fba' / 'walmart' / 'faire'`. P12-0's `inventory_locations` + `inventory_layers.location_id` are why the inventory engine can recon per-location. P12c-17's close pre-flight extension is the pattern P9-8 extends.
+- **`docs/tangerine/P5-close-core-financials-architecture.md`** — P5-7 close pre-flight is the integration point for D4 (soft-block / hard-block close).
+- **`docs/tangerine/P6-bank-recon-architecture.md`** — Plaid sync is the closest existing match-and-reconcile pattern; the cash engine reuses concepts.
+- **`docs/tangerine/XORO-DECOM-MAP.md`** — strategic context for why per-domain cutover (not all-at-once) is the right shape.
+
+---
+
+## 11. ETA
+
+Realistic estimate after operator confirms §2 D1, D3-D12 (D2 already confirmed):
+
+- **Build phase:** ~2-3 weeks with parallel agents.
+  - Wave A (P9-1): 1 day
+  - Wave B (5 engines in parallel): 3-4 days
+  - Wave C (UI + orchestrator + notifications): 4-5 days
+  - Wave D (cutover automation): 3-4 days
+  - Wave E (close-out): 1 day
+- **Operational phase (live parallel-run):** 60 days minimum per domain per cutover gate (D8). Cash domain can probably hit the gate within ~75 days from P9 ship (15-day stabilization + 60-day clean window). AR for the direct-integration channels (Shopify, FBA, Walmart, Faire) follows; AR for the Xoro EDI residue stays mirror-active until P22 EDI ships, at which point that residue domain's clock starts.
+- **First cutover (Cash):** roughly Q3 2026 if P9 ships within the next 3 weeks.
+
+P9 is process-heavy. Code is straightforward (5 engines, 5 panels, 4 tables); the real work is the operator running parallel-run for 60 days per domain and clearing variances + investigating Cases as they surface. That's the discipline phase the original P9 draft described — it's now actually implementable because P11 + P12 + T10 supplied the auto-flow that makes parallel-run a meaningful comparison.
 
 ---
 
 ## 12. Operator confirm before chunks ship
 
-Please mark §2 D1–D10 with answers. Once confirmed I'll kick off P9-1 + P9-7 in parallel.
+Please mark §2 D1, D3-D12 with answers (D2 is already locked from the prior session). Once confirmed I'll kick off P9-1 (Wave A).
 
-**No env vars needed.** Xoro fetch already runs; Resend + Supabase Storage already configured.
+**No env vars needed.** All sources (Xoro fetch, T10 mirror, P11 Shopify, P12 FBA/Walmart/Faire, P6 Plaid) are already running.
 
 **Suggested operator inputs to think about ahead of confirm:**
 
-- D5 (30 consecutive days): tighter = decom faster but riskier. Looser = more confidence but P23 slips. 30 is the recommendation; you can call 21 or 45.
-- D2 (thresholds): $10 per row + $100 per domain is conservative. For your scale you can probably tolerate $50 per row + $500 per domain without losing meaningful signal — apparel-wholesale margin / customer / vendor sizes.
-- D7 (auto-case-open at 3× threshold): if you find Cases panel gets noisy, raise to 5× or move to "manual-only case open." Easy tuning.
+- **D8 (60-day cutover gate):** tighter = decom faster but riskier; looser = more confidence but P22 EDI pressure (waiting on Xoro residue) gets longer. 60 days is the recommendation matching two month-end closes. You can call 45 or 90.
+- **D4 (soft-block close):** soft-block-with-override is the safer start. If you want hard-block from day one for any domain, call that out — it's a one-line config flip.
+- **D12 (review cadence):** CEO weekly + accountant monthly are the recommendation. If accountant prefers weekly too, change the seed.
+- **D7 (source-tag-aware recon):** this is the most architecturally consequential decision — confirming it means the AR engine in P9-3 is structurally different (groups by source within customer) than the simpler "sum all AR" version. Recommend YES; the cost is one extra GROUP BY column and the payoff is per-channel cutover decisions actually being decidable.
 
-**Estimated lift:** 5-7 days end-to-end. P9 is process-heavy — most chunks are small schema + UI; the real work is the operator running parallel-run for 60 days and documenting variance causes. Code is the easy part.
-
-**P23 (Xoro decom) reachability — revised 2026-05-28 afternoon:** P22 ETA is ~18-24 months out (M11 → M14 + all the dependencies). P9 starts after P22. P9 itself is 60-90 days of validation. Realistic P23 ETA from today: **~24-30 months**. The original "90-120 days after P9 ships" line assumed P9 could start now; it can't, because partial decom isn't viable when AR/AP/COGS materialize from EDI events Tangerine can't yet originate.
+Once §2 is confirmed I'll kick off P9-1.
