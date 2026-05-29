@@ -507,6 +507,14 @@ import h494 from "./internal/costing/search/fabrics.js";
 import h495 from "./internal/costing/search/categories.js";
 import h496 from "./internal/costing/search/scales.js";
 
+// Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
+//   h489 = POST /api/internal/costing/comp/ly         (last-year per-style aggregates)
+//   h490 = POST /api/internal/costing/comp/t3         (trailing-3-month per-style aggregates)
+// PPK guard: qty_grain='unit' filter; comp_grain_warning when window was all
+// pack-grain (per project_ppk_grain_rule_CANONICAL).
+import h489 from "./internal/costing/comp/ly.js";
+import h490 from "./internal/costing/comp/t3.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -991,6 +999,9 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/search/fabrics",                   handler: h494 },
   { pattern: "/api/internal/costing/search/categories",                handler: h495 },
   { pattern: "/api/internal/costing/search/scales",                    handler: h496 },
+  // Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
+  { pattern: "/api/internal/costing/comp/ly",                          handler: h489 },
+  { pattern: "/api/internal/costing/comp/t3",                          handler: h490 },
 ];
 
 export function compileRoutes(routes) {

@@ -6,6 +6,7 @@
 
 import { create } from "zustand";
 import * as api from "../services/costingApi";
+import { fetchLyComp, fetchT3Comp } from "../services/compService";
 import type {
   CostingProject,
   CostingLine,
@@ -45,6 +46,15 @@ type State = {
   updateQuote: (lineId: string, quoteId: string, patch: Partial<api.QuoteDraft>) => Promise<void>;
   deleteQuote: (lineId: string, quoteId: string) => Promise<void>;
   selectQuote: (lineId: string, quoteId: string) => Promise<void>;
+
+  /**
+   * Chunk 5 — Refresh LY + T3 comp snapshots for the given lines (or all
+   * lines if "all"). Fires the two comp endpoints in parallel, then PUTs
+   * each affected line via the existing /lines/[line_id] handler so the
+   * grid reads the new ly_* / t3_* / comp_refreshed_at columns from the
+   * row without re-fetching. Lines without a style_code are skipped.
+   */
+  refreshComp: (lineIds: string[] | "all") => Promise<void>;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -298,6 +308,70 @@ export const useCostingStore = create<State>((set, get) => ({
       }));
     } catch (e) {
       set({ error: (e as Error).message });
+    }
+  },
+
+  async refreshComp(lineIds) {
+    const state = get();
+    const targetLines = lineIds === "all"
+      ? state.lines
+      : state.lines.filter((l) => lineIds.includes(l.id));
+    // Group target lines by style_code so each style is queried once and the
+    // resulting aggregate is fanned out to every line that shares the code.
+    const styleToLineIds = new Map<string, string[]>();
+    for (const ln of targetLines) {
+      if (!ln.style_code) continue;
+      const arr = styleToLineIds.get(ln.style_code) || [];
+      arr.push(ln.id);
+      styleToLineIds.set(ln.style_code, arr);
+    }
+    const styleCodes = Array.from(styleToLineIds.keys());
+    if (styleCodes.length === 0) return;
+
+    set({ loading: true, error: null });
+    try {
+      const [ly, t3] = await Promise.all([
+        fetchLyComp(styleCodes),
+        fetchT3Comp(styleCodes),
+      ]);
+      const refreshedAt = new Date().toISOString();
+
+      // Build per-line patches keyed by line_id, then PUT each one. Persist
+      // sequentially so the order of patches matches the visual order of
+      // the grid — small N (≤ a few dozen lines per project in practice).
+      const updates: CostingLine[] = [];
+      for (const [styleCode, ids] of styleToLineIds.entries()) {
+        const lyAgg = ly[styleCode];
+        const t3Agg = t3[styleCode];
+        const patch: Partial<CostingLine> = {
+          ly_qty: lyAgg ? lyAgg.qty : null,
+          ly_unit_cost: lyAgg ? lyAgg.weighted_unit_cost : null,
+          ly_total_margin: lyAgg && typeof lyAgg.total_margin === "number" ? lyAgg.total_margin : null,
+          ly_margin_pct: lyAgg ? lyAgg.weighted_margin_pct : null,
+          t3_qty: t3Agg ? t3Agg.qty : null,
+          t3_unit_cost: t3Agg ? t3Agg.weighted_unit_cost : null,
+          t3_total_cost: t3Agg && typeof t3Agg.total_cost === "number" ? t3Agg.total_cost : null,
+          t3_margin_pct: t3Agg ? t3Agg.weighted_margin_pct : null,
+          comp_refreshed_at: refreshedAt,
+        };
+        for (const id of ids) {
+          // eslint-disable-next-line no-await-in-loop
+          const updated = await api.updateLine(id, patch);
+          updates.push(updated);
+        }
+      }
+
+      // Splice the updated lines back into the array in place.
+      set((s) => ({
+        lines: s.lines.map((existing) => {
+          const u = updates.find((x) => x.id === existing.id);
+          return u ? u : existing;
+        }),
+        loading: false,
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
     }
   },
 }));

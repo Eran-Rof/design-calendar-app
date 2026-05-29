@@ -153,3 +153,32 @@ export interface CostingProjectPatch extends Partial<CostingProjectDraft> {
 }
 
 export type CostingView = "list" | "edit";
+
+// ── Chunk 5 — comp aggregation response ────────────────────────────────────
+// LY (/api/internal/costing/comp/ly) and T3 (/api/internal/costing/comp/t3)
+// return Record<style_code, CompResult>. The shared shape covers both:
+//   • LY uses `total_margin` (sum of margin_amount) + `weighted_margin_pct`.
+//   • T3 uses `total_cost` (sum of qty*unit_cost_at_sale) + `weighted_margin_pct`.
+// Both fields are optional so each endpoint can populate only what it cares
+// about without the other dimension polluting the snapshot.
+// `comp_grain_warning` is set when every sales-history row for the style in
+// the requested window was pack-grain — the PPK guard zeroes the aggregates
+// to avoid double-counting (see project_ppk_grain_rule_CANONICAL).
+export interface CompResult {
+  qty: number;
+  weighted_unit_cost: number | null;
+  weighted_margin_pct: number | null;
+  txn_count: number;
+  window_from?: string;
+  window_to?: string;
+  total_margin?: number;       // LY endpoint
+  total_cost?: number;         // T3 endpoint
+  comp_grain_warning?: boolean;
+}
+
+export type CompResultMap = Record<string, CompResult>;
+
+export interface CompWindow {
+  from: string; // ISO YYYY-MM-DD
+  to: string;
+}
