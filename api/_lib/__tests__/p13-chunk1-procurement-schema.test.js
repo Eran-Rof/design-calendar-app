@@ -82,7 +82,7 @@ describe("P13-1 — Procurement schema migration", () => {
     });
     it("tanda_po_id FK to tanda_pos with ON DELETE RESTRICT", () => {
       expect(MIG).toMatch(
-        /tanda_po_id\s+uuid NOT NULL REFERENCES tanda_pos\(id\) ON DELETE RESTRICT/,
+        /tanda_po_id\s+uuid NOT NULL REFERENCES tanda_pos\(uuid_id\) ON DELETE RESTRICT/,
       );
     });
     it("received_by_employee_id FK to employees with ON DELETE SET NULL", () => {
@@ -314,7 +314,7 @@ describe("P13-1 — Procurement schema migration", () => {
     });
     it("tanda_po_id FK to tanda_pos with CASCADE", () => {
       expect(MIG).toMatch(
-        /import_documentation[\s\S]*?tanda_po_id\s+uuid NOT NULL REFERENCES tanda_pos\(id\) ON DELETE CASCADE/,
+        /import_documentation[\s\S]*?tanda_po_id\s+uuid NOT NULL REFERENCES tanda_pos\(uuid_id\) ON DELETE CASCADE/,
       );
     });
     it("declared_value_cents bigint", () => {
