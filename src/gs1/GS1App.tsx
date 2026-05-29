@@ -17,6 +17,8 @@ import NotificationsPage from "../components/notifications/NotificationsPage";
 import NotificationsShell from "../components/notifications/NotificationsShell";
 import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import { supabaseClient } from "../utils/supabase";
+// Cross-cutter T4-5 — Personalization: favorites drawer mount.
+import FavoritesDrawer from "../components/FavoritesDrawer";
 
 function readPlmUserId(): string | null {
   try {
@@ -72,6 +74,8 @@ export default function GS1App() {
       )}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
       <GlobalSearchPaletteAuto />
+      {/* Cross-cutter T4-5 — Personalization favorites drawer (fixed right). */}
+      <FavoritesDrawer />
     </div>
   );
 }

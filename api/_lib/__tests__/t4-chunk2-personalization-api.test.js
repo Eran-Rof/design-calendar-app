@@ -265,7 +265,7 @@ describe("client MENU_KEYS shape", () => {
   });
 
   it("every entry has a valid app + non-empty label + route", () => {
-    const APPS = new Set(["dc", "ats", "powip", "gs1", "tanda"]);
+    const APPS = new Set(["dc", "ats", "powip", "gs1", "tanda", "techpack"]);
     for (const m of MENU_KEYS) {
       expect(APPS.has(m.app), m.key).toBe(true);
       expect(m.label.length > 0, m.key).toBe(true);

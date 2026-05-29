@@ -19,6 +19,7 @@ import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCan
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
+import { usePersonalization } from "../../hooks/usePersonalization";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -310,6 +311,12 @@ export const NavBar: React.FC<NavBarProps> = ({
   gridStart, gridEnd,
 }) => {
   const [aiOpen, setAiOpen] = useState(false);
+  // Cross-cutter T4-5 — personalization. Fire-and-forget menu-click
+  // telemetry for the Reports popover entries. Each report's menu_key
+  // is static (it's the same entry in the registry regardless of which
+  // operator opens it), so we log here rather than in the report's own
+  // handler.
+  const { logClick: logReportClick } = usePersonalization();
   // PR 4/4: draft input pushed in from outside (e.g. right-click on a
   // grid row dispatching an "ask AI" event). Consumed by AskAIPanel
   // on next render then cleared by the onDraftInputConsumed callback.
@@ -933,12 +940,14 @@ export const NavBar: React.FC<NavBarProps> = ({
             {([
               {
                 key: "exportExcel",
+                menuKey: "ats/reports/export-excel",
                 label: "Export Excel…",
                 sub: "Pick subtotals / cost / trailing options, then view + download",
                 onClick: () => { setExportOptsOpen(true); setReportsOpen(false); },
               },
               {
                 key: "negInven",
+                menuKey: "ats/reports/neg-inven",
                 label: "Neg Inven",
                 sub: "Preview the negative-inventory report, then download",
                 onClick: () => {
@@ -952,12 +961,14 @@ export const NavBar: React.FC<NavBarProps> = ({
               },
               {
                 key: "agedInven",
+                menuKey: "ats/reports/aged-inven",
                 label: "Aged Inven…",
                 sub: "Pick a days threshold + category, then view + download",
                 onClick: () => { setAgedCategory(filterCategory); setAgedEmpty(false); setAgedOpen(true); },
               },
               {
                 key: "noMrgnData",
+                menuKey: "ats/reports/no-mrgn",
                 label: "NO Mrgn Data",
                 sub: "Styles with no open SO, no avg cost, no PO cost (the red Mrgn:* asterisks)",
                 onClick: () => {
@@ -967,6 +978,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               },
               {
                 key: "stockVsSo",
+                menuKey: "ats/reports/stock-vs-so",
                 label: "Stock Vs SO",
                 sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
                 onClick: () => {
@@ -984,6 +996,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               },
               {
                 key: "salesComps",
+                menuKey: "ats/reports/sales-comps",
                 label: "Sales Comps…",
                 sub: "TY vs same-period-LY for the date range + filters you pick",
                 onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
@@ -991,7 +1004,7 @@ export const NavBar: React.FC<NavBarProps> = ({
             ] as const).map((item) => (
               <button
                 key={item.key}
-                onClick={() => { item.onClick(); setReportsOpen(false); }}
+                onClick={() => { logReportClick(item.menuKey); item.onClick(); setReportsOpen(false); }}
                 title={item.sub}
                 style={{
                   width: "100%",

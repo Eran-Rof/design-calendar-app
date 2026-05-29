@@ -3,6 +3,8 @@ import { TH } from "../../utils/theme";
 import { useGS1Store, type GS1Tab } from "../store/gs1Store";
 import { useAppUnreadCount } from "../../components/notifications/useAppUnreadCount";
 import { supabaseClient } from "../../utils/supabase";
+import { usePersonalization } from "../../hooks/usePersonalization";
+import { gs1ViewToMenuKey } from "../../lib/gs1ViewToMenuKey";
 
 const TABS: Array<{ id: GS1Tab; label: string }> = [
   { id: "company",   label: "Company Setup" },
@@ -27,7 +29,16 @@ function readPlmUserId(): string | null {
 
 export default function GS1NavBar() {
   const activeTab   = useGS1Store(s => s.activeTab);
-  const setActiveTab = useGS1Store(s => s.setActiveTab);
+  const setActiveTabRaw = useGS1Store(s => s.setActiveTab);
+  // Cross-cutter T4-5 — personalization. Fire-and-forget menu-click
+  // telemetry. Mapped tabs hit /api/internal/users/me/menu-click;
+  // unmapped tabs silently skip via the null-returning mapper.
+  const { logClick: logGs1MenuClick } = usePersonalization();
+  const setActiveTab = (tab: GS1Tab) => {
+    const mk = gs1ViewToMenuKey(tab);
+    if (mk) logGs1MenuClick(mk);
+    setActiveTabRaw(tab);
+  };
   const userId = readPlmUserId();
   const unread = useAppUnreadCount({
     supabase: supabaseClient,

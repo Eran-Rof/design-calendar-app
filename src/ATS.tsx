@@ -24,6 +24,9 @@ import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
 import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
+import FavoritesDrawer from "./components/FavoritesDrawer";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { atsViewToMenuKey } from "./lib/atsViewToMenuKey";
 import { packGzipEnvelope, unpackGzipEnvelope } from "./utils/gzipBase64";
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -118,7 +121,19 @@ function ATSReport() {
   const setSortCol           = mk("sortCol");
   const setSortDir           = mk("sortDir");
   const setMergeHistory      = mk("mergeHistory");
-  const setViewMode          = mk("viewMode");
+  const setViewModeRaw       = mk("viewMode");
+  // Cross-cutter T4-5 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  // setViewMode wraps the raw setter with fire-and-forget menu-click
+  // telemetry on the 3 grid pivots (ATS / SO / PO).
+  const { logClick: logAtsMenuClick } = usePersonalization();
+  const setViewMode = (v: "ats" | "so" | "po" | ((prev: "ats" | "so" | "po") => "ats" | "so" | "po")) => {
+    if (typeof v === "string") {
+      const mkk = atsViewToMenuKey(v);
+      if (mkk) logAtsMenuClick(mkk);
+    }
+    setViewModeRaw(v as any);
+  };
   const setShowTotalsRow     = mk("showTotalsRow");
   const setShowStatsCards    = mk("showStatsCards");
   const setExplodePpk        = mk("explodePpk");
@@ -1033,8 +1048,10 @@ function ATSReport() {
   ) : null;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // RENDER — see ats/renderPanel.tsx
-  return atsRenderPanel({
+  // RENDER — see ats/renderPanel.tsx. Wrap the panel in a fragment so we
+  // can also mount the cross-app FavoritesDrawer (T4-5) without touching
+  // the panel's existing layout.
+  const panel = atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
     search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus,
     minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
@@ -1071,4 +1088,11 @@ function ATSReport() {
     notificationsView,
     masterReady,
   });
+  return (
+    <>
+      {panel}
+      {/* Cross-cutter T4-5 — Personalization favorites drawer (fixed right). */}
+      <FavoritesDrawer />
+    </>
+  );
 }

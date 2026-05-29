@@ -129,6 +129,14 @@ const KEYS = [
   "tanda/notifications/prefs",
   "tanda/hr/employees",
   "tanda/operations/scanner-sessions",
+  // Tech Packs (T4-5 close-out)
+  "techpack/dashboard",
+  "techpack/list",
+  "techpack/libraries",
+  "techpack/samples",
+  "techpack/teams",
+  "techpack/email",
+  "techpack/notifications",
 ];
 
 export const MENU_KEY_SET = new Set(KEYS);
