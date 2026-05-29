@@ -13,12 +13,31 @@
 // secret against a determined user — that's an accepted limitation
 // of the stop-gap. Real per-user auth replaces this later.
 //
+// P10-5 — Same interceptor also injects the X-Entity-ID header on
+// every /api/internal/** call when sessionStorage["x-tangerine-
+// entity-id"] is set. <EntitySwitcher /> writes that key on switch.
+// The server-side helper api/_lib/auth/resolve-entity.js (P10-4)
+// validates the header against entity_users and rejects unknown
+// memberships.
+//
 // Idempotent — installing twice is a no-op.
 
 const TOKEN = (import.meta as ImportMeta & { env?: Record<string, string> })
   .env?.VITE_INTERNAL_API_TOKEN ?? "";
 
 const INTERNAL_PATH_RE = /^\/api\/internal\//;
+
+// MUST stay in lockstep with ENTITY_SESSION_KEY in src/hooks/useEntities.ts
+// and with the alias accepted by api/_lib/auth/resolve-entity.js.
+const ENTITY_SESSION_KEY = "x-tangerine-entity-id";
+
+function readEntitySessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.sessionStorage.getItem(ENTITY_SESSION_KEY);
+    return v && v.trim().length > 0 ? v.trim() : null;
+  } catch { return null; }
+}
 
 let installed = false;
 
@@ -29,11 +48,12 @@ export function installInternalApiAuth(): void {
     // No token configured at build time. The server may still be
     // fail-open (matching) or strict; surface a console.warn once so
     // a frontend deploy without VITE_INTERNAL_API_TOKEN doesn't
-    // silently 401.
+    // silently 401. We still install the wrapper below so that
+    // X-Entity-ID injection works even when the bearer token is
+    // unconfigured (e.g. local dev).
     if (typeof console !== "undefined") {
       console.warn("[internal-api] VITE_INTERNAL_API_TOKEN not set at build — internal API calls will not include the bearer header");
     }
-    return;
   }
   installed = true;
   const original = window.fetch.bind(window);
@@ -46,8 +66,12 @@ export function installInternalApiAuth(): void {
     }
     if (url && INTERNAL_PATH_RE.test(url)) {
       const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-      if (!headers.has("Authorization") && !headers.has("authorization")) {
+      if (TOKEN && !headers.has("Authorization") && !headers.has("authorization")) {
         headers.set("Authorization", `Bearer ${TOKEN}`);
+      }
+      const entityId = readEntitySessionId();
+      if (entityId && !headers.has("X-Entity-ID") && !headers.has("x-entity-id")) {
+        headers.set("X-Entity-ID", entityId);
       }
       return original(input, { ...(init || {}), headers });
     }

@@ -11,6 +11,8 @@ import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount"
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-5 — Personalization: favorites drawer + click telemetry.
 import FavoritesDrawer from "./components/FavoritesDrawer";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "./components/EntitySwitcher";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { techpackViewToMenuKey } from "./lib/techpackViewToMenuKey";
 import { sb, appDataSave } from "./techpack/supabase";
@@ -1744,6 +1746,8 @@ export default function TechPackApp() {
       <GlobalSearchPaletteAuto />
       {/* Cross-cutter T4-5 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
     </div>
   );
 

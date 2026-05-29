@@ -19,6 +19,8 @@ import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import { supabaseClient } from "../utils/supabase";
 // Cross-cutter T4-5 — Personalization: favorites drawer mount.
 import FavoritesDrawer from "../components/FavoritesDrawer";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "../components/EntitySwitcher";
 
 function readPlmUserId(): string | null {
   try {
@@ -76,6 +78,8 @@ export default function GS1App() {
       <GlobalSearchPaletteAuto />
       {/* Cross-cutter T4-5 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
     </div>
   );
 }
