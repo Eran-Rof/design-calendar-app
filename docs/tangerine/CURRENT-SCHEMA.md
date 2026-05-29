@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (177 migration files). Latest: `20260629200000_p12_chunk0_marketplaces_shared.sql`.
+> Generated from `supabase/migrations/*.sql` (179 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 236 tables · 225 CREATE TABLE · 462 ALTER TABLE
+**Stats:** 241 tables · 230 CREATE TABLE · 467 ALTER TABLE
 
 ---
 
@@ -1008,6 +1008,95 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+
+## `faire_buyers`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `faire_shop_id` uuid → `faire_shops` NOT NULL
+- `faire_brand_token` text NOT NULL
+- `buyer_name` text NOT NULL
+- `buyer_email` text
+- `customer_id` uuid → `customers`
+- `first_order_at` timestamptz
+- `is_first_order_completed` boolean NOT NULL DEFAULT false
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `faire_order_items`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `faire_order_id` uuid → `faire_orders` NOT NULL
+- `line_number` int NOT NULL
+- `faire_item_token` text NOT NULL
+- `sku` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `product_name` text NOT NULL
+- `quantity` int NOT NULL
+- `unit_price_wholesale_cents` bigint NOT NULL
+- `line_total_cents` bigint NOT NULL
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+
+## `faire_orders`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `faire_shop_id` uuid → `faire_shops` NOT NULL
+- `faire_order_id` text NOT NULL
+- `faire_brand_token` text
+- `faire_buyer_id` uuid → `faire_buyers`
+- `placed_at` timestamptz NOT NULL
+- `ship_by_at` timestamptz
+- `order_status` text NOT NULL
+- `currency` text NOT NULL DEFAULT 'USD'
+- `subtotal_cents` bigint NOT NULL
+- `shipping_cents` bigint NOT NULL DEFAULT 0
+- `commission_cents` bigint NOT NULL
+- `commission_rate` numeric(5,4) NOT NULL
+- `net_payout_cents` bigint NOT NULL
+- `is_first_order_for_buyer` boolean NOT NULL DEFAULT false
+- `customer_id` uuid → `customers`
+- `ar_invoice_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `source` text NOT NULL DEFAULT 'faire' CHECK `source = 'faire'`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `faire_payouts`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `faire_shop_id` uuid → `faire_shops` NOT NULL
+- `faire_payout_id` text NOT NULL
+- `payout_date` date NOT NULL
+- `period_start` date NOT NULL
+- `period_end` date NOT NULL
+- `gross_amount_cents` bigint NOT NULL
+- `commission_amount_cents` bigint NOT NULL
+- `refunds_amount_cents` bigint NOT NULL DEFAULT 0
+- `net_amount_cents` bigint NOT NULL
+- `currency` text NOT NULL DEFAULT 'USD'
+- `bank_transaction_id` uuid → `bank_transactions`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `faire_shops`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `faire_shop_token` text NOT NULL
+- `shop_name` text NOT NULL
+- `api_key_ciphertext` bytea
+- `api_key_iv` bytea
+- `api_key_tag` bytea
+- `is_active` boolean NOT NULL DEFAULT true
+- `last_orders_sync_at` timestamptz
+- `last_payouts_sync_at` timestamptz
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
 
 ## `finance_requests`  _((pre-P))_
 
