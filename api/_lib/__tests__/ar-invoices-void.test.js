@@ -43,18 +43,33 @@ function makeRes() {
   return r;
 }
 
-function makeReq({ id = INVOICE, method = "POST", body = {} } = {}) {
+function makeReq({ id = INVOICE, method = "POST", body = null } = {}) {
+  // T11-2 D3: reason is REQUIRED for VOID. The P4-4 tests predate this
+  // gate and exercise other behaviour; default body to a stub reason so
+  // existing assertions still flow through to the void path.
+  const finalBody = body == null ? { reason: "test void" } : body;
   return {
     method,
     query: { id },
     headers: {},
-    body,
+    body: finalBody,
   };
 }
 
-function makeAdmin({ invoice, updateError = null } = {}) {
+function makeAdmin({ invoice, updateError = null, rpcError = null } = {}) {
   const updates = [];
+  const rpcCalls = [];
   return {
+    // T11-2: extractActorFromRequest probes auth.getUser. With no token
+    // present we never reach this in the existing tests, but provide the
+    // stub so the handler doesn't crash on the call shape.
+    auth: {
+      getUser: vi.fn(async () => ({ data: { user: null } })),
+    },
+    rpc: vi.fn(async (name, params) => {
+      rpcCalls.push({ name, params });
+      return { data: null, error: rpcError };
+    }),
     from(table) {
       if (table === "ar_invoices") {
         return {
@@ -71,9 +86,17 @@ function makeAdmin({ invoice, updateError = null } = {}) {
           },
         };
       }
+      if (table === "employees") {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          maybeSingle: async () => ({ data: null, error: null }),
+        };
+      }
       throw new Error(`unmocked ${table}`);
     },
     _updates: updates,
+    _rpcCalls: rpcCalls,
   };
 }
 
@@ -153,7 +176,12 @@ describe("ar-invoices void handler (P4-4)", () => {
     expect(evt.data.invoice_id).toBe(INVOICE);
     expect(evt.data.accrual_je_id).toBeNull();
     expect(evt.data.cash_je_id).toBeNull();
-    expect(admin._updates.at(-1).patch.gl_status).toBe("void");
+    // T11-2: gl_status flip happens via void_ar_invoice_with_audit RPC,
+    // not via a direct .update(). The notes annotation is the only
+    // remaining direct UPDATE in this handler.
+    const voidRpc = admin._rpcCalls.find((c) => c.name === "void_ar_invoice_with_audit");
+    expect(voidRpc).toBeTruthy();
+    expect(voidRpc.params.invoice_id).toBe(INVOICE);
   });
 
   it("sent invoice with accrual_je_id → reverses one JE", async () => {

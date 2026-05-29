@@ -13,6 +13,11 @@
 // Tangerine P1 Chunk 8c. Wraps Chunk 3's posting service from the accountant UI.
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  extractActorFromRequest,
+  setAuditSessionVars,
+  requireReason,
+} from "../../../_lib/audit/withAuditContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -97,6 +102,41 @@ export default async function handler(req, res) {
     }
     const v = validateManualPost(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
+
+    // T11 D3: reason REQUIRED on POST. gl_post_journal_entry flips
+    // status='posted' which the audit_row_changes_trigger detects as POST.
+    const reason = body?.reason ? String(body.reason).trim() : null;
+    const reasonGate = requireReason("POST", reason);
+    if (reasonGate) return res.status(reasonGate.status).json({ error: reasonGate.error });
+
+    // T11-2 audit context. Push session vars onto the current connection
+    // BEFORE the gl_post_journal_entry RPC. PostgREST wraps each rpc()
+    // call in its own transaction so the set_config(..., is_local=true)
+    // performed here only travels to the trigger if the next RPC reuses
+    // the same connection. For the manual JE flow this is best-effort —
+    // the trigger's fall-through path stamps an audit_trigger_failure row
+    // when context is missing, which we treat as a known v1 gap (the
+    // dedicated `post_journal_entry_with_audit` wrapper is the supported
+    // path; this endpoint is documented as best-effort until P12 lands a
+    // request-pinned connection helper).
+    const actor = await extractActorFromRequest(req, admin);
+    const correlation_id =
+      req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"] || null;
+    try {
+      await setAuditSessionVars(admin, {
+        actor,
+        reason,
+        source: "manual",
+        correlation_id,
+      });
+    } catch (e) {
+      // Don't block — the trigger's audit_trigger_failure path will
+      // record the missing context.
+      console.warn(
+        "[je-post] setAuditSessionVars failed (best-effort):",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
 
     // Build the payload(s) — BOTH expands to two RPC calls; single-basis is one.
     const bases = v.data.basis === "BOTH" ? ["ACCRUAL", "CASH"] : [v.data.basis];

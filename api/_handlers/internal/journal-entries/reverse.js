@@ -10,6 +10,11 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { reverseJournalEntry } from "../../../_lib/accounting/posting/reverse.js";
+import {
+  extractActorFromRequest,
+  callWithAudit,
+  requireReason,
+} from "../../../_lib/audit/withAuditContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -45,6 +50,11 @@ export default async function handler(req, res, params) {
     try { body = JSON.parse(body); }
     catch { body = {}; }
   }
+  const reason = body?.reason ? String(body.reason).trim() : null;
+
+  // T11 D3: reason REQUIRED on REVERSE.
+  const reasonGate = requireReason("REVERSE", reason);
+  if (reasonGate) return res.status(reasonGate.status).json({ error: reasonGate.error });
 
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
@@ -61,6 +71,36 @@ export default async function handler(req, res, params) {
     if (body?.created_by_user_id) opts.created_by_user_id = body.created_by_user_id;
 
     const newJeId = await reverseJournalEntry(admin, id, opts);
+
+    // T11-2 audit stamp — call reverse_journal_entry_with_audit on the
+    // original JE so the status='reversed' flip carries the audit context
+    // through to the trigger. reverseJournalEntry above creates the
+    // reversal JE and (in current impl) flips the original; this RPC
+    // re-asserts the status under the audit-aware path. When the
+    // original is already 'reversed', the RPC returns its
+    // invalid_transaction_state error which we treat as success since
+    // the audit row was already written by the JS-side flip.
+    try {
+      const actor = await extractActorFromRequest(req, admin);
+      const correlation_id =
+        req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"] || null;
+      await callWithAudit(admin, "reverse_journal_entry_with_audit", {
+        je_id: id,
+        reversal_je_id: newJeId,
+        actor,
+        reason,
+        source: "manual",
+        correlation_id,
+      });
+    } catch (auditErr) {
+      // Non-fatal — the reversal itself succeeded. Log so we notice if
+      // the audit path drifts out of sync with the JS-side reversal.
+      console.warn(
+        "[je-reverse] audit stamp failed (reversal already applied):",
+        auditErr instanceof Error ? auditErr.message : String(auditErr),
+      );
+    }
+
     return res.status(201).json({ reversal_je_id: newJeId, original_je_id: id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -11,6 +11,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
+import {
+  extractActorFromRequest,
+  callWithAudit,
+  requireReason,
+} from "../../../_lib/audit/withAuditContext.js";
 
 export const config = { maxDuration: 30 };
 
@@ -53,6 +58,10 @@ export default async function handler(req, res) {
       : null;
   const reason = body?.reason ? String(body.reason).trim() : null;
 
+  // T11 D3: reason REQUIRED on VOID.
+  const reasonGate = requireReason("VOID", reason);
+  if (reasonGate) return res.status(reasonGate.status).json({ error: reasonGate.error });
+
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
@@ -90,12 +99,20 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 
-  // Flip gl_status to 'void' regardless.
-  const { error: upErr } = await admin
-    .from("invoices")
-    .update({ gl_status: "void" })
-    .eq("id", invoice.id);
-  if (upErr) return res.status(500).json({ error: upErr.message });
+  // T11-2 audit-aware void — wrap the gl_status flip in the audit RPC so
+  // the trigger sees the correct actor + reason via session vars set in
+  // the same statement.
+  const actor = await extractActorFromRequest(req, admin);
+  const correlation_id =
+    req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"] || null;
+  const { error: upErr } = await callWithAudit(admin, "void_ap_invoice_with_audit", {
+    invoice_id: invoice.id,
+    actor,
+    reason,
+    source: "manual",
+    correlation_id,
+  });
+  if (upErr) return res.status(500).json({ error: `Audit void failed: ${upErr.message}` });
 
   // Notification
   try {
