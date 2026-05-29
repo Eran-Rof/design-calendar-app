@@ -61,6 +61,7 @@
     { "path": "/api/cron/faire-returns-weekly", "schedule": "30 5 * * 1" },
     { "path": "/api/cron/shopify-payouts-daily", "schedule": "0 6 * * *" },
     { "path": "/api/cron/shopify-backfill", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/shopify-refunds-backfill", "schedule": "30 6 * * *" },
     { "path": "/api/cron/fba-orders-nightly", "schedule": "0 3 * * *" },
     { "path": "/api/cron/walmart-settlements-weekly", "schedule": "30 6 * * 3" },
     { "path": "/api/cron/crm-tasks-due-tomorrow", "schedule": "0 13 * * *" }
