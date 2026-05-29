@@ -488,6 +488,9 @@ import h474 from "../cron/faire-returns-weekly.js";
 //   h486 = GET /api/internal/audit/log         (full filtered ledger for admin panel)
 import h485 from "./internal/audit/row-history.js";
 import h486 from "./internal/audit/log.js";
+// P9-4 — Cash reconciliation engine + manual trigger.
+//   h482 = POST /api/internal/recon/run-cash
+import h482 from "./internal/recon/run-cash.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -958,6 +961,8 @@ export const ROUTES = [
   // Cross-cutter T11-3 — Universal audit log read endpoints.
   { pattern: "/api/internal/audit/row-history",                        handler: h485 },
   { pattern: "/api/internal/audit/log",                                handler: h486 },
+  // P9-4 — Cash reconciliation manual trigger.
+  { pattern: "/api/internal/recon/run-cash",                           handler: h482 },
 ];
 
 export function compileRoutes(routes) {
