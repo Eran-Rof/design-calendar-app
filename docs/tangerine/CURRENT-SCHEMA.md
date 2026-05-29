@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (175 migration files). Latest: `20260629000000_p10_chunk1_tenancy_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (176 migration files). Latest: `20260629100000_p11_chunk1_shopify_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 229 tables · 218 CREATE TABLE · 448 ALTER TABLE
+**Stats:** 235 tables · 224 CREATE TABLE · 456 ALTER TABLE
 
 ---
 
@@ -1153,7 +1153,8 @@ _(no columns parsed)_
       'opening_balance',
       'transfer_in',
       'credit_memo_return',
-      'xoro_mirror_snapshot')`
+      'xoro_mirror_snapshot',
+      'shopify_refund_restock')`
 - `source_invoice_id` uuid → `invoices`
 - `notes` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
@@ -2819,6 +2820,103 @@ _(no columns parsed)_
 - `ship_via` text
 - `invoice_created_at` timestamptz
 - `entity_id` uuid
+
+## `shopify_order_lines`  _(P11-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `shopify_order_id` uuid → `shopify_orders` NOT NULL
+- `line_number` int NOT NULL
+- `shopify_line_id` text NOT NULL
+- `sku` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `title` text NOT NULL
+- `quantity` int NOT NULL
+- `unit_price_cents` bigint NOT NULL
+- `line_total_cents` bigint NOT NULL
+- `line_tax_cents` bigint NOT NULL DEFAULT 0
+- `line_discount_cents` bigint NOT NULL DEFAULT 0
+- `raw_payload` jsonb NOT NULL
+
+## `shopify_orders`  _(P11-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `shopify_store_id` uuid → `shopify_stores` NOT NULL
+- `shopify_order_id` text NOT NULL
+- `currency` text NOT NULL DEFAULT 'USD'
+- `total_amount_cents` bigint NOT NULL
+- `subtotal_amount_cents` bigint NOT NULL
+- `tax_amount_cents` bigint NOT NULL DEFAULT 0
+- `shipping_amount_cents` bigint NOT NULL DEFAULT 0
+- `discount_amount_cents` bigint NOT NULL DEFAULT 0
+- `payment_gateway` text
+- `discount_codes` jsonb NOT NULL DEFAULT '[]'::jsonb
+- `customer_id` uuid → `customers`
+- `customer_email` text
+- `ar_invoice_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL
+- `source` text NOT NULL DEFAULT 'shopify' CHECK `source IN ('shopify')`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `shopify_payouts`  _(P11-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `shopify_store_id` uuid → `shopify_stores` NOT NULL
+- `shopify_payout_id` text NOT NULL
+- `payout_date` date NOT NULL
+- `gross_amount_cents` bigint NOT NULL
+- `fees_amount_cents` bigint NOT NULL
+- `net_amount_cents` bigint NOT NULL
+- `currency` text NOT NULL DEFAULT 'USD'
+- `bank_transaction_id` uuid → `bank_transactions`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `shopify_refunds`  _(P11-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `shopify_order_id` uuid → `shopify_orders` NOT NULL
+- `shopify_refund_id` text NOT NULL
+- `refund_type` text NOT NULL CHECK `refund_type IN ('full','partial')`
+- `refund_amount_cents` bigint NOT NULL
+- `restocking_fee_cents` bigint NOT NULL DEFAULT 0
+- `processed_at` timestamptz NOT NULL
+- `ar_credit_memo_id` uuid → `ar_invoices`
+- `raw_payload` jsonb NOT NULL
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `shopify_stores`  _(P11-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL
+- `shopify_domain` text NOT NULL
+- `key` = SHOPIFY_TOKEN_ENC_KEY access_token_iv bytea
+- `access_token_tag` bytea
+- `webhook_secret_ciphertext` bytea
+- `webhook_secret_iv` bytea
+- `webhook_secret_tag` bytea
+- `api_version` text NOT NULL DEFAULT '2025-01'
+- `is_active` boolean NOT NULL DEFAULT true
+- `last_backfill_at` timestamptz
+- `last_webhook_at` timestamptz
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `shopify_webhook_log`  _(P11-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `shopify_store_id` uuid → `shopify_stores`
+- `webhook_id` text NOT NULL
+- `received_at` timestamptz NOT NULL DEFAULT now()
+- `processed_at` timestamptz
+- `status` text NOT NULL DEFAULT 'pending' CHECK `status IN ('pending','processed','failed','skipped_duplicate')`
+- `error_message` text
+- `raw_payload` jsonb NOT NULL
 
 ## `spend_forecasts`  _((pre-P))_
 
