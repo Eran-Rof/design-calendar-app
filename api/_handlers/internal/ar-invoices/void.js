@@ -17,6 +17,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
+import {
+  extractActorFromRequest,
+  callWithAudit,
+  requireReason,
+} from "../../../_lib/audit/withAuditContext.js";
 
 export const config = { maxDuration: 30 };
 
@@ -58,6 +63,12 @@ export default async function handler(req, res) {
       ? String(body.created_by_user_id)
       : null;
   const reason = body?.reason ? String(body.reason).trim() : null;
+
+  // T11 D3: reason REQUIRED on VOID. Return 400 before doing any work
+  // so the operator gets a clean error rather than a SQL exception from
+  // the trigger.
+  const reasonGate = requireReason("VOID", reason);
+  if (reasonGate) return res.status(reasonGate.status).json({ error: reasonGate.error });
 
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
@@ -109,13 +120,39 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 
-  const updatePatch = { gl_status: "void" };
-  if (reason) updatePatch.notes = invoice.notes ? `${invoice.notes}\n[void] ${reason}` : `[void] ${reason}`;
-  const { error: upErr } = await admin
-    .from("ar_invoices")
-    .update(updatePatch)
-    .eq("id", invoice.id);
-  if (upErr) return res.status(500).json({ error: upErr.message });
+  // T11-2 audit-aware void — extract actor + call the wrapper RPC that
+  // sets the audit session vars + flips gl_status in the same statement.
+  // The audit_row_changes_trigger sees the vars and stamps the
+  // row_changes ledger with the correct actor + reason for the VOID op.
+  const actor = await extractActorFromRequest(req, admin);
+  const correlation_id =
+    req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"] || null;
+  const { error: voidErr } = await callWithAudit(admin, "void_ar_invoice_with_audit", {
+    invoice_id: invoice.id,
+    actor,
+    reason,
+    source: "manual",
+    correlation_id,
+  });
+  if (voidErr) {
+    return res.status(500).json({ error: `Audit void failed: ${voidErr.message}` });
+  }
+
+  // Append reason to notes — separate UPDATE so the audit trigger logs
+  // the void distinctly from any free-text annotation.
+  if (reason) {
+    const noteUpdate = invoice.notes
+      ? `${invoice.notes}\n[void] ${reason}`
+      : `[void] ${reason}`;
+    const { error: notesErr } = await admin
+      .from("ar_invoices")
+      .update({ notes: noteUpdate })
+      .eq("id", invoice.id);
+    if (notesErr) {
+      // Non-fatal — void already succeeded, notes is annotation only.
+      console.warn("[ar-invoice-void] notes append failed:", notesErr.message);
+    }
+  }
 
   try {
     await enqueueNotification(admin, {
