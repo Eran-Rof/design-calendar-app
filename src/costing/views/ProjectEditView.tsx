@@ -1,7 +1,7 @@
 // Costing Module — project edit view.
-// Header form + CostingGrid below + VendorQuotePanel on the right (toggled
-// by selecting a grid row). Chunk 6 will add the PlanFlowWidget above the
-// form.
+// PlanFlowWidget (stage strip + project status badge) on top, then the
+// header form, then CostingGrid, then VendorQuotePanel (toggled by selecting
+// a grid row).
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
@@ -9,6 +9,7 @@ import { ALL_STATUSES, statusLabel, navigate, getEditId } from "../helpers";
 import type { CostingStatus, CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import VendorQuotePanel from "../panels/VendorQuotePanel";
+import PlanFlowWidget from "../panels/PlanFlowWidget";
 
 export default function ProjectEditView() {
   const id = getEditId();
@@ -18,6 +19,7 @@ export default function ProjectEditView() {
   const load    = useCostingStore((s) => s.loadProject);
   const update  = useCostingStore((s) => s.updateProject);
   const clear   = useCostingStore((s) => s.clearActive);
+  const setStageFilter = useCostingStore((s) => s.setStageFilter);
 
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [saving, setSaving] = useState(false);
@@ -25,7 +27,10 @@ export default function ProjectEditView() {
   useEffect(() => {
     if (!id) { clear(); return; }
     load(id);
-  }, [id, load, clear]);
+    // Reset stage filter when switching projects so the new project's grid
+    // starts unfiltered.
+    setStageFilter(null);
+  }, [id, load, clear, setStageFilter]);
 
   useEffect(() => {
     if (project) {
@@ -86,6 +91,8 @@ export default function ProjectEditView() {
 
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4, marginBottom: 12 }}>{error}</div>}
 
+      <PlanFlowWidget />
+
       <div style={{
         background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
         padding: 20, maxWidth: 760, display: "grid",
@@ -131,11 +138,8 @@ export default function ProjectEditView() {
       <VendorQuotePanel />
 
       <div style={{ marginTop: 24, padding: 14, background: "#1E293B", border: "1px dashed #334155", borderRadius: 6, color: "#94A3B8", fontSize: 12 }}>
-        <b style={{ color: "#CBD5E1" }}>Coming in next chunks:</b>{" "}
-        Chunk 5 → LY + trailing-3-month comp auto-fill ·
-        Chunk 6 → Plan Flow widget at top ·
-        Chunk 7 → compliance + xlsx export ·
-        Chunk 8 → award writes <code>ip_item_avg_cost</code>.
+        <b style={{ color: "#CBD5E1" }}>Coming in Chunk 7:</b>{" "}
+        Compliance checklist per line · xlsx export of the BOYS-style sheet.
       </div>
     </div>
   );
