@@ -56,6 +56,7 @@
     { "path": "/api/cron/menu-usage-decay", "schedule": "0 3 * * *" },
     { "path": "/api/cron/walmart-orders-nightly", "schedule": "30 3 * * *" },
     { "path": "/api/cron/faire-orders-nightly", "schedule": "0 4 * * *" },
-    { "path": "/api/cron/faire-payouts-monthly", "schedule": "0 5 1 * *" }
+    { "path": "/api/cron/faire-payouts-monthly", "schedule": "0 5 1 * *" },
+    { "path": "/api/cron/shopify-payouts-daily", "schedule": "0 6 * * *" }
   ]
 }
