@@ -117,6 +117,14 @@ const APPS = [
     color: "#0891B2",
     path: "/gs1",
   },
+  {
+    id: "costing" as const,
+    name: "Costing",
+    description: "Costing projects — multi-vendor quotes, LY + trailing-3-mo comp, margin targeting",
+    icon: "💰",
+    color: "#EAB308",
+    path: "/costing",
+  },
 ];
 
 function ROFLogoFull({ height = 44 }: { height?: number }) {
