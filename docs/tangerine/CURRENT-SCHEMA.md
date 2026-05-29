@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (174 migration files). Latest: `20260624000000_t6_chunk2_global_search_view.sql`.
+> Generated from `supabase/migrations/*.sql` (175 migration files). Latest: `20260629000000_p10_chunk1_tenancy_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 228 tables · 217 CREATE TABLE · 446 ALTER TABLE
+**Stats:** 229 tables · 218 CREATE TABLE · 448 ALTER TABLE
 
 ---
 
@@ -903,6 +903,19 @@ _(no columns parsed)_
 - `default_inventory_account_id` uuid → `gl_accounts`
 - `default_retained_earnings_account_id` uuid → `gl_accounts`
 - `default_payment_processor` text CHECK `IN ('stripe','square','authnet')`
+- `multi_entity_enabled` boolean NOT NULL DEFAULT false
+
+## `entity_access_audit`  _(P10-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `auth_user_id` uuid → `auth.users`
+- `attempted_entity_id` uuid → `entities`
+- `attempted_table` text NOT NULL
+- `attempted_action` text NOT NULL CHECK `attempted_action IN ('select','insert','update','delete')`
+- `attempted_pk` text
+- `denied_at` timestamptz NOT NULL DEFAULT now()
+- `request_id` text
+- `user_agent` text
 
 ## `entity_branding`  _((pre-P))_
 
@@ -927,6 +940,7 @@ _(no columns parsed)_
 - `role` text NOT NULL
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+- `is_default` boolean NOT NULL DEFAULT false
 
 ## `entity_vendors`  _((pre-P))_
 
