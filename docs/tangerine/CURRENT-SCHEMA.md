@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (184 migration files). Latest: `20260629500000_p11_chunk7_restocking_seed.sql`.
+> Generated from `supabase/migrations/*.sql` (185 migration files). Latest: `20260629700000_p12c_chunk4_returns.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 252 tables · 240 CREATE TABLE · 573 ALTER TABLE
+**Stats:** 253 tables · 241 CREATE TABLE · 574 ALTER TABLE
 
 ---
 
@@ -1068,6 +1068,22 @@ _(no columns parsed)_
 - `bank_transaction_id` uuid → `bank_transactions`
 - `je_id` uuid → `journal_entries`
 - `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `faire_returns`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `faire_shop_id` uuid → `faire_shops` NOT NULL
+- `faire_order_id` uuid → `faire_orders`
+- `faire_return_id` text NOT NULL
+- `return_status` text NOT NULL
+- `refund_amount_cents` bigint NOT NULL DEFAULT 0
+- `reason` text
+- `ar_credit_memo_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL
+- `source` text NOT NULL DEFAULT 'faire' CHECK `source = 'faire'`
 - `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `faire_shops`  _((pre-P))_
