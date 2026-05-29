@@ -1,6 +1,16 @@
 # Cross-cutter T4 — Personalization (Favorites + Personalized Landing)
 
-Status: **PLAN ONLY** (2026-05-28). No implementation chunk has shipped yet. Operator request: "do we have in the plan a way for a user to mark as favorites any menu item and have those menu items open on a side menu? if not add to plan and memory. also we don't need the large cards on app main page rather open page on each user's most used feature."
+Status: **IMPLEMENTED** (T4-1…T4-5 merged 2026-05-28). Operator request: "do we have in the plan a way for a user to mark as favorites any menu item and have those menu items open on a side menu? if not add to plan and memory. also we don't need the large cards on app main page rather open page on each user's most used feature."
+
+### Shipped chunks
+
+| Chunk | Title | PR | Notes |
+|---|---|---|---|
+| **T4-1** | Schema + click telemetry | #465 | `user_preferences` + `user_menu_usage` tables, RLS, nightly decay cron |
+| **T4-2** | Menu-key registry + preferences API | (rolled into T4-3) | `src/lib/menuKeys.ts` + `api/_lib/menuKeys.js` mirror + 5 handlers |
+| **T4-3** | Star toggle + side drawer | #473 | `FavoriteStar`, `FavoritesDrawer`, Tanda wiring |
+| **T4-4** | Personalized landing + Settings panel | (in-flight, parallel to T4-5) | RootRoute redirect + Settings → Personalization tab |
+| **T4-5** | Close-out — drawer + telemetry across all 6 shells + arch doc adoption | this PR | DC / ATS / GS1 / Tech Pack drawer mounts + telemetry; Tech Pack registry entries; mappings; tests |
 
 This is a cross-app feature (Design Calendar, PO WIP, Tech Packs, ATS, GS1, Planning, Vendor Portal, Tangerine) — not Tangerine-specific. Lives in the cross-cutter T-chunk stream alongside T1 (shell), T2 (OAuth), T3 (table export).
 
@@ -200,3 +210,69 @@ Estimated ~3-4 days of work end-to-end once kicked off. T4-1 + T4-2 can run in p
 ## 9. Decision when to implement
 
 Not blocking on operator confirmation — T4 implementation can kick off any time after the P7 schemas land. Suggested order: ship P7 Wave A (M16/M17/M47 schemas) first since those are the most-asked phase, then slot T4 between P7 Wave B and Wave C. Alternatively, T4 is a "weekend feel-good" project — small surface, immediate UX win.
+
+---
+
+## 10. Adoption (post T4-5 close-out)
+
+`<FavoritesDrawer />` is now mounted in **all 6 PLM shells** — a single registry, a single drawer component, a single hook, every app:
+
+| Shell | File | Drawer mount | Menu-click telemetry |
+|---|---|---|---|
+| Design Calendar | `src/App.tsx` | ✓ (line ~1356) | wrapper around `setView` via `dcViewToMenuKey` |
+| Tanda / Tangerine ERP | `src/Tangerine.tsx` | ✓ | (Tangerine routes via `useState`-backed view; menu_keys logged at click sites) |
+| PO WIP (Tanda) | `src/TandA.tsx` | ✓ | wrapper around `setView` via `tandaViewToMenuKey` |
+| ATS | `src/ATS.tsx` | ✓ (fragment wrap of `atsRenderPanel`) | wrapper around `setViewMode` via `atsViewToMenuKey` + per-Report-entry `logClick` in `ats/panels/NavBar.tsx` |
+| GS1 Prepack Labels | `src/gs1/GS1App.tsx` | ✓ | wrapper around `setActiveTab` in `gs1/panels/NavBar.tsx` via `gs1ViewToMenuKey` |
+| Tech Packs | `src/TechPack.tsx` | ✓ | wrapper around `setView` via `techpackViewToMenuKey` |
+
+Auto-landing redirect (root URL `/` → operator's home_route or top-used) is owned by **T4-4** (in-flight in a parallel branch). The schema + click telemetry + drawer adoption shipped in T4-5 are the prerequisites — T4-4 only needs to add the `RootRoute` redirect + Settings → Personalization tab.
+
+### Per-app menu_key namespace
+
+- `dc/*`        — Design Calendar header nav (7 keys)
+- `ats/*`       — ATS grid pivots (3 keys) + Reports menu entries (6 keys)
+- `powip/*`     — PO WIP top-nav + vendors / ops / compliance / sourcing / finance / admin sub-menus (45 keys)
+- `gs1/*`       — GS1 tabs (12 keys)
+- `tanda/*`     — Tangerine internal modules across master data / accounting / CRM / reports / inventory / etc. (40 keys)
+- `techpack/*`  — Tech Pack top-nav (7 keys; the `detail` view is intentionally unmapped because it's instance-routed)
+
+`MENU_KEYS_VERSION` bumped to **2** with T4-5 (techpack rows added).
+
+### View-string → menu_key mappers (`src/lib/`)
+
+| Mapper | Source view shape | Covers |
+|---|---|---|
+| `tandaViewToMenuKey.ts` | `View` enum in TandA.tsx | PO WIP top-nav + vendors / ops / compliance / sourcing / finance / admin |
+| `dcViewToMenuKey.ts` | string view in App.tsx (DC) | DC top-nav |
+| `atsViewToMenuKey.ts` | `"ats" \| "so" \| "po"` viewMode | ATS grid pivots (reports use static menu_keys directly) |
+| `gs1ViewToMenuKey.ts` | `GS1Tab` enum in gs1Store | GS1 tabs |
+| `techpackViewToMenuKey.ts` | `View` enum in TechPack.tsx | Tech Pack top-nav (excludes `detail`) |
+
+All five mappers return `null` for unknown / null / undefined input — callers silently no-op so telemetry never blocks navigation.
+
+---
+
+## 11. API surface (recap)
+
+Five endpoints under `/api/internal/users/me/` — all auth'd via the standard internal-handler `authenticateCaller` flow:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/preferences` | Returns `{favorites: {keys, v}, home_route: {menu_key, v}, ...}` map of every preference row for the active user |
+| `PUT`  | `/preferences/favorites` | Replace the full favorites array. Body: `{keys: string[]}`. Validates each key against `MENU_KEY_SET`. |
+| `PUT`  | `/preferences/home-route` | Set default landing route. Body: `{menu_key: string}` or `null` to clear. Validates against `MENU_KEY_SET`. |
+| `POST` | `/menu-click` | Fire-and-forget click counter. Body: `{menu_key}`. Atomic upsert via RPC with a `last-30d / all-time` two-counter increment; falls back to read+write when the RPC isn't deployed yet. |
+| `GET`  | `/menu-usage/top` | Top-N (default 5, clamped 1-20) most-clicked keys in the last-30d window. Used by the auto-landing redirect (T4-4). |
+
+Nightly cron at `api/cron/menu-usage-decay.js` decays `click_count_30d` by 1/30th each run so the "last 30 days" window is a true rolling average without per-click rows.
+
+Client-side, every nav handler uses the same hook contract:
+
+```ts
+const { logClick } = usePersonalization();
+// fire-and-forget — never awaited, never throws, never blocks
+logClick("ats/reports/sales-comps");
+```
+
+`logClick` uses `fetch(..., { keepalive: true })` so a click that immediately navigates the browser still flushes the request.

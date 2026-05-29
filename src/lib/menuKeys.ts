@@ -27,7 +27,7 @@
 //      trail of registry revisions (cosmetic but helpful when debugging).
 // ════════════════════════════════════════════════════════════════════════════
 
-export type AppId = "dc" | "ats" | "powip" | "gs1" | "tanda";
+export type AppId = "dc" | "ats" | "powip" | "gs1" | "tanda" | "techpack";
 
 export interface MenuKey {
   key: string;            // stable, kebab-case, app-prefixed e.g. "tanda/journal-entries"
@@ -201,6 +201,21 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/operations/scanner-sessions", label: "Scanner Sessions", app: "tanda", route: "/tanda?view=scanner_sessions", group: "Operations", icon: "📱" },
 ];
 
+// ─── Tech Packs ────────────────────────────────────────────────────────────
+// Top nav in src/TechPack.tsx around lines 1442-1485. T4-5 (close-out) added
+// these so the favorites drawer + click telemetry cover the Tech Pack shell
+// too. `detail` is intentionally excluded — it's an instance view reached by
+// clicking a row, not a discoverable nav destination.
+const TECHPACK_MENU: MenuKey[] = [
+  { key: "techpack/dashboard",     label: "Dashboard",     app: "techpack", route: "/techpack",               group: "Main",          icon: "🏠" },
+  { key: "techpack/list",          label: "All Packs",     app: "techpack", route: "/techpack?view=list",     group: "Main",          icon: "📦" },
+  { key: "techpack/libraries",     label: "Libraries",     app: "techpack", route: "/techpack?view=libraries", group: "Main",          icon: "📚" },
+  { key: "techpack/samples",       label: "Samples",       app: "techpack", route: "/techpack?view=samples",  group: "Main",          icon: "🧵" },
+  { key: "techpack/teams",         label: "Teams",         app: "techpack", route: "/techpack?view=teams",    group: "Communication", icon: "💬" },
+  { key: "techpack/email",         label: "Email",         app: "techpack", route: "/techpack?view=email",    group: "Communication", icon: "📧" },
+  { key: "techpack/notifications", label: "Notifications", app: "techpack", route: "/techpack?view=notifications", group: "Communication", icon: "🔔" },
+];
+
 // ─── Exports ───────────────────────────────────────────────────────────────
 
 export const MENU_KEYS: MenuKey[] = [
@@ -209,6 +224,7 @@ export const MENU_KEYS: MenuKey[] = [
   ...POWIP_MENU,
   ...GS1_MENU,
   ...TANDA_MENU,
+  ...TECHPACK_MENU,
 ];
 
 // O(1) lookup by key. Frozen at module load.
@@ -236,4 +252,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 1;
+export const MENU_KEYS_VERSION = 2;

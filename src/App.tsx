@@ -48,6 +48,8 @@ import type { AppStore } from "./store";
 import FavoritesDrawer from "./components/FavoritesDrawer";
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { dcViewToMenuKey } from "./lib/dcViewToMenuKey";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -120,7 +122,18 @@ function App() {
   const showUsers = s.showUsers;
   const showSizeLib = s.showSizeLib;
   const showCatLib = s.showCatLib;
-  const setView = (v: string) => useAppStore.getState().setField("view", v);
+  // Cross-cutter T4-5 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  // setView wraps the store mutation with fire-and-forget menu-click
+  // telemetry. Mapped views (top nav) hit /api/internal/users/me/menu-click;
+  // unmapped internal views (e.g. modals masquerading as views) silently
+  // skip via the null-returning mapper.
+  const { logClick: logDcMenuClick } = usePersonalization();
+  const setView = (v: string) => {
+    const mk = dcViewToMenuKey(v);
+    if (mk) logDcMenuClick(mk);
+    useAppStore.getState().setField("view", v);
+  };
   const setListView = (v: boolean) => useAppStore.getState().setField("listView", v);
   const setExpandedColl = (v: string | null) => useAppStore.getState().setField("expandedColl", v);
   const setFilterBrand = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("filterBrand", v(s.filterBrand)); else useAppStore.getState().setField("filterBrand", v); };
