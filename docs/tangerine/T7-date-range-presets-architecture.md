@@ -1,6 +1,12 @@
 # Cross-cutter T7 — Date-range presets
 
-Status: **PLAN ONLY** (2026-05-28). Operator ask: "anywhere we have date ranges to be able to one click YTD, MTD, TY, LY, This Y to last month, etc."
+Status: **DONE** (2026-05-28).
+
+- T7-1 (PR #466, merged): component + pure helpers + unit tests.
+- T7-2 (PR #467, merged): swept 13 panels — `<DateRangePresets>` is now next to every Tangerine from/to date input.
+- T7-3 (this close-out): Trial Balance refetch fix, audit pass, arch-doc adoption section.
+
+Operator ask: "anywhere we have date ranges to be able to one click YTD, MTD, TY, LY, This Y to last month, etc."
 
 This is a small UI cross-cutter — a drop-in `<DateRangePresets>` component that sits next to any `From / To` date-input pair and offers one-click preset ranges.
 
@@ -93,11 +99,11 @@ A panel that currently passes the dates through React Query or a parent state co
 
 ## 4. Chunk split (when implementation kicks off)
 
-| Chunk | Title | Scope | Depends on |
-|---|---|---|---|
-| **T7-1** | Component + pure helpers + tests | `DateRangePresets.tsx` + `dateRangePresets.ts` (the math) + ~20 unit tests covering each preset against a fixed today. | — |
-| **T7-2** | Sweep all existing date-range panels | One PR that touches every panel with `from/to` date inputs. ~12-15 panels. Each gets the component drop-in. | T7-1 |
-| **T7-3** | Memory rule + per-chunk update | Extend `feedback_memorize_each_chunk.md` so every new date-range panel ships with presets. | T7-2 |
+| Chunk | Title | Scope | Depends on | Status |
+|---|---|---|---|---|
+| **T7-1** | Component + pure helpers + tests | `DateRangePresets.tsx` + `dateRangePresets.ts` (the math) + ~20 unit tests covering each preset against a fixed today. | — | **DONE — PR #466** |
+| **T7-2** | Sweep all existing date-range panels | One PR that touches every panel with `from/to` date inputs. ~13 panels. Each gets the component drop-in. | T7-1 | **DONE — PR #467** |
+| **T7-3** | Close-out (refetch fix, audit, doc) | Fixed `InternalTrialBalance` empty-deps refetch bug; audited every call site for import + onChange signature consistency; updated this doc with adoption + quirks. | T7-2 | **DONE** |
 
 Estimated **~half a day** end-to-end. T7-2 is straightforward but mechanical — same pattern as T3's export sweep.
 
@@ -116,3 +122,66 @@ Mirrors the T3 export rule and the per-chunk memorization rule.
 - **Fiscal-year vs calendar-year ambiguity.** Default presets use calendar Jan 1. If the operator's fiscal year ever shifts, the labels remain correct but the calculation needs a fiscal-aware override. Solution at that time: pass `fiscalYearStartMonth` prop, recompute "TY"/"LY"/"YTD" from that anchor.
 - **Time-zone drift on "today".** `new Date()` uses the browser TZ. For an operator in NY but Supabase in UTC, "MTD" might end at "today 00:00 UTC" which is 8pm prior day NY time. Edge case; treat `to` as inclusive date-only (YYYY-MM-DD), no time.
 - **Date range that crosses an open period boundary.** Not T7's problem — that's a P5 close-mechanics issue. T7 just sets the inputs.
+
+---
+
+## 7. Adoption (landed in T7-2, PR #467)
+
+`<DateRangePresets>` is wired next to the from/to date inputs on these 13 panels:
+
+1. `InternalAPPayments.tsx`
+2. `InternalARBackfill.tsx`
+3. `InternalARInvoices.tsx`
+4. `InternalARReceipts.tsx`
+5. `InternalCashFlow.tsx`
+6. `InternalCrmActivities.tsx`
+7. `InternalCycleCounts.tsx`
+8. `InternalGLDetail.tsx`
+9. `InternalIncomeStatement.tsx`
+10. `InternalInventoryAdjustments.tsx`
+11. `InternalSalesByCustomer.tsx`
+12. `InternalSalesByRep.tsx`
+13. `InternalTrialBalance.tsx`
+
+All 13 use the same call shape:
+
+```tsx
+<DateRangePresets
+  from={fromDate}
+  to={toDate}
+  onChange={(f, t) => { setFromDate(f); setToDate(t); }}
+/>
+```
+
+Picking a chip just updates the date-state setters; refetch behavior is left to each panel's existing reload trigger (most still use a manual "Refresh" button, which is fine — the chip pre-fills the inputs).
+
+**T7-3 fix:** `InternalTrialBalance` originally had `useEffect(load, [])` (empty deps). That meant clicking a preset chip updated state but the panel didn't auto-refetch — operator had to also click Refresh. Deps now include `[fromDate, toDate]` so the chip auto-loads. Basis dropdown remains on the manual-Refresh path (intentional — avoids mid-edit re-queries when toggling Accrual/Cash).
+
+---
+
+## 8. Skipped panels (intentionally out of scope)
+
+Three panels use a single "as of" date instead of a from/to range — a preset chip-row doesn't map cleanly:
+
+- `InternalAPAging.tsx` — AP aging snapshot as of a single date.
+- `InternalARAging.tsx` — AR aging snapshot as of a single date.
+- `InternalBalanceSheet.tsx` — balance-sheet snapshot as of a single date.
+
+If the operator later wants single-date presets (Today / End of Last Month / End of Last Quarter / End of Last Year), that's a small follow-up cross-cutter — a `<DatePresets>` (singular) sibling component. Not in T7's scope.
+
+The ATS **Sales Comps Toolbar** also uses a different pattern (`From + Show N days/weeks/months`) — not a from/to range, so the existing chip set doesn't map. Out of scope for T7; would need a dedicated "shift the From anchor" preset row.
+
+---
+
+## 9. Windows case-collision quirk — explicit `.tsx` / `.ts` extension rule
+
+On Windows (case-insensitive filesystem), having both `DateRangePresets.tsx` (component) and `dateRangePresets.ts` (helpers) in the same directory plus a bare `from "./components/DateRangePresets"` import has produced sporadic Vite/TS resolution flakiness — Vite picks the first match it finds case-insensitively, which can be either file depending on cache state.
+
+Rule: **all imports of the T7 component and helpers MUST include the explicit file extension.**
+
+```tsx
+import DateRangePresets from "./components/DateRangePresets.tsx";
+import { DEFAULT_PRESETS, type Preset } from "./components/dateRangePresets.ts";
+```
+
+Audited in T7-3: all 13 panel imports + the test file already follow this rule.
