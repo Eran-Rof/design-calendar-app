@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+// Cross-cutter T11-3 — audit-trail drop-in for the GL account detail modal.
+import RowHistory from "./components/RowHistory";
 
 type Account = {
   id: string;
@@ -388,6 +390,11 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
+
+        {/* Cross-cutter T11-3 — audit trail timeline */}
+        {mode === "edit" && account && (
+          <RowHistory source_table="gl_accounts" source_id={account.id} />
+        )}
       </div>
     </div>
   );

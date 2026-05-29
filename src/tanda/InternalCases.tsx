@@ -9,6 +9,8 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
+// Cross-cutter T11-3 — audit-trail drop-in for the case detail modal.
+import RowHistory from "./components/RowHistory";
 
 type Case = {
   id: string;
@@ -592,6 +594,9 @@ function CaseDetailModal({ id, onClose, customers }: {
               {saving ? "Posting…" : "Post comment"}
             </button>
           </div>
+
+          {/* Cross-cutter T11-3 — audit trail timeline */}
+          <RowHistory source_table="cases" source_id={id} />
         </>
       )}
     </Modal>

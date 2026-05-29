@@ -13,6 +13,8 @@
 //   closed     → open       (full reopen)
 
 import { useEffect, useMemo, useState } from "react";
+// Cross-cutter T11-3 — audit-trail drop-in for the period detail/preflight modal.
+import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -422,6 +424,9 @@ function PreflightModal({ period, data, loading, err, onClose }: {
             </table>
           </>
         )}
+
+        {/* Cross-cutter T11-3 — audit trail timeline (period close/reopen events) */}
+        <RowHistory source_table="gl_periods" source_id={period.id} />
       </div>
     </div>
   );

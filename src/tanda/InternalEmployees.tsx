@@ -7,6 +7,8 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+// Cross-cutter T11-3 — audit-trail drop-in for the employee detail modal.
+import RowHistory from "./components/RowHistory";
 
 type Employee = {
   id: string;
@@ -339,6 +341,11 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
             {saving ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
+
+        {/* Cross-cutter T11-3 — audit trail timeline */}
+        {mode === "edit" && employee && (
+          <RowHistory source_table="employees" source_id={employee.id} />
+        )}
       </div>
     </div>
   );
