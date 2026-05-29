@@ -58,6 +58,8 @@ import InternalCrmTasks               from "./tanda/InternalCrmTasks";
 import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 // Cross-cutter T10-7 — Shadow Mirror Status panel (Xoro → Tangerine nightly mirror dashboard).
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
+// P11-7 — Shopify Refunds reports panel.
+import InternalShopifyRefunds         from "./tanda/InternalShopifyRefunds";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -133,9 +135,11 @@ type ModuleKey =
   | "crm_tasks"
   | "crm_pipeline_report"
   // Cross-cutter T10-7 — Shadow Mirror Status (Xoro → Tangerine nightly mirror).
-  | "shadow_mirror";
+  | "shadow_mirror"
+  // P11-7 — Shopify Refunds reports panel.
+  | "shopify_refunds";
 
-type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror";
+type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -149,7 +153,7 @@ type ModuleDef = {
 // "invoice posts → check pipeline → log activity" so it follows Accounting and
 // precedes the cross-functional Reports group.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
@@ -159,6 +163,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Reports":          "📊",
   "Inventory":        "📦",
   "Customer Service": "🤝",
+  "Shopify":          "🛍️",
   "Shadow Mirror":    "🔁",
   "Approvals":        "✅",
   "Notifications":    "🔔",
@@ -225,6 +230,8 @@ const MODULES: ModuleDef[] = [
   { key: "crm_pipeline_report", label: "Pipeline Report",   emoji: "📊", group: "CRM" },
   // Cross-cutter T10-7 — Shadow Mirror Status dashboard (single panel under 🔁).
   { key: "shadow_mirror",       label: "Mirror Status",     emoji: "🔁", group: "Shadow Mirror" },
+  // P11-7 — Shopify Refunds reports panel (read-only audit surface).
+  { key: "shopify_refunds",     label: "Refunds",           emoji: "↩️", group: "Shopify" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -403,6 +410,8 @@ export default function Tangerine() {
         {activeModule === "crm_pipeline_report" && <InternalCrmPipelineReport />}
         {/* Cross-cutter T10-7 — Shadow Mirror Status dashboard */}
         {activeModule === "shadow_mirror"       && <InternalShadowMirrorStatus />}
+        {/* P11-7 — Shopify Refunds reports panel */}
+        {activeModule === "shopify_refunds"     && <InternalShopifyRefunds />}
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
