@@ -44,6 +44,7 @@ const OrderTypeManager = lazy(() => import("./components/OrderTypeManager"));
 const RoleManager = lazy(() => import("./components/RoleManager"));
 const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
+import FavoritesDrawer from "./components/FavoritesDrawer";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -1349,6 +1350,8 @@ function App() {
         ]}
         appId="dc"
       />
+      {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
+      <FavoritesDrawer />
     </div>
   );
 }

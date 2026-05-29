@@ -72,6 +72,10 @@ import type { CoreState } from "./tanda/state/core/coreTypes";
 import { useTandaStore } from "./tanda/store/index";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
+// Cross-cutter T4-3 — Personalization: favorites drawer + menu-click telemetry.
+import FavoritesDrawer from "./components/FavoritesDrawer";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { tandaViewToMenuKey } from "./lib/tandaViewToMenuKey";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -310,7 +314,17 @@ function TandAApp() {
   const attachments = core.attachments;
   const uploadingAttachment = core.uploadingAttachment;
   const setUser = (v: User | null) => coreSet("user", v);
-  const setView = (v: View) => coreSet("view", v);
+  // Cross-cutter T4-3 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  const { logClick: logMenuClick } = usePersonalization();
+  const setView = (v: View) => {
+    // Fire-and-forget menu-click telemetry. Mapped views (top nav +
+    // vendor flyout) hit /api/internal/users/me/menu-click; unmapped
+    // internal views (e.g. drill-down detail panels) silently skip.
+    const mk = tandaViewToMenuKey(v as unknown as string);
+    if (mk) logMenuClick(mk);
+    coreSet("view", v);
+  };
   const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(useTandaStore.getState().pos)); else coreSet("pos", v); };
   const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(useTandaStore.getState().notes)); else coreSet("notes", v); };
   const setSelected = (v: XoroPO | null) => coreSet("selected", v);
@@ -2057,6 +2071,8 @@ function TandAApp() {
         ]}
         appId="po_wip"
       />
+      {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
+      <FavoritesDrawer />
     </div>
   );
 
