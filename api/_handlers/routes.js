@@ -483,6 +483,12 @@ import h466 from "./internal/shopify/webhooks/disputes.js";
 import h473 from "./internal/faire/sync-returns.js";
 import h474 from "../cron/faire-returns-weekly.js";
 
+// Cross-cutter T11-3 — Universal audit log read API.
+//   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
+//   h486 = GET /api/internal/audit/log         (full filtered ledger for admin panel)
+import h485 from "./internal/audit/row-history.js";
+import h486 from "./internal/audit/log.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -949,6 +955,9 @@ export const ROUTES = [
   { pattern: "/api/cron/walmart-returns-daily",                        handler: h472 },
   // P11-8 — Shopify dispute (chargeback) webhook intake.
   { pattern: "/api/internal/shopify/webhooks/disputes",                handler: h466 },
+  // Cross-cutter T11-3 — Universal audit log read endpoints.
+  { pattern: "/api/internal/audit/row-history",                        handler: h485 },
+  { pattern: "/api/internal/audit/log",                                handler: h486 },
 ];
 
 export function compileRoutes(routes) {

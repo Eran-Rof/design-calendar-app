@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+// Cross-cutter T11-3 — audit-trail drop-in for the vendor detail modal.
+import RowHistory from "./components/RowHistory";
 
 type Vendor = {
   id: string;
@@ -451,6 +453,11 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
               kinds={["contract", "w9", "coa", "insurance", "other"]}
             />
           </div>
+        )}
+
+        {/* Cross-cutter T11-3 — audit trail timeline */}
+        {mode === "edit" && vendor && (
+          <RowHistory source_table="vendors" source_id={vendor.id} />
         )}
       </div>
     </div>

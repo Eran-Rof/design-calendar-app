@@ -12,6 +12,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+// Cross-cutter T11-3 — audit-trail drop-in for the detail modal.
+import RowHistory from "./components/RowHistory";
 
 type GlStatus =
   | "draft" | "unposted" | "pending_approval" | "sent"
@@ -908,6 +910,11 @@ function ARInvoiceModal({
                   kinds={["customer_invoice_pdf", "approval_correspondence", "other"]}
                 />
               </div>
+            )}
+
+            {/* Cross-cutter T11-3 — audit trail timeline */}
+            {!isNew && invoice && (
+              <RowHistory source_table="ar_invoices" source_id={invoice.id} />
             )}
 
             {err && (
