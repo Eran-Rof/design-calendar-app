@@ -60,6 +60,8 @@ import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 // P11-7 — Shopify Refunds reports panel.
 import InternalShopifyRefunds         from "./tanda/InternalShopifyRefunds";
+// Tangerine P12-99 — Marketplaces status panel (Shopify / FBA / Walmart / Faire dashboard).
+import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -137,9 +139,11 @@ type ModuleKey =
   // Cross-cutter T10-7 — Shadow Mirror Status (Xoro → Tangerine nightly mirror).
   | "shadow_mirror"
   // P11-7 — Shopify Refunds reports panel.
-  | "shopify_refunds";
+  | "shopify_refunds"
+  // Tangerine P12-99 — Marketplaces status (Shopify / FBA / Walmart / Faire).
+  | "marketplace_status";
 
-type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify";
+type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -153,7 +157,7 @@ type ModuleDef = {
 // "invoice posts → check pipeline → log activity" so it follows Accounting and
 // precedes the cross-functional Reports group.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Marketplaces", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
@@ -164,6 +168,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Inventory":        "📦",
   "Customer Service": "🤝",
   "Shopify":          "🛍️",
+  "Marketplaces":     "🛒",
   "Shadow Mirror":    "🔁",
   "Approvals":        "✅",
   "Notifications":    "🔔",
@@ -232,6 +237,8 @@ const MODULES: ModuleDef[] = [
   { key: "shadow_mirror",       label: "Mirror Status",     emoji: "🔁", group: "Shadow Mirror" },
   // P11-7 — Shopify Refunds reports panel (read-only audit surface).
   { key: "shopify_refunds",     label: "Refunds",           emoji: "↩️", group: "Shopify" },
+  // Tangerine P12-99 — Marketplaces close-out status panel (Shopify / FBA / Walmart / Faire).
+  { key: "marketplace_status",  label: "Marketplace Status",emoji: "🛒", group: "Marketplaces" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -412,6 +419,8 @@ export default function Tangerine() {
         {activeModule === "shadow_mirror"       && <InternalShadowMirrorStatus />}
         {/* P11-7 — Shopify Refunds reports panel */}
         {activeModule === "shopify_refunds"     && <InternalShopifyRefunds />}
+        {/* Tangerine P12-99 — Marketplaces close-out status dashboard */}
+        {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
@@ -875,6 +884,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const inventoryModules = MODULES.filter((m) => m.group === "Inventory");
   const opsModules = MODULES.filter((m) => m.group === "Operations");
   const csModules = MODULES.filter((m) => m.group === "Customer Service");
+  const marketplacesModules = MODULES.filter((m) => m.group === "Marketplaces");
   const mirrorModules = MODULES.filter((m) => m.group === "Shadow Mirror");
 
   return (
@@ -943,6 +953,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Customer Service (P7)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {csModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Marketplaces (P11–P12)">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {marketplacesModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 

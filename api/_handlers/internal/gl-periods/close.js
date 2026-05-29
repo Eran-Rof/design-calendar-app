@@ -26,6 +26,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { requestIfRequired, ApprovalsError } from "../../../_lib/approvals/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
+import { runPreflight } from "./preflight.js";
 
 export const config = { maxDuration: 15 };
 
@@ -111,7 +112,7 @@ export default async function handler(req, res) {
 
   const { data: period, error: pErr } = await admin
     .from("gl_periods")
-    .select("id, entity_id, fiscal_year, period_number, status")
+    .select("id, entity_id, fiscal_year, period_number, status, starts_on, ends_on")
     .eq("id", id)
     .maybeSingle();
   if (pErr) return res.status(500).json({ error: pErr.message });
@@ -140,28 +141,29 @@ export default async function handler(req, res) {
     });
   }
 
-  // P5-7: pre-flight checks. Any blocking failure rejects the close with 409.
-  // Warning failures pass through unless ignore_warnings is false (default
-  // behavior: warnings are NOT blocking, so they pass).
+  // P5-7 + P12-99: pre-flight checks. Any blocking failure rejects the close
+  // with 409. Warning failures pass through unless ignore_warnings is false
+  // (default behavior: warnings are NOT blocking, so they pass).
+  //
+  // P12-99: runPreflight wraps the SQL RPC AND the JS-side marketplace
+  // deposit augmentation, so an unmatched shopify/fba/walmart/faire deposit
+  // landing in the period blocks the close.
   try {
-    const { data: preflightRows, error: preflightErr } = await admin.rpc(
-      "gl_period_close_preflight",
-      { p_entity_id: period.entity_id, p_period_id: id },
-    );
-    if (preflightErr) {
+    const result = await runPreflight(admin, period);
+    if (result.error) {
       // Pre-flight RPC missing (e.g. migration not yet applied) → log and
       // continue. Better to let the close go through than to block forever.
-      console.warn("[close.js] preflight RPC failed; continuing:", preflightErr.message);
-    } else if (Array.isArray(preflightRows)) {
+      console.warn("[close.js] preflight failed; continuing:", result.error);
+    } else if (Array.isArray(result.rows)) {
       // Only blocking failures stop the close. Warnings (status=fail,
       // blocking=false) are advisory — the UI surfaces them but the handler
       // lets them through.
-      const blockingFails = preflightRows.filter((r) => r.status === "fail" && r.blocking);
+      const blockingFails = result.rows.filter((r) => r.status === "fail" && r.blocking);
       if (blockingFails.length > 0) {
         return res.status(409).json({
           error: "Pre-flight checks failed (blocking)",
           blocking_failures: blockingFails,
-          all_rows: preflightRows,
+          all_rows: result.rows,
         });
       }
     }
