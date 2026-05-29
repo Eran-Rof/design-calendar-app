@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (180 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (181 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 247 tables · 235 CREATE TABLE · 473 ALTER TABLE
+**Stats:** 252 tables · 240 CREATE TABLE · 478 ALTER TABLE
 
 ---
 
@@ -3499,6 +3499,96 @@ _(no columns parsed)_
 - `spent_at` timestamptz
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `walmart_order_items`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `walmart_order_id` uuid → `walmart_orders` NOT NULL
+- `line_number` int NOT NULL
+- `item_sku` text
+- `product_name` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `quantity` int
+- `unit_price_cents` bigint
+- `line_total_cents` bigint
+- `tax_cents` bigint NOT NULL DEFAULT 0
+- `commission_cents` bigint NOT NULL DEFAULT 0
+- `wfs_fulfillment_fee_cents` bigint NOT NULL DEFAULT 0
+- `raw_payload` jsonb
+
+## `walmart_orders`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `walmart_seller_account_id` uuid → `walmart_seller_accounts` NOT NULL
+- `purchase_order_id` text NOT NULL
+- `order_status` text
+- `order_total_cents` bigint
+- `item_subtotal_cents` bigint NOT NULL DEFAULT 0
+- `tax_collected_cents` bigint NOT NULL DEFAULT 0
+- `shipping_cents` bigint NOT NULL DEFAULT 0
+- `discount_cents` bigint NOT NULL DEFAULT 0
+- `customer_id` uuid → `customers`
+- `ar_invoice_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb
+- `source` text NOT NULL DEFAULT 'walmart' CHECK `source = 'walmart'`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `walmart_returns`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `walmart_order_id` uuid → `walmart_orders`
+- `customer_order_id` text
+- `return_order_id` text NOT NULL
+- `item_sku` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `quantity` int
+- `reason` text
+- `return_status` text
+- `refund_amount_cents` bigint NOT NULL DEFAULT 0
+- `restocking_fee_cents` bigint NOT NULL DEFAULT 0
+- `ar_credit_memo_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `walmart_seller_accounts`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `partner_id` text NOT NULL
+- `key` = WALMART_TOKEN_ENC_KEY client_id_iv bytea
+- `client_id_tag` bytea
+- `client_secret_ciphertext` bytea
+- `client_secret_iv` bytea
+- `client_secret_tag` bytea
+- `wfs_location_id` uuid → `inventory_locations`
+- `is_active` boolean NOT NULL DEFAULT true
+- `last_orders_sync_at` timestamptz
+- `last_settlement_sync_at` timestamptz
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `walmart_settlements`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `walmart_seller_account_id` uuid → `walmart_seller_accounts` NOT NULL
+- `settlement_id` text NOT NULL
+- `period_start` date
+- `period_end` date
+- `gross_amount_cents` bigint
+- `fees_amount_cents` bigint
+- `refunds_amount_cents` bigint
+- `net_amount_cents` bigint
+- `currency` text NOT NULL DEFAULT 'USD'
+- `bank_transaction_id` uuid → `bank_transactions`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `workflow_executions`  _((pre-P))_
 
