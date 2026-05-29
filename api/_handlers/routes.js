@@ -436,6 +436,9 @@ import h454 from "./internal/faire/sync-orders.js";
 import h455 from "../cron/faire-orders-nightly.js";
 import h456 from "./internal/faire/sync-payouts.js";
 import h457 from "../cron/faire-payouts-monthly.js";
+// P11-3 — Shopify AR JE posting manual backfill handler.
+// h441 = POST /api/internal/shopify/post-order/:id
+import h441 from "./internal/shopify/post-order/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -875,6 +878,8 @@ export const ROUTES = [
   { pattern: "/api/cron/faire-orders-nightly",                         handler: h455 },
   { pattern: "/api/internal/faire/sync-payouts",                       handler: h456 },
   { pattern: "/api/cron/faire-payouts-monthly",                        handler: h457 },
+  // P11-3 — Shopify AR JE posting manual backfill.
+  { pattern: "/api/internal/shopify/post-order/:id",                   handler: h441 },
 ];
 
 export function compileRoutes(routes) {
