@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (176 migration files). Latest: `20260629100000_p11_chunk1_shopify_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (177 migration files). Latest: `20260629200000_p12_chunk0_marketplaces_shared.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 235 tables · 224 CREATE TABLE · 456 ALTER TABLE
+**Stats:** 236 tables · 225 CREATE TABLE · 462 ALTER TABLE
 
 ---
 
@@ -723,6 +723,7 @@ _(no columns parsed)_
 - `processor_card_brand` text
 - `processor_card_last4` text
 - `search_doc` tsvector
+- `marketplace_buyer_refs` jsonb NOT NULL DEFAULT '{}'::jsonb
 
 ## `data_quality_issues`  _((pre-P))_
 
@@ -1149,16 +1150,30 @@ _(no columns parsed)_
 - `remaining_qty` numeric(18,4) NOT NULL
 - `unit_cost_cents` bigint NOT NULL
 - `source_kind` text NOT NULL CHECK `IN ('ap_invoice',
-      'adjustment',
-      'opening_balance',
-      'transfer_in',
-      'credit_memo_return',
-      'xoro_mirror_snapshot',
-      'shopify_refund_restock')`
+    'adjustment',
+    'opening_balance',
+    'transfer_in',
+    'credit_memo_return',
+    'xoro_mirror_snapshot',
+    'shopify_refund_restock',
+    'fba_inbound',
+    'wfs_inbound',
+    'fba_return_restock',
+    'wfs_return_restock')`
 - `source_invoice_id` uuid → `invoices`
 - `notes` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
+- `location_id` uuid → `inventory_locations`
+
+## `inventory_locations`  _(P12-0)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `code` text NOT NULL
+- `kind` text NOT NULL CHECK `kind IN ('warehouse','fba','wfs','3pl','dropship','virtual')`
+- `country_code` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `inventory_transfers`  _(P3-7)_
 
