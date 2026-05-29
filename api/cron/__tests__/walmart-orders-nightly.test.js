@@ -206,6 +206,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
             ],
           }));
         },
+        postJe: async () => ({ status: "posted", je_id: "je-stub" }),
       },
     });
     expect(out.accounts).toHaveLength(2);
@@ -236,6 +237,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
             orders: [{ purchaseOrderId: "POOK", orderLines: { orderLine: [{ lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } }] } }],
           }));
         },
+        postJe: async () => ({ status: "posted", je_id: "je-stub" }),
       },
     });
     expect(out.accounts).toHaveLength(2);
@@ -259,6 +261,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
         decrypt: () => "x",
         getAccessToken: async () => ({ access_token: "T" }),
         ClientCtor: function Mock() { Object.assign(this, fakeClient()); },
+        postJe: async () => ({ status: "posted", je_id: "je-stub" }),
       },
     });
     expect(out.accounts[0].error).toMatch(/missing/i);
@@ -276,6 +279,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
         decrypt: () => "x",
         getAccessToken: async () => ({ access_token: "T" }),
         ClientCtor: function Mock() { Object.assign(this, fakeClient()); },
+        postJe: async () => ({ status: "posted", je_id: "je-stub" }),
       },
     });
     expect(calls.from).toContain("walmart_seller_accounts");
@@ -284,7 +288,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
   it("returns total_orders_upserted=0 when no accounts", async () => {
     const { supabase } = makeSupabase({ accounts: [] });
     const out = await runWalmartOrdersNightly(supabase, {
-      deps: { decrypt: () => "", getAccessToken: async () => ({ access_token: "T" }), ClientCtor: function Mock() { Object.assign(this, fakeClient()); } },
+      deps: { decrypt: () => "", getAccessToken: async () => ({ access_token: "T" }), ClientCtor: function Mock() { Object.assign(this, fakeClient()); }, postJe: async () => ({ status: "posted", je_id: "je-stub" }) },
     });
     expect(out.accounts).toEqual([]);
     expect(out.total_orders_upserted).toBe(0);
@@ -298,6 +302,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
         decrypt: () => "x",
         getAccessToken: async () => ({ access_token: "T" }),
         ClientCtor: function Mock() { Object.assign(this, fakeClient()); },
+        postJe: async () => ({ status: "posted", je_id: "je-stub" }),
       },
     });
     expect(typeof out.started_at).toBe("string");
@@ -313,6 +318,7 @@ describe("runWalmartOrdersNightly — orchestrator", () => {
         decrypt: () => "x",
         getAccessToken: async () => ({ access_token: "T" }),
         ClientCtor: function Mock() { Object.assign(this, fakeClient()); },
+        postJe: async () => ({ status: "posted", je_id: "je-stub" }),
       },
     });
     const updates = calls.updates.filter((u) => u.table === "walmart_seller_accounts");
@@ -339,10 +345,161 @@ describe("ingestOneAccount", () => {
       decrypt: () => "x",
       getAccessToken: async () => ({ access_token: "T" }),
       ClientCtor: function Mock() { Object.assign(this, client); },
+      postJe: async () => ({ status: "posted", je_id: "je-stub" }),
     };
     const out = await ingestOneAccount(supabase, acct, deps, {});
     expect(out.pages_walked).toBe(2);
     expect(out.orders_upserted).toBe(2);
     expect(out.error).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// P12b-3 — Auto-post AR JE after upsert
+// ──────────────────────────────────────────────────────────────────────
+
+describe("P12b-3 auto-post JE", () => {
+  it("calls deps.postJe with walmartOrderId after each upsert", async () => {
+    const accts = [makeAcct()];
+    const { supabase } = makeSupabase({ accounts: accts, orderUpsertId: "wm-1" });
+    const postJe = vi.fn().mockResolvedValue({ status: "posted", je_id: "je-1" });
+    const out = await runWalmartOrdersNightly(supabase, {
+      deps: {
+        decrypt: () => "x",
+        getAccessToken: async () => ({ access_token: "T" }),
+        ClientCtor: function Mock() {
+          Object.assign(this, fakeClient({
+            orders: [
+              { purchaseOrderId: "PO-X", orderLines: { orderLine: [
+                { lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } },
+              ] } },
+            ],
+          }));
+        },
+        postJe,
+      },
+    });
+    expect(postJe).toHaveBeenCalledTimes(1);
+    expect(postJe).toHaveBeenCalledWith(
+      expect.objectContaining({ walmartOrderId: "wm-1", adminClient: supabase }),
+    );
+    expect(out.total_je_posted).toBe(1);
+    expect(out.total_je_already_posted).toBe(0);
+    expect(out.total_je_errors).toBe(0);
+  });
+
+  it("aggregates already_posted into total_je_already_posted (idempotent re-ingest)", async () => {
+    const accts = [makeAcct()];
+    const { supabase } = makeSupabase({ accounts: accts, orderUpsertId: "wm-1" });
+    const out = await runWalmartOrdersNightly(supabase, {
+      deps: {
+        decrypt: () => "x",
+        getAccessToken: async () => ({ access_token: "T" }),
+        ClientCtor: function Mock() {
+          Object.assign(this, fakeClient({
+            orders: [
+              { purchaseOrderId: "PO-X", orderLines: { orderLine: [
+                { lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } },
+              ] } },
+            ],
+          }));
+        },
+        postJe: async () => ({ status: "already_posted", je_id: "existing-je" }),
+      },
+    });
+    expect(out.total_je_posted).toBe(0);
+    expect(out.total_je_already_posted).toBe(1);
+    expect(out.total_je_errors).toBe(0);
+  });
+
+  it("captures postJe errors into je_errors without aborting the run", async () => {
+    const accts = [makeAcct()];
+    const { supabase } = makeSupabase({ accounts: accts, orderUpsertId: "wm-1" });
+    const out = await runWalmartOrdersNightly(supabase, {
+      deps: {
+        decrypt: () => "x",
+        getAccessToken: async () => ({ access_token: "T" }),
+        ClientCtor: function Mock() {
+          Object.assign(this, fakeClient({
+            orders: [
+              { purchaseOrderId: "PO-FAIL", orderLines: { orderLine: [
+                { lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } },
+              ] } },
+            ],
+          }));
+        },
+        postJe: async () => {
+          const e = new Error("Missing GL accounts: 4500 — Shipping Revenue");
+          e.code = "gl_accounts_missing";
+          throw e;
+        },
+      },
+    });
+    expect(out.total_orders_upserted).toBe(1);
+    expect(out.total_je_posted).toBe(0);
+    expect(out.total_je_errors).toBe(1);
+    // Account-level error should NOT be set — JE error is per-order.
+    expect(out.accounts[0].error).toBeNull();
+    expect(out.accounts[0].je_errors).toHaveLength(1);
+    expect(out.accounts[0].je_errors[0]).toMatchObject({
+      walmart_order_id: "wm-1",
+      purchase_order_id: "PO-FAIL",
+      code: "gl_accounts_missing",
+    });
+  });
+
+  it("does NOT call postJe when upsertOrder returns null (no purchase_order_id)", async () => {
+    const accts = [makeAcct()];
+    const { supabase } = makeSupabase({ accounts: accts });
+    const postJe = vi.fn();
+    await runWalmartOrdersNightly(supabase, {
+      deps: {
+        decrypt: () => "x",
+        getAccessToken: async () => ({ access_token: "T" }),
+        ClientCtor: function Mock() {
+          Object.assign(this, fakeClient({
+            orders: [
+              // No purchaseOrderId → upsertOrder returns null
+              { orderLines: { orderLine: [{ lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } }] } },
+            ],
+          }));
+        },
+        postJe,
+      },
+    });
+    expect(postJe).not.toHaveBeenCalled();
+  });
+
+  it("aggregates mixed posted + already_posted + errors across multiple orders", async () => {
+    const accts = [makeAcct()];
+    const { supabase } = makeSupabase({ accounts: accts, orderUpsertId: "wm-N" });
+    let n = 0;
+    const postJe = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return { status: "posted", je_id: "je-1" };
+      if (n === 2) return { status: "already_posted", je_id: "je-2" };
+      throw Object.assign(new Error("boom"), { code: "rpc_failed" });
+    });
+    const out = await runWalmartOrdersNightly(supabase, {
+      deps: {
+        decrypt: () => "x",
+        getAccessToken: async () => ({ access_token: "T" }),
+        ClientCtor: function Mock() {
+          Object.assign(this, fakeClient({
+            orders: [
+              { purchaseOrderId: "PO-1", orderLines: { orderLine: [{ lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } }] } },
+              { purchaseOrderId: "PO-2", orderLines: { orderLine: [{ lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } }] } },
+              { purchaseOrderId: "PO-3", orderLines: { orderLine: [{ lineNumber: 1, item: { sku: "S" }, orderLineQuantity: { amount: 1 } }] } },
+            ],
+          }));
+        },
+        postJe,
+      },
+    });
+    expect(postJe).toHaveBeenCalledTimes(3);
+    expect(out.total_orders_upserted).toBe(3);
+    expect(out.total_je_posted).toBe(1);
+    expect(out.total_je_already_posted).toBe(1);
+    expect(out.total_je_errors).toBe(1);
   });
 });
