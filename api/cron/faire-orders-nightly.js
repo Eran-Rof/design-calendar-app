@@ -34,6 +34,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { FaireClient, FaireApiError, isFaireConfigured } from "../_lib/marketplaces/faire/client.js";
 import { decryptToken } from "../_lib/marketplaces/faire/token-encryption.js";
+import { postFaireOrderJe } from "../_lib/marketplaces/faire/post-order-je.js";
 
 export const config = { maxDuration: 300 };
 
@@ -121,6 +122,9 @@ export async function runFaireOrdersIngest(supabase, opts = {}) {
     orders_upserted_total: 0,
     lines_upserted_total: 0,
     buyers_upserted_total: 0,
+    je_posted_total: 0,
+    je_skipped_total: 0,
+    je_errors: [],
     errors: [],
     per_shop: [],
   };
@@ -133,6 +137,9 @@ export async function runFaireOrdersIngest(supabase, opts = {}) {
       orders_upserted: 0,
       lines_upserted: 0,
       buyers_upserted: 0,
+      je_posted: 0,
+      je_skipped: 0,
+      je_errors: [],
       pages_walked: 0,
       cursor_updated: false,
       error: null,
@@ -152,6 +159,9 @@ export async function runFaireOrdersIngest(supabase, opts = {}) {
     summary.orders_upserted_total += shopSummary.orders_upserted;
     summary.lines_upserted_total  += shopSummary.lines_upserted;
     summary.buyers_upserted_total += shopSummary.buyers_upserted;
+    summary.je_posted_total       += shopSummary.je_posted;
+    summary.je_skipped_total      += shopSummary.je_skipped;
+    summary.je_errors             = summary.je_errors.concat(shopSummary.je_errors);
   }
 
   return summary;
@@ -362,6 +372,23 @@ async function ingestOrder(supabase, shop, order, shopSummary) {
     if (fErr) {
       throw new Error(`faire_buyers first-order flag set failed: ${fErr.message}`);
     }
+  }
+
+  // ── P12c-3: Post the AR JE for this order ───────────────────────────────
+  // Idempotent — already_posted short-circuits via faire_orders.je_id, so
+  // re-running the cron after JE posting is safe. Per-order try/catch so
+  // one bad order (missing GL accounts, locked period, etc.) doesn't sink
+  // the rest of the page.
+  try {
+    const out = await postFaireOrderJe({
+      faireOrderId: faireOrderRowId,
+      adminClient: supabase,
+    });
+    if (out.status === "posted") shopSummary.je_posted += 1;
+    else if (out.status === "already_posted") shopSummary.je_skipped += 1;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    shopSummary.je_errors.push(`faire_order ${faireOrderRowId}: ${msg}`);
   }
 }
 
