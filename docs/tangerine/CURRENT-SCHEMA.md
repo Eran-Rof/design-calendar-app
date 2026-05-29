@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (179 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (180 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 241 tables · 230 CREATE TABLE · 467 ALTER TABLE
+**Stats:** 247 tables · 235 CREATE TABLE · 473 ALTER TABLE
 
 ---
 
@@ -1009,20 +1009,9 @@ _(no columns parsed)_
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 
-## `faire_buyers`  _((pre-P))_
+## `faire_buyers`  _((pre-P) (alter only))_
 
-- `id` uuid PK DEFAULT gen_random_uuid()
-- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
-- `faire_shop_id` uuid → `faire_shops` NOT NULL
-- `faire_brand_token` text NOT NULL
-- `buyer_name` text NOT NULL
-- `buyer_email` text
-- `customer_id` uuid → `customers`
-- `first_order_at` timestamptz
-- `is_first_order_completed` boolean NOT NULL DEFAULT false
-- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
-- `created_at` timestamptz NOT NULL DEFAULT now()
-- `updated_at` timestamptz NOT NULL DEFAULT now()
+_(no columns parsed)_
 
 ## `faire_order_items`  _((pre-P))_
 
@@ -1049,12 +1038,10 @@ _(no columns parsed)_
 - `placed_at` timestamptz NOT NULL
 - `ship_by_at` timestamptz
 - `order_status` text NOT NULL
-- `currency` text NOT NULL DEFAULT 'USD'
 - `subtotal_cents` bigint NOT NULL
 - `shipping_cents` bigint NOT NULL DEFAULT 0
 - `commission_cents` bigint NOT NULL
 - `commission_rate` numeric(5,4) NOT NULL
-- `net_payout_cents` bigint NOT NULL
 - `is_first_order_for_buyer` boolean NOT NULL DEFAULT false
 - `customer_id` uuid → `customers`
 - `ar_invoice_id` uuid → `ar_invoices`
@@ -1088,15 +1075,130 @@ _(no columns parsed)_
 - `id` uuid PK DEFAULT gen_random_uuid()
 - `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
 - `faire_shop_token` text NOT NULL
-- `shop_name` text NOT NULL
-- `api_key_ciphertext` bytea
-- `api_key_iv` bytea
-- `api_key_tag` bytea
-- `is_active` boolean NOT NULL DEFAULT true
-- `last_orders_sync_at` timestamptz
-- `last_payouts_sync_at` timestamptz
+- `customer_id` uuid → `customers`
+- `all` subsequent use 15%. -- Faire's API exposes an is_first_order flag PK → `entities` NOT NULL DEFAULT gen_random_uuid(), entity_id uuid
+- `buyer_email` text
+- `first_order_at` timestamptz
+- `is_first_order_completed` boolean NOT NULL DEFAULT false
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `fba_inventory_snapshots`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `fba_seller_account_id` uuid → `fba_seller_accounts` NOT NULL
+- `snapshot_at` timestamptz NOT NULL
+- `asin` text
+- `sku` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `fulfillable_qty` int NOT NULL DEFAULT 0
+- `inbound_working_qty` int NOT NULL DEFAULT 0
+- `inbound_shipped_qty` int NOT NULL DEFAULT 0
+- `inbound_receiving_qty` int NOT NULL DEFAULT 0
+- `reserved_qty` int NOT NULL DEFAULT 0
+- `unfulfillable_qty` int NOT NULL DEFAULT 0
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+
+## `fba_order_items`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `fba_order_id` uuid → `fba_orders` NOT NULL
+- `order_item_id` text NOT NULL
+- `sku` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `title` text
+- `quantity_ordered` int NOT NULL
+- `quantity_shipped` int NOT NULL DEFAULT 0
+- `item_price_cents` bigint NOT NULL
+- `item_tax_cents` bigint NOT NULL DEFAULT 0
+- `promotion_discount_cents` bigint NOT NULL DEFAULT 0
+- `fulfillment_fee_cents` bigint NOT NULL DEFAULT 0
+- `referral_fee_cents` bigint NOT NULL DEFAULT 0
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+
+## `fba_orders`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `fba_seller_account_id` uuid → `fba_seller_accounts` NOT NULL
+- `amazon_order_id` text NOT NULL
+- `last_update_date` timestamptz NOT NULL
+- `order_status` text NOT NULL
+- `marketplace_id` text NOT NULL
+- `currency` text NOT NULL DEFAULT 'USD'
+- `order_total_cents` bigint NOT NULL
+- `item_subtotal_cents` bigint NOT NULL DEFAULT 0
+- `tax_collected_cents` bigint NOT NULL DEFAULT 0
+- `shipping_cents` bigint NOT NULL DEFAULT 0
+- `promotion_discount_cents` bigint NOT NULL DEFAULT 0
+- `customer_id` uuid → `customers`
+- `ar_invoice_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `source` text NOT NULL DEFAULT 'fba' CHECK `source IN ('fba')`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `fba_returns`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `fba_order_id` uuid → `fba_orders`
+- `amazon_order_id` text
+- `return_request_id` text NOT NULL
+- `asin` text
+- `sku` text
+- `ip_item_master_id` uuid → `ip_item_master`
+- `quantity` int NOT NULL
+- `reason` text
+- `return_status` text
+- `refund_amount_cents` bigint NOT NULL DEFAULT 0
+- `ar_credit_memo_id` uuid → `ar_invoices`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `fba_seller_accounts`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `seller_id` text NOT NULL
+- `lwa_client_id_ciphertext` bytea
+- `key` = FBA_TOKEN_ENC_KEY lwa_client_id_iv bytea
+- `lwa_client_id_tag` bytea
+- `lwa_client_secret_ciphertext` bytea
+- `lwa_client_secret_iv` bytea
+- `lwa_client_secret_tag` bytea
+- `refresh_token_ciphertext` bytea
+- `refresh_token_iv` bytea
+- `refresh_token_tag` bytea
+- `aws_role_arn` text
+- `is_active` boolean NOT NULL DEFAULT true
+- `last_orders_sync_at` timestamptz
+- `last_settlement_sync_at` timestamptz
+- `last_inventory_sync_at` timestamptz
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `fba_settlements`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT rof_entity_id()
+- `fba_seller_account_id` uuid → `fba_seller_accounts` NOT NULL
+- `financial_event_group_id` text NOT NULL
+- `posted_before` timestamptz NOT NULL
+- `gross_amount_cents` bigint NOT NULL
+- `fees_amount_cents` bigint NOT NULL
+- `refunds_amount_cents` bigint NOT NULL DEFAULT 0
+- `net_amount_cents` bigint NOT NULL
+- `currency` text NOT NULL DEFAULT 'USD'
+- `processing_status` text NOT NULL DEFAULT 'Open' CHECK `processing_status IN ('Open','Closed')`
+- `bank_transaction_id` uuid → `bank_transactions`
+- `je_id` uuid → `journal_entries`
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `finance_requests`  _((pre-P))_
 
