@@ -419,6 +419,13 @@ import h422 from "./internal/users/me/preferences/favorites.js";
 import h423 from "./internal/users/me/preferences/home-route.js";
 import h424 from "./internal/users/me/menu-click/index.js";
 import h425 from "./internal/users/me/menu-usage/top.js";
+// P10-2b — Entity-switcher API (deferred from P10-2).
+//   h430 = PUT /api/internal/users/me/entity-switch  (validate membership)
+//   h431 = PUT /api/internal/users/me/entity-default (toggle is_default)
+//   h432 = GET /api/internal/users/me/entities       (list + current_entity_id)
+import h430 from "./internal/users/me/entity-switch.js";
+import h431 from "./internal/users/me/entity-default.js";
+import h432 from "./internal/users/me/entities/index.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -842,6 +849,14 @@ export const ROUTES = [
   { pattern: "/api/internal/users/me/preferences",                     handler: h421 },
   { pattern: "/api/internal/users/me/menu-click",                      handler: h424 },
   { pattern: "/api/internal/users/me/menu-usage/top",                  handler: h425 },
+  // P10-2b — Entity-switcher API. Subpath PUT routes registered BEFORE the
+  // bare GET so /entity-switch and /entity-default match their dedicated
+  // handlers (not the bare /entities GET) when the dispatcher walks
+  // ROUTES top-down. The three paths don't actually overlap, but the
+  // convention is "subpaths-first" and we keep the audit trail consistent.
+  { pattern: "/api/internal/users/me/entity-switch",                   handler: h430 },
+  { pattern: "/api/internal/users/me/entity-default",                  handler: h431 },
+  { pattern: "/api/internal/users/me/entities",                        handler: h432 },
 ];
 
 export function compileRoutes(routes) {
