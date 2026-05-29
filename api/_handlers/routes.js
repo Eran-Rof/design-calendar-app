@@ -463,6 +463,11 @@ import h458 from "./internal/fba/post-order/[id].js";
 // P12b-3 — Walmart AR JE posting manual backfill handler.
 //   h459 = POST /api/internal/walmart/post-order/:id
 import h459 from "./internal/walmart/post-order/[id].js";
+// P12b-4 — Walmart Marketplace settlement reconciliation (weekly cron + manual).
+//   h464 = POST /api/internal/walmart/sync-settlements (manual trigger)
+//   h465 = GET/POST /api/cron/walmart-settlements-weekly (Vercel cron, Wed 06:30 UTC)
+import h464 from "./internal/walmart/sync-settlements.js";
+import h465 from "../cron/walmart-settlements-weekly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -919,6 +924,9 @@ export const ROUTES = [
   { pattern: "/api/internal/fba/post-order/:id",                       handler: h458 },
   // P12b-3 — Walmart AR JE posting manual backfill.
   { pattern: "/api/internal/walmart/post-order/:id",                   handler: h459 },
+  // P12b-4 — Walmart Marketplace settlement reconciliation.
+  { pattern: "/api/internal/walmart/sync-settlements",                 handler: h464 },
+  { pattern: "/api/cron/walmart-settlements-weekly",                   handler: h465 },
 ];
 
 export function compileRoutes(routes) {
