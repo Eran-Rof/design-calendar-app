@@ -236,6 +236,30 @@ export class FaireClient {
     });
     return this._unwrapList(body, "shipments", page, limit);
   }
+
+  /**
+   * List returns updated since `updatedAtMin` — P12c-4.
+   *
+   * Faire wholesale returns flow: buyer requests return → seller approves →
+   * goods ship back to the seller's warehouse. The /returns endpoint reports
+   * the state machine (requested / approved / received / refunded / denied).
+   * The P12c-4 sync uses this to fire AR credit memos + restock JEs when a
+   * return reaches the refunded state.
+   *
+   * @param {Object} opts
+   * @param {string} opts.updatedAtMin   ISO timestamp (inclusive lower bound)
+   * @param {number} [opts.limit=50]
+   * @param {number} [opts.page=1]
+   * @returns {Promise<{data: any[], hasNextPage: boolean, page: number}>}
+   */
+  async listReturns({ updatedAtMin, limit = 50, page = 1 } = {}) {
+    const body = await this._get("/external-api/v2/returns", {
+      updated_at_min: updatedAtMin,
+      limit,
+      page,
+    });
+    return this._unwrapList(body, "returns", page, limit);
+  }
 }
 
 /**

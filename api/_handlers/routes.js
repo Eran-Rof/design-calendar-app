@@ -469,6 +469,12 @@ import h459 from "./internal/walmart/post-order/[id].js";
 import h464 from "./internal/walmart/sync-settlements.js";
 import h465 from "../cron/walmart-settlements-weekly.js";
 
+// P12c-4 — Faire wholesale returns ingest (credit memo + restock).
+//   h473 = POST /api/internal/faire/sync-returns      (manual trigger)
+//   h474 = GET  /api/cron/faire-returns-weekly        (Mon 05:30 UTC)
+import h473 from "./internal/faire/sync-returns.js";
+import h474 from "../cron/faire-returns-weekly.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -927,6 +933,9 @@ export const ROUTES = [
   // P12b-4 — Walmart Marketplace settlement reconciliation.
   { pattern: "/api/internal/walmart/sync-settlements",                 handler: h464 },
   { pattern: "/api/cron/walmart-settlements-weekly",                   handler: h465 },
+  // P12c-4 — Faire wholesale returns ingest (credit memo + restock).
+  { pattern: "/api/internal/faire/sync-returns",                       handler: h473 },
+  { pattern: "/api/cron/faire-returns-weekly",                         handler: h474 },
 ];
 
 export function compileRoutes(routes) {

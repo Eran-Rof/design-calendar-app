@@ -290,3 +290,84 @@ describe("isFaireConfigured", () => {
     process.env.FAIRE_TOKEN_ENC_KEY = orig;
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// P12c-4 — listReturns
+// ────────────────────────────────────────────────────────────────────────
+describe("FaireClient.listReturns (P12c-4)", () => {
+  it("hits /external-api/v2/returns with updated_at_min + limit + page", async () => {
+    const { client, fetchCalls } = makeClient([
+      mockResp(200, { returns: [{ id: "ret_1" }], has_next_page: false }),
+    ]);
+    const out = await client.listReturns({
+      updatedAtMin: "2026-05-01T00:00:00Z",
+      limit: 25,
+      page: 1,
+    });
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toMatch(/\/external-api\/v2\/returns/);
+    expect(fetchCalls[0].url).toMatch(/updated_at_min=2026-05-01T00%3A00%3A00Z/);
+    expect(fetchCalls[0].url).toMatch(/limit=25/);
+    expect(fetchCalls[0].url).toMatch(/page=1/);
+    expect(out.data).toHaveLength(1);
+    expect(out.data[0].id).toBe("ret_1");
+    expect(out.hasNextPage).toBe(false);
+    expect(out.page).toBe(1);
+  });
+
+  it("sends the X-FAIRE-OAUTH-ACCESS-TOKEN header", async () => {
+    const { client, fetchCalls } = makeClient([
+      mockResp(200, { returns: [], has_next_page: false }),
+    ]);
+    await client.listReturns({ updatedAtMin: "x" });
+    expect(fetchCalls[0].init.headers["X-FAIRE-OAUTH-ACCESS-TOKEN"]).toBe(FAKE_KEY);
+  });
+
+  it("defaults limit=50 + page=1 when not supplied", async () => {
+    const { client, fetchCalls } = makeClient([
+      mockResp(200, { returns: [] }),
+    ]);
+    await client.listReturns({ updatedAtMin: "x" });
+    expect(fetchCalls[0].url).toMatch(/limit=50/);
+    expect(fetchCalls[0].url).toMatch(/page=1/);
+  });
+
+  it("infers hasNextPage from has_next_page=true", async () => {
+    const { client } = makeClient([
+      mockResp(200, { returns: [{ id: "r" }], has_next_page: true }),
+    ]);
+    const out = await client.listReturns({ updatedAtMin: "x" });
+    expect(out.hasNextPage).toBe(true);
+  });
+
+  it("falls back to 'did we fill the page?' when no explicit flag", async () => {
+    const { client } = makeClient([
+      mockResp(200, {
+        returns: Array.from({ length: 50 }, (_, i) => ({ id: `r${i}` })),
+      }),
+    ]);
+    const out = await client.listReturns({ updatedAtMin: "x", limit: 50 });
+    expect(out.hasNextPage).toBe(true);
+  });
+
+  it("surfaces 4xx as FaireApiError", async () => {
+    const { client } = makeClient([mockResp(403, { code: "forbidden" })]);
+    try {
+      await client.listReturns({ updatedAtMin: "x" });
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(FaireApiError);
+      expect(e.status).toBe(403);
+    }
+  });
+
+  it("retries 429s before failing", async () => {
+    const { client, fetchCalls } = makeClient([
+      mockResp(429, "rate limited"),
+      mockResp(200, { returns: [], has_next_page: false }),
+    ]);
+    const out = await client.listReturns({ updatedAtMin: "x" });
+    expect(fetchCalls).toHaveLength(2);
+    expect(out.data).toEqual([]);
+  });
+});
