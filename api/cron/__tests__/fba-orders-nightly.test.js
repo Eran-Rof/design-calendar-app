@@ -1,7 +1,7 @@
 // Tests for the FBA orders ingest cron + the ingestAllAccounts /
 // syncAccountOrders core (P12a-2).
 
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import {
   computeSinceTime,
   mapOrderRow,
@@ -214,6 +214,7 @@ describe("syncAccountOrders — happy path", () => {
     }] };
     const acct = makeAccount();
     const summary = await syncAccountOrders(supabase, acct, {
+      postJe: false, // P12a-3 — auto-post tested separately below
       now: new Date("2026-05-28T00:00:00Z"),
       deps: {
         refreshAccessToken: makeRefreshFn(),
@@ -237,6 +238,7 @@ describe("syncAccountOrders — happy path", () => {
       getOrderItems: async () => ({ OrderItems: [] }),
     };
     await syncAccountOrders(supabase, acct, {
+      postJe: false,
       now: new Date("2026-05-28T00:00:00Z"),
       deps: { refreshAccessToken: makeRefreshFn(), makeClient: () => fakeClient },
     });
@@ -252,6 +254,7 @@ describe("syncAccountOrders — happy path", () => {
       getOrderItems: async () => ({ OrderItems: [] }),
     };
     await syncAccountOrders(supabase, acct, {
+      postJe: false,
       since: "2026-05-20T00:00:00Z",
       deps: { refreshAccessToken: makeRefreshFn(), makeClient: () => fakeClient },
     });
@@ -282,10 +285,109 @@ describe("syncAccountOrders — happy path", () => {
       getOrderItems: async () => ({ OrderItems: [] }),
     };
     const summary = await syncAccountOrders(supabase, makeAccount(), {
+      postJe: false,
       deps: { refreshAccessToken: makeRefreshFn(), makeClient: () => fakeClient },
     });
     expect(summary.pages).toBe(2);
     expect(summary.orders_upserted).toBe(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// P12a-3 — auto-post JE per order after ingest
+// ─────────────────────────────────────────────────────────────────────
+
+describe("syncAccountOrders — P12a-3 auto-post JE", () => {
+  it("invokes postFbaOrderJe per order upserted", async () => {
+    const supabase = makeSupabaseMock();
+    const orders = [
+      {
+        AmazonOrderId: "111-A",
+        PurchaseDate: "2026-05-25T00:00:00Z",
+        LastUpdateDate: "2026-05-26T00:00:00Z",
+        OrderStatus: "Shipped",
+        FulfillmentChannel: "AFN",
+        OrderTotal: { Amount: "20.00", CurrencyCode: "USD" },
+      },
+      {
+        AmazonOrderId: "111-B",
+        PurchaseDate: "2026-05-25T00:00:00Z",
+        LastUpdateDate: "2026-05-26T00:00:00Z",
+        OrderStatus: "Shipped",
+        FulfillmentChannel: "AFN",
+        OrderTotal: { Amount: "20.00", CurrencyCode: "USD" },
+      },
+    ];
+    const postFbaOrderJe = vi.fn().mockResolvedValue({ status: "posted", je_id: "je-x" });
+    const summary = await syncAccountOrders(supabase, makeAccount(), {
+      now: new Date("2026-05-28T00:00:00Z"),
+      deps: {
+        refreshAccessToken: makeRefreshFn(),
+        makeClient: () => makeFakeSpApi({ orders }),
+        postFbaOrderJe,
+      },
+    });
+    expect(postFbaOrderJe).toHaveBeenCalledTimes(2);
+    expect(summary.je_posted).toBe(2);
+    expect(summary.je_errors).toBe(0);
+    expect(postFbaOrderJe).toHaveBeenCalledWith(
+      expect.objectContaining({ fbaOrderId: expect.any(String), adminClient: supabase }),
+    );
+  });
+
+  it("does NOT abort ingest when postFbaOrderJe throws — errors are isolated", async () => {
+    const supabase = makeSupabaseMock();
+    const orders = [
+      { AmazonOrderId: "111-A", PurchaseDate: "2026-05-25T00:00:00Z",
+        LastUpdateDate: "2026-05-26T00:00:00Z", OrderStatus: "Shipped",
+        FulfillmentChannel: "AFN", OrderTotal: { Amount: "20", CurrencyCode: "USD" } },
+      { AmazonOrderId: "111-B", PurchaseDate: "2026-05-25T00:00:00Z",
+        LastUpdateDate: "2026-05-26T00:00:00Z", OrderStatus: "Shipped",
+        FulfillmentChannel: "AFN", OrderTotal: { Amount: "20", CurrencyCode: "USD" } },
+    ];
+    let call = 0;
+    const postFbaOrderJe = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) throw new Error("rpc_failed: period closed");
+      return { status: "posted", je_id: `je-${call}` };
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const summary = await syncAccountOrders(supabase, makeAccount(), {
+        deps: {
+          refreshAccessToken: makeRefreshFn(),
+          makeClient: () => makeFakeSpApi({ orders }),
+          postFbaOrderJe,
+        },
+      });
+      // Both orders still upserted; ingest didn't abort.
+      expect(summary.orders_upserted).toBe(2);
+      expect(summary.je_posted).toBe(1);
+      expect(summary.je_errors).toBe(1);
+      // Error was logged
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("does NOT call postFbaOrderJe when postJe option = false", async () => {
+    const supabase = makeSupabaseMock();
+    const orders = [{
+      AmazonOrderId: "111-A", PurchaseDate: "2026-05-25T00:00:00Z",
+      LastUpdateDate: "2026-05-26T00:00:00Z", OrderStatus: "Shipped",
+      FulfillmentChannel: "AFN", OrderTotal: { Amount: "1", CurrencyCode: "USD" },
+    }];
+    const postFbaOrderJe = vi.fn();
+    await syncAccountOrders(supabase, makeAccount(), {
+      postJe: false,
+      deps: {
+        refreshAccessToken: makeRefreshFn(),
+        makeClient: () => makeFakeSpApi({ orders }),
+        postFbaOrderJe,
+      },
+    });
+    expect(postFbaOrderJe).not.toHaveBeenCalled();
   });
 });
 
