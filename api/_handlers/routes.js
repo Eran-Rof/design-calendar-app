@@ -515,6 +515,12 @@ import h496 from "./internal/costing/search/scales.js";
 import h489 from "./internal/costing/comp/ly.js";
 import h490 from "./internal/costing/comp/t3.js";
 
+// Costing Module — Chunk 7 (compliance checklist handlers).
+//   h491 GET/POST   /api/internal/costing/lines/:line_id/compliance
+//   h492 PUT/DELETE /api/internal/costing/lines/:line_id/compliance/:req_id
+import h491 from "./internal/costing/lines/[line_id]/compliance/index.js";
+import h492 from "./internal/costing/lines/[line_id]/compliance/[req_id].js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -1002,6 +1008,9 @@ export const ROUTES = [
   // Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
   { pattern: "/api/internal/costing/comp/ly",                          handler: h489 },
   { pattern: "/api/internal/costing/comp/t3",                          handler: h490 },
+  // Costing Module — Chunk 7 (compliance checklist handlers).
+  { pattern: "/api/internal/costing/lines/:line_id/compliance",            handler: h491 },
+  { pattern: "/api/internal/costing/lines/:line_id/compliance/:req_id",    handler: h492 },
 ];
 
 export function compileRoutes(routes) {

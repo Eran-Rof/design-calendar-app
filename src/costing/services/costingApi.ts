@@ -10,6 +10,8 @@ import type {
   CostingProjectPatch,
   CostingLine,
   CostingLineVendor,
+  CostingLineCompliance,
+  CostingComplianceStatus,
 } from "../types";
 
 async function json<T>(res: Response): Promise<T> {
@@ -132,6 +134,42 @@ export async function updateQuote(
 
 export async function deleteQuote(lineId: string, quoteId: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/lines/${lineId}/quotes/${quoteId}`, {
+    method: "DELETE",
+  }));
+}
+
+// ── Compliance checklist ────────────────────────────────────────────────────
+
+export interface ComplianceDraft {
+  requirement_code: string;
+  status?: CostingComplianceStatus;
+  notes?: string | null;
+  attachment_url?: string | null;
+  completed_at?: string | null;
+}
+
+export async function listCompliance(lineId: string): Promise<CostingLineCompliance[]> {
+  return json<CostingLineCompliance[]>(await fetch(`/api/internal/costing/lines/${lineId}/compliance`));
+}
+
+export async function createCompliance(lineId: string, draft: ComplianceDraft): Promise<CostingLineCompliance> {
+  return json<CostingLineCompliance>(await fetch(`/api/internal/costing/lines/${lineId}/compliance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(draft),
+  }));
+}
+
+export async function updateCompliance(lineId: string, reqId: string, patch: Partial<ComplianceDraft>): Promise<CostingLineCompliance> {
+  return json<CostingLineCompliance>(await fetch(`/api/internal/costing/lines/${lineId}/compliance/${reqId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }));
+}
+
+export async function deleteCompliance(lineId: string, reqId: string): Promise<void> {
+  return json<void>(await fetch(`/api/internal/costing/lines/${lineId}/compliance/${reqId}`, {
     method: "DELETE",
   }));
 }
