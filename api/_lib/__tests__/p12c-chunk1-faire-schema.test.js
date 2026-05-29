@@ -268,7 +268,7 @@ describe("P12c-1 — Faire wholesale marketplace foundation schema migration", (
   });
 });
 
-describe("P12c-1 — faire token-encryption stub contract", () => {
+describe("P12c-1 — faire token-encryption stub contract (now real in P12c-2)", () => {
   it("exports encryptToken function", () => {
     expect(STUB).toMatch(/export function encryptToken/);
   });
@@ -281,9 +281,13 @@ describe("P12c-1 — faire token-encryption stub contract", () => {
   it("documents AES-256-GCM intent", () => {
     expect(STUB).toMatch(/AES-256-GCM/);
   });
-  it("real impl throws (lands in P12c-2)", async () => {
+  it("P12c-2 shipped the real impl — encrypt/decrypt roundtrips", async () => {
+    process.env.FAIRE_TOKEN_ENC_KEY = "b".repeat(64);
     const mod = await import("../../_lib/marketplaces/faire/token-encryption.js");
-    expect(() => mod.encryptToken("faire_test_key")).toThrow();
-    expect(() => mod.decryptToken(Buffer.alloc(0), Buffer.alloc(0), Buffer.alloc(0))).toThrow();
+    const { ciphertext, iv, tag } = mod.encryptToken("faire_test_key");
+    expect(Buffer.isBuffer(ciphertext)).toBe(true);
+    expect(Buffer.isBuffer(iv)).toBe(true);
+    expect(Buffer.isBuffer(tag)).toBe(true);
+    expect(mod.decryptToken(ciphertext, iv, tag)).toBe("faire_test_key");
   });
 });
