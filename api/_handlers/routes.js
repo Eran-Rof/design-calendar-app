@@ -460,6 +460,9 @@ import h451 from "../cron/fba-orders-nightly.js";
 // P12a-3 — Amazon FBA AR invoice JE posting (manual backfill).
 //   h458 = POST /api/internal/fba/post-order/:id (manual JE post for one order)
 import h458 from "./internal/fba/post-order/[id].js";
+// P12b-3 — Walmart AR JE posting manual backfill handler.
+//   h459 = POST /api/internal/walmart/post-order/:id
+import h459 from "./internal/walmart/post-order/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -914,6 +917,8 @@ export const ROUTES = [
   { pattern: "/api/cron/fba-orders-nightly",                           handler: h451 },
   // P12a-3 — Amazon FBA AR invoice JE posting (manual backfill).
   { pattern: "/api/internal/fba/post-order/:id",                       handler: h458 },
+  // P12b-3 — Walmart AR JE posting manual backfill.
+  { pattern: "/api/internal/walmart/post-order/:id",                   handler: h459 },
 ];
 
 export function compileRoutes(routes) {

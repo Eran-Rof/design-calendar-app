@@ -28,6 +28,7 @@ import { createClient } from "@supabase/supabase-js";
 import { decryptToken } from "../_lib/marketplaces/walmart/token-encryption.js";
 import { getWalmartAccessToken } from "../_lib/marketplaces/walmart/auth.js";
 import { WalmartClient } from "../_lib/marketplaces/walmart/client.js";
+import { postWalmartOrderJe } from "../_lib/marketplaces/walmart/post-order-je.js";
 
 export const config = { maxDuration: 300 };
 
@@ -74,6 +75,11 @@ export async function runWalmartOrdersNightly(supabase, opts = {}) {
       getWalmartAccessToken({ clientId, clientSecret })),
     ClientCtor: opts.deps?.ClientCtor || WalmartClient,
     decrypt: opts.deps?.decrypt || decryptToken,
+    // P12b-3 — JE posting hook. Tests inject a stub; production calls
+    // the real posting service. Per-order errors are captured into
+    // acctResult.je_errors, NOT thrown — a single bad order must not
+    // break the rest of the ingest.
+    postJe: opts.deps?.postJe || postWalmartOrderJe,
   };
 
   const accounts = await loadAccounts(supabase, opts.account_id || null);
@@ -82,6 +88,9 @@ export async function runWalmartOrdersNightly(supabase, opts = {}) {
     accounts: [],
     total_orders_upserted: 0,
     total_items_upserted: 0,
+    total_je_posted: 0,
+    total_je_already_posted: 0,
+    total_je_errors: 0,
     total_errors: 0,
   };
 
@@ -90,6 +99,9 @@ export async function runWalmartOrdersNightly(supabase, opts = {}) {
     out.accounts.push(acctResult);
     out.total_orders_upserted += acctResult.orders_upserted || 0;
     out.total_items_upserted += acctResult.items_upserted || 0;
+    out.total_je_posted += acctResult.je_posted || 0;
+    out.total_je_already_posted += acctResult.je_already_posted || 0;
+    out.total_je_errors += acctResult.je_errors?.length || 0;
     if (acctResult.error) out.total_errors += 1;
   }
 
@@ -127,6 +139,10 @@ export async function ingestOneAccount(supabase, acct, deps, { since } = {}) {
     orders_upserted: 0,
     items_upserted: 0,
     pages_walked: 0,
+    // P12b-3 — JE posting bookkeeping (per-account, never throws).
+    je_posted: 0,
+    je_already_posted: 0,
+    je_errors: [],
     error: null,
   };
 
@@ -179,6 +195,27 @@ export async function ingestOneAccount(supabase, acct, deps, { since } = {}) {
           acctResult.orders_upserted += 1;
           const itemsUpserted = await upsertOrderItems(supabase, client, wm_order_row, order);
           acctResult.items_upserted += itemsUpserted;
+
+          // P12b-3 — auto-post AR JE after each upsert. Per-order
+          // failures land in je_errors so they're visible in the cron
+          // summary but never block the rest of the run. Idempotent:
+          // already_posted is a normal outcome (re-ingest doesn't
+          // double-post).
+          try {
+            const r = await deps.postJe({
+              walmartOrderId: wm_order_row.id,
+              adminClient: supabase,
+            });
+            if (r?.status === "posted") acctResult.je_posted += 1;
+            else if (r?.status === "already_posted") acctResult.je_already_posted += 1;
+          } catch (jeErr) {
+            acctResult.je_errors.push({
+              walmart_order_id: wm_order_row.id,
+              purchase_order_id: wm_order_row.purchase_order_id,
+              code: jeErr?.code || null,
+              error: jeErr instanceof Error ? jeErr.message : String(jeErr),
+            });
+          }
         }
       }
       cursor = nextCursor || null;
