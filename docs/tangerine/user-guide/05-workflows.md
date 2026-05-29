@@ -90,11 +90,20 @@ flowchart TB
 ```
 
 1. **Post accruals / deferrals.** Use the manual JE flow with `journal_type=manual` and basis `ACCRUAL` for things like accrued rent, deferred revenue, etc.
-2. **Soft-close the period.** Open [🗓️ Periods](03-accounting.md#-periods), find the period (e.g. May 2026), use the inline dropdown to change status from `open` to `soft_close`. Confirm the prompt.
-3. **Review trial balance.** A trial-balance report doesn't exist yet; for now, query the DB directly or use the JE list filtered by period. (Trial-balance UI is planned for a later phase.)
-4. **Fix anything you need to.** Use `journal_type=adjustment` so the trigger lets them through into the soft-closed period.
-5. **Close the period.** Periods panel → flip status to `closed`. From this point, no more writes are accepted into this period.
-6. (Optional) **Send accountant a summary.** The dual-basis structure means you can give them the ACCRUAL book for GAAP reporting and the CASH book for cash-flow review.
+2. **Run pre-flight checks.** Open [🗓️ Periods](03-accounting.md#-periods), find the period (e.g. May 2026), click **Run checks**. Confirm all blocking rows are green (trial balance balanced on both books, no draft JEs, no negative FIFO layers). See [03-accounting.md § Close Pre-flight Checks](03-accounting.md#close-pre-flight-checks-p5-7). Yellow warnings (unposted AR/AP invoices, unapplied receipts) are advisory — investigate but they don't block.
+3. **Soft-close the period.** On the same row click **Soft close**. The handler reruns the pre-flight checks, captures actor + reason in the audit log, and enqueues a notification to admin + accountant. After the flip, only `adjustment` and `close` journal types can post into the period.
+4. **Review the books.** Run [📊 Trial Balance](03-accounting.md#trial-balance-p5-2) (filter to the period date range, ACCRUAL basis) — the grand-total Net row must read `$0.00`. Then run [📈 Income Statement](03-accounting.md#income-statement-p5-3), [📋 Balance Sheet](03-accounting.md#-balance-sheet-p5-4), and [💧 Cash Flow](03-accounting.md#cash-flow-statement-p5-5) as-of the period end date. Snapshot whatever PDFs / xlsx exports your accountant wants — use the universal **Export** button on every panel — and attach them to the period's Document Attachments (planned wiring) or your close folder.
+5. **Fix anything you need to.** Post additional JEs with `journal_type=adjustment` into the soft-closed period (the trigger lets these through). Re-run trial balance to confirm books still tie out.
+6. **Hard-close the period.** Periods panel → **Close**. The handler reruns pre-flight one final time and blocks if any rule failed. From this point, no more writes are accepted into this period (except historical-backfill types, which bypass via P4-1 trigger logic).
+7. (Optional) **Send accountant a summary.** The dual-basis structure means you can give them the ACCRUAL book for GAAP reporting and the CASH book for cash-flow review. The exports from step 4 cover both bases.
+
+### If pre-flight blocks the close
+
+Common blocking failures and where to look:
+
+- **`accrual_trial_balanced` or `cash_trial_balanced` failed** — an unbalanced JE somehow posted. This shouldn't happen (the post trigger guards against it), but if it does, query `journal_entry_lines` for the period and find the `journal_entry_id` where `SUM(debit) ≠ SUM(credit)`. Reverse the bad entry and re-post correctly.
+- **`no_draft_jes` failed** — a JE row is sitting in `draft`/`pending_approval`/`unposted` status in this period. Open the Journal Entries list with **Include drafts** checked, find the row, post it (or reverse if it shouldn't be there).
+- **`fifo_negative_layers` failed** — an `inventory_layers` row has `remaining_qty < 0`, indicating corruption. Escalate to engineering before closing the period.
 
 ## New vendor onboarding
 

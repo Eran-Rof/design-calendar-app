@@ -120,6 +120,37 @@ Per CLAUDE.md security mandate, PII never appears in API responses or admin UI:
 
 Vendor Master and Customer Master modals show a small note: "Tax ID and banking handled via dedicated PII workflow" — meaning we'll build separate authenticated, audit-logged endpoints for these fields in a future chunk. For now, populate them directly via SQL if you must, but the right path is the dedicated workflow when it ships.
 
+## Period state machine
+
+Periods carry a status that gates JE writes against their date range. Through P5-1 the lifecycle picked up a fourth, terminal status. The state machine the **panel buttons** drive is:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    open: 🟢 open<br/>(all writes accepted)
+    soft_close: 🟡 soft_close<br/>(only adjustment + close JEs)
+    closed: 🔴 closed<br/>(no writes except historical-bypass types)
+    terminal: ⚫ closed_with_closing_jes<br/>(TERMINAL — set only by year-end close P5-6)
+
+    [*] --> open
+    open --> soft_close: Soft close button<br/>(panel)
+    soft_close --> closed: Close button<br/>(panel)
+    soft_close --> open: Reopen button<br/>(admin + reason)
+    closed --> soft_close: Reopen button<br/>(admin + reason)
+    closed --> terminal: Year-End Close RPC<br/>(P5-6, one-way)
+```
+
+What each status blocks against new `journal_entries` inserts (Chunk 2 trigger):
+
+| Status | manual / system JEs | `adjustment` JEs | `close` / year-end JEs | Historical-bypass types (P4-1) |
+|---|---|---|---|---|
+| `open` | accepted | accepted | accepted | accepted |
+| `soft_close` | blocked | accepted | accepted | accepted |
+| `closed` | blocked | blocked | accepted | accepted |
+| `closed_with_closing_jes` | blocked | blocked | blocked | accepted |
+
+> The **legacy PATCH endpoint** on `/api/internal/gl-periods/:id` is more permissive — it allows every same-row status flip among `open / soft_close / closed` for backward compatibility. The panel's Close / Reopen buttons route through the dedicated P5-1 endpoints which enforce the step order (open→soft_close→closed), require a reason on reopen, run pre-flight checks, and write the `gl_period_status_log` audit row. Prefer the panel buttons; the PATCH path bypasses every guard.
+
 ## Audit immutability
 
 Posted journal entries are **immutable**. You cannot edit them, delete them, or modify their lines. This is enforced at three layers:
