@@ -561,6 +561,10 @@ import h513 from "./internal/recon/run-ap.js";
 //   h514 = POST /api/internal/recon/run-gl (renumbered from h483 on rebase —
 //   h483 taken by costing on main; h512 AR, h513 AP; next free is h514.)
 import h514 from "./internal/recon/run-gl.js";
+// P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
+//   h515 = POST /api/internal/recon/run-inventory (renumbered from h484 on rebase —
+//   h484 taken by costing on main; h512 AR, h513 AP, h514 GL; next free is h515.)
+import h515 from "./internal/recon/run-inventory.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1080,6 +1084,8 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/run-ap",                             handler: h513 },
   // P9-5 — GL reconciliation engine (lagging indicator + missing_standalone_je auto-cat).
   { pattern: "/api/internal/recon/run-gl",                             handler: h514 },
+  // P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
+  { pattern: "/api/internal/recon/run-inventory",                      handler: h515 },
 ];
 
 export function compileRoutes(routes) {
