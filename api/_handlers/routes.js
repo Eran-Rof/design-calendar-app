@@ -602,6 +602,10 @@ import h524 from "./internal/sales-reps/[id].js";
 import h525 from "./internal/sales-reps/[id]/tiers.js";
 import h526 from "./internal/sales-reps/[id]/assignments.js";
 
+// P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
+//   h446 = POST /api/internal/shopify/post-cogs/:id (manual COGS retry for one order)
+import h446 from "./internal/shopify/post-cogs/[id].js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -1148,6 +1152,8 @@ export const ROUTES = [
   // P10-6 — Per-entity COA copy-from-ROF wizard.
   { pattern: "/api/internal/entities/:id/coa-copy-from-rof",           handler: h528 },
   { pattern: "/api/internal/xoro-mirror/inventory",                    handler: h402 },
+  // P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
+  { pattern: "/api/internal/shopify/post-cogs/:id",                    handler: h446 },
 ];
 
 export function compileRoutes(routes) {

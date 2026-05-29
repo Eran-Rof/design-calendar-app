@@ -875,11 +875,15 @@ describe("postShopifyOrderJe", () => {
     const result = await postShopifyOrderJe({
       shopifyOrderId: ORDER,
       adminClient: sb,
+      // P11-5: stub the best-effort COGS follow-up so this happy-path test
+      // stays focused on the AR JE (COGS is covered in post-order-cogs tests).
+      deps: { postShopifyOrderCogs: async () => null },
     });
     expect(result).toEqual({
       status: "posted",
       je_id: JE_ID,
       ar_invoice_id: AR_INV_ID,
+      cogs: null,
     });
     expect(calls.rpc).toHaveLength(1);
     expect(calls.rpc[0].name).toBe("gl_post_journal_entry");
