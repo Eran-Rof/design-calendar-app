@@ -47,10 +47,7 @@ CREATE TABLE IF NOT EXISTS inventory_locations (
 CREATE INDEX IF NOT EXISTS idx_inventory_locations_entity_kind
   ON inventory_locations (entity_id, kind);
 
-COMMENT ON TABLE inventory_locations IS
-  'P12-0: per-entity inventory location. Every inventory_layer must point to one. ' ||
-  'kind=warehouse for operator-owned WH; fba/wfs for marketplace-held stock; ' ||
-  '3pl/dropship/virtual for non-FBA fulfillment.';
+COMMENT ON TABLE inventory_locations IS 'P12-0: per-entity inventory location. Every inventory_layer must point to one. kind=warehouse for operator-owned WH; fba/wfs for marketplace-held stock; 3pl/dropship/virtual for non-FBA fulfillment.';
 COMMENT ON COLUMN inventory_locations.code IS
   'Per-entity unique code (e.g. MAIN_WH, FBA_US, FBA_CA, WFS_US). Used in UI badges and FIFO queries.';
 
@@ -111,11 +108,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_inventory_layers_location
   ON inventory_layers (location_id, item_id);
 
-COMMENT ON COLUMN inventory_layers.location_id IS
-  'P12-0: which inventory_location holds this layer. Required NOT NULL after backfill. ' ||
-  'FIFO queries must filter or group by this column; pre-P12-0 queries that ignored ' ||
-  'location implicitly aggregated across all locations — that''s still valid behavior ' ||
-  'but be explicit so FBA / WFS rows aren''t silently mixed into operator-WH totals.';
+COMMENT ON COLUMN inventory_layers.location_id IS 'P12-0: which inventory_location holds this layer. Required NOT NULL after backfill. FIFO queries must filter or group by this column; pre-P12-0 queries that ignored location implicitly aggregated across all locations — that''s still valid behavior but be explicit so FBA / WFS rows aren''t silently mixed into operator-WH totals.';
 
 -- ─── 4. Extend inventory_layers.source_kind CHECK with marketplace values ──
 --
@@ -146,9 +139,7 @@ ALTER TABLE inventory_layers
     'wfs_return_restock'
   ));
 
-COMMENT ON COLUMN inventory_layers.source_kind IS
-  'P12-0 extended with fba_inbound / wfs_inbound / fba_return_restock / wfs_return_restock ' ||
-  'plus reserved-for-P11 shopify_refund_restock. Existing values preserved.';
+COMMENT ON COLUMN inventory_layers.source_kind IS 'P12-0 extended with fba_inbound / wfs_inbound / fba_return_restock / wfs_return_restock plus reserved-for-P11 shopify_refund_restock. Existing values preserved.';
 
 -- ─── 5. customers.marketplace_buyer_refs JSONB ─────────────────────────────
 ALTER TABLE customers
@@ -157,9 +148,7 @@ ALTER TABLE customers
 CREATE INDEX IF NOT EXISTS idx_customers_marketplace_buyer_refs
   ON customers USING gin (marketplace_buyer_refs);
 
-COMMENT ON COLUMN customers.marketplace_buyer_refs IS
-  'P12-0 per-channel buyer-token map. Shape: {"faire":"fb_buyer_xxx","amazon_consumer":"amz_token","walmart":"wmt_buyer_y"}. ' ||
-  'GIN-indexed for platform-buyer-id → customer_id @> lookups.';
+COMMENT ON COLUMN customers.marketplace_buyer_refs IS 'P12-0 per-channel buyer-token map. Shape: {"faire":"fb_buyer_xxx","amazon_consumer":"amz_token","walmart":"wmt_buyer_y"}. GIN-indexed for platform-buyer-id → customer_id @> lookups.';
 
 -- ─── 6. Seed 8 new GL accounts (D4, D5, D6, D7) ────────────────────────────
 --
