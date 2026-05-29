@@ -621,6 +621,11 @@ import h461 from "./internal/faire/post-payout/[id].js";
 //   h468 = GET/POST /api/cron/fba-inventory-daily  (Vercel cron, 04:00 UTC)
 import h467 from "./internal/fba/mirror-inventory.js";
 import h468 from "../cron/fba-inventory-daily.js";
+// P12a-6 — Amazon FBA returns sync (restock vs writeoff + credit memos).
+//   h469 = POST /api/internal/fba/sync-returns  (manual single-account trigger)
+//   h470 = GET/POST /api/cron/fba-returns-daily (Vercel cron, 04:30 UTC)
+import h469 from "./internal/fba/sync-returns.js";
+import h470 from "../cron/fba-returns-daily.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1180,6 +1185,9 @@ export const ROUTES = [
   // P12a-5 — Amazon FBA inventory mirror (daily snapshot + layer rebuild).
   { pattern: "/api/internal/fba/mirror-inventory",                     handler: h467 },
   { pattern: "/api/cron/fba-inventory-daily",                          handler: h468 },
+  // P12a-6 — Amazon FBA returns sync (restock vs writeoff + credit memos).
+  { pattern: "/api/internal/fba/sync-returns",                         handler: h469 },
+  { pattern: "/api/cron/fba-returns-daily",                            handler: h470 },
 ];
 
 export function compileRoutes(routes) {
