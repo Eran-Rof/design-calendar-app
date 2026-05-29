@@ -60,6 +60,9 @@ import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
+// Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
+import AutoLandingToast from "./components/AutoLandingToast";
+import { useAutoLanding } from "./hooks/useAutoLanding";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -244,6 +247,9 @@ const APPS: AppLink[] = [
 type AuthState = "loading" | "signed_out" | "signed_in";
 
 export default function Tangerine() {
+  // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
+  // Fires once per tab session at app-shell root. See useAutoLanding.ts.
+  const landing = useAutoLanding();
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(null);
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -401,6 +407,8 @@ export default function Tangerine() {
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
           from any module; invisible until the hotkey fires. */}
       <GlobalSearchPaletteAuto />
+      {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
+      <AutoLandingToast landing={landing} />
     </div>
   );
 }
