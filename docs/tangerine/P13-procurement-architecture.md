@@ -76,7 +76,8 @@ After P1-P8 + T10 Shadow Mirror + P9 (parallel-run framework drafted) + P10 (ten
 | D15 | Tangerine ⇄ Xoro PO ingestion cutover | **Per vendor, post-8-week parallel run with three-way-match variance < $5/$2% and zero unmatched receipts, flip Xoro's PO module off for THAT vendor.** Other vendors stay parallel until each independently passes. | Parallel-run per channel pattern from P11 D12 + P12 D18, adapted to vendor grain because vendor is the right unit for PO origination (one vendor at a time can be flipped without touching others). 8 weeks because PO lifecycle (creation → ship → land → AP-bill) typically runs 6-12 weeks for ocean freight — needs a full cycle to validate. | ☐ |
 | D16 | Period close pre-flight extensions | **Block close if any of: receipt > 30 days old without matching customs entry, customs entry > 60 days old without broker invoice, three-way-match variance unresolved, QC fail without disposition** | Mirrors the P5-7 + P12 D17 pattern. Procurement has its own class of stale-state risks. | ☐ |
 | D17 | Source-tag enforcement | **Per T10: every new row carries `source` enum. PO source values: `'tangerine'` (operator-created in Tangerine UI), `'xoro_mirror'` (T10 mirror during parallel run), `'edi_850_ack'` (post-P22, reserved). T10 mirror never overwrites `source='tangerine'`.** | Standing T10 + manual-fallback principle. Allows operator to confirm parallel-run cutover per vendor by inspecting source-tag mix in `tanda_pos`. | ☐ |
-| D18 | First vendor for the parallel-run pilot | **Operator picks one — recommended: a vendor with monthly cadence + reliable invoicing (so a full PO cycle completes inside the parallel window). Likely candidates from `vendors` where the operator already trusts the ack flow on the Vendor Portal.** | Parallel-run needs at least one full PO→ship→land→AP cycle to validate. Picking the right pilot vendor compresses validation from 12 weeks to 6-8. | ☐ |
+| D18 | First vendor for the parallel-run pilot | **Operator picks one — recommended: a vendor with monthly cadence + reliable invoicing (so a full PO cycle completes inside the parallel window). Likely candidates from `vendors` where the operator already trusts the ack flow on the Vendor Portal.** | Parallel-run needs at least one full PO→ship→land→AP cycle to validate. Picking the right pilot vendor compresses validation from 12 weeks to 6-8. | ✓ **Zhejiang Zhuji Newdan Garment Co., Ltd.** |
+| D19 | Receipt-time landed-cost rollup workflow with auto-AP-invoice + bookkeeper approval gate | **At receipt close, the receiving user can add N `tanda_po_receipt_rollups` lines — each is (expense GL account, amount, optional vendor, capitalize-to-inventory boolean). Each rollup auto-creates a sibling AP `invoices` row with `is_receipt_rollup=true`, `rollup_parent_receipt_id=<receipt.id>`, and `status='pending_bookkeeper_approval'`. The rollup amount folds into `receipts.landed_cost_cents` so the FIFO layer's `unit_cost_cents` is correct from day one. The auto-created AP invoices' JEs do NOT post until a bookkeeper-role user approves them (status → `approved` → P3 AP posting service runs).** Replaces D9's "lazy revaluation 10-30 days later" gap with a tighter receipt-time pattern for ops who'd rather pay vendors immediately and let the bookkeeper batch-approve at month-end. D9 remains the fallback when broker timing forces it. | Operator's mental model: at receiving, the warehouse already knows about (a) the inbound freight invoice from the freight forwarder, (b) the broker fee, (c) duty pre-paid via the broker, (d) inspection / drayage / per-diem charges. Folding them into the layer *at receipt* matches IRS §263A and gives a correct unit cost from day one. The bookkeeper approval gate prevents warehouse staff from accidentally posting an unverified vendor invoice into the GL. Lands in P13-1 schema + UI wires in P13-3 (receiving session). | ✓ |
 
 ---
 
@@ -365,6 +366,152 @@ ALTER TABLE ip_item_master ADD COLUMN IF NOT EXISTS unit_cbm_cm3 int;
 | 2150 | Accrued Customs / Duty | liability | CREDIT | Receipt without broker invoice → accrue expected duty |
 | 6320 | PO Variance Expense | expense | DEBIT | Three-way-match variance > tolerance; net of vendor credits |
 
+### 3.11 `tanda_po_receipts` + `tanda_po_receipt_lines` + `tanda_po_receipt_rollups` (new — D19)
+
+The existing `receipts` / `receipt_line_items` tables (3.4) carry the legacy Xoro-mirrored receipt shape. P13 introduces a parallel **Tangerine-native** receipt table set that wires the D19 landed-cost-rollup workflow + bookkeeper approval gate cleanly into a fresh schema. The two table sets coexist during the parallel run; once a vendor flips to Tangerine-source-of-truth, future receipts for that vendor write to `tanda_po_receipts` only.
+
+```sql
+CREATE TABLE IF NOT EXISTS tanda_po_receipts (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id                uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+                              REFERENCES entities(id) ON DELETE RESTRICT,
+  tanda_po_id              uuid NOT NULL REFERENCES tanda_pos(id) ON DELETE RESTRICT,
+  receipt_date             date NOT NULL,
+  received_by_employee_id  uuid REFERENCES employees(id) ON DELETE SET NULL,
+  status                   text NOT NULL DEFAULT 'draft'
+                              CHECK (status IN ('draft','pending_approval','approved','posted')),
+  landed_cost_cents        bigint NOT NULL DEFAULT 0,    -- sum of rollups (D19)
+  notes                    text,
+  je_id                    uuid REFERENCES journal_entries(id) ON DELETE SET NULL,
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  updated_at               timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS tanda_po_receipt_lines (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  receipt_id               uuid NOT NULL REFERENCES tanda_po_receipts(id) ON DELETE CASCADE,
+  po_line_item_id          uuid NOT NULL REFERENCES po_line_items(id) ON DELETE RESTRICT,
+  qty_received             int NOT NULL CHECK (qty_received > 0),
+  qty_accepted             int NOT NULL CHECK (qty_accepted >= 0),
+  qty_rejected             int NOT NULL DEFAULT 0,
+  unit_cost_cents          bigint NOT NULL CHECK (unit_cost_cents >= 0),  -- pre-rollup PO cost
+  landed_unit_cost_cents   bigint,                                       -- computed post-rollup
+  inventory_location_id    uuid REFERENCES inventory_locations(id) ON DELETE SET NULL,
+  inventory_layer_id       uuid REFERENCES inventory_layers(id) ON DELETE SET NULL,
+  raw_payload              jsonb,
+  UNIQUE (receipt_id, po_line_item_id)
+);
+
+-- D19 — landed-cost rollups + auto-AP-invoice generation
+CREATE TABLE IF NOT EXISTS tanda_po_receipt_rollups (
+  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id                   uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+                                 REFERENCES entities(id) ON DELETE RESTRICT,
+  receipt_id                  uuid NOT NULL REFERENCES tanda_po_receipts(id) ON DELETE CASCADE,
+  expense_gl_account_id       uuid NOT NULL REFERENCES gl_accounts(id) ON DELETE RESTRICT,
+  amount_cents                bigint NOT NULL CHECK (amount_cents > 0),
+  vendor_id                   uuid REFERENCES vendors(id) ON DELETE SET NULL,   -- often != PO vendor
+  description                 text NOT NULL,
+  capitalized_to_inventory    boolean NOT NULL DEFAULT true,                    -- if false, posts to expense
+  auto_invoice_id             uuid REFERENCES invoices(id) ON DELETE SET NULL,  -- the generated AP bill
+  created_at                  timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### 3.12 `invoices` extensions (D19 — auto-AP from receipt rollup + bookkeeper gate)
+
+```sql
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_receipt_rollup boolean NOT NULL DEFAULT false;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS rollup_parent_receipt_id uuid
+  REFERENCES tanda_po_receipts(id) ON DELETE SET NULL;
+
+-- Extend invoices.status CHECK to add 'pending_bookkeeper_approval' for D19 auto-created rollup invoices
+ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_status_check;
+ALTER TABLE invoices ADD CONSTRAINT invoices_status_check
+  CHECK (status IN ('submitted','under_review','approved','paid','rejected','disputed',
+                    'pending_bookkeeper_approval'));
+```
+
+### 3.13 QC tables (M26) — `tanda_po_qc_inspections` + `tanda_po_qc_findings`
+
+Lighter-weight QC shape than §3.5 (which mirrors the Xoro-era `qc_inspections` for legacy receipts). New Tangerine-native receipts use these and skip the legacy table.
+
+```sql
+CREATE TABLE IF NOT EXISTS tanda_po_qc_inspections (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id                uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+                              REFERENCES entities(id) ON DELETE RESTRICT,
+  receipt_id               uuid NOT NULL REFERENCES tanda_po_receipts(id) ON DELETE CASCADE,
+  inspection_date          date NOT NULL,
+  inspector_employee_id    uuid REFERENCES employees(id) ON DELETE SET NULL,
+  status                   text NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','passed','failed','partial')),
+  overall_pass_rate        numeric(5,4),
+  notes                    text,
+  created_at               timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS tanda_po_qc_findings (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  inspection_id            uuid NOT NULL REFERENCES tanda_po_qc_inspections(id) ON DELETE CASCADE,
+  category                 text NOT NULL,
+  severity                 text NOT NULL CHECK (severity IN ('minor','major','critical')),
+  qty_affected             int NOT NULL DEFAULT 0,
+  description              text NOT NULL,
+  photo_urls               text[],
+  resolution               text,
+  created_at               timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### 3.14 Trade compliance (M48) — `vendor_compliance_certifications` + `import_documentation`
+
+```sql
+CREATE TABLE IF NOT EXISTS vendor_compliance_certifications (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id                uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+                              REFERENCES entities(id) ON DELETE RESTRICT,
+  vendor_id                uuid NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+  certification_type       text NOT NULL,                          -- 'OEKO-TEX' | 'GOTS' | 'BSCI' | 'WRAP' | 'ISO9001' | 'custom'
+  cert_number              text,
+  issued_at                date,
+  expires_at               date,
+  document_url             text,
+  status                   text NOT NULL DEFAULT 'active'
+                              CHECK (status IN ('active','expired','revoked','pending')),
+  created_at               timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS import_documentation (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_id                uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+                              REFERENCES entities(id) ON DELETE RESTRICT,
+  tanda_po_id              uuid NOT NULL REFERENCES tanda_pos(id) ON DELETE CASCADE,
+  document_type            text NOT NULL,                          -- 'commercial_invoice' | 'packing_list' | 'bill_of_lading' | 'certificate_of_origin' | 'customs_declaration'
+  document_url             text,
+  hs_code                  text,
+  country_of_origin        text,
+  declared_value_cents     bigint,
+  duty_rate_pct            numeric(8,4),
+  status                   text NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','received','verified','filed')),
+  created_at               timestamptz NOT NULL DEFAULT now()
+);
+```
+
+### 3.15 `tanda_pos` D18 pilot-vendor + procurement status extensions
+
+Reuse-not-new per D1: P13-1 adds five further columns to `tanda_pos` for procurement-phase tracking + the D18 pilot marker.
+
+```sql
+ALTER TABLE tanda_pos ADD COLUMN IF NOT EXISTS originated_by_employee_id uuid
+  REFERENCES employees(id) ON DELETE SET NULL;
+ALTER TABLE tanda_pos ADD COLUMN IF NOT EXISTS procurement_status text;        -- new procurement lifecycle states (orthogonal to legacy status)
+ALTER TABLE tanda_pos ADD COLUMN IF NOT EXISTS expected_landed_cost_cents bigint;
+ALTER TABLE tanda_pos ADD COLUMN IF NOT EXISTS actual_landed_cost_cents bigint;
+ALTER TABLE tanda_pos ADD COLUMN IF NOT EXISTS pilot_vendor_flag boolean NOT NULL DEFAULT false;  -- D18 marker
+```
+
 ---
 
 ## 4. API surface
@@ -511,6 +658,82 @@ CR 2100 AP Control (vendor V — actual AP balance)          27000
 
 If variance > tolerance, post the variance to `6320 PO Variance Expense` and surface the line in the inbox.
 
+### 6.9 D19 — Receipt-time landed-cost rollup with auto-AP-invoice + bookkeeper gate
+
+The receiving user closes receipt `TPR-1234` (PO `RP-2026-00050`, 600 units @ $4.50 = $270,000 pre-rollup) and adds three rollup lines on the receiving panel:
+
+| Rollup | Expense GL | Amount | Vendor | Capitalize? |
+|---|---|---|---|---|
+| Inbound freight | 5100 Inbound Freight | $1,250 | Forward Air (freight forwarder, NOT the PO vendor) | YES |
+| Brokerage fee | 5120 Brokerage + Clearance | $475 | Expeditors (broker) | YES |
+| Inspection charge | 5160 Inspection / Third-party QC | $400 | SGS (inspection vendor) | NO (operator expensing this one) |
+
+For each rollup row, the system auto-creates an AP `invoices` row:
+
+```
+invoices INSERT — auto-AP for the Forward Air freight rollup:
+  id                       = <new uuid>
+  vendor_id                = <Forward Air vendor_id>
+  invoice_number           = 'AUTO-TPR-1234-1'
+  invoice_kind             = 'vendor_bill'
+  status                   = 'pending_bookkeeper_approval'   -- D19 GATE
+  gl_status                = 'unposted'
+  is_receipt_rollup        = true
+  rollup_parent_receipt_id = TPR-1234
+  total_amount_cents       = 125000
+  source                   = 'manual'                        -- (T10 source; ops-typed-equivalent)
+```
+
+Auto-AP for the Expeditors brokerage rollup + SGS inspection rollup repeats with their own invoice rows.
+
+`tanda_po_receipts.landed_cost_cents` is set to `$1,250 + $475 = $1,725` (only capitalize=true rollups roll into landed_cost; the SGS inspection charge of $400 stays as a flat expense and does NOT inflate inventory cost).
+
+`tanda_po_receipt_lines.landed_unit_cost_cents` for each line is recomputed:
+
+```
+landed_unit_cost_cents = unit_cost_cents
+                       + (capitalized_rollups_total_cents × line_extended_value / receipt_extended_value)
+```
+
+Per D7 (value-weighted allocation default), for a uniform $4.50 receipt:
+
+```
+$1,725 capitalized / 600 units = $2.875 per unit
+landed_unit_cost_cents = 450 + 287.5 ≈ 738 (rounded to integer cents per line)
+```
+
+At this stage the JE has NOT yet posted — `tanda_po_receipts.status='pending_approval'`, each auto-AP `invoices.status='pending_bookkeeper_approval'`. The bookkeeper opens the **Receipt Rollup Approval Queue** (a new panel) and reviews each auto-AP row.
+
+Bookkeeper approves all three auto-AP rows. For each, status flips to `'approved'`, the standard P3 AP posting service runs, and the rollup's capitalized portion posts as:
+
+```
+For the Forward Air freight rollup ($1,250, capitalized=true):
+DR 1300 Inventory Asset (allocated across TPR-1234 layers)        125000
+CR 2100 AP Control (Forward Air vendor)                           125000
+
+For the Expeditors brokerage rollup ($475, capitalized=true):
+DR 1300 Inventory Asset (allocated across TPR-1234 layers)         47500
+CR 2100 AP Control (Expeditors vendor)                             47500
+
+For the SGS inspection rollup ($400, capitalized=false):
+DR 5160 Inspection / Third-party QC                                40000
+CR 2100 AP Control (SGS vendor)                                    40000
+```
+
+And the receipt itself, once all rollups are approved AND QC passes, posts the inventory layer:
+
+```
+DR 1300 Inventory Asset                                          271725    -- 600 × $4.50 + $1,725 capitalized rollups
+CR 2100 AP Control (PO vendor — Zhejiang Zhuji Newdan)           270000    -- PO unit cost portion
+CR <rollup capitalized portion already DR'd above; net zero ON 1300>
+-- inventory_layers row created with unit_cost_cents=453 (rounded from 4528.75¢/unit at 600 units)
+-- source_kind='po_receipt' on the layer
+```
+
+This replaces D9's "FIFO layer posts at PO cost, lazy revaluation 10-30 days later" with **correct landed cost from day one** for vendors whose freight/broker/inspection invoices arrive at or near receipt. D9's lazy-revaluation path stays available as a fallback when broker docs trail receipt by weeks.
+
+**Key control point:** auto-created AP invoices land in `status='pending_bookkeeper_approval'` with `gl_status='unposted'`. The warehouse user who closed the receipt can't accidentally post unverified vendor invoices into the GL — a bookkeeper must review each one before it hits the books.
+
 ---
 
 ## 7. Implementation chunks
@@ -519,25 +742,26 @@ If variance > tolerance, post the variance to `6320 PO Variance Expense` and sur
 
 | Chunk | Title | Scope | Depends on |
 |---|---|---|---|
-| **P13-0** | Schema migration: all 9 tables + extensions + GL seeds + RLS + Tangerine PO numbering helper (`tanda_pos`, `po_line_items`, `po_commitments`, `vendor_invoice_drafts`, `customs_entries` + lines, `broker_invoices`, `qc_inspections`, `vendors` extensions, `ip_item_master` extensions, GL account inserts, RLS policies). One migration, atomic. | — |
-| **P13-1** | PO origination — extend PO WIP / Tanda UI with Create-PO wizard + matrix-grid line entry + submit-to-vendor (portal + email) + commitment posting service | P13-0 |
-| **P13-2** | PO acknowledgment + change-order flow — reuses existing `tanda_milestone_change_requests`; adds vendor-side ack UI + variance flagging | P13-1 |
-| **P13-3** | Receiving session — open-against-PO + matrix qty entry + scanner REST hook + partial-receipt support + receipt JE (book to 1320 or skip-QC straight to 1300) | P13-0 |
-| **P13-4** | QC inspections — inspection queue + pass/fail/conditional + 4-disposition handling (vendor_rma, vendor_credit_only, write_off, rework_inhouse) + photo-attachment via M29 | P13-3 |
-| **P13-5** | Customs entries — operator-typed entry + per-line HTS + duty rate + 7501 PDF link + accrual settlement JE | P13-3 |
-| **P13-6** | Broker invoices + landed-cost allocation — broker-as-vendor AP path + allocation method (value/weight/cbm) + revaluation JE on remaining FIFO layers | P13-5 |
-| **P13-7** | Vendor invoice three-way match — OCR ingest from Vendor Portal + AP inbox + match-to-PO+receipt + variance queue + approve-to-AP path | P13-3 |
-| **P13-8** | Procurement Reconciliation Inbox + Open Commitments report + period-close pre-flight extensions (D16) + M28 notification rules for stale entries | P13-1..7 |
-| **P13-9** | User guide chapter 25 Procurement (sub-chapters PO / Receiving / QC / Trade Compliance) + memory close-out + cutover-per-vendor checklist | P13-1..8 |
+| **P13-1** | Procurement schema migration (this chunk) — Tangerine-native `tanda_po_receipts` + `tanda_po_receipt_lines` + `tanda_po_receipt_rollups` (D19) + `tanda_po_qc_inspections` + `tanda_po_qc_findings` + `vendor_compliance_certifications` + `import_documentation` + `tanda_pos` extensions (5 cols incl. D18 `pilot_vendor_flag`) + `invoices` extensions (`is_receipt_rollup`, `rollup_parent_receipt_id`, `status` CHECK extended with `pending_bookkeeper_approval`) + RLS template (anon_all + auth_internal) + NOTIFY pgrst. One migration, atomic, idempotent. | — |
+| **P13-2** | Legacy-side schema (deferred): the existing-`receipts`/`receipt_line_items` ALTERs (3.4), `po_commitments` (3.3), `vendor_invoice_drafts` (3.6), `customs_entries` (3.7), `broker_invoices` (3.8), legacy `qc_inspections` (3.5), `vendors` + `ip_item_master` (3.9), GL seeds (3.10). Lives in a second migration to keep P13-1 reviewable. | P13-1 |
+| **P13-3** | PO origination + receiving session UI — extend PO WIP / Tanda UI with Create-PO wizard + matrix-grid line entry + submit-to-vendor + receiving session against PO + **receipt rollup entry panel (D19)** + auto-AP-invoice generation on rollup save | P13-1, P13-2 |
+| **P13-4** | Bookkeeper approval queue — new panel listing `invoices` WHERE `status='pending_bookkeeper_approval'`. Bookkeeper-role gating per T4. Approve/reject flips status + triggers P3 AP posting service for approved rows. | P13-3 |
+| **P13-5** | QC inspections — inspection queue + pass/fail/conditional + 4-disposition handling (vendor_rma, vendor_credit_only, write_off, rework_inhouse) + photo-attachment via M29 (writes to new `tanda_po_qc_inspections` + `tanda_po_qc_findings`) | P13-3 |
+| **P13-6** | Customs entries — operator-typed entry + per-line HTS + duty rate + 7501 PDF link + accrual settlement JE | P13-3 |
+| **P13-7** | Broker invoices + landed-cost allocation — broker-as-vendor AP path + allocation method (value/weight/cbm) + revaluation JE on remaining FIFO layers (fallback path for vendors whose freight/broker invoices don't arrive at receipt time per D19) | P13-6 |
+| **P13-8** | Vendor invoice three-way match — OCR ingest from Vendor Portal + AP inbox + match-to-PO+receipt + variance queue + approve-to-AP path | P13-3 |
+| **P13-9** | Procurement Reconciliation Inbox + Open Commitments report + period-close pre-flight extensions (D16) + M28 notification rules for stale entries (incl. auto-AP rollup invoices stuck in `pending_bookkeeper_approval` > 7 days) | P13-1..8 |
+| **P13-10** | User guide chapter 25 Procurement (sub-chapters PO / Receiving / QC / Trade Compliance / Rollup + Bookkeeper Approval) + memory close-out + cutover-per-vendor checklist | P13-1..9 |
 
 **Parallel waves:**
 
-- **Wave A:** P13-0 (gate, atomic schema)
-- **Wave B:** P13-1 + P13-3 simultaneously (PO origin + receiving are independent given the schema)
-- **Wave C:** P13-2 + P13-4 + P13-5 + P13-7 simultaneously (ack flow + QC + customs + 3-way match all branch off Wave B)
-- **Wave D:** P13-6 (depends on P13-5 customs)
-- **Wave E:** P13-8 (depends on all of B-D)
-- **Wave F:** P13-9 (docs close-out)
+- **Wave A:** P13-1 (gate, Tangerine-native atomic schema incl. D19 rollup tables)
+- **Wave A':** P13-2 (legacy-side schema deltas) — can run in parallel with P13-3 since the two schemas are disjoint
+- **Wave B:** P13-3 (PO origination + receiving + rollup entry UI) + P13-4 (bookkeeper approval queue) — receiving panel and approval queue are independent given the schema
+- **Wave C:** P13-5 + P13-6 + P13-8 simultaneously (QC + customs + 3-way match all branch off Wave B)
+- **Wave D:** P13-7 (depends on P13-6 customs)
+- **Wave E:** P13-9 (depends on all of B-D)
+- **Wave F:** P13-10 (docs close-out)
 
 **Total: 10 chunks.** ~8-10 weeks waved in parallel with multiple agents (matches P12's 6-8 week shape for a smaller scope). Sequential would be ~14-16 weeks.
 
@@ -635,7 +859,7 @@ This is the next major chunk of Xoro decom after the revenue side (P11 + P12) �
 
 ## 13. Operator confirm before chunks ship
 
-Please mark §2 D1-D18 with answers (or push back). Once confirmed I'll kick off **P13-0 (schema migration)** as a single atomic chunk, then **Wave B: P13-1 (PO origination) + P13-3 (receiving)** in parallel.
+**Status update (2026-05-29):** Operator has confirmed **D14 = 80% OCR confidence**, **D18 = Zhejiang Zhuji Newdan Garment Co., Ltd. pilot vendor**, **D9 strict landed cost capture at receipt** plus new **D19 receipt-time rollup workflow + auto-AP-invoice + bookkeeper approval gate**. D19 is part of **P13-1 (this chunk)** — the schema lands first, the UI wires in P13-3 + P13-4. Remaining D1-D8, D10-D17 await confirmation (low-risk reasonable defaults assumed for the migration).
 
 **Vercel env vars to add before P13-0 ships:** none required — this phase is entirely internal-to-Tangerine. (OCR helpers reuse the existing PDF→JSON service from M29.)
 

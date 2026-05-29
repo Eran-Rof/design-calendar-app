@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (186 migration files). Latest: `20260629700000_p12c_chunk4_returns.sql`.
+> Generated from `supabase/migrations/*.sql` (189 migration files). Latest: `20260629A00000_p13_chunk1_procurement_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 254 tables · 242 CREATE TABLE · 575 ALTER TABLE
+**Stats:** 266 tables · 254 CREATE TABLE · 597 ALTER TABLE
 
 ---
 
@@ -905,6 +905,7 @@ _(no columns parsed)_
 - `default_retained_earnings_account_id` uuid → `gl_accounts`
 - `default_payment_processor` text CHECK `IN ('stripe','square','authnet')`
 - `multi_entity_enabled` boolean NOT NULL DEFAULT false
+- `parallel_run_status` jsonb NOT NULL DEFAULT '{}'::jsonb
 
 ## `entity_access_audit`  _(P10-1)_
 
@@ -1283,6 +1284,20 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 
+## `import_documentation`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `tanda_po_id` uuid → `tanda_pos` NOT NULL
+- `document_type` text NOT NULL
+- `document_url` text
+- `hs_code` text
+- `country_of_origin` text
+- `declared_value_cents` bigint
+- `duty_rate_pct` numeric(8,4)
+- `status` text NOT NULL DEFAULT 'pending' CHECK `status IN ('pending','received','verified','filed')`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
 ## `international_payments`  _((pre-P))_
 
 - `id` uuid PK DEFAULT gen_random_uuid()
@@ -1442,7 +1457,13 @@ _(no columns parsed)_
 - `tax` numeric
 - `total` numeric
 - `currency` text NOT NULL DEFAULT 'USD'
-- `status` text NOT NULL DEFAULT 'submitted' CHECK `status IN ('submitted', 'under_review', 'approved', 'paid', 'rejected', 'disputed')`
+- `status` text NOT NULL DEFAULT 'submitted' CHECK `IN ('submitted',
+    'under_review',
+    'approved',
+    'paid',
+    'rejected',
+    'disputed',
+    'pending_bookkeeper_approval')`
 - `file_url` text
 - `submitted_by` uuid → `vendor_users`
 - `submitted_at` timestamptz NOT NULL DEFAULT now()
@@ -1473,6 +1494,8 @@ _(no columns parsed)_
 - `description` text
 - `source` text NOT NULL DEFAULT 'manual' CHECK `IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
 - `search_doc` tsvector
+- `is_receipt_rollup` boolean NOT NULL DEFAULT false
+- `rollup_parent_receipt_id` uuid → `tanda_po_receipts`
 
 ## `ip_action_templates`  _((pre-P))_
 
@@ -2833,6 +2856,62 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 
+## `recon_cleared_log`  _(P9-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `recon_variance_id` uuid → `recon_variances` NOT NULL
+- `cleared_by_auth_id` uuid → `auth.users`
+- `cleared_by_employee_id` uuid → `employees`
+- `reason` text NOT NULL
+- `cleared_at` timestamptz NOT NULL DEFAULT now()
+
+## `recon_cutover_signoffs`  _(P9-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `domain` text NOT NULL
+- `source_tag` text
+- `clean_window_start` date NOT NULL
+- `clean_window_end` date NOT NULL
+- `total_recons` int NOT NULL
+- `signoff_employee_id` uuid → `employees`
+- `signoff_at` timestamptz NOT NULL DEFAULT now()
+- `notes` text
+
+## `recon_runs`  _(P9-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `domain` text NOT NULL CHECK `domain IN ('ap','ar','cash','gl','inventory')`
+- `run_date` date NOT NULL
+- `period_start` date NOT NULL
+- `period_end` date NOT NULL
+- `cadence` text NOT NULL DEFAULT 'weekly' CHECK `cadence IN ('weekly','manual','replay')`
+- `status` text NOT NULL DEFAULT 'pending' CHECK `status IN ('pending','running','clean','variance','error')`
+- `started_at` timestamptz
+- `completed_at` timestamptz
+- `totals_jsonb` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `replay_of_id` uuid → `recon_runs`
+- `replay_reason` text
+- `notes` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `recon_variances`  _(P9-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `recon_run_id` uuid → `recon_runs` NOT NULL
+- `source_table` text NOT NULL
+- `source_id` text NOT NULL
+- `source_tag` text
+- `tangerine_amount_cents` bigint NOT NULL
+- `xoro_amount_cents` bigint NOT NULL
+- `variance_amount_cents` bigint NOT NULL
+- `variance_percent` numeric(8,4)
+- `status` text NOT NULL DEFAULT 'over' CHECK `status IN ('within','over','cleared','suppressed')`
+- `notes` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
 ## `rfq_attachments`  _((pre-P))_
 
 - `id` uuid PK DEFAULT gen_random_uuid()
@@ -2908,6 +2987,26 @@ _(no columns parsed)_
 - `awarded_at` timestamptz
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+
+## `row_changes`  _((pre-P))_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities`
+- `source_table` text NOT NULL
+- `source_id` text NOT NULL
+- `operation` text NOT NULL CHECK `operation IN ('INSERT','UPDATE','DELETE','VOID','POST','REVERSE')`
+- `before_jsonb` jsonb
+- `after_jsonb` jsonb
+- `changed_columns` text[]
+- `actor_auth_id` uuid
+- `actor_employee_id` uuid → `employees`
+- `actor_display_name` text
+- `source` text CHECK `source IS NULL OR source IN ('manual','xoro_mirror','shopify','fba','walmart','faire','edi_3pl','plaid_sync','api','system')`
+- `reason` text
+- `correlation_id` text
+- `user_agent` text
+- `ip_address` inet
+- `changed_at` timestamptz NOT NULL DEFAULT now()
 
 ## `sales_rep_commission_tiers`  _(P7-4)_
 
@@ -3266,6 +3365,71 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 
+## `tanda_po_qc_findings`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `inspection_id` uuid → `tanda_po_qc_inspections` NOT NULL
+- `category` text NOT NULL
+- `severity` text NOT NULL CHECK `severity IN ('minor','major','critical')`
+- `qty_affected` int NOT NULL DEFAULT 0
+- `description` text NOT NULL
+- `photo_urls` text[]
+- `resolution` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `tanda_po_qc_inspections`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `receipt_id` uuid → `tanda_po_receipts` NOT NULL
+- `inspection_date` date NOT NULL
+- `inspector_employee_id` uuid → `employees`
+- `status` text NOT NULL DEFAULT 'pending' CHECK `status IN ('pending','passed','failed','partial')`
+- `overall_pass_rate` numeric(5,4)
+- `notes` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `tanda_po_receipt_lines`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `receipt_id` uuid → `tanda_po_receipts` NOT NULL
+- `po_line_item_id` uuid → `po_line_items` NOT NULL
+- `qty_received` int NOT NULL CHECK `qty_received > 0`
+- `qty_accepted` int NOT NULL CHECK `qty_accepted >= 0`
+- `qty_rejected` int NOT NULL DEFAULT 0
+- `unit_cost_cents` bigint NOT NULL CHECK `unit_cost_cents >= 0`
+- `landed_unit_cost_cents` bigint
+- `inventory_location_id` uuid → `inventory_locations`
+- `inventory_layer_id` uuid → `inventory_layers`
+- `raw_payload` jsonb
+
+## `tanda_po_receipt_rollups`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `receipt_id` uuid → `tanda_po_receipts` NOT NULL
+- `expense_gl_account_id` uuid → `gl_accounts` NOT NULL
+- `amount_cents` bigint NOT NULL CHECK `amount_cents > 0`
+- `vendor_id` uuid → `vendors`
+- `description` text NOT NULL
+- `capitalized_to_inventory` boolean NOT NULL DEFAULT true
+- `auto_invoice_id` uuid → `invoices`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `tanda_po_receipts`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `tanda_po_id` uuid → `tanda_pos` NOT NULL
+- `receipt_date` date NOT NULL
+- `received_by_employee_id` uuid → `employees`
+- `status` text NOT NULL DEFAULT 'draft' CHECK `status IN ('draft','pending_approval','approved','posted')`
+- `landed_cost_cents` bigint NOT NULL DEFAULT 0
+- `notes` text
+- `je_id` uuid → `journal_entries`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
 ## `tanda_pos`  _((pre-P) (alter only))_
 
 - `vendor_id` uuid → `vendors`
@@ -3275,6 +3439,11 @@ _(no columns parsed)_
 - `uuid_id` uuid DEFAULT gen_random_uuid()
 - `entity_id` uuid → `entities`
 - `search_doc` tsvector
+- `originated_by_employee_id` uuid → `employees`
+- `procurement_status` text
+- `expected_landed_cost_cents` bigint
+- `actual_landed_cost_cents` bigint
+- `pilot_vendor_flag` boolean NOT NULL DEFAULT false
 
 ## `tasks`  _((pre-P))_
 
@@ -3394,6 +3563,19 @@ _(no columns parsed)_
 - `request_id` text
 - `duration_ms` integer
 - `error_message` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `vendor_compliance_certifications`  _(P13-1)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `vendor_id` uuid → `vendors` NOT NULL
+- `certification_type` text NOT NULL
+- `cert_number` text
+- `issued_at` date
+- `expires_at` date
+- `document_url` text
+- `status` text NOT NULL DEFAULT 'active' CHECK `status IN ('active','expired','revoked','pending')`
 - `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `vendor_flags`  _((pre-P))_
