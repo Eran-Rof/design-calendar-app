@@ -18,6 +18,7 @@
 import { decryptToken } from "./token-encryption.js";
 import { refreshLwaAccessToken } from "./lwa.js";
 import { SpApiClient } from "./client.js";
+import { postFbaOrderJe } from "./post-order-je.js";
 
 const MAX_LOOKBACK_DAYS = 14;
 const MAX_PAGES_PER_ACCOUNT = 50; // 50 * 100 = 5000 orders/run/account cap
@@ -142,7 +143,13 @@ export async function syncAccountOrders(supabase, acct, opts = {}) {
     pages: 0,
     since: null,
     error: null,
+    je_posted: 0,
+    je_errors: 0,
   };
+  // P12a-3 — JE auto-post is opt-out by default; tests can disable it via
+  // opts.postJe = false. Production cron leaves it on.
+  const postJe = opts.postJe !== false;
+  const postFn = opts.deps?.postFbaOrderJe || postFbaOrderJe;
 
   const since = opts.since || computeSinceTime(acct.last_orders_sync_at, now);
   summary.since = since;
@@ -200,6 +207,24 @@ export async function syncAccountOrders(supabase, acct, opts = {}) {
           .upsert(itemRow, { onConflict: "fba_order_id,order_item_id" });
         if (itemErr) throw new Error(`fba_order_items upsert failed for ${item.OrderItemId}: ${itemErr.message}`);
         summary.items_upserted++;
+      }
+
+      // P12a-3 — Auto-post the AR JE after the order + items are mirrored.
+      // Errors here are caught + logged; they MUST NOT abort the ingest
+      // loop (one bad order can't break the rest of the run, and the
+      // operator can re-trigger via the manual handler).
+      if (postJe) {
+        try {
+          await postFn({ fbaOrderId: upserted.id, adminClient: supabase });
+          summary.je_posted++;
+        } catch (e) {
+          summary.je_errors++;
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[fba-ingest] postFbaOrderJe failed for fba_order ${upserted.id} ` +
+            `(amazon_order_id=${order.AmazonOrderId}): ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
       }
     }
     nextToken = listResp.NextToken || null;

@@ -457,6 +457,9 @@ import h443 from "../cron/shopify-backfill.js";
 //   h451 = GET/POST /api/cron/fba-orders-nightly (Vercel cron, 03:00 UTC)
 import h450 from "./internal/fba/sync-orders.js";
 import h451 from "../cron/fba-orders-nightly.js";
+// P12a-3 — Amazon FBA AR invoice JE posting (manual backfill).
+//   h458 = POST /api/internal/fba/post-order/:id (manual JE post for one order)
+import h458 from "./internal/fba/post-order/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -909,6 +912,8 @@ export const ROUTES = [
   // P12a-2 — Amazon FBA SP-API orders ingest.
   { pattern: "/api/internal/fba/sync-orders",                          handler: h450 },
   { pattern: "/api/cron/fba-orders-nightly",                           handler: h451 },
+  // P12a-3 — Amazon FBA AR invoice JE posting (manual backfill).
+  { pattern: "/api/internal/fba/post-order/:id",                       handler: h458 },
 ];
 
 export function compileRoutes(routes) {
