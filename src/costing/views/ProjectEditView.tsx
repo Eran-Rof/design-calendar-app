@@ -1,11 +1,14 @@
-// Costing Module — project edit view (header form only at this stage).
-// Chunk 4 will mount the CostingGrid below the form; Chunk 6 will mount the
-// PlanFlowWidget above it.
+// Costing Module — project edit view.
+// Header form + CostingGrid below + VendorQuotePanel on the right (toggled
+// by selecting a grid row). Chunk 6 will add the PlanFlowWidget above the
+// form.
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { ALL_STATUSES, statusLabel, navigate, getEditId } from "../helpers";
 import type { CostingStatus, CostingProjectPatch } from "../types";
+import CostingGrid from "../panels/CostingGrid";
+import VendorQuotePanel from "../panels/VendorQuotePanel";
 
 export default function ProjectEditView() {
   const id = getEditId();
@@ -123,9 +126,12 @@ export default function ProjectEditView() {
         </Field>
       </div>
 
+      <CostingGrid />
+
+      <VendorQuotePanel />
+
       <div style={{ marginTop: 24, padding: 14, background: "#1E293B", border: "1px dashed #334155", borderRadius: 6, color: "#94A3B8", fontSize: 12 }}>
         <b style={{ color: "#CBD5E1" }}>Coming in next chunks:</b>{" "}
-        Chunk 4 → costing grid (style autocomplete, multi-vendor quotes, live margin) ·
         Chunk 5 → LY + trailing-3-month comp auto-fill ·
         Chunk 6 → Plan Flow widget at top ·
         Chunk 7 → compliance + xlsx export ·

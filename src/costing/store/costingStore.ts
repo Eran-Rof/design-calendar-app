@@ -21,6 +21,7 @@ type State = {
   lines: CostingLine[];
   vendorQuotes: Record<string, CostingLineVendor[]>;
   compliance: Record<string, CostingLineCompliance[]>;
+  selectedLineId: string | null;
   loading: boolean;
   error: string | null;
 
@@ -30,6 +31,20 @@ type State = {
   updateProject: (id: string, patch: CostingProjectPatch) => Promise<CostingProject>;
   deleteProject: (id: string) => Promise<void>;
   clearActive: () => void;
+
+  // Line actions
+  addLine: (seed?: Partial<CostingLine>) => Promise<CostingLine | null>;
+  updateLine: (id: string, patch: Partial<CostingLine>) => Promise<void>;
+  deleteLine: (id: string) => Promise<void>;
+  reorderLines: (idOrder: string[]) => Promise<void>;
+  setSelectedLine: (id: string | null) => void;
+
+  // Vendor quote actions
+  loadVendorQuotes: (lineId: string) => Promise<void>;
+  addQuote: (lineId: string, draft: api.QuoteDraft) => Promise<CostingLineVendor | null>;
+  updateQuote: (lineId: string, quoteId: string, patch: Partial<api.QuoteDraft>) => Promise<void>;
+  deleteQuote: (lineId: string, quoteId: string) => Promise<void>;
+  selectQuote: (lineId: string, quoteId: string) => Promise<void>;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -38,6 +53,7 @@ export const useCostingStore = create<State>((set, get) => ({
   lines: [],
   vendorQuotes: {},
   compliance: {},
+  selectedLineId: null,
   loading: false,
   error: null,
 
@@ -121,7 +137,168 @@ export const useCostingStore = create<State>((set, get) => ({
   },
 
   clearActive() {
-    set({ project: null, lines: [], vendorQuotes: {}, compliance: {} });
+    set({ project: null, lines: [], vendorQuotes: {}, compliance: {}, selectedLineId: null });
+  },
+
+  // ── Lines ─────────────────────────────────────────────────────────────────
+
+  async addLine(seed) {
+    const project = get().project;
+    if (!project) return null;
+    const lines = get().lines;
+    const seedRow = {
+      ...(seed || {}),
+      sort_order: typeof seed?.sort_order === "number" ? seed.sort_order : lines.length,
+    };
+    try {
+      const created = await api.upsertLines(project.id, [seedRow]);
+      const newLine = created[0];
+      if (newLine) {
+        set((s) => ({ lines: [...s.lines, newLine] }));
+        return newLine;
+      }
+      return null;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
+  },
+
+  async updateLine(id, patch) {
+    // Optimistic local update so the grid feels responsive.
+    set((s) => ({
+      lines: s.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+    }));
+    try {
+      const updated = await api.updateLine(id, patch);
+      set((s) => ({
+        lines: s.lines.map((l) => (l.id === id ? updated : l)),
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  async deleteLine(id) {
+    const prev = get().lines;
+    set({ lines: prev.filter((l) => l.id !== id) });
+    try {
+      await api.deleteLine(id);
+      set((s) => {
+        const nextQuotes = { ...s.vendorQuotes };
+        delete nextQuotes[id];
+        const nextCompliance = { ...s.compliance };
+        delete nextCompliance[id];
+        return {
+          vendorQuotes: nextQuotes,
+          compliance: nextCompliance,
+          selectedLineId: s.selectedLineId === id ? null : s.selectedLineId,
+        };
+      });
+    } catch (e) {
+      // Rollback on failure.
+      set({ lines: prev, error: (e as Error).message });
+    }
+  },
+
+  async reorderLines(idOrder) {
+    const project = get().project;
+    if (!project) return;
+    const byId = new Map(get().lines.map((l) => [l.id, l] as const));
+    const next = idOrder.map((id, i) => {
+      const row = byId.get(id);
+      return row ? { ...row, sort_order: i } : null;
+    }).filter((r): r is CostingLine => r !== null);
+    set({ lines: next });
+    try {
+      await api.upsertLines(
+        project.id,
+        next.map((l) => ({ id: l.id, sort_order: l.sort_order })),
+      );
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  setSelectedLine(id) {
+    set({ selectedLineId: id });
+    if (id && !get().vendorQuotes[id]) {
+      get().loadVendorQuotes(id);
+    }
+  },
+
+  // ── Vendor quotes ─────────────────────────────────────────────────────────
+
+  async loadVendorQuotes(lineId) {
+    try {
+      const quotes = await api.listQuotes(lineId);
+      set((s) => ({ vendorQuotes: { ...s.vendorQuotes, [lineId]: quotes } }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  async addQuote(lineId, draft) {
+    try {
+      const created = await api.createQuote(lineId, draft);
+      set((s) => ({
+        vendorQuotes: {
+          ...s.vendorQuotes,
+          [lineId]: [created, ...(s.vendorQuotes[lineId] || [])],
+        },
+      }));
+      return created;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
+  },
+
+  async updateQuote(lineId, quoteId, patch) {
+    try {
+      const updated = await api.updateQuote(lineId, quoteId, patch);
+      set((s) => ({
+        vendorQuotes: {
+          ...s.vendorQuotes,
+          [lineId]: (s.vendorQuotes[lineId] || []).map((q) => (q.id === quoteId ? updated : q)),
+        },
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  async deleteQuote(lineId, quoteId) {
+    try {
+      await api.deleteQuote(lineId, quoteId);
+      set((s) => ({
+        vendorQuotes: {
+          ...s.vendorQuotes,
+          [lineId]: (s.vendorQuotes[lineId] || []).filter((q) => q.id !== quoteId),
+        },
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  async selectQuote(lineId, quoteId) {
+    try {
+      const result = await api.selectQuote(lineId, quoteId);
+      set((s) => ({
+        lines: s.lines.map((l) => (l.id === lineId ? result.line : l)),
+        vendorQuotes: {
+          ...s.vendorQuotes,
+          [lineId]: (s.vendorQuotes[lineId] || []).map((q) => {
+            if (q.id === quoteId) return { ...q, status: "selected" };
+            if (q.status === "selected") return { ...q, status: "received" };
+            return q;
+          }),
+        },
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 }));
 
