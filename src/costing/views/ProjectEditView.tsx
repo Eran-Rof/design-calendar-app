@@ -10,16 +10,26 @@ import type { CostingStatus, CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import VendorQuotePanel from "../panels/VendorQuotePanel";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
+import CompliancePanel from "../panels/CompliancePanel";
+import ExportButton from "../../tanda/exports/ExportButton";
+import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 
 export default function ProjectEditView() {
   const id = getEditId();
   const project = useCostingStore((s) => s.project);
+  const lines   = useCostingStore((s) => s.lines);
+  const vendorQuotes = useCostingStore((s) => s.vendorQuotes);
   const loading = useCostingStore((s) => s.loading);
   const error   = useCostingStore((s) => s.error);
   const load    = useCostingStore((s) => s.loadProject);
   const update  = useCostingStore((s) => s.updateProject);
   const clear   = useCostingStore((s) => s.clearActive);
   const setStageFilter = useCostingStore((s) => s.setStageFilter);
+
+  const exportRows = React.useMemo(
+    () => buildExportRows(lines, vendorQuotes),
+    [lines, vendorQuotes],
+  );
 
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [saving, setSaving] = useState(false);
@@ -80,7 +90,13 @@ export default function ProjectEditView() {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {project?.project_name || "Loading…"}
         </h2>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            rows={exportRows as unknown as Record<string, unknown>[]}
+            columns={COSTING_EXPORT_COLUMNS as unknown as never}
+            filename={buildExportFilename(project)}
+            sheetName="Costing"
+          />
           <button onClick={onSave} disabled={saving || loading} style={{
             background: "#10B981", color: "#fff", border: "none",
             padding: "6px 16px", borderRadius: 4, cursor: saving ? "not-allowed" : "pointer",
@@ -137,10 +153,7 @@ export default function ProjectEditView() {
 
       <VendorQuotePanel />
 
-      <div style={{ marginTop: 24, padding: 14, background: "#1E293B", border: "1px dashed #334155", borderRadius: 6, color: "#94A3B8", fontSize: 12 }}>
-        <b style={{ color: "#CBD5E1" }}>Coming in Chunk 7:</b>{" "}
-        Compliance checklist per line · xlsx export of the BOYS-style sheet.
-      </div>
+      <CompliancePanel />
     </div>
   );
 }

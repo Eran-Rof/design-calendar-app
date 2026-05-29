@@ -59,6 +59,12 @@ type State = {
    * row without re-fetching. Lines without a style_code are skipped.
    */
   refreshComp: (lineIds: string[] | "all") => Promise<void>;
+
+  // Compliance actions (Chunk 7)
+  loadCompliance: (lineId: string) => Promise<void>;
+  addCompliance: (lineId: string, draft: api.ComplianceDraft) => Promise<CostingLineCompliance | null>;
+  updateCompliance: (lineId: string, reqId: string, patch: Partial<api.ComplianceDraft>) => Promise<void>;
+  deleteCompliance: (lineId: string, reqId: string) => Promise<void>;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -322,8 +328,6 @@ export const useCostingStore = create<State>((set, get) => ({
     const targetLines = lineIds === "all"
       ? state.lines
       : state.lines.filter((l) => lineIds.includes(l.id));
-    // Group target lines by style_code so each style is queried once and the
-    // resulting aggregate is fanned out to every line that shares the code.
     const styleToLineIds = new Map<string, string[]>();
     for (const ln of targetLines) {
       if (!ln.style_code) continue;
@@ -341,10 +345,6 @@ export const useCostingStore = create<State>((set, get) => ({
         fetchT3Comp(styleCodes),
       ]);
       const refreshedAt = new Date().toISOString();
-
-      // Build per-line patches keyed by line_id, then PUT each one. Persist
-      // sequentially so the order of patches matches the visual order of
-      // the grid — small N (≤ a few dozen lines per project in practice).
       const updates: CostingLine[] = [];
       for (const [styleCode, ids] of styleToLineIds.entries()) {
         const lyAgg = ly[styleCode];
@@ -366,8 +366,6 @@ export const useCostingStore = create<State>((set, get) => ({
           updates.push(updated);
         }
       }
-
-      // Splice the updated lines back into the array in place.
       set((s) => ({
         lines: s.lines.map((existing) => {
           const u = updates.find((x) => x.id === existing.id);
@@ -378,6 +376,61 @@ export const useCostingStore = create<State>((set, get) => ({
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
       throw e;
+    }
+  },
+
+  // ── Compliance (Chunk 7) ──────────────────────────────────────────────────
+
+  async loadCompliance(lineId) {
+    try {
+      const rows = await api.listCompliance(lineId);
+      set((s) => ({ compliance: { ...s.compliance, [lineId]: rows } }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  async addCompliance(lineId, draft) {
+    try {
+      const created = await api.createCompliance(lineId, draft);
+      set((s) => ({
+        compliance: {
+          ...s.compliance,
+          [lineId]: [...(s.compliance[lineId] || []), created],
+        },
+      }));
+      return created;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
+  },
+
+  async updateCompliance(lineId, reqId, patch) {
+    try {
+      const updated = await api.updateCompliance(lineId, reqId, patch);
+      set((s) => ({
+        compliance: {
+          ...s.compliance,
+          [lineId]: (s.compliance[lineId] || []).map((r) => (r.id === reqId ? updated : r)),
+        },
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  async deleteCompliance(lineId, reqId) {
+    try {
+      await api.deleteCompliance(lineId, reqId);
+      set((s) => ({
+        compliance: {
+          ...s.compliance,
+          [lineId]: (s.compliance[lineId] || []).filter((r) => r.id !== reqId),
+        },
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
     }
   },
 }));
