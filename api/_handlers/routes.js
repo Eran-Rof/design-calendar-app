@@ -431,6 +431,11 @@ import h432 from "./internal/users/me/entities/index.js";
 //   h453 = POST /api/cron/walmart-orders-nightly
 import h452 from "./internal/walmart/sync-orders.js";
 import h453 from "../cron/walmart-orders-nightly.js";
+// P12c-2 — Faire wholesale marketplace ingest (manual triggers + crons).
+import h454 from "./internal/faire/sync-orders.js";
+import h455 from "../cron/faire-orders-nightly.js";
+import h456 from "./internal/faire/sync-payouts.js";
+import h457 from "../cron/faire-payouts-monthly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -865,6 +870,11 @@ export const ROUTES = [
   // P12b-2 — Walmart Marketplace orders ingest.
   { pattern: "/api/internal/walmart/sync-orders",                      handler: h452 },
   { pattern: "/api/cron/walmart-orders-nightly",                       handler: h453 },
+  // P12c-2 — Faire wholesale marketplace ingest (manual triggers + crons).
+  { pattern: "/api/internal/faire/sync-orders",                        handler: h454 },
+  { pattern: "/api/cron/faire-orders-nightly",                         handler: h455 },
+  { pattern: "/api/internal/faire/sync-payouts",                       handler: h456 },
+  { pattern: "/api/cron/faire-payouts-monthly",                        handler: h457 },
 ];
 
 export function compileRoutes(routes) {
