@@ -488,6 +488,9 @@ import h474 from "../cron/faire-returns-weekly.js";
 //   h486 = GET /api/internal/audit/log         (full filtered ledger for admin panel)
 import h485 from "./internal/audit/row-history.js";
 import h486 from "./internal/audit/log.js";
+// P9-4 — Cash reconciliation engine + manual trigger.
+//   h482 = POST /api/internal/recon/run-cash
+import h482 from "./internal/recon/run-cash.js";
 
 // Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
 // Handler vars shifted past audit's h485/h486 — search/sales-reps onwards
@@ -499,7 +502,7 @@ import h478 from "./internal/costing/lines/[line_id]/index.js";
 import h479 from "./internal/costing/lines/[line_id]/quotes/index.js";
 import h480 from "./internal/costing/lines/[line_id]/quotes/[quote_id].js";
 import h481 from "./internal/costing/lines/[line_id]/select-quote.js";
-import h482 from "./internal/costing/search/styles.js";
+import h497 from "./internal/costing/search/styles.js";
 import h483 from "./internal/costing/search/vendors.js";
 import h484 from "./internal/costing/search/customers.js";
 import h493 from "./internal/costing/search/sales-reps.js";
@@ -990,7 +993,10 @@ export const ROUTES = [
   // Cross-cutter T11-3 — Universal audit log read endpoints.
   { pattern: "/api/internal/audit/row-history",                        handler: h485 },
   { pattern: "/api/internal/audit/log",                                handler: h486 },
+  // P9-4 — Cash reconciliation manual trigger.
+  { pattern: "/api/internal/recon/run-cash",                           handler: h482 },
   // Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+  // h482 was taken by P9-4 on main; search/styles uses h497 instead.
   { pattern: "/api/internal/costing/projects",                         handler: h475 },
   { pattern: "/api/internal/costing/projects/:id",                     handler: h476 },
   { pattern: "/api/internal/costing/projects/:id/lines",               handler: h477 },
@@ -998,7 +1004,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/quotes",            handler: h479 },
   { pattern: "/api/internal/costing/lines/:line_id/quotes/:quote_id",  handler: h480 },
   { pattern: "/api/internal/costing/lines/:line_id/select-quote",      handler: h481 },
-  { pattern: "/api/internal/costing/search/styles",                    handler: h482 },
+  { pattern: "/api/internal/costing/search/styles",                    handler: h497 },
   { pattern: "/api/internal/costing/search/vendors",                   handler: h483 },
   { pattern: "/api/internal/costing/search/customers",                 handler: h484 },
   { pattern: "/api/internal/costing/search/sales-reps",                handler: h493 },

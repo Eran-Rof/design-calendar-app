@@ -38,6 +38,43 @@ function lookupSkuIdWithPpkFallback(itemMap, canonical) {
   return undefined;
 }
 
+// Look up a size-grain master row for a color-grain candidate. The
+// planning sync aggregates inventory + SOs + POs at (style, color)
+// grain (canonStyleColor strips the size token), but post_master_data
+// loads ip_item_master at (style, color, size) grain from the
+// CurrentProducts export. So a candidate like "RYB1469OB-BLACK" misses
+// lookups against master rows like "RYB1469OB-Black-SML" / "-MED" /
+// "-LRG" / "-XLG". The pre-existing PPK-strip fallback handles only
+// "-PPKn" suffixes; regular size suffixes need a wildcard lookup.
+//
+// Without this fallback the code falls through to buildItemRow, which
+// writes a minimal stub that violates ip_item_master's
+// apparel_dims_required CHECK — silently dropping every new BOTTOMS
+// PO (and any new style without a same-color master row yet) from
+// Inventory Planning every nightly. The 2026-05-29 manual rerun
+// dropped ~15k incoming PO units across 6 styles via this path.
+//
+// Cost: one PostgREST round-trip per still-missing SKU. Per-nightly
+// missing set is typically <20 so this is cheap relative to the
+// signal recovery. Batch via .or() chain if it routinely exceeds ~50.
+async function resolveSizeGrainFallback(admin, missingSkus, itemMap) {
+  if (!missingSkus || missingSkus.length === 0) return;
+  for (const sku of missingSkus) {
+    if (itemMap.has(sku)) continue;
+    // Defensive escape of ilike wildcards (% / _ / \) so a SKU
+    // containing one doesn't widen the match. Real SKUs shouldn't
+    // contain these but the cost of being safe is zero.
+    const safe = sku.replace(/[\\%_]/g, (m) => `\\${m}`);
+    const { data, error } = await admin
+      .from("ip_item_master")
+      .select("id, sku_code")
+      .ilike("sku_code", `${safe}-%`)
+      .limit(1);
+    if (error || !data || !data[0]) continue;
+    itemMap.set(sku, data[0].id);
+  }
+}
+
 function toIsoDate(raw) {
   if (!raw) return null;
   const d = new Date(raw);
@@ -174,6 +211,13 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
       itemMap.set(c.sku, itemMap.get(stripped));
     }
   }
+  // Size-grain DB fallback for any color-grain candidate whose PPK
+  // strip didn't resolve. See resolveSizeGrainFallback for rationale.
+  await resolveSizeGrainFallback(
+    admin,
+    candidates.filter((c) => !itemMap.has(c.sku)).map((c) => c.sku),
+    itemMap,
+  );
   const preExistingSkus = new Set(itemMap.keys());
   const missingCandidates = candidates.filter((c) => !preExistingSkus.has(c.sku));
   if (missingCandidates.length > 0) {
@@ -355,6 +399,12 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
           continue;
         }
         stillMissingSoSkus.push(sku);
+      }
+      // Size-grain DB fallback. Drop SKUs it resolves so the
+      // stub-create loop below doesn't double-write them.
+      await resolveSizeGrainFallback(admin, [...stillMissingSoSkus], itemMap);
+      for (let i = stillMissingSoSkus.length - 1; i >= 0; i--) {
+        if (itemMap.has(stillMissingSoSkus[i])) stillMissingSoSkus.splice(i, 1);
       }
       if (stillMissingSoSkus.length > 0) {
         const newItems = stillMissingSoSkus.map((sku) => buildItemRow(sku));
@@ -690,6 +740,14 @@ export async function syncOpenPosFromTandaPos(admin) {
   }
 
   // 4. Stub-create missing SKUs in master.
+  if (missingSkus.size > 0) {
+    // Size-grain DB fallback. Strip resolved SKUs out of missingSkus
+    // so they don't get stub-created. See resolveSizeGrainFallback.
+    await resolveSizeGrainFallback(admin, Array.from(missingSkus.keys()), itemMap);
+    for (const sku of Array.from(missingSkus.keys())) {
+      if (itemMap.has(sku)) missingSkus.delete(sku);
+    }
+  }
   if (missingSkus.size > 0) {
     const newItems = Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku));
     for (let i = 0; i < newItems.length; i += 500) {
