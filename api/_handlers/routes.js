@@ -446,6 +446,12 @@ import h440 from "./internal/shopify/webhooks/orders.js";
 // h445 = GET  /api/cron/shopify-payouts-daily     (06:00 UTC daily)
 import h444 from "./internal/shopify/sync-payouts.js";
 import h445 from "../cron/shopify-payouts-daily.js";
+// P11-4 — Shopify backfill cron (catches webhook drops every 6h) +
+// manual backfill trigger.
+// h442 = POST /api/internal/shopify/backfill
+// h443 = GET/POST /api/cron/shopify-backfill
+import h442 from "./internal/shopify/backfill.js";
+import h443 from "../cron/shopify-backfill.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -892,6 +898,9 @@ export const ROUTES = [
   { pattern: "/api/cron/shopify-payouts-daily",                        handler: h445 },
   // P11-2 — Shopify orders webhook intake.
   { pattern: "/api/internal/shopify/webhooks/orders",                  handler: h440 },
+  // P11-4 — Shopify backfill cron + manual trigger (webhook-drop safety net).
+  { pattern: "/api/internal/shopify/backfill",                         handler: h442 },
+  { pattern: "/api/cron/shopify-backfill",                             handler: h443 },
 ];
 
 export function compileRoutes(routes) {
