@@ -110,7 +110,24 @@ export function useArchiveOps(opts: UseArchiveOpsOpts) {
     // ignored every Supabase error so the user saw "deleted" while rows
     // were still in the DB, leading to ghost entries on next refresh.
     const failures: Array<{ po: string; step: string; error: string }> = [];
+    // Tombstone first, then delete. The nightly Xoro→tanda_pos sync reads
+    // tanda_po_tombstones and skips any matching po_number, so the delete
+    // does NOT silently reverse on the next sync (which it did before this
+    // table existed — Xoro still reports the PO as active, sync upserts
+    // it back). If the tombstone insert fails, abort the delete for that
+    // PO so we don't lose data without leaving a marker.
+    const tombstonedBy = (useTandaStore.getState().user?.name) || "unknown";
     for (const poNumber of poNumbers) {
+      const tombRes = await fetch(`${SB_URL}/rest/v1/tanda_po_tombstones`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates" },
+        body: JSON.stringify({ po_number: poNumber, tombstoned_by: tombstonedBy }),
+      });
+      if (!tombRes.ok) {
+        const msg = await tombRes.text().catch(() => `HTTP ${tombRes.status}`);
+        failures.push({ po: poNumber, step: "tombstone-insert", error: msg });
+        continue;
+      }
       const { error: poErr } = await sb.from("tanda_pos").delete(`po_number=eq.${encodeURIComponent(poNumber)}`);
       if (poErr) failures.push({ po: poNumber, step: "tanda_pos", error: String((poErr as { message?: string }).message ?? poErr) });
 
