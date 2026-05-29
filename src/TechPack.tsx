@@ -8,6 +8,7 @@ import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { sb, appDataSave } from "./techpack/supabase";
 import { graphGet, graphPost, type GraphSession } from "./techpack/msGraph";
 import { EMAIL_COLORS, FolderIcon } from "./techpack/emailStyles";
@@ -1723,6 +1724,8 @@ export default function TechPackApp() {
           appFilter="techpack"
         />
       )}
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
     </div>
   );
 

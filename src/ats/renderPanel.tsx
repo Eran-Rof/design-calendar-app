@@ -23,6 +23,7 @@ import type { ReportPayload } from "./reportPayload";
 import type { AgedInvenResult } from "./exportAgedInven";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
+import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import type { NormChange } from "./normalize";
 
 // Functional-updater-aware setter, matches the shape produced by ATS.tsx's `mk()`
@@ -552,6 +553,9 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         commitMerge={commitMerge}
         setPendingMerge={setPendingMerge}
       />
+
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
     </div>
   );
 }

@@ -62,6 +62,7 @@ import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 import FavoritesDrawer from "./components/FavoritesDrawer";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme — match the dark Tanda palette so the admin panels (which use the
@@ -397,6 +398,9 @@ export default function Tangerine() {
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
+          from any module; invisible until the hotkey fires. */}
+      <GlobalSearchPaletteAuto />
     </div>
   );
 }
