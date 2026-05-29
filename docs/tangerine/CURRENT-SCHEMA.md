@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (189 migration files). Latest: `20260629A00000_p13_chunk1_procurement_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (190 migration files). Latest: `20260629A10000_p13_chunk2_legacy_bridge.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 266 tables · 254 CREATE TABLE · 597 ALTER TABLE
+**Stats:** 272 tables · 260 CREATE TABLE · 640 ALTER TABLE
 
 ---
 
@@ -354,6 +354,24 @@ _(no columns parsed)_
 - `resolved_customer_id` uuid → `customers`
 - `notes` text
 - `logged_at` timestamptz NOT NULL DEFAULT now()
+
+## `broker_invoices`  _(P13-2)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `customs_entry_id` uuid → `customs_entries`
+- `vendor_id` uuid → `vendors` NOT NULL
+- `broker_invoice_number` text NOT NULL
+- `invoice_date` date NOT NULL
+- `freight_cents` bigint NOT NULL DEFAULT 0
+- `brokerage_fee_cents` bigint NOT NULL DEFAULT 0
+- `duty_advance_cents` bigint NOT NULL DEFAULT 0
+- `other_cents` bigint NOT NULL DEFAULT 0
+- `total_cents` bigint NOT NULL
+- `ap_invoice_id` uuid → `invoices`
+- `allocation_method` text NOT NULL DEFAULT 'value' CHECK `allocation_method IN ('value','weight','cbm','manual')`
+- `allocation_je_id` uuid → `journal_entries`
+- `created_at` timestamptz NOT NULL DEFAULT now()
 
 ## `bulk_operations`  _((pre-P))_
 
@@ -724,6 +742,43 @@ _(no columns parsed)_
 - `processor_card_last4` text
 - `search_doc` tsvector
 - `marketplace_buyer_refs` jsonb NOT NULL DEFAULT '{}'::jsonb
+
+## `customs_entries`  _(P13-2)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `entry_number` text NOT NULL
+- `entry_date` date NOT NULL
+- `port_of_entry` text
+- `importer_of_record` text
+- `broker_name` text
+- `broker_id` text
+- `total_entered_value_cents` bigint NOT NULL
+- `total_duty_cents` bigint NOT NULL DEFAULT 0
+- `total_mpf_cents` bigint NOT NULL DEFAULT 0
+- `total_hmf_cents` bigint NOT NULL DEFAULT 0
+- `total_section_301_cents` bigint NOT NULL DEFAULT 0
+- `total_other_fees_cents` bigint NOT NULL DEFAULT 0
+- `form_7501_document_id` uuid
+- `raw_payload` jsonb NOT NULL DEFAULT '{}'::jsonb
+- `revaluation_je_id` uuid → `journal_entries`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
+## `customs_entry_lines`  _(P13-2)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `customs_entry_id` uuid → `customs_entries` NOT NULL
+- `receipt_line_item_id` uuid → `receipt_line_items`
+- `hts_code` text NOT NULL
+- `country_of_origin` char(2) NOT NULL
+- `trade_program` text
+- `entered_value_cents` bigint NOT NULL
+- `duty_rate_pct` numeric(7,4)
+- `duty_cents` bigint NOT NULL DEFAULT 0
+- `section_301_rate_pct` numeric(7,4)
+- `section_301_cents` bigint NOT NULL DEFAULT 0
+- `mpf_cents` bigint NOT NULL DEFAULT 0
+- `hmf_cents` bigint NOT NULL DEFAULT 0
 
 ## `data_quality_issues`  _((pre-P))_
 
@@ -1913,6 +1968,10 @@ _(no columns parsed)_
 - `style_id` uuid → `style_master`
 - `is_apparel` boolean NOT NULL DEFAULT true
 - `search_doc` tsvector
+- `hts_code` text
+- `default_coo` char(2)
+- `unit_weight_grams` int
+- `unit_cbm_cm3` int
 
 ## `ip_job_runs`  _((pre-P))_
 
@@ -2630,6 +2689,23 @@ _(no columns parsed)_
 - `note` text
 - `po_number` text NOT NULL
 
+## `po_commitments`  _(P13-2)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `po_id` uuid → `tanda_pos` NOT NULL
+- `po_line_item_id` uuid → `po_line_items`
+- `vendor_id` uuid → `vendors` NOT NULL
+- `expected_account_id` uuid → `gl_accounts`
+- `committed_at` timestamptz NOT NULL DEFAULT now()
+- `committed_amount_cents` bigint NOT NULL
+- `consumed_amount_cents` bigint NOT NULL DEFAULT 0
+- `remaining_amount_cents` bigint
+- `status` text NOT NULL DEFAULT 'open' CHECK `status IN ('open','partial','closed','cancelled')`
+- `expected_in_dc_date` date
+- `closed_at` timestamptz
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
 ## `po_line_items`  _((pre-P))_
 
 - `id` uuid PK DEFAULT gen_random_uuid()
@@ -2781,6 +2857,27 @@ _(no columns parsed)_
 - `error_message` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 
+## `qc_inspections`  _(P13-2)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `receipt_id` uuid → `receipts` NOT NULL
+- `receipt_line_item_id` uuid → `receipt_line_items` NOT NULL
+- `inspector_user_id` uuid → `auth.users`
+- `inspected_at` timestamptz NOT NULL DEFAULT now()
+- `disposition` text NOT NULL CHECK `disposition IN ('pass','conditional_pass','fail')`
+- `qty_inspected` numeric(18,4) NOT NULL
+- `qty_passed` numeric(18,4) NOT NULL
+- `qty_conditional` numeric(18,4) NOT NULL DEFAULT 0
+- `qty_failed` numeric(18,4) NOT NULL DEFAULT 0
+- `failure_disposition` text CHECK `failure_disposition IS NULL OR failure_disposition IN ('vendor_rma','vendor_credit_only','write_off','rework_inhouse')`
+- `failure_reason` text
+- `photo_attachment_ids` uuid[] NOT NULL DEFAULT '{}'
+- `rework_completed_at` timestamptz
+- `vendor_credit_invoice_id` uuid → `invoices`
+- `writeoff_je_id` uuid → `journal_entries`
+- `created_at` timestamptz NOT NULL DEFAULT now()
+
 ## `raw_shopify_payloads`  _((pre-P))_
 
 - `id` uuid PK DEFAULT gen_random_uuid()
@@ -2812,6 +2909,13 @@ _(no columns parsed)_
 - `raw_json` jsonb
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `entity_id` uuid
+- `sku_id` uuid → `ip_item_master`
+- `quantity_accepted` numeric
+- `quantity_rejected` numeric
+- `qc_disposition` text CHECK `IN ('pending','pass','conditional_pass','fail')`
+- `putaway_location_id` uuid → `inventory_locations`
+- `landed_cost_per_unit_cents` bigint
+- `inventory_layer_id` uuid → `inventory_layers`
 
 ## `receipts`  _((pre-P))_
 
@@ -2830,6 +2934,17 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `entity_id` uuid
+- `source` text NOT NULL DEFAULT 'tangerine' CHECK `IN ('tangerine','xoro_mirror','edi_945_recv','manual','scanner')`
+- `receiving_dock` text
+- `carrier_name` text
+- `container_number` text
+- `bol_number` text
+- `gs1_sscc_codes` text[] NOT NULL DEFAULT '{}'
+- `qc_required` boolean NOT NULL DEFAULT true
+- `qc_completed_at` timestamptz
+- `putaway_completed_at` timestamptz
+- `customs_entry_id` uuid
+- `broker_invoice_id` uuid
 
 ## `receiving_session_lines`  _((pre-P))_
 
@@ -3609,6 +3724,32 @@ _(no columns parsed)_
 - `period_end` date NOT NULL
 - `generated_at` timestamptz NOT NULL DEFAULT now()
 
+## `vendor_invoice_drafts`  _(P13-2)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `vendor_id` uuid → `vendors` NOT NULL
+- `vendor_invoice_number` text NOT NULL
+- `invoice_date` date NOT NULL
+- `due_date` date
+- `currency` char(3) NOT NULL DEFAULT 'USD'
+- `total_cents` bigint NOT NULL
+- `source_kind` text NOT NULL CHECK `source_kind IN ('vendor_portal_upload','ap_inbox_pdf','manual','edi_810')`
+- `source_pdf_document_id` uuid
+- `ocr_extracted_payload` jsonb
+- `ocr_confidence_pct` numeric(5,2)
+- `three_way_match_status` text NOT NULL DEFAULT 'pending' CHECK `three_way_match_status IN ('pending','matched','variance','exception','posted','rejected')`
+- `matched_po_ids` uuid[] NOT NULL DEFAULT '{}'
+- `matched_receipt_ids` uuid[] NOT NULL DEFAULT '{}'
+- `variance_cents` bigint NOT NULL DEFAULT 0
+- `variance_reason` text
+- `ap_invoice_id` uuid → `invoices`
+- `approved_by_user_id` uuid → `auth.users`
+- `approved_at` timestamptz
+- `rejected_reason` text
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now()
+
 ## `vendor_notes`  _((pre-P))_
 
 - `id` uuid PK DEFAULT gen_random_uuid()
@@ -3693,6 +3834,13 @@ _(no columns parsed)_
 - `updated_by_user_id` uuid → `auth.users`
 - `payment_terms_id` uuid → `payment_terms`
 - `search_doc` tsvector
+- `qc_required` boolean NOT NULL DEFAULT true
+- `qc_pass_count_12mo` int NOT NULL DEFAULT 0
+- `landed_cost_allocation_method` text NOT NULL DEFAULT 'value' CHECK `IN ('value','weight','cbm')`
+- `parallel_run_complete` boolean NOT NULL DEFAULT false
+- `parallel_run_started_at` timestamptz
+- `pilot_vendor` boolean NOT NULL DEFAULT false
+- `requires_compliance_certs` boolean NOT NULL DEFAULT false
 
 ## `virtual_cards`  _((pre-P))_
 
