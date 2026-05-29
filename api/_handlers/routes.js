@@ -616,6 +616,11 @@ import h449 from "../cron/shopify-refunds-backfill.js";
 // P12c-3 — Faire AR JE posting (per-order + per-payout manual backfill).
 import h460 from "./internal/faire/post-order/[id].js";
 import h461 from "./internal/faire/post-payout/[id].js";
+// P12a-5 — Amazon FBA inventory mirror (daily snapshot + layer rebuild).
+//   h467 = POST /api/internal/fba/mirror-inventory (manual, optional uuid body)
+//   h468 = GET/POST /api/cron/fba-inventory-daily  (Vercel cron, 04:00 UTC)
+import h467 from "./internal/fba/mirror-inventory.js";
+import h468 from "../cron/fba-inventory-daily.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1172,6 +1177,9 @@ export const ROUTES = [
   // P12c-3 — Faire AR JE posting (per-order + per-payout manual backfill).
   { pattern: "/api/internal/faire/post-order/:id",                     handler: h460 },
   { pattern: "/api/internal/faire/post-payout/:id",                    handler: h461 },
+  // P12a-5 — Amazon FBA inventory mirror (daily snapshot + layer rebuild).
+  { pattern: "/api/internal/fba/mirror-inventory",                     handler: h467 },
+  { pattern: "/api/cron/fba-inventory-daily",                          handler: h468 },
 ];
 
 export function compileRoutes(routes) {
