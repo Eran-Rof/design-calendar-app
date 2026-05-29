@@ -468,6 +468,11 @@ import h459 from "./internal/walmart/post-order/[id].js";
 //   h465 = GET/POST /api/cron/walmart-settlements-weekly (Vercel cron, Wed 06:30 UTC)
 import h464 from "./internal/walmart/sync-settlements.js";
 import h465 from "../cron/walmart-settlements-weekly.js";
+// P12b-5 — Walmart returns sync (credit memo + restock + restocking fee).
+//   h471 = POST /api/internal/walmart/sync-returns  (manual single-account trigger)
+//   h472 = GET/POST /api/cron/walmart-returns-daily (Vercel cron, 05:00 UTC)
+import h471 from "./internal/walmart/sync-returns.js";
+import h472 from "../cron/walmart-returns-daily.js";
 
 // P12c-4 — Faire wholesale returns ingest (credit memo + restock).
 //   h473 = POST /api/internal/faire/sync-returns      (manual trigger)
@@ -936,6 +941,9 @@ export const ROUTES = [
   // P12c-4 — Faire wholesale returns ingest (credit memo + restock).
   { pattern: "/api/internal/faire/sync-returns",                       handler: h473 },
   { pattern: "/api/cron/faire-returns-weekly",                         handler: h474 },
+  // P12b-5 — Walmart returns sync (credit memo + restock + restocking fee).
+  { pattern: "/api/internal/walmart/sync-returns",                     handler: h471 },
+  { pattern: "/api/cron/walmart-returns-daily",                        handler: h472 },
 ];
 
 export function compileRoutes(routes) {
