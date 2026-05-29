@@ -60,6 +60,8 @@ import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
+// Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
+import EntitySwitcher from "./components/EntitySwitcher";
 // Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
@@ -404,6 +406,8 @@ export default function Tangerine() {
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
           from any module; invisible until the hotkey fires. */}
       <GlobalSearchPaletteAuto />

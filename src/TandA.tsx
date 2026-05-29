@@ -75,6 +75,8 @@ import type { GridContextSnapshot } from "./ai/tools";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-3 — Personalization: favorites drawer + menu-click telemetry.
 import FavoritesDrawer from "./components/FavoritesDrawer";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "./components/EntitySwitcher";
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
@@ -2082,6 +2084,8 @@ function TandAApp() {
       />
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
     </div>
