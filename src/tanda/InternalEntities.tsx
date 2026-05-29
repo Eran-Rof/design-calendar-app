@@ -25,6 +25,7 @@ export default function InternalEntities() {
   const [err, setErr] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editBranding, setEditBranding] = useState<string | null>(null);
+  const [coaCopyEntity, setCoaCopyEntity] = useState<Entity | null>(null);
 
   async function load() {
     setLoading(true);
@@ -101,17 +102,23 @@ export default function InternalEntities() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px" }}>
         {tree.length === 0 ? (
           <div style={{ color: C.textMuted, padding: 20, textAlign: "center" }}>No entities yet.</div>
-        ) : tree.map((e) => <EntityNode key={e.id} entity={e} depth={0} onEditBranding={setEditBranding} onAdded={() => void load()} />)}
+        ) : tree.map((e) => <EntityNode key={e.id} entity={e} depth={0} onEditBranding={setEditBranding} onCoaCopy={setCoaCopyEntity} onAdded={() => void load()} />)}
       </div>
 
       {addOpen && <AddEntityModal parent={null} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+      {coaCopyEntity && <CoaCopyModal entity={coaCopyEntity} onClose={() => setCoaCopyEntity(null)} />}
     </div>
   );
+
+  // Hoist setter into tree render. Done above via the EntityNode prop chain.
 }
 
-function EntityNode({ entity, depth, onEditBranding, onAdded }: { entity: Entity; depth: number; onEditBranding: (id: string) => void; onAdded: () => void }) {
+function EntityNode({ entity, depth, onEditBranding, onCoaCopy, onAdded }: { entity: Entity; depth: number; onEditBranding: (id: string) => void; onCoaCopy: (e: Entity) => void; onAdded: () => void }) {
   const [addChild, setAddChild] = useState(false);
   const branding = Array.isArray(entity.branding) ? entity.branding[0] || null : (entity.branding || null);
+  // P10-6: ROF itself doesn't need a "Copy COA from ROF" button — it IS ROF.
+  // Match by slug since `code` is not exposed in the tree response shape.
+  const isRof = entity.slug === "rof" || entity.slug === "ringoffire";
   return (
     <div style={{ marginLeft: depth * 24, padding: "10px 0", borderLeft: depth > 0 ? `2px solid ${C.cardBdr}` : "none", paddingLeft: depth > 0 ? 14 : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -122,11 +129,80 @@ function EntityNode({ entity, depth, onEditBranding, onAdded }: { entity: Entity
             {entity.slug}{branding?.custom_domain ? ` · ${branding.custom_domain}` : ""}
           </div>
         </div>
+        {!isRof && <button onClick={() => onCoaCopy(entity)} style={btnSecondary} title="Seed this entity's Chart of Accounts from ROF">Copy COA from ROF</button>}
         <button onClick={() => onEditBranding(entity.id)} style={btnSecondary}>Branding</button>
         <button onClick={() => setAddChild(true)} style={btnSecondary}>+ Child</button>
       </div>
-      {(entity.children || []).map((c) => <EntityNode key={c.id} entity={c} depth={depth + 1} onEditBranding={onEditBranding} onAdded={onAdded} />)}
+      {(entity.children || []).map((c) => <EntityNode key={c.id} entity={c} depth={depth + 1} onEditBranding={onEditBranding} onCoaCopy={onCoaCopy} onAdded={onAdded} />)}
       {addChild && <AddEntityModal parent={entity.id} onClose={() => setAddChild(false)} onSaved={() => { setAddChild(false); onAdded(); }} />}
+    </div>
+  );
+}
+
+// P10-6: COA copy-from-ROF wizard. Confirmation modal → POST → result line.
+// The handler is idempotent so re-running is safe; we still confirm before the
+// first POST because the operator may have already started editing the COA in
+// the target entity manually.
+export function CoaCopyModal({ entity, onClose }: { entity: { id: string; name: string }; onClose: () => void }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ inserted: number; skipped: number; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/internal/entities/${entity.id}/coa-copy-from-rof`, { method: "POST" });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
+      setResult(body);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={modal}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 16, color: C.text }}>Copy Chart of Accounts from ROF</h3>
+        {!result && !error && (
+          <>
+            <div style={{ color: C.textSub, fontSize: 13, lineHeight: 1.5, marginBottom: 16 }}>
+              This will copy every <strong>active</strong> account from the ROF chart of accounts into
+              <strong> {entity.name}</strong>. Existing codes will be skipped. Parent-account links are
+              cleared on the copies — you can re-parent rows afterwards in the COA admin.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+              <button onClick={() => void run()} style={btnPrimary} disabled={submitting}>
+                {submitting ? "Copying…" : "Copy COA"}
+              </button>
+            </div>
+          </>
+        )}
+        {result && (
+          <>
+            <div style={{ color: C.success, fontSize: 13, marginBottom: 12 }}>{result.message}</div>
+            <div style={{ color: C.textSub, fontSize: 13, marginBottom: 16 }}>
+              <div>Inserted: <strong>{result.inserted}</strong></div>
+              <div>Skipped: <strong>{result.skipped}</strong></div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={onClose} style={btnPrimary}>Close</button>
+            </div>
+          </>
+        )}
+        {error && (
+          <>
+            <div style={{ color: C.danger, fontSize: 13, marginBottom: 16 }}>Error: {error}</div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={onClose} style={btnSecondary}>Close</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

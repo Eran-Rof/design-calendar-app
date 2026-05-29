@@ -35,6 +35,22 @@ function client() {
   return createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 }
 
+// P10-8 D9: GL Detail is account-scoped (account_id is a UUID PK, which under
+// gl_accounts (entity_id, code) UNIQUE is intrinsically entity-scoped). When
+// the request carries X-Entity-ID, verify the account belongs to that entity
+// — refuse 403 on mismatch to keep cross-entity drill-ins explicit (a user
+// browsing SANDBOX cannot accidentally load ROF's account 1000).
+export async function verifyAccountEntity(admin, accountId, req) {
+  const hdr = (req.headers?.["x-entity-id"] || req.headers?.["X-Entity-ID"] || "").toString().trim();
+  if (!hdr) return { ok: true }; // legacy clients without the header — no enforcement
+  const { data: acct } = await admin.from("gl_accounts").select("entity_id").eq("id", accountId).maybeSingle();
+  if (!acct) return { ok: false, status: 404, error: "Account not found" };
+  if (acct.entity_id !== hdr) {
+    return { ok: false, status: 403, error: "Account belongs to a different entity than X-Entity-ID" };
+  }
+  return { ok: true };
+}
+
 export function isUuid(v) {
   return typeof v === "string" && UUID_RE.test(v);
 }
@@ -75,6 +91,10 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const v = validateQuery(url.searchParams);
   if (v.error) return res.status(400).json({ error: v.error });
+
+  // P10-8 D9: refuse cross-entity drill-ins when an X-Entity-ID is asserted.
+  const check = await verifyAccountEntity(admin, v.data.account_id, req);
+  if (!check.ok) return res.status(check.status).json({ error: check.error });
 
   try {
     const { data, error } = await admin.rpc("gl_detail", {
