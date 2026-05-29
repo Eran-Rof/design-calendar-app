@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (181 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
+> Generated from `supabase/migrations/*.sql` (182 migration files). Latest: `20260629320000_p12c_chunk1_faire_schema.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 252 tables · 240 CREATE TABLE · 478 ALTER TABLE
+**Stats:** 252 tables · 240 CREATE TABLE · 571 ALTER TABLE
 
 ---
 
@@ -1009,7 +1009,7 @@ _(no columns parsed)_
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 
-## `faire_buyers`  _((pre-P) (alter only))_
+## `faire_buyers`  _(P10-3 (alter only))_
 
 _(no columns parsed)_
 
