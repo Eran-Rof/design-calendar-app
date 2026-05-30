@@ -1,22 +1,20 @@
-// VendorGridCell — inline vendor-picker for the grid's _vendor column.
+// VendorGridCell — inline vendor picker for the grid's _vendor column.
 //
-// Two modes:
-//   • pick:   <select> listing vendors with existing quotes on this line.
-//             Picking one calls selectQuote (becomes winner, triggers
-//             cost-write to ip_item_avg_cost via select-quote handler).
-//   • add:    VendorPickerCell autocomplete — picking (or freeform-adding
-//             via the "+ Add new vendor" sentinel) creates a quote on
-//             this line with status='received' + quoted_cost = line.target_cost
-//             (or 0 if absent), then immediately calls selectQuote so the
-//             new vendor becomes the winner.
+// Replaces the old "winner picker among existing quotes" UX. Now it's a
+// pure vendor autocomplete — clicking the cell shows the first 25 active
+// vendors immediately; typing filters; "+ Add new vendor" creates a new
+// vendor row inline.
 //
-// "+ Add another quote…" in the dropdown still opens the side
-// VendorQuotePanel for operators who want to enter lead time / MOQ /
-// dates / status manually instead of using the inline quick-add.
+// On pick: creates/updates the per-line vendor selection by writing a
+// costing_line_vendors row with status='selected' (the same select-quote
+// flow Award→cost-write already uses). The line's selected_vendor_quote_id
+// gets stamped so the RFQ generation (and any other "which vendor on
+// this line?" consumer) can resolve the vendor without an extra join.
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import VendorPickerCell from "./VendorPickerCell";
+import { useVendorSearch } from "../hooks/useStyleSearch";
+import { addVendor } from "../services/costingApi";
 import type { CostingLineVendor } from "../types";
 import type { VendorHit } from "../services/costingApi";
 
@@ -24,10 +22,8 @@ interface Props {
   lineId: string;
 }
 
-// Stable empty-array reference for the Zustand selector — returning
-// a fresh `[]` literal on each render triggers an infinite re-render
-// loop (Zustand uses === to detect change; new array ref every render
-// → render → new ref → render → React error #185).
+// Stable empty-array reference for the Zustand selector — fresh `[]`
+// literal on each render triggers React error #185 (see PR #577).
 const EMPTY: CostingLineVendor[] = [];
 
 export default function VendorGridCell({ lineId }: Props) {
@@ -35,120 +31,155 @@ export default function VendorGridCell({ lineId }: Props) {
   const lines = useCostingStore((s) => s.lines);
   const selectQuote = useCostingStore((s) => s.selectQuote);
   const addQuote = useCostingStore((s) => s.addQuote);
-  const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
-  const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);
   const loadQuotes = useCostingStore((s) => s.loadVendorQuotes);
   const setNotice = useCostingStore((s) => s.setNotice);
 
-  const [addingNew, setAddingNew] = useState(false);
+  const { rows: searchRows, loading, search } = useVendorSearch();
 
-  // Lazy-load this line's quotes so the dropdown isn't empty when the
-  // operator clicks it. setSelectedLine already loads on select, but the
-  // grid renders before any line is selected.
-  React.useEffect(() => {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Currently-selected vendor for this line (via the costing_line_vendors
+  // row with status='selected'). Renders as the cell's display label.
+  const selected = quotes.find((q) => q.status === "selected");
+  const selectedLabel = selected?.vendor?.legal_name || selected?.vendor?.code || "";
+
+  // Mirror the selected label into the input when not actively editing,
+  // so navigating away + back shows the persisted pick.
+  useEffect(() => { if (!open) setText(selectedLabel); }, [selectedLabel, open]);
+
+  // Lazy-load this line's quotes once so `selected` resolves on mount.
+  useEffect(() => {
     if (!quotes || quotes.length === 0) loadQuotes(lineId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineId]);
 
-  const selected = quotes.find((q) => q.status === "selected");
+  // Outside-click closer.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open]);
 
-  const onInlineVendorPicked = async (vendor: VendorHit) => {
+  const canAdd = text.trim().length > 0
+    && !loading
+    && !searchRows.some((r) => (r.legal_name || r.code || "").toLowerCase() === text.trim().toLowerCase());
+
+  const onPickVendor = async (vendor: VendorHit) => {
+    setText(vendor.legal_name || vendor.code || "");
+    setOpen(false);
     const line = lines.find((l) => l.id === lineId);
     const seedCost = typeof line?.target_cost === "number" ? line.target_cost : 0;
+    // If this vendor already has a quote on the line, just promote that
+    // existing quote (no duplicate row).
+    const existing = quotes.find((q) => q.vendor_id === vendor.id);
+    if (existing) {
+      await selectQuote(lineId, existing.id);
+      return;
+    }
+    // Otherwise create a fresh quote row + promote it.
     const created = await addQuote(lineId, {
       vendor_id: vendor.id,
       quoted_cost: seedCost,
       currency: vendor.default_currency || "USD",
       status: "received",
     });
-    setAddingNew(false);
     if (created) {
-      // Promote to selected so this vendor becomes the line's winner +
-      // the cost-write to ip_item_avg_cost fires. The store's selectQuote
-      // also surfaces the success/skip toast.
       await selectQuote(lineId, created.id);
     } else {
-      setNotice("Could not add quote — see console for details.", "error");
+      setNotice("Could not record vendor pick — see console for details.", "error");
     }
   };
 
-  const onPick = async (value: string) => {
-    if (value === "__open__") {
-      setSelectedLine(lineId);
-      setQuotesPanelOpen(true);
-      return;
+  const onInlineAdd = async () => {
+    const name = text.trim();
+    if (!name) return;
+    setAdding(true);
+    try {
+      const created = await addVendor(name);
+      await onPickVendor(created);
+      setNotice(`Added new vendor "${name}"`, "info");
+    } catch (e) {
+      setNotice(`Could not add vendor: ${(e as Error).message}`);
+    } finally {
+      setAdding(false);
     }
-    if (value === "__newvendor__") {
-      setAddingNew(true);
-      return;
-    }
-    if (!value) return;
-    await selectQuote(lineId, value);
   };
 
-  // Mode 2 — inline vendor autocomplete (with freeform "+ Add new vendor").
-  if (addingNew) {
-    return (
-      <div style={{ width: "100%", display: "flex", gap: 4, alignItems: "center" }}>
-        <div style={{ flex: 1 }}>
-          <VendorPickerCell value={null} onPick={onInlineVendorPicked} placeholder="Vendor name…" />
-        </div>
-        <button
-          type="button"
-          onClick={() => setAddingNew(false)}
-          title="Cancel"
-          style={{
-            background: "transparent", color: "#94A3B8",
-            border: "1px solid #475569", borderRadius: 3,
-            padding: "2px 6px", fontSize: 11, cursor: "pointer",
-          }}
-        >×</button>
-      </div>
-    );
-  }
-
-  // Mode 1 (empty) — single button that flips to add mode.
-  if (quotes.length === 0) {
-    return (
-      <button
-        type="button"
-        onClick={() => setAddingNew(true)}
-        title="Pick or add a vendor — creates a quote at target cost and selects it"
-        style={{
-          width: "100%", textAlign: "left",
-          background: "transparent", border: "1px dashed #475569",
-          color: "#94A3B8", borderRadius: 3,
-          padding: "3px 6px", fontSize: 11, cursor: "pointer",
-        }}
-      >+ pick vendor</button>
-    );
-  }
-
-  // Mode 1 (populated) — winner-picker select with "+ Add vendor" sentinel.
   return (
-    <select
-      value={selected?.id || ""}
-      onChange={(e) => onPick(e.target.value)}
-      style={{
-        width: "100%", padding: "4px 6px", fontSize: 11,
-        background: "transparent", color: selected ? "#A7F3D0" : "#94A3B8",
-        border: "1px solid transparent", borderRadius: 3,
-        outline: "none", colorScheme: "dark",
-        fontWeight: selected ? 600 : 400,
-      }}
-      title={selected
-        ? `Selected: ${selected.vendor?.legal_name || selected.vendor?.code || "—"} @ ${selected.quoted_cost ?? "?"}`
-        : "Pick a vendor to set as winner"}
-    >
-      {!selected && <option value="">— pick winner —</option>}
-      {quotes.map((q) => {
-        const name = q.vendor?.legal_name || q.vendor?.code || q.vendor_id || "vendor";
-        const cost = typeof q.quoted_cost === "number" ? `$${q.quoted_cost.toFixed(2)}` : "?";
-        return <option key={q.id} value={q.id}>{name} @ {cost}</option>;
-      })}
-      <option disabled>──────────</option>
-      <option value="__newvendor__">+ Pick or add vendor (quick)…</option>
-      <option value="__open__">+ Add another quote (full form)…</option>
-    </select>
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <input
+        value={text}
+        placeholder="Vendor…"
+        // Open + fire empty search on focus so the operator sees the full
+        // vendor list immediately without typing.
+        onFocus={() => { search(text); setOpen(true); }}
+        onChange={(e) => { const v = e.target.value; setText(v); search(v); setOpen(true); }}
+        style={{
+          width: "100%", padding: "4px 6px", fontSize: 11,
+          background: "transparent", color: selected ? "#A7F3D0" : "#E2E8F0",
+          border: "1px solid transparent", borderRadius: 3, outline: "none",
+          fontWeight: selected ? 600 : 400,
+        }}
+        title={selected ? `Selected: ${selectedLabel}` : "Pick or type a vendor"}
+      />
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, zIndex: 50,
+          minWidth: 280, maxHeight: 280, overflowY: "auto",
+          background: "#1E293B", border: "1px solid #475569",
+          borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          marginTop: 2,
+        }}>
+          {loading && <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>Searching…</div>}
+          {searchRows.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); onPickVendor(v); }}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "6px 10px", background: "transparent",
+                border: "none", borderBottom: "1px solid #334155",
+                color: "#E2E8F0", cursor: "pointer", fontSize: 12,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            >
+              <div style={{ fontWeight: 600 }}>{v.legal_name || v.code || v.id}</div>
+              <div style={{ fontSize: 11, color: "#94A3B8" }}>
+                {v.code ? v.code : ""}
+                {v.country ? ` · ${v.country}` : ""}
+                {v.default_currency ? ` · ${v.default_currency}` : ""}
+              </div>
+            </button>
+          ))}
+          {!loading && searchRows.length === 0 && (
+            <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>
+              {text ? `No vendors match "${text}".` : "No vendors yet — type a name and click '+ Add'."}
+            </div>
+          )}
+          {canAdd && (
+            <button
+              type="button"
+              disabled={adding}
+              onMouseDown={(e) => { e.preventDefault(); onInlineAdd(); }}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "6px 10px", background: "#0F172A",
+                border: "none", color: "#10B981",
+                cursor: adding ? "wait" : "pointer",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >{adding ? "Adding…" : `+ Add new vendor "${text.trim()}"`}</button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

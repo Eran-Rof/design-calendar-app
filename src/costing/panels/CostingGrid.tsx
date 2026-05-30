@@ -22,7 +22,7 @@ import ScalePickerCell from "./ScalePickerCell";
 import FabricPickerCell from "./FabricPickerCell";
 import ColumnsButton from "./ColumnsButton";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
-import { fetchStyleSeedSku } from "../services/costingApi";
+import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { appConfirm } from "../../utils/theme";
 import type { CostingLine } from "../types";
@@ -62,6 +62,7 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: "_drag",          label: "",         width: 24,  align: "center" },
+  { key: "_select",        label: "",         width: 28,  align: "center" },
   { key: "style_code",     label: "Style#",   width: 130 },
   { key: "description",    label: "Description", width: 220 },
   { key: "size_scale_label", label: "Scale",  width: 80 },
@@ -90,7 +91,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
   { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "remarks",        label: "Remarks",  width: 160 },
-  { key: "_actions",       label: "",         width: 110, align: "center" },
+  { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
 
 const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
@@ -98,6 +99,7 @@ const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
 export default function CostingGrid() {
   const lines = useCostingStore((s) => s.lines);
   const vendorQuotes = useCostingStore((s) => s.vendorQuotes);
+  const project = useCostingStore((s) => s.project);
   const selectedLineId = useCostingStore((s) => s.selectedLineId);
   const stageFilter = useCostingStore((s) => s.stageFilter);
   const addLine = useCostingStore((s) => s.addLine);
@@ -105,7 +107,7 @@ export default function CostingGrid() {
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
-  const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);
+  const setNotice = useCostingStore((s) => s.setNotice);
   const loadMasters = useCostingStore((s) => s.loadMasters);
 
   // Persisted column show/hide (localStorage). Toggleable via the
@@ -117,10 +119,47 @@ export default function CostingGrid() {
   const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
   const toggleableColumns = COLUMNS.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
 
-  // "$ Qts" button: select the line AND open the per-project panel.
-  const openQuotesFor = (lineId: string) => {
-    setSelectedLine(lineId);
-    setQuotesPanelOpen(true);
+  // Row-selection checkboxes drive the "Generate Vendor RFQs" button.
+  // Local Set so toggling is O(1) and we don't pollute the global store.
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [generating, setGenerating] = useState(false);
+  const toggleRow = (id: string) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = (checked: boolean) => {
+    setSelectedRowIds(checked ? new Set(lines.map((l) => l.id)) : new Set());
+  };
+
+  const onGenerateRfqs = async () => {
+    if (!project || selectedRowIds.size === 0) return;
+    setGenerating(true);
+    try {
+      const res = await generateRfqs(project.id, Array.from(selectedRowIds));
+      const parts = [];
+      if (res.created.length > 0) {
+        const vendorSummary = res.created.map((c) => `${c.vendor} (${c.line_count})`).join(", ");
+        parts.push(`${res.created.length} RFQ${res.created.length === 1 ? "" : "s"} created: ${vendorSummary}`);
+      }
+      if (res.skipped_no_vendor && res.skipped_no_vendor.length > 0) {
+        parts.push(`${res.skipped_no_vendor.length} line${res.skipped_no_vendor.length === 1 ? "" : "s"} skipped (no vendor picked)`);
+      }
+      if (res.errors && res.errors.length > 0) {
+        parts.push(`${res.errors.length} error${res.errors.length === 1 ? "" : "s"} — see console`);
+        // eslint-disable-next-line no-console
+        console.error("[costing] generate-rfqs errors:", res.errors);
+      }
+      const message = parts.length > 0 ? parts.join(" · ") : (res.message || "No RFQs created.");
+      setNotice(message, res.created.length > 0 ? "info" : "error");
+      if (res.created.length > 0) setSelectedRowIds(new Set());
+    } catch (e) {
+      setNotice(`Could not generate RFQs: ${(e as Error).message}`, "error");
+    } finally {
+      setGenerating(false);
+    }
   };
 
   // Load fit/closure/waist/comment masters on mount so the cell dropdowns
@@ -225,6 +264,26 @@ export default function CostingGrid() {
             fontSize: 12, fontWeight: 600,
           }}
         >+ Add row</button>
+        <button
+          onClick={onGenerateRfqs}
+          disabled={generating || selectedRowIds.size === 0}
+          title={
+            selectedRowIds.size === 0
+              ? "Check rows in the grid first"
+              : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
+          }
+          style={{
+            background: selectedRowIds.size > 0 ? "#3B82F6" : "transparent",
+            color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
+            border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
+            padding: "5px 14px", borderRadius: 4,
+            cursor: generating || selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            fontSize: 12, fontWeight: 600,
+            opacity: generating ? 0.6 : 1,
+          }}
+        >
+          {generating ? "Generating…" : `Vendor RFQ${selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}`}
+        </button>
         <div style={{ marginLeft: "auto" }}>
           <ColumnsButton
             columns={toggleableColumns}
@@ -242,15 +301,38 @@ export default function CostingGrid() {
         {/* Header — cells use flex:0 0 width + box-sizing:border-box so the
             border doesn't push width outward, matching body + footer exactly. */}
         <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
-          {visibleColumns.map((c) => (
-            <div key={c.key} style={{
-              flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
-              padding: "8px 10px", fontSize: 10, fontWeight: 700,
-              color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
-              textAlign: c.align || "left",
-              borderRight: "1px solid #475569",
-            }}>{c.label}</div>
-          ))}
+          {visibleColumns.map((c) => {
+            // Select-all checkbox in the _select column header.
+            if (c.key === "_select") {
+              const allChecked = lines.length > 0 && selectedRowIds.size === lines.length;
+              const someChecked = selectedRowIds.size > 0 && !allChecked;
+              return (
+                <div key={c.key} style={{
+                  flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
+                  padding: "8px 4px", textAlign: "center",
+                  borderRight: "1px solid #475569",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={(el) => { if (el) el.indeterminate = someChecked; }}
+                    onChange={(e) => toggleAll(e.target.checked)}
+                    title="Select all rows for the Vendor RFQ button"
+                  />
+                </div>
+              );
+            }
+            return (
+              <div key={c.key} style={{
+                flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
+                padding: "8px 10px", fontSize: 10, fontWeight: 700,
+                color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
+                textAlign: c.align || "left",
+                borderRight: "1px solid #475569",
+              }}>{c.label}</div>
+            );
+          })}
         </div>
 
         {/* Body */}
@@ -310,6 +392,20 @@ export default function CostingGrid() {
                       title="Drag to reorder"
                     >
                       <span style={{ color: "#64748B", fontSize: 14, cursor: "grab", width: "100%", textAlign: "center" }}>⋮⋮</span>
+                    </div>
+                  );
+                }
+
+                // Row-select checkbox — drives the "Vendor RFQ" toolbar button.
+                if (c.key === "_select") {
+                  return (
+                    <div key={c.key} style={{ ...style, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRowIds.has(line.id)}
+                        onChange={() => toggleRow(line.id)}
+                        title="Include this row in the Vendor RFQ batch"
+                      />
                     </div>
                   );
                 }
@@ -387,27 +483,22 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Row actions — consistent button sizes + alignment.
-                // Both buttons are the SAME height + vertical pad so the
-                // row end doesn't look ragged against the cell borders.
+                // Row actions — only delete now (vendor quotes side panel
+                // removed in favour of the toolbar Vendor RFQ flow). Kept the
+                // shared button style helper so width/height stays aligned
+                // with any future additions.
                 if (c.key === "_actions") {
-                  const quoteCount = (vendorQuotes[line.id] || []).length;
                   return (
                     <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => openQuotesFor(line.id)}
-                        title={`Open vendor quotes${quoteCount ? ` (${quoteCount})` : ""}`}
-                        style={ACTION_BTN_STYLE(isFocused ? "#3B82F6" : "transparent", isFocused ? "#fff" : "#60A5FA", "#3B82F6")}
-                      >$ Qts{quoteCount ? ` (${quoteCount})` : ""}</button>
-                      <button
                         onClick={() => appConfirm(
-                          `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor quotes + compliance rows.`,
+                          `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor + compliance data.`,
                           "Delete",
                           () => deleteLine(line.id),
                         )}
                         title="Delete row"
                         style={ACTION_BTN_STYLE("transparent", "#F87171", "#7F1D1D")}
-                      >×</button>
+                      >× Delete</button>
                     </div>
                   );
                 }
