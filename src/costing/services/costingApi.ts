@@ -12,6 +12,9 @@ import type {
   CostingLineVendor,
   CostingLineCompliance,
   CostingComplianceStatus,
+  RfqListRow,
+  RfqDetail,
+  RfqPatch,
 } from "../types";
 
 async function json<T>(res: Response): Promise<T> {
@@ -403,4 +406,36 @@ export async function fetchStyleSeedSku(styleCode: string): Promise<StyleSkuSeed
   } catch {
     return null;
   }
+}
+
+// ── RFQ list + detail ───────────────────────────────────────────────────────
+
+export interface ListRfqsFilters {
+  q?: string;
+  status?: string;
+  limit?: number;
+}
+
+export async function listRfqs(filters: ListRfqsFilters = {}): Promise<RfqListRow[]> {
+  const sp = new URLSearchParams();
+  if (filters.q)      sp.set("q", filters.q);
+  if (filters.status) sp.set("status", filters.status);
+  if (filters.limit)  sp.set("limit", String(filters.limit));
+  const qs = sp.toString();
+  const res = await fetch(`/api/internal/costing/rfqs${qs ? `?${qs}` : ""}`);
+  const out = await json<{ rows: RfqListRow[] }>(res);
+  return out.rows || [];
+}
+
+export async function getRfq(id: string): Promise<RfqDetail> {
+  return json<RfqDetail>(await fetch(`/api/internal/costing/rfqs/${id}`));
+}
+
+export async function updateRfq(id: string, patch: RfqPatch): Promise<RfqListRow> {
+  const out = await json<{ rfq: RfqListRow }>(await fetch(`/api/internal/costing/rfqs/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  }));
+  return out.rfq;
 }

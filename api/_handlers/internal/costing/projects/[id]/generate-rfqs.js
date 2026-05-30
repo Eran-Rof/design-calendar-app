@@ -152,6 +152,7 @@ export default async function handler(req, res) {
       estimated_budget: Number.isFinite(totalBudget) && totalBudget > 0 ? totalBudget : null,
       currency: project.currency || "USD",
       created_by: "costing_module",
+      source_costing_project_id: project.id,
     }).select("id").maybeSingle();
 
     if (rfqErr || !rfq) {
