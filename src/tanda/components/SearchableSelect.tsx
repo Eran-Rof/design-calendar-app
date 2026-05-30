@@ -12,6 +12,20 @@
 // free.
 //
 // See docs/tangerine/T9-searchable-dropdowns-architecture.md §1 +§3.
+//
+// Polish 2026-05-30 — operator ask D:
+//   • Popover surfaces are now anchored to the Tangerine dark palette
+//     (C.bg #0F172A page, C.card #1E293B panel, C.cardBdr #334155
+//     borders, C.primary #3B82F6 accent). The previous palette
+//     mixed an extra-dark navy (#0b1220) with a bluish-gray hover
+//     (#1e3a5f) which read as "gray" against the surrounding card.
+//   • Hover state now uses C.primary at 22% alpha; the selected-but-
+//     not-highlighted state uses C.primary at 12% alpha, so the
+//     popover feels consistent with the rest of the dark UI.
+//   • Optional "Add new…" footer row — surfaced when `onAddNew` is
+//     supplied. Used by the Style Master classifier dropdowns to let
+//     admins commit a never-seen-before group / category / sub-category
+//     value without leaving the keyboard.
 
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
@@ -38,14 +52,43 @@ export type SearchableSelectProps = {
   /** Defaults to 280px. */
   panelMaxHeight?: number;
   autoFocus?: boolean;
+  /**
+   * Optional callback. When provided, an "+ Add new…" row is rendered at
+   * the bottom of the popover. Clicking it (or pressing Enter while it
+   * is highlighted) invokes `onAddNew` with the current search query.
+   * Used to gate add-new options behind an admin check at the caller.
+   */
+  onAddNew?: (query: string) => void;
+  /** Label for the add-new row. Defaults to '+ Add "<query>"'. */
+  addNewLabel?: (query: string) => string;
 };
 
 const VISIBLE_CAP = 200;
 
+// ─────────────────────────────────────────────────────────────────────────
+// Tangerine dark palette tokens.
+// Mirrors the const block used by every Internal* panel; keeping these
+// inline (not imported) preserves the component's "no app-specific deps"
+// charter — any consumer outside Tangerine still gets the dark surface
+// without having to thread theme through.
+// ─────────────────────────────────────────────────────────────────────────
+const C = {
+  bg: "#0F172A",
+  card: "#1E293B",
+  cardBdr: "#334155",
+  text: "#F1F5F9",
+  textMuted: "#94A3B8",
+  primary: "#3B82F6",
+  // Translucent overlays for hover + selected states. rgba so they layer
+  // on top of any panel background without introducing a new opaque tone.
+  primarySoft: "rgba(59, 130, 246, 0.22)",
+  primaryFaint: "rgba(59, 130, 246, 0.12)",
+};
+
 const DEFAULT_INPUT_STYLE: React.CSSProperties = {
-  background: "#0b1220",
-  color: "#F1F5F9",
-  border: "1px solid #334155",
+  background: C.bg,
+  color: C.text,
+  border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px",
   borderRadius: 4,
   fontSize: 13,
@@ -60,8 +103,8 @@ const PANEL_STYLE: React.CSSProperties = {
   left: 0,
   right: 0,
   marginTop: 2,
-  background: "#0b1220",
-  border: "1px solid #334155",
+  background: C.card,
+  border: `1px solid ${C.cardBdr}`,
   borderRadius: 4,
   zIndex: 1000,
   overflowY: "auto",
@@ -74,7 +117,7 @@ const PANEL_STYLE: React.CSSProperties = {
 const OPTION_STYLE_BASE: React.CSSProperties = {
   padding: "6px 10px",
   fontSize: 13,
-  color: "#F1F5F9",
+  color: C.text,
   cursor: "pointer",
   userSelect: "none",
 };
@@ -82,30 +125,48 @@ const OPTION_STYLE_BASE: React.CSSProperties = {
 const GROUP_HEADER_STYLE: React.CSSProperties = {
   position: "sticky",
   top: 0,
-  background: "#1e293b",
-  color: "#94A3B8",
+  background: C.bg,
+  color: C.textMuted,
   fontSize: 11,
   fontWeight: 600,
   textTransform: "uppercase",
   letterSpacing: "0.05em",
   padding: "4px 10px",
-  borderBottom: "1px solid #334155",
+  borderBottom: `1px solid ${C.cardBdr}`,
   zIndex: 1,
 };
 
 const FOOTER_STYLE: React.CSSProperties = {
   padding: "6px 10px",
   fontSize: 11,
-  color: "#94A3B8",
-  borderTop: "1px solid #334155",
+  color: C.textMuted,
+  borderTop: `1px solid ${C.cardBdr}`,
   fontStyle: "italic",
-  background: "#0b1220",
+  background: C.card,
   position: "sticky",
   bottom: 0,
 };
 
+const ADD_NEW_STYLE: React.CSSProperties = {
+  padding: "6px 10px",
+  fontSize: 13,
+  color: C.primary,
+  cursor: "pointer",
+  userSelect: "none",
+  borderTop: `1px solid ${C.cardBdr}`,
+  background: C.card,
+  position: "sticky",
+  bottom: 0,
+  fontWeight: 600,
+};
+
 function haystack(o: SearchableSelectOption): string {
   return o.searchHaystack ?? o.label;
+}
+
+function defaultAddNewLabel(q: string): string {
+  const trimmed = q.trim();
+  return trimmed ? `+ Add "${trimmed}"` : "+ Add new…";
 }
 
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -119,10 +180,16 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   inputStyle,
   panelMaxHeight = 280,
   autoFocus = false,
+  onAddNew,
+  addNewLabel,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlightIdx, setHighlightIdx] = useState(0);
+  // When the add-new row is highlighted we use -1 as the sentinel so the
+  // existing enabledIdxs logic keeps working untouched for the option list.
+  const ADD_NEW_IDX = -1;
+  const [addNewHighlighted, setAddNewHighlighted] = useState(false);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -150,20 +217,29 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     [capped],
   );
 
+  // Whether to surface the add-new row. We require either an explicit
+  // typed query (so we have something to add) OR an empty result set —
+  // in both cases adding a fresh value is the natural next step.
+  const showAddNew = !!onAddNew && (query.trim().length > 0 || capped.length === 0);
+
   // When the visible list changes, clamp the highlight back into range
   // (and skip to next enabled if currently on a disabled item).
   useEffect(() => {
     if (enabledIdxs.length === 0) {
+      // No selectable options — fall back to the add-new row if available.
+      if (showAddNew) setAddNewHighlighted(true);
+      else setAddNewHighlighted(false);
       setHighlightIdx(0);
       return;
     }
+    setAddNewHighlighted(false);
     setHighlightIdx(prev => {
       if (prev < 0) return enabledIdxs[0]!;
       if (prev >= capped.length) return enabledIdxs[0]!;
       if (capped[prev]?.disabled) return enabledIdxs[0]!;
       return prev;
     });
-  }, [capped, enabledIdxs]);
+  }, [capped, enabledIdxs, showAddNew]);
 
   // Click-outside closes (mousedown — same pattern as ExportButton).
   useEffect(() => {
@@ -183,6 +259,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     if (disabled) return;
     setOpen(true);
     setQuery("");
+    setAddNewHighlighted(false);
     // Default highlight to the currently selected option if it's
     // present in the (unfiltered, no-query) visible list.
     const idx = selected
@@ -197,21 +274,64 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       onChange(opt.value);
       setOpen(false);
       setQuery("");
+      setAddNewHighlighted(false);
     },
     [onChange],
   );
 
+  const commitAddNew = useCallback(() => {
+    if (!onAddNew) return;
+    const trimmed = query.trim();
+    onAddNew(trimmed);
+    setOpen(false);
+    setQuery("");
+    setAddNewHighlighted(false);
+  }, [onAddNew, query]);
+
   const moveHighlight = useCallback(
     (delta: 1 | -1) => {
-      if (enabledIdxs.length === 0) return;
+      const hasOptions = enabledIdxs.length > 0;
+      if (!hasOptions && !showAddNew) return;
+
+      if (!hasOptions) {
+        // Only the add-new row is selectable; nothing to move to.
+        setAddNewHighlighted(true);
+        return;
+      }
+
+      if (addNewHighlighted) {
+        // Leaving the add-new row.
+        setAddNewHighlighted(false);
+        setHighlightIdx(
+          delta === 1
+            ? enabledIdxs[0]!
+            : enabledIdxs[enabledIdxs.length - 1]!,
+        );
+        return;
+      }
+
       setHighlightIdx(prev => {
         const pos = enabledIdxs.indexOf(prev);
         if (pos < 0) return enabledIdxs[0]!;
-        const next = (pos + delta + enabledIdxs.length) % enabledIdxs.length;
+        const next = pos + delta;
+        if (next >= enabledIdxs.length) {
+          if (showAddNew) {
+            setAddNewHighlighted(true);
+            return prev;
+          }
+          return enabledIdxs[0]!;
+        }
+        if (next < 0) {
+          if (showAddNew) {
+            setAddNewHighlighted(true);
+            return prev;
+          }
+          return enabledIdxs[enabledIdxs.length - 1]!;
+        }
         return enabledIdxs[next]!;
       });
     },
-    [enabledIdxs],
+    [enabledIdxs, showAddNew, addNewHighlighted],
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -236,6 +356,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     if (e.key === "Enter") {
       if (!open) return;
       e.preventDefault();
+      if (addNewHighlighted && onAddNew) {
+        commitAddNew();
+        return;
+      }
       const opt = capped[highlightIdx];
       if (opt && !opt.disabled) commit(opt);
       return;
@@ -245,6 +369,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         e.preventDefault();
         setOpen(false);
         setQuery("");
+        setAddNewHighlighted(false);
       }
       return;
     }
@@ -253,6 +378,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       if (open) {
         setOpen(false);
         setQuery("");
+        setAddNewHighlighted(false);
       }
       return;
     }
@@ -267,8 +393,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   };
 
   const listboxId = useId();
-  const activeOptionId =
-    open && capped[highlightIdx] ? `${listboxId}-opt-${highlightIdx}` : undefined;
+  const activeOptionId = addNewHighlighted
+    ? `${listboxId}-add-new`
+    : open && capped[highlightIdx]
+      ? `${listboxId}-opt-${highlightIdx}`
+      : undefined;
 
   return (
     <div
@@ -292,7 +421,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         aria-activedescendant={activeOptionId}
         onFocus={() => { if (!open) openPanel(); }}
         onClick={() => { if (!open) openPanel(); }}
-        onChange={e => { setQuery(e.target.value); if (!open) setOpen(true); }}
+        onChange={e => { setQuery(e.target.value); if (!open) setOpen(true); setAddNewHighlighted(false); }}
         onKeyDown={onKeyDown}
         style={mergedInputStyle}
       />
@@ -302,12 +431,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           role="listbox"
           style={{ ...PANEL_STYLE, maxHeight: panelMaxHeight }}
         >
-          {capped.length === 0 && (
+          {capped.length === 0 && !showAddNew && (
             <li
               role="option"
               aria-selected={false}
               aria-disabled={true}
-              style={{ ...OPTION_STYLE_BASE, color: "#94A3B8", cursor: "default", fontStyle: "italic" }}
+              style={{ ...OPTION_STYLE_BASE, color: C.textMuted, cursor: "default", fontStyle: "italic" }}
             >
               {emptyText}
             </li>
@@ -315,13 +444,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           {capped.map((opt, i) => {
             const prev = i > 0 ? capped[i - 1] : null;
             const showGroup = !!opt.group && opt.group !== prev?.group;
-            const isHighlighted = i === highlightIdx;
+            const isHighlighted = !addNewHighlighted && i === highlightIdx;
             const isSelected = selected?.value === opt.value;
             const itemStyle: React.CSSProperties = {
               ...OPTION_STYLE_BASE,
               ...(opt.disabled ? { color: "#64748B", cursor: "not-allowed" } : {}),
-              ...(isHighlighted && !opt.disabled ? { background: "#1e3a5f" } : {}),
-              ...(isSelected && !isHighlighted ? { background: "#15233a" } : {}),
+              ...(isHighlighted && !opt.disabled ? { background: C.primarySoft } : {}),
+              ...(isSelected && !isHighlighted ? { background: C.primaryFaint } : {}),
             };
             return (
               <React.Fragment key={`${opt.value}-${i}`}>
@@ -335,7 +464,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   role="option"
                   aria-selected={isSelected}
                   aria-disabled={!!opt.disabled}
-                  onMouseEnter={() => { if (!opt.disabled) setHighlightIdx(i); }}
+                  onMouseEnter={() => { if (!opt.disabled) { setHighlightIdx(i); setAddNewHighlighted(false); } }}
                   onMouseDown={e => {
                     // mousedown so we beat the input's blur+click-outside.
                     e.preventDefault();
@@ -351,6 +480,25 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           {filtered.length > VISIBLE_CAP && (
             <li role="presentation" style={FOOTER_STYLE}>
               showing {VISIBLE_CAP} of {filtered.length} — refine your search
+            </li>
+          )}
+          {showAddNew && (
+            <li
+              id={`${listboxId}-add-new`}
+              role="option"
+              aria-selected={addNewHighlighted}
+              onMouseEnter={() => setAddNewHighlighted(true)}
+              onMouseLeave={() => setAddNewHighlighted(false)}
+              onMouseDown={e => {
+                e.preventDefault();
+                commitAddNew();
+              }}
+              style={{
+                ...ADD_NEW_STYLE,
+                background: addNewHighlighted ? C.primarySoft : C.card,
+              }}
+            >
+              {(addNewLabel ?? defaultAddNewLabel)(query)}
             </li>
           )}
         </ul>
