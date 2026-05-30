@@ -17,7 +17,7 @@ import type {
   CostingProjectPatch,
 } from "../types";
 
-export type MasterKind = "fit" | "closure" | "waist" | "comment" | "compliance";
+export type MasterKind = "fit" | "closure" | "waist" | "comment" | "compliance" | "fabric";
 export interface MasterEntry { id: string; name: string }
 
 const MASTER_KEY: Record<MasterKind, string> = {
@@ -26,6 +26,12 @@ const MASTER_KEY: Record<MasterKind, string> = {
   waist:      "costing_waists",
   comment:    "costing_comments",
   compliance: "costing_compliance_codes",
+  // Fabric master is owned by costing for now (app_data JSON blob). When
+  // Tangerine's fabric_codes table is fully populated, a one-time backfill
+  // will merge costing_fabrics → fabric_codes and we can drop this master.
+  // The FabricPickerCell already shows the union of fabric_codes (DB) +
+  // costing_fabrics (this master) so operators see everything available.
+  fabric:     "costing_fabrics",
 };
 
 // Default compliance codes seeded the first time the master is loaded empty.
@@ -514,17 +520,18 @@ export const useCostingStore = create<State>((set, get) => ({
 
   // ── Masters (app_data JSON blobs) ─────────────────────────────────────────
 
-  masters: { fit: [], closure: [], waist: [], comment: [], compliance: [] },
+  masters: { fit: [], closure: [], waist: [], comment: [], compliance: [], fabric: [] },
   extraColors: [],
 
   async loadMasters() {
     try {
-      const [fit, closure, waist, comment, compliance, extras] = await Promise.all([
+      const [fit, closure, waist, comment, compliance, fabric, extras] = await Promise.all([
         sbLoadSvc(MASTER_KEY.fit),
         sbLoadSvc(MASTER_KEY.closure),
         sbLoadSvc(MASTER_KEY.waist),
         sbLoadSvc(MASTER_KEY.comment),
         sbLoadSvc(MASTER_KEY.compliance),
+        sbLoadSvc(MASTER_KEY.fabric),
         sbLoadSvc("costing_extra_colors"),
       ]);
       // Compliance is auto-seeded the first time it loads empty so the
@@ -542,6 +549,7 @@ export const useCostingStore = create<State>((set, get) => ({
           waist:      Array.isArray(waist)   ? (waist as MasterEntry[])   : [],
           comment:    Array.isArray(comment) ? (comment as MasterEntry[]) : [],
           compliance: complianceList,
+          fabric:     Array.isArray(fabric)  ? (fabric as MasterEntry[])  : [],
         },
         extraColors: Array.isArray(extras) ? (extras as string[]) : [],
       });
