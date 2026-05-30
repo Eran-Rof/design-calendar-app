@@ -28,7 +28,14 @@ export default function ProjectListView() {
 
   useEffect(() => { list(); }, [list]);
 
-  const onNew = () => { setNewName(""); setNewModalOpen(true); };
+  const onNew = React.useCallback(() => { setNewName(""); setNewModalOpen(true); }, []);
+
+  // NavBar's "+ New" button fires this event after navigating here.
+  useEffect(() => {
+    const open = () => onNew();
+    window.addEventListener("costing:new-project", open as EventListener);
+    return () => window.removeEventListener("costing:new-project", open as EventListener);
+  }, [onNew]);
 
   const submitNew = async () => {
     const name = newName.trim();
@@ -74,16 +81,7 @@ export default function ProjectListView() {
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Costing Projects</h2>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button
-            onClick={onNew}
-            style={{
-              background: "#10B981", color: "#fff", border: "none",
-              padding: "6px 14px", borderRadius: 4, cursor: "pointer", fontSize: 13, fontWeight: 600,
-            }}
-          >
-            + New project
-          </button>
+        <div style={{ marginLeft: "auto" }}>
           <ExportButton rows={exportRows} filename="costing-projects" sheetName="Projects" />
         </div>
       </div>
@@ -108,13 +106,20 @@ export default function ProjectListView() {
           </thead>
           <tbody>
             {projects.length === 0 && !loading && (
-              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>No projects yet — click "New project" to get started.</td></tr>
+              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>No projects yet — click "+ New" in the top nav to get started.</td></tr>
             )}
             {projects.map((p) => {
               const sc = statusColor(p.status);
               return (
-                <tr key={p.id} style={{ borderTop: "1px solid #334155" }}>
-                  <Td><a href="#" onClick={(e) => { e.preventDefault(); onOpen(p.id); }} style={{ color: "#60A5FA", textDecoration: "none", fontWeight: 600 }}>{p.project_name}</a></Td>
+                <tr
+                  key={p.id}
+                  onClick={() => onOpen(p.id)}
+                  style={{ borderTop: "1px solid #334155", cursor: "pointer" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  title="Click to edit"
+                >
+                  <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{p.project_name}</span></Td>
                   <Td>{p.brand || "—"}</Td>
                   <Td>{p.gender_code || "—"}</Td>
                   <Td>{p.customer?.code || "—"}</Td>
@@ -127,8 +132,10 @@ export default function ProjectListView() {
                   <Td>{p.due_date ? fmtDateDisplay(p.due_date) : "—"}</Td>
                   <Td>{p.created_at ? fmtDateDisplay(p.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
-                    <button onClick={() => onOpen(p.id)} style={rowBtn("#3B82F6")}>Open</button>
-                    <button onClick={() => onDelete(p)} style={rowBtn("#EF4444")}>Delete</button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDelete(p); }}
+                      style={rowBtn("#EF4444")}
+                    >Delete</button>
                   </Td>
                 </tr>
               );
