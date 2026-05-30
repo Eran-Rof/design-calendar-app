@@ -184,3 +184,84 @@ export interface CompWindow {
   from: string; // ISO YYYY-MM-DD
   to: string;
 }
+
+// ── RFQ list / edit ─────────────────────────────────────────────────────────
+// Mirrors the existing rfqs / rfq_line_items / rfq_invitations Tangerine
+// procurement tables (phase8 schema). source_costing_project_id is the
+// back-pointer added in 20260623000000_rfqs_source_costing_project.sql so
+// the list view can join through to the customer.
+
+export type RfqStatus = "draft" | "published" | "closed" | "awarded";
+
+export interface RfqListRow {
+  id: string;
+  entity_id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  status: RfqStatus;
+  submission_deadline: string | null;
+  delivery_required_by: string | null;
+  estimated_quantity: number | null;
+  estimated_budget: number | null;
+  currency: string;
+  source_costing_project_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Denormalized for the list table (computed server-side).
+  vendor_id: string | null;
+  vendor_name: string | null;
+  vendor_code: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  project_name: string | null;
+  line_count: number;
+  preview_lines: string[];
+}
+
+export interface RfqLineItem {
+  id: string;
+  rfq_id: string;
+  line_index: number;
+  description: string;
+  quantity: number;
+  unit_of_measure: string | null;
+  specifications: string | null;
+  created_at: string;
+}
+
+export interface RfqInvitation {
+  id: string;
+  vendor_id: string;
+  status: string;
+  vendors?: {
+    id: string;
+    code: string | null;
+    legal_name: string | null;
+    country: string | null;
+    default_currency: string | null;
+  } | null;
+}
+
+export interface RfqDetail {
+  rfq: RfqListRow;
+  line_items: RfqLineItem[];
+  invitations: RfqInvitation[];
+  source_project: {
+    id: string;
+    project_name: string;
+    customer: { id: string; code: string | null; billing_address: Record<string, unknown> | null } | null;
+  } | null;
+}
+
+export interface RfqPatch {
+  title?: string;
+  description?: string | null;
+  category?: string | null;
+  status?: RfqStatus;
+  submission_deadline?: string | null;
+  delivery_required_by?: string | null;
+  estimated_quantity?: number | null;
+  estimated_budget?: number | null;
+  currency?: string;
+}
