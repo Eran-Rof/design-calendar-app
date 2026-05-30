@@ -111,7 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_ip_sales_wholesale_grain
 COMMENT ON COLUMN ip_sales_history_wholesale.qty IS
   'Raw qty as recorded by Xoro. May be at pack-count or unit-count grain per row — qty_grain disambiguates. Use qty_units for analysis.';
 COMMENT ON COLUMN ip_sales_history_wholesale.qty_grain IS
-  E'\'unit\' (qty is already at unit grain) or \'pack\' (qty is pack-count; multiply by item_master.pack_size for unit grain). Inferred at ingest from Item Number PPK tokens; backfilled via unit_price-vs-cost heuristic.';
+  '''unit'' (qty is already at unit grain) or ''pack'' (qty is pack-count; multiply by item_master.pack_size for unit grain). Inferred at ingest from Item Number PPK tokens; backfilled via unit_price-vs-cost heuristic.';
 COMMENT ON COLUMN ip_sales_history_wholesale.qty_units IS
   'Authoritative qty at unit grain. = qty when qty_grain=''unit'', = qty * item_master.pack_size when qty_grain=''pack''. Maintained by sync-invoices handler.';
 COMMENT ON COLUMN ip_sales_history_wholesale.unit_cost_at_sale IS
