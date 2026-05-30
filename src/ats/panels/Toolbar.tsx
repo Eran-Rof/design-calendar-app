@@ -90,6 +90,15 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
         <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {headerText}
         </span>
+        {value.length > 0 && (
+          <span
+            role="button"
+            aria-label={`Clear ${label}`}
+            title={`Clear ${label}`}
+            onClick={e => { e.stopPropagation(); onChange([]); }}
+            style={{ fontSize: 12, color: "#FCA5A5", cursor: "pointer", padding: "0 4px", lineHeight: 1 }}
+          >×</span>
+        )}
         <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
       </button>
       {open && (
