@@ -253,6 +253,21 @@ export async function searchFabrics(q: string, signal?: AbortSignal): Promise<Fa
   return out.rows || [];
 }
 
+export interface ScaleHit {
+  id: string;
+  scale_code: string;
+  description: string | null;
+  total_units: number | null;
+}
+
+export async function searchScales(signal?: AbortSignal): Promise<ScaleHit[]> {
+  // scale_master is small (<200 rows typically); the handler returns all of
+  // them so a single fetch hydrates the dropdown for every grid row.
+  const res = await fetch(`/api/internal/costing/search/scales`, { signal });
+  const out = await json<{ rows: ScaleHit[] }>(res);
+  return out.rows || [];
+}
+
 export async function searchColors(q: string, signal?: AbortSignal): Promise<string[]> {
   const sp = new URLSearchParams();
   if (q) sp.set("q", q);

@@ -18,6 +18,8 @@ import MasterSelectCell from "./MasterSelectCell";
 import ColorPickerCell from "./ColorPickerCell";
 import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
+import ScalePickerCell from "./ScalePickerCell";
+import FabricPickerCell from "./FabricPickerCell";
 import ColumnsButton from "./ColumnsButton";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku } from "../services/costingApi";
@@ -34,6 +36,20 @@ function n(v: number | null | undefined): number {
   if (v == null) return 0;
   const x = typeof v === "number" ? v : Number(v);
   return isFinite(x) ? x : 0;
+}
+
+// Per-row action button — same height + padding for $ Qts and × so the
+// end-of-row doesn't look ragged. minWidth so the × button isn't a tiny
+// square wedged against $ Qts.
+function ACTION_BTN_STYLE(bg: string, fg: string, border: string): React.CSSProperties {
+  return {
+    background: bg, color: fg,
+    border: `1px solid ${border}`, borderRadius: 3,
+    padding: "3px 8px", fontSize: 10, fontWeight: 600,
+    cursor: "pointer", lineHeight: 1.4,
+    minWidth: 30, height: 22,
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+  };
 }
 
 interface ColumnDef {
@@ -353,7 +369,9 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Row actions
+                // Row actions — consistent button sizes + alignment.
+                // Both buttons are the SAME height + vertical pad so the
+                // row end doesn't look ragged against the cell borders.
                 if (c.key === "_actions") {
                   const quoteCount = (vendorQuotes[line.id] || []).length;
                   return (
@@ -361,12 +379,7 @@ export default function CostingGrid() {
                       <button
                         onClick={() => openQuotesFor(line.id)}
                         title={`Open vendor quotes${quoteCount ? ` (${quoteCount})` : ""}`}
-                        style={{
-                          background: isFocused ? "#3B82F6" : "transparent",
-                          color: isFocused ? "#fff" : "#60A5FA",
-                          border: "1px solid #3B82F6", borderRadius: 3,
-                          padding: "2px 6px", fontSize: 10, cursor: "pointer",
-                        }}
+                        style={ACTION_BTN_STYLE(isFocused ? "#3B82F6" : "transparent", isFocused ? "#fff" : "#60A5FA", "#3B82F6")}
                       >$ Qts{quoteCount ? ` (${quoteCount})` : ""}</button>
                       <button
                         onClick={() => appConfirm(
@@ -375,11 +388,7 @@ export default function CostingGrid() {
                           () => deleteLine(line.id),
                         )}
                         title="Delete row"
-                        style={{
-                          background: "transparent", color: "#F87171",
-                          border: "1px solid #7F1D1D", borderRadius: 3,
-                          padding: "2px 6px", fontSize: 10, cursor: "pointer",
-                        }}
+                        style={ACTION_BTN_STYLE("transparent", "#F87171", "#7F1D1D")}
                       >×</button>
                     </div>
                   );
@@ -421,6 +430,30 @@ export default function CostingGrid() {
                         kind={kind as "fit" | "closure" | "waist" | "comment"}
                         value={(line[c.key as keyof CostingLine] as string | null) ?? null}
                         onChange={(v) => updateLine(line.id, { [c.key]: v } as Partial<CostingLine>)}
+                      />
+                    </div>
+                  );
+                }
+
+                // Size scale — native select from scale_master.
+                if (c.key === "size_scale_label") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <ScalePickerCell
+                        value={line.size_scale_label}
+                        onChange={(v) => updateLine(line.id, { size_scale_label: v })}
+                      />
+                    </div>
+                  );
+                }
+
+                // Fabric — autocomplete from fabric_codes.
+                if (c.key === "fabric_code") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <FabricPickerCell
+                        value={line.fabric_code}
+                        onChange={(v) => updateLine(line.id, { fabric_code: v })}
                       />
                     </div>
                   );
