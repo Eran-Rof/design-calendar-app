@@ -35,13 +35,15 @@ export const ALL_STATUSES: CostingStatus[] = [
 ];
 
 // URL helpers for the query-string sub-routing inside /costing.
-export type CostingViewName = "list" | "edit" | "settings";
+export type CostingViewName = "list" | "edit" | "settings" | "rfq-list" | "rfq-edit";
 
 export function getView(): CostingViewName {
   if (typeof window === "undefined") return "list";
   const v = new URLSearchParams(window.location.search).get("view");
   if (v === "edit") return "edit";
   if (v === "settings") return "settings";
+  if (v === "rfq-list") return "rfq-list";
+  if (v === "rfq-edit") return "rfq-edit";
   return "list";
 }
 
