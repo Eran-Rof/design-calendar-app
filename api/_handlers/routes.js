@@ -606,6 +606,14 @@ import h526 from "./internal/sales-reps/[id]/assignments.js";
 //   h446 = POST /api/internal/shopify/post-cogs/:id (manual COGS retry for one order)
 import h446 from "./internal/shopify/post-cogs/[id].js";
 
+// P11-6 — Shopify refund handling (full void + partial credit memo + COGS reverse).
+//   h447 = POST    /api/internal/shopify/webhooks/refunds
+//   h448 = POST    /api/internal/shopify/process-refund/:id (manual trigger)
+//   h449 = GET/POST /api/cron/shopify-refunds-backfill      (Vercel cron, 06:30 UTC daily)
+import h447 from "./internal/shopify/webhooks/refunds.js";
+import h448 from "./internal/shopify/process-refund/[id].js";
+import h449 from "../cron/shopify-refunds-backfill.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -1154,6 +1162,10 @@ export const ROUTES = [
   { pattern: "/api/internal/xoro-mirror/inventory",                    handler: h402 },
   // P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
   { pattern: "/api/internal/shopify/post-cogs/:id",                    handler: h446 },
+  // P11-6 — Shopify refund handling (full void + partial credit memo + COGS reverse).
+  { pattern: "/api/internal/shopify/webhooks/refunds",                 handler: h447 },
+  { pattern: "/api/internal/shopify/process-refund/:id",               handler: h448 },
+  { pattern: "/api/cron/shopify-refunds-backfill",                     handler: h449 },
 ];
 
 export function compileRoutes(routes) {
