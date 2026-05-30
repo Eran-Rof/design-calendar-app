@@ -500,6 +500,17 @@ import h497 from "./internal/procurement/receipts/save-rollups.js";
 import h498 from "./internal/procurement/bookkeeper-queue/index.js";
 import h499 from "./internal/procurement/invoices/bookkeeper-approve.js";
 
+// P13-5 — M26 QC inspection UI + failed-inspection auto-case (P7-9 cases link).
+//   h503 = GET / POST   /api/internal/procurement/qc-inspections
+//   h505 = GET / PATCH  /api/internal/procurement/qc-inspections/:id
+//   h506 = GET / POST   /api/internal/procurement/qc-findings
+//   h508 = GET / PATCH / DELETE /api/internal/procurement/qc-findings/:id
+// (h504 / h507 / h509 reserved — paired index handlers serve all verbs)
+import h503 from "./internal/procurement/qc-inspections/index.js";
+import h505 from "./internal/procurement/qc-inspections/[id].js";
+import h506 from "./internal/procurement/qc-findings/index.js";
+import h508 from "./internal/procurement/qc-findings/[id].js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -976,6 +987,12 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/receipts/:id",                 handler: h496 },
   { pattern: "/api/internal/procurement/receipts",                     handler: h494 },
   { pattern: "/api/internal/procurement/bookkeeper-queue",             handler: h498 },
+  // P13-5 — M26 QC inspection + findings (more-specific :id routes before
+  // the bare collection routes — the dispatcher returns the first match).
+  { pattern: "/api/internal/procurement/qc-inspections/:id",           handler: h505 },
+  { pattern: "/api/internal/procurement/qc-inspections",               handler: h503 },
+  { pattern: "/api/internal/procurement/qc-findings/:id",              handler: h508 },
+  { pattern: "/api/internal/procurement/qc-findings",                  handler: h506 },
 ];
 
 export function compileRoutes(routes) {

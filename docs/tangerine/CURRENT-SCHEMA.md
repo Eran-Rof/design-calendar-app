@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (191 migration files). Latest: `20260629C00000_p13_chunk4_bookkeeper_approval_audit.sql`.
+> Generated from `supabase/migrations/*.sql` (192 migration files). Latest: `20260629C10000_p13_chunk5_qc_case_link.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 273 tables · 261 CREATE TABLE · 641 ALTER TABLE
+**Stats:** 273 tables · 261 CREATE TABLE · 642 ALTER TABLE
 
 ---
 
@@ -3515,6 +3515,7 @@ _(no columns parsed)_
 - `overall_pass_rate` numeric(5,4)
 - `notes` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
+- `case_id` uuid → `cases`
 
 ## `tanda_po_receipt_lines`  _(P13-1)_
 
