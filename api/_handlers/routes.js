@@ -553,6 +553,10 @@ import h511 from "./internal/style-master/dim-values.js";
 //   h512 = POST /api/internal/recon/run-ar  (renumbered from h481 on rebase —
 //   h481 is taken by costing/select-quote on main; next free is h512.)
 import h512 from "./internal/recon/run-ar.js";
+// P9-2 — Parallel-Run AP reconciliation engine + manual trigger.
+//   h513 = POST /api/internal/recon/run-ap (renumbered from h480 on rebase —
+//   h480 taken by costing on main; h512 by P9-3 AR; next free is h513.)
+import h513 from "./internal/recon/run-ap.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1068,6 +1072,8 @@ export const ROUTES = [
   { pattern: "/api/internal/users/me/preferences/drawer-collapsed",        handler: h502 },
   // P9-3 — AR Parallel-Run reconciliation engine (manual + replay).
   { pattern: "/api/internal/recon/run-ar",                             handler: h512 },
+  // P9-2 — Parallel-Run AP reconciliation engine (manual / replay).
+  { pattern: "/api/internal/recon/run-ap",                             handler: h513 },
 ];
 
 export function compileRoutes(routes) {
