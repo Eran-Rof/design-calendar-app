@@ -35,6 +35,8 @@
 //   / 0 when Xoro doesn't expose the split (the daily summary JE doesn't
 //   need a tax split — line 193 of arch §4.4).
 
+import { isDomainSolo, makeSoloSkippedSummary } from "./solo-skip.js";
+
 const RECEIVING_COMPLETE_STATUSES = ["Received", "Closed"];
 
 /**
@@ -182,6 +184,14 @@ export async function mirrorApForDate(supabase, entity_id, mirror_date) {
   if (!mirror_date || !/^\d{4}-\d{2}-\d{2}$/.test(mirror_date)) {
     result.errors.push({ po_number: null, reason: "mirror_date must be YYYY-MM-DD" });
     return result;
+  }
+
+  // Per P9-9: if entities.parallel_run_status.ap.status === 'solo' for
+  // this entity, the AP domain is post-cutover and Tangerine is
+  // authoritative — the T10 mirror MUST skip to avoid overwriting
+  // Tangerine-direct rows with stale Xoro data.
+  if (await isDomainSolo(supabase, entity_id, "ap")) {
+    return makeSoloSkippedSummary("ap");
   }
 
   // 1. Pull candidate tanda_pos rows by status. We can't filter by event
