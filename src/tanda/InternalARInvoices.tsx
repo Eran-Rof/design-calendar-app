@@ -14,10 +14,47 @@ import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 // Cross-cutter T11-3 — audit-trail drop-in for the detail modal.
 import RowHistory from "./components/RowHistory";
+// Wave 5 universal primitives — column show/hide, row-click-to-edit, dyn search.
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const AR_INVOICES_TABLE_KEY = "tangerine:arinvoices:columns";
+const AR_INVOICE_COLUMNS: ColumnDef[] = [
+  { key: "invoice_number", label: "Invoice #" },
+  { key: "invoice_date",   label: "Date" },
+  { key: "customer",       label: "Customer" },
+  { key: "total",          label: "Total" },
+  { key: "paid",           label: "Paid" },
+  { key: "balance",        label: "Balance" },
+  { key: "status",         label: "Status" },
+];
 
 type GlStatus =
   | "draft" | "unposted" | "pending_approval" | "sent"
   | "partial_paid" | "paid" | "void" | "reversed" | "posted_historical";
+
+// Status enum has 9 options (incl. "All statuses"); routed through SearchableSelect.
+const AR_STATUS_OPTIONS: { value: GlStatus | ""; label: string }[] = [
+  { value: "",                  label: "All statuses" },
+  { value: "draft",             label: "Draft" },
+  { value: "pending_approval",  label: "Pending approval" },
+  { value: "sent",              label: "Sent" },
+  { value: "partial_paid",      label: "Partial paid" },
+  { value: "paid",              label: "Paid" },
+  { value: "void",              label: "Void" },
+  { value: "reversed",          label: "Reversed" },
+  { value: "posted_historical", label: "Posted (historical)" },
+];
+
+// Source enum is a long static list (10 values); routed through SearchableSelect.
+const AR_SOURCE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "All sources" },
+  ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+];
 
 type ARInvoice = {
   id: string;
@@ -150,7 +187,9 @@ export default function InternalARInvoices() {
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
   const [customerFilter, setCustomerFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
-  const [search, setSearch] = useState("");
+  // Wave 5 dynamic search — 200ms debounce drives load(), input updates sync.
+  const { value: search, debouncedValue: debouncedSearch, setValue: setSearch } =
+    useDebouncedSearch("", 200);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [includeVoid, setIncludeVoid] = useState(false);
@@ -160,6 +199,21 @@ export default function InternalARInvoices() {
   const [editing, setEditing] = useState<ARInvoice | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    AR_INVOICES_TABLE_KEY,
+    AR_INVOICE_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  // Wave 5 — universal row-click-to-edit + scroll-highlight.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<ARInvoice>({
+    onRowClick: (inv) => { setEditing(inv); setEditOpen(true); },
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (inv) => `Edit AR invoice ${inv.invoice_number}`,
+  });
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -168,7 +222,7 @@ export default function InternalARInvoices() {
       if (statusFilter) params.set("status", statusFilter);
       if (customerFilter) params.set("customer_id", customerFilter);
       if (sourceFilter) params.set("source", sourceFilter);
-      if (search.trim()) params.set("q", search.trim());
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       if (fromDate) params.set("from", fromDate);
       if (toDate) params.set("to", toDate);
       if (includeVoid) params.set("include_void", "true");
@@ -182,7 +236,7 @@ export default function InternalARInvoices() {
     }
   }
 
-  useEffect(() => { void load(); }, [statusFilter, customerFilter, sourceFilter, includeVoid, fromDate, toDate, limit]);
+  useEffect(() => { void load(); }, [statusFilter, customerFilter, sourceFilter, debouncedSearch, includeVoid, fromDate, toDate, limit]);
 
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000")
@@ -270,18 +324,15 @@ export default function InternalARInvoices() {
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as GlStatus | "")} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="pending_approval">Pending approval</option>
-          <option value="sent">Sent</option>
-          <option value="partial_paid">Partial paid</option>
-          <option value="paid">Paid</option>
-          <option value="void">Void</option>
-          <option value="reversed">Reversed</option>
-          <option value="posted_historical">Posted (historical)</option>
-        </select>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter((v || "") as GlStatus | "")}
+            options={AR_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            placeholder="All statuses"
+          />
+        </div>
         <div style={{ width: 240 }}>
           <SearchableSelect
             value={customerFilter || null}
@@ -293,20 +344,23 @@ export default function InternalARInvoices() {
             placeholder="All customers"
           />
         </div>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 150 }}
+        <div
+          style={{ width: 170 }}
           title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
         >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <input
-          type="text" placeholder="Search invoice #" value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void load(); }}
-          style={{ ...inputStyle, width: 200 }}
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v || "")}
+            options={AR_SOURCE_OPTIONS}
+            placeholder="All sources"
+          />
+        </div>
+        <DynamicSearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search invoice #"
+          ariaLabel="Search AR invoices"
+          wrapperStyle={{ maxWidth: 220 }}
         />
         <input
           type="date" placeholder="From" value={fromDate}
@@ -329,11 +383,17 @@ export default function InternalARInvoices() {
           <option value={200}>Limit 200</option>
           <option value={500}>Limit 500</option>
         </select>
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeVoid} onChange={(e) => setIncludeVoid(e.target.checked)} />
           Include void
         </label>
+        <TablePrefsButton
+          tableKey={AR_INVOICES_TABLE_KEY}
+          columns={AR_INVOICE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows.map((inv) => ({
             invoice_number: inv.invoice_number,
@@ -383,13 +443,13 @@ export default function InternalARInvoices() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ ...th, width: 130 }}>Invoice #</th>
-                <th style={th}>Date</th>
-                <th style={th}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }}>Total</th>
-                <th style={{ ...th, textAlign: "right" }}>Paid</th>
-                <th style={{ ...th, textAlign: "right" }}>Balance</th>
-                <th style={th}>Status</th>
+                <th style={{ ...th, width: 130 }} hidden={!isVisible("invoice_number")}>Invoice #</th>
+                <th style={th} hidden={!isVisible("invoice_date")}>Date</th>
+                <th style={th} hidden={!isVisible("customer")}>Customer</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("paid")}>Paid</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("balance")}>Balance</th>
+                <th style={th} hidden={!isVisible("status")}>Status</th>
                 <th style={{ ...th, width: 260, textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
@@ -406,33 +466,44 @@ export default function InternalARInvoices() {
                 const canDelete = isDraft;
                 const balanceCents = BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0");
                 return (
-                  <tr
+                  <ScrollHighlightRow
                     key={inv.id}
-                    onClick={() => { setEditing(inv); setEditOpen(true); }}
-                    style={{ cursor: "pointer", ...(isVoid ? { opacity: 0.5 } : {}) }}
+                    rowId={inv.id}
+                    highlightedRowId={highlightedId}
+                    {...getRowProps(inv)}
+                    style={isVoid ? { opacity: 0.5 } : undefined}
                   >
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("invoice_number")}>
                       {inv.invoice_number}
                       <SourceBadge source={inv.source} />
                     </td>
-                    <td style={td}>{inv.invoice_date}</td>
-                    <td style={td}>{customerMap[inv.customer_id]?.name || inv.customer_id.slice(0, 8)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
+                    <td style={td} hidden={!isVisible("invoice_date")}>{inv.invoice_date}</td>
+                    <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || inv.customer_id.slice(0, 8)}</td>
+                    <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
+                      hidden={!isVisible("total")}
+                    >
                       {fmtCents(inv.total_amount_cents)}
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
+                    <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
+                      hidden={!isVisible("paid")}
+                    >
                       {fmtCents(inv.paid_amount_cents)}
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: balanceCents > 0n ? C.warn : C.textMuted }}>
+                    <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: balanceCents > 0n ? C.warn : C.textMuted }}
+                      hidden={!isVisible("balance")}
+                    >
                       {fmtCents(balanceCents.toString())}
                     </td>
-                    <td style={td}>
+                    <td style={td} hidden={!isVisible("status")}>
                       <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>
                     </td>
-                    <td style={{ ...td, textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ ...td, textAlign: "right" }}>
                       {canEdit && (
                         <button
-                          onClick={() => { setEditing(inv); setEditOpen(true); }}
+                          onClick={(e) => { e.stopPropagation(); setEditing(inv); setEditOpen(true); }}
                           style={btnSecondary} disabled={busy === inv.id}
                         >
                           Edit
@@ -440,7 +511,7 @@ export default function InternalARInvoices() {
                       )}
                       {canPost && (
                         <button
-                          onClick={() => void doPost(inv)}
+                          onClick={(e) => { e.stopPropagation(); void doPost(inv); }}
                           style={{ ...btnSuccess, marginLeft: 6 }}
                           disabled={busy === inv.id}
                         >
@@ -449,7 +520,7 @@ export default function InternalARInvoices() {
                       )}
                       {canVoid && (
                         <button
-                          onClick={() => void doVoid(inv)}
+                          onClick={(e) => { e.stopPropagation(); void doVoid(inv); }}
                           style={{ ...btnWarn, marginLeft: 6 }}
                           disabled={busy === inv.id}
                         >
@@ -458,7 +529,7 @@ export default function InternalARInvoices() {
                       )}
                       {canDelete && (
                         <button
-                          onClick={() => void doDelete(inv)}
+                          onClick={(e) => { e.stopPropagation(); void doDelete(inv); }}
                           style={{ ...btnDanger, marginLeft: 6 }}
                           disabled={busy === inv.id}
                         >
@@ -469,7 +540,7 @@ export default function InternalARInvoices() {
                         <span style={{ fontSize: 11, color: C.success }}>Fully paid</span>
                       )}
                     </td>
-                  </tr>
+                  </ScrollHighlightRow>
                 );
               })}
             </tbody>
