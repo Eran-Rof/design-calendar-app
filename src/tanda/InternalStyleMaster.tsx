@@ -25,7 +25,26 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
+
+// Universal Column Visibility primitive (Operator ask #1, 2026-05-30).
+// Style Master is the demo panel; the other Tangerine panels are swept in
+// a follow-up chunk.
+const STYLE_MASTER_TABLE_KEY = "tanda.style_master";
+const STYLE_MASTER_COLUMNS: ColumnDef[] = [
+  { key: "style_code",        label: "Style Number" },
+  { key: "style_name",        label: "Style Name" },
+  { key: "description",       label: "Description" },
+  { key: "gender_code",       label: "Gender" },
+  { key: "group_name",        label: "Group" },
+  { key: "category_name",     label: "Category" },
+  { key: "sub_category_name", label: "Sub Category" },
+  { key: "season",            label: "Season" },
+  { key: "design_year",       label: "Year" },
+  { key: "lifecycle_status",  label: "Lifecycle" },
+  { key: "is_apparel",        label: "Apparel" },
+];
 
 type Style = {
   id: string;
@@ -135,6 +154,14 @@ export default function InternalStyleMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
 
+  // Universal column visibility — gear-icon next to search; choices persist
+  // per-user via user_preferences (key='table_visibility').
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    STYLE_MASTER_TABLE_KEY,
+    STYLE_MASTER_COLUMNS,
+  );
+  const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -199,6 +226,13 @@ export default function InternalStyleMaster() {
           />
           Show deleted
         </label>
+        <TablePrefsButton
+          tableKey={STYLE_MASTER_TABLE_KEY}
+          columns={STYLE_MASTER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="style-master"
@@ -240,36 +274,36 @@ export default function InternalStyleMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Style Number</th>
-                <th style={th}>Style Name</th>
-                <th style={th}>Description</th>
-                <th style={th}>Gender</th>
-                <th style={th}>Group</th>
-                <th style={th}>Category</th>
-                <th style={th}>Sub Category</th>
-                <th style={th}>Season</th>
-                <th style={th}>Year</th>
-                <th style={th}>Lifecycle</th>
-                <th style={th}>Apparel</th>
+                <th style={th} hidden={!isVisible("style_code")}>Style Number</th>
+                <th style={th} hidden={!isVisible("style_name")}>Style Name</th>
+                <th style={th} hidden={!isVisible("description")}>Description</th>
+                <th style={th} hidden={!isVisible("gender_code")}>Gender</th>
+                <th style={th} hidden={!isVisible("group_name")}>Group</th>
+                <th style={th} hidden={!isVisible("category_name")}>Category</th>
+                <th style={th} hidden={!isVisible("sub_category_name")}>Sub Category</th>
+                <th style={th} hidden={!isVisible("season")}>Season</th>
+                <th style={th} hidden={!isVisible("design_year")}>Year</th>
+                <th style={th} hidden={!isVisible("lifecycle_status")}>Lifecycle</th>
+                <th style={th} hidden={!isVisible("is_apparel")}>Apparel</th>
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} style={r.deleted_at ? { opacity: 0.4 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("style_code")}>
                     {r.style_code}
                   </td>
-                  <td style={td}>{r.style_name || "—"}</td>
-                  <td style={td}>{r.description}</td>
-                  <td style={td}>{genderLabelFor(r.gender_code)}</td>
-                  <td style={td}>{r.group_name || "—"}</td>
-                  <td style={td}>{r.category_name || "—"}</td>
-                  <td style={td}>{r.sub_category_name || "—"}</td>
-                  <td style={td}>{r.season || "—"}</td>
-                  <td style={td}>{r.design_year ?? "—"}</td>
-                  <td style={td}>{r.lifecycle_status}</td>
-                  <td style={td}>{r.is_apparel ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("style_name")}>{r.style_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("description")}>{r.description}</td>
+                  <td style={td} hidden={!isVisible("gender_code")}>{genderLabelFor(r.gender_code)}</td>
+                  <td style={td} hidden={!isVisible("group_name")}>{r.group_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("category_name")}>{r.category_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("sub_category_name")}>{r.sub_category_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("season")}>{r.season || "—"}</td>
+                  <td style={td} hidden={!isVisible("design_year")}>{r.design_year ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("lifecycle_status")}>{r.lifecycle_status}</td>
+                  <td style={td} hidden={!isVisible("is_apparel")}>{r.is_apparel ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     {!r.deleted_at && (
                       <>
