@@ -1,6 +1,12 @@
--- 20260629C00000_tanda_po_tombstones.sql
+-- 20260630010000_tanda_po_tombstones.sql
 --
 -- Tombstone table for permanently-deleted PO WIP rows.
+--
+-- (Renamed 2026-05-30 from 20260629C00000 — that version collided with
+-- 20260629C00000_je_memo_line_2.sql, so db-push recorded the version only
+-- once and one of the two files may never have applied. CREATE TABLE IF NOT
+-- EXISTS makes re-applying under this fresh, unique numeric version a safe
+-- no-op if the table already exists, or recovers it if it was the casualty.)
 --
 -- Why: the nightly Xoro → tanda_pos sync (api/_handlers/tanda/sync-from-xoro.js)
 -- upserts every PO that Xoro still reports as active (Open / Released /
