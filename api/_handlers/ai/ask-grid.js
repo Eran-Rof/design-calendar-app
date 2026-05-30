@@ -39,6 +39,9 @@ import {
   MAX_QUESTION_LEN,
   HANDLER,
   TERMINAL_TOOLS,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_TURN,
+  SUPPORTED_IMAGE_MEDIA_TYPES,
 } from "../../_lib/ai/constants.js";
 import { SYSTEM_PROMPT } from "../../_lib/ai/system-prompt.js";
 import { TOOLS } from "../../_lib/ai/tool-defs.js";
@@ -121,11 +124,52 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message });
   }
 
+  // Vision attachments (PR 3/4). Validate count + each item's media
+  // type + base64 length (decoded bytes ≈ b64Len * 3/4). Reject the
+  // whole request on first invalid entry — operator sees a precise
+  // error instead of a silent half-included message.
+  const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
+  if (rawAttachments.length > MAX_ATTACHMENTS_PER_TURN) {
+    return res.status(400).json({ error: `Too many attachments (max ${MAX_ATTACHMENTS_PER_TURN}).` });
+  }
+  const attachments = [];
+  for (const a of rawAttachments) {
+    if (!a || typeof a !== "object") continue;
+    const mt = String(a.media_type || "");
+    const data = String(a.data || "");
+    if (!SUPPORTED_IMAGE_MEDIA_TYPES.has(mt)) {
+      return res.status(400).json({ error: `Unsupported attachment type '${mt}'.` });
+    }
+    // Approximate decoded byte size from base64 length (4 chars → 3 bytes,
+    // minus padding). Cheap upper-bound check without actually decoding.
+    const approxBytes = Math.floor((data.length * 3) / 4);
+    if (approxBytes > MAX_ATTACHMENT_BYTES) {
+      return res.status(400).json({ error: `Attachment exceeds ${MAX_ATTACHMENT_BYTES} bytes.` });
+    }
+    if (!data) {
+      return res.status(400).json({ error: "Attachment is empty." });
+    }
+    attachments.push({ media_type: mt, data });
+  }
+
   const contextBlock = buildGridContextBlock(gridContext);
-  const userMessage  = `## Current ATS grid context\n${contextBlock}\n\n## User question\n${question}`;
+  const textBlock    = `## Current ATS grid context\n${contextBlock}\n\n## User question\n${question}`;
+  // Anthropic multimodal user message: image blocks FIRST so the model
+  // sees them as referent to the question that follows. Falls back to
+  // a plain string when no attachments — preserves prompt-cache hits
+  // for the (much more common) text-only path.
+  const userContent = attachments.length === 0
+    ? textBlock
+    : [
+        ...attachments.map(a => ({
+          type: "image",
+          source: { type: "base64", media_type: a.media_type, data: a.data },
+        })),
+        { type: "text", text: textBlock },
+      ];
   const messages = [
     ...history,
-    { role: "user", content: userMessage },
+    { role: "user", content: userContent },
   ];
 
   // Answer cache lookup. Only attempted when there's no prior history
@@ -133,7 +177,11 @@ export default async function handler(req, res) {
   // cacheable from the question alone). Cache key folds in the grid
   // filter fingerprint so the same question against different filters
   // produces different entries.
-  const cacheKey = history.length === 0 ? buildCacheKey(question, gridContext) : null;
+  // Cache: skip when attachments present (images change per turn and
+  // the cache key doesn't hash them) AND when there's prior history.
+  const cacheKey = history.length === 0 && attachments.length === 0
+    ? buildCacheKey(question, gridContext)
+    : null;
   if (cacheKey) {
     const hit = await readAnswerCache(db, cacheKey);
     if (hit) {
