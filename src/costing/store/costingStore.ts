@@ -17,15 +17,21 @@ import type {
   CostingProjectPatch,
 } from "../types";
 
-export type MasterKind = "fit" | "closure" | "waist" | "comment";
+export type MasterKind = "fit" | "closure" | "waist" | "comment" | "compliance";
 export interface MasterEntry { id: string; name: string }
 
 const MASTER_KEY: Record<MasterKind, string> = {
-  fit:     "costing_fits",
-  closure: "costing_closures",
-  waist:   "costing_waists",
-  comment: "costing_comments",
+  fit:        "costing_fits",
+  closure:    "costing_closures",
+  waist:      "costing_waists",
+  comment:    "costing_comments",
+  compliance: "costing_compliance_codes",
 };
+
+// Default compliance codes seeded the first time the master is loaded empty.
+// Matches the CompliancePanel "Seed defaults" set so the operator doesn't
+// have to type these in by hand. They can edit/delete from Settings later.
+const DEFAULT_COMPLIANCE_CODES = ["CPSIA", "PROP65", "FLAMMABILITY", "LABEL_FIBER_CONTENT", "COO"];
 
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `m_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
 
@@ -479,24 +485,34 @@ export const useCostingStore = create<State>((set, get) => ({
 
   // ── Masters (app_data JSON blobs) ─────────────────────────────────────────
 
-  masters: { fit: [], closure: [], waist: [], comment: [] },
+  masters: { fit: [], closure: [], waist: [], comment: [], compliance: [] },
   extraColors: [],
 
   async loadMasters() {
     try {
-      const [fit, closure, waist, comment, extras] = await Promise.all([
+      const [fit, closure, waist, comment, compliance, extras] = await Promise.all([
         sbLoadSvc(MASTER_KEY.fit),
         sbLoadSvc(MASTER_KEY.closure),
         sbLoadSvc(MASTER_KEY.waist),
         sbLoadSvc(MASTER_KEY.comment),
+        sbLoadSvc(MASTER_KEY.compliance),
         sbLoadSvc("costing_extra_colors"),
       ]);
+      // Compliance is auto-seeded the first time it loads empty so the
+      // grid dropdown isn't blank for new operators. Persisted immediately
+      // so this only happens once per entity.
+      let complianceList: MasterEntry[] = Array.isArray(compliance) ? (compliance as MasterEntry[]) : [];
+      if (complianceList.length === 0) {
+        complianceList = DEFAULT_COMPLIANCE_CODES.map((name) => ({ id: newId(), name }));
+        try { await sbSaveSvc(MASTER_KEY.compliance, complianceList); } catch { /* non-blocking */ }
+      }
       set({
         masters: {
-          fit:     Array.isArray(fit)     ? (fit as MasterEntry[])     : [],
-          closure: Array.isArray(closure) ? (closure as MasterEntry[]) : [],
-          waist:   Array.isArray(waist)   ? (waist as MasterEntry[])   : [],
-          comment: Array.isArray(comment) ? (comment as MasterEntry[]) : [],
+          fit:        Array.isArray(fit)     ? (fit as MasterEntry[])     : [],
+          closure:    Array.isArray(closure) ? (closure as MasterEntry[]) : [],
+          waist:      Array.isArray(waist)   ? (waist as MasterEntry[])   : [],
+          comment:    Array.isArray(comment) ? (comment as MasterEntry[]) : [],
+          compliance: complianceList,
         },
         extraColors: Array.isArray(extras) ? (extras as string[]) : [],
       });

@@ -16,6 +16,8 @@ import { usePlanFlow } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
 import MasterSelectCell from "./MasterSelectCell";
 import ColorPickerCell from "./ColorPickerCell";
+import VendorGridCell from "./VendorGridCell";
+import ComplianceChipCell from "./ComplianceChipCell";
 import ColumnsButton from "./ColumnsButton";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku } from "../services/costingApi";
@@ -69,6 +71,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "ly_unit_cost",   label: "LY Cost",  width: 80,  align: "right", numeric: true },
   { key: "ly_qty",         label: "LY Sold",  width: 80,  align: "right", numeric: true },
   { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
+  { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "remarks",        label: "Remarks",  width: 160 },
   { key: "_actions",       label: "",         width: 110, align: "center" },
 ];
@@ -242,7 +245,6 @@ export default function CostingGrid() {
         )}
         {visibleLines.map((line) => {
           const math = computeLineMath(line);
-          const selected = vendorQuotes[line.id]?.find((q) => q.status === "selected");
           const isFocused = selectedLineId === line.id;
           return (
             <div
@@ -299,24 +301,27 @@ export default function CostingGrid() {
                         value={line.style_code}
                         onPick={(s) => onStylePick(line, s)}
                         onChange={(v) => updateLine(line.id, { style_code: v })}
-                        cellStyle={{ padding: "4px 4px" }}
+                        cellStyle={{ padding: "4px 6px" }}
                       />
                     </div>
                   );
                 }
 
-                // Selected vendor (read-only display)
+                // Vendor — inline dropdown of existing quote-vendors for this
+                // line; picking one calls selectQuote (marks as winner).
                 if (c.key === "_vendor") {
                   return (
-                    <div key={c.key} style={style}>
-                      <span style={{
-                        color: selected ? "#A7F3D0" : "#64748B",
-                        fontSize: 11, padding: "0 4px",
-                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                        width: "100%",
-                      }}>
-                        {selected?.vendor?.legal_name || selected?.vendor?.code || "—"}
-                      </span>
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <VendorGridCell lineId={line.id} />
+                    </div>
+                  );
+                }
+
+                // Compliance — inline chips for current requirements + add dropdown.
+                if (c.key === "_compliance") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <ComplianceChipCell lineId={line.id} />
                     </div>
                   );
                 }
