@@ -2,14 +2,16 @@
 //
 // GET  — list all style_master rows for the default entity. Returns soft-active
 //        rows by default; ?include_deleted=true returns everything.
-//        Query params: ?q=<search> matches style_code/style_name/description;
-//        ?limit=N (default 200)
+//        Query params: ?q=<search> matches style_code/style_name/description and
+//        the joined fabric_codes.code / fabric_codes.name; ?limit=N (default 200).
+//        Each row carries an embedded `base_fabric` {id, code, name} from
+//        fabric_codes when base_fabric_code_id is set.
 // POST — create a new style. Body: { style_code, description, category_id?,
 //        gender_code?, season?, design_year?, is_apparel?, planning_class?,
-//        lifecycle_status?, base_fabric?, group_name?, category_name?,
+//        lifecycle_status?, base_fabric_code_id?, group_name?, category_name?,
 //        sub_category_name?, attributes? }
 //
-// Tangerine P1 Chunk 7 + Style Master Sweep 2026-05-30.
+// Tangerine P1 Chunk 7 + Style Master Sweep 2026-05-30 + Fabric FK 2026-05-30 (#13).
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -20,8 +22,11 @@ export const config = { maxDuration: 15 };
 const GENDER_VALUES     = ["M", "B", "C", "G", "W", "U"];
 const LIFECYCLE_VALUES  = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_VALUES   = ["core", "seasonal", "fashion"];
+const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric, group_name, category_name, sub_category_name, attributes, created_at, updated_at, deleted_at";
+// `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
+// fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -74,11 +79,53 @@ export default async function handler(req, res) {
       .limit(limit);
 
     if (!includeDeleted) query = query.is("deleted_at", null);
-    if (q) query = query.or(`style_code.ilike.%${q}%,style_name.ilike.%${q}%,description.ilike.%${q}%`);
+    if (q) {
+      // Search style_master text columns. Fabric name/code search is handled
+      // by a separate lookup pass below — PostgREST `.or()` cannot reach
+      // through an embedded relation in a single filter expression.
+      query = query.or(
+        `style_code.ilike.%${q}%,style_name.ilike.%${q}%,description.ilike.%${q}%`,
+      );
+    }
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+
+    const rows = data || [];
+
+    // If a search term was supplied, union in any styles whose fabric matches.
+    // Cheap second query keeps the join clean and avoids a denormalized view.
+    if (q && rows.length < limit) {
+      const { data: fabricMatches } = await admin
+        .from("fabric_codes")
+        .select("id")
+        .eq("entity_id", entityId)
+        .or(`code.ilike.%${q}%,name.ilike.%${q}%`);
+      const fabricIds = (fabricMatches || []).map((r) => r.id);
+      if (fabricIds.length > 0) {
+        let fabricStyleQuery = admin
+          .from("style_master")
+          .select(STYLE_SELECT)
+          .eq("entity_id", entityId)
+          .in("base_fabric_code_id", fabricIds)
+          .order("style_code", { ascending: true })
+          .limit(limit);
+        if (!includeDeleted) fabricStyleQuery = fabricStyleQuery.is("deleted_at", null);
+        const { data: byFabric } = await fabricStyleQuery;
+        if (Array.isArray(byFabric) && byFabric.length > 0) {
+          const seen = new Set(rows.map((r) => r.id));
+          for (const r of byFabric) {
+            if (!seen.has(r.id)) {
+              rows.push(r);
+              seen.add(r.id);
+            }
+          }
+          rows.sort((a, b) => String(a.style_code).localeCompare(String(b.style_code)));
+        }
+      }
+    }
+
+    return res.status(200).json(rows);
   }
 
   if (req.method === "POST") {
@@ -103,7 +150,7 @@ export default async function handler(req, res) {
       launch_date: v.data.launch_date || null,
       lifecycle_status: v.data.lifecycle_status || "active",
       planning_class: v.data.planning_class || null,
-      base_fabric: v.data.base_fabric || null,
+      base_fabric_code_id: v.data.base_fabric_code_id || null,
       group_name: v.data.group_name || null,
       category_name: v.data.category_name || null,
       sub_category_name: v.data.sub_category_name || null,
@@ -113,12 +160,15 @@ export default async function handler(req, res) {
     const { data, error } = await admin
       .from("style_master")
       .insert(row)
-      .select()
+      .select(STYLE_SELECT)
       .single();
 
     if (error) {
       if (error.code === "23505") {
         return res.status(409).json({ error: `style_code '${row.style_code}' already exists for this entity` });
+      }
+      if (error.code === "23503") {
+        return res.status(400).json({ error: "base_fabric_code_id does not reference an existing fabric" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -151,6 +201,13 @@ export function validateInsert(body) {
       return { error: "design_year must be between 1990 and 2100" };
     }
     body.design_year = y;
+  }
+  if (body.base_fabric_code_id != null && body.base_fabric_code_id !== "") {
+    if (!UUID_RE.test(String(body.base_fabric_code_id))) {
+      return { error: "base_fabric_code_id must be a uuid" };
+    }
+  } else {
+    body.base_fabric_code_id = null;
   }
   // Optional classifier fields — coerce empty strings to null so the
   // handler doesn't persist empty text.
