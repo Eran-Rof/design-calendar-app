@@ -45,15 +45,32 @@ export default async function handler(req, res) {
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 500);
   const entityId = url.searchParams.get("entity_id") || req.headers["x-entity-id"];
 
-  // 1. Pull RFQs.
-  let rfqQuery = admin.from("rfqs")
-    .select("id, entity_id, title, description, category, status, submission_deadline, delivery_required_by, estimated_quantity, estimated_budget, currency, source_costing_project_id, created_at, updated_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (entityId) rfqQuery = rfqQuery.eq("entity_id", entityId);
-  if (statusFilter) rfqQuery = rfqQuery.eq("status", statusFilter);
+  // 1. Pull RFQs. The source_costing_project_id column is from the
+  // 20260623000001_rfqs_source_costing_project.sql migration; if that
+  // migration hasn't applied yet (Supabase CLI push has been failing on
+  // a schema_migrations PK collision unrelated to costing), the SELECT
+  // 500s with "column does not exist". Retry without the column so the
+  // list view still loads — customer + project_name columns will be
+  // null until the migration runs.
+  const baseCols = "id, entity_id, title, description, category, status, submission_deadline, delivery_required_by, estimated_quantity, estimated_budget, currency, created_at, updated_at";
+  const colsWithSource = `${baseCols}, source_costing_project_id`;
+  const runQuery = (cols) => {
+    let q1 = admin.from("rfqs")
+      .select(cols)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (entityId) q1 = q1.eq("entity_id", entityId);
+    if (statusFilter) q1 = q1.eq("status", statusFilter);
+    return q1;
+  };
 
-  const { data: rfqs, error: rfqsErr } = await rfqQuery;
+  let { data: rfqs, error: rfqsErr } = await runQuery(colsWithSource);
+  if (rfqsErr && /source_costing_project_id/.test(rfqsErr.message || "")) {
+    // eslint-disable-next-line no-console
+    console.warn("[costing/rfqs] source_costing_project_id missing — falling back to base columns. Run migration 20260623000001_rfqs_source_costing_project.sql to enable the customer/project join.");
+    ({ data: rfqs, error: rfqsErr } = await runQuery(baseCols));
+    if (rfqs) rfqs = rfqs.map((r) => ({ ...r, source_costing_project_id: null }));
+  }
   if (rfqsErr) return res.status(500).json({ error: rfqsErr.message });
   if (!rfqs || rfqs.length === 0) return res.status(200).json({ rows: [] });
 
