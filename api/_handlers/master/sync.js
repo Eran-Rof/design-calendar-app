@@ -219,7 +219,17 @@ export default async function handler(req, res) {
   const updateRows = [];
   for (const cand of candidates.values()) {
     if (existingSkus.has(cand.sku_code)) {
-      updateRows.push(cand);
+      // Update path: narrow to the two fields Xoro is the authoritative source
+      // for (description + attributes). Color/style_code/etc. are excluded so
+      // an empty REST Option1Value can't NULL-out an existing apparel row's
+      // color and trip apparel_dims_required. Same authority model the
+      // header docstring describes: "existing rows with populated values
+      // are left alone."
+      updateRows.push({
+        sku_code: cand.sku_code,
+        description: cand.description,
+        attributes: cand.attributes,
+      });
     } else {
       newRows.push({ ...cand, is_apparel: false });
     }
