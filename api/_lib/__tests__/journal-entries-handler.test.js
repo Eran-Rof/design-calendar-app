@@ -133,4 +133,33 @@ describe("validateManualPost", () => {
     expect(v.error).toBeUndefined();
     expect(v.data.lines[0].subledger_type).toBeNull();
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // memo_line_2 column (ask #16 — two-line memo per JE line)
+  // ─────────────────────────────────────────────────────────────────────────
+  it("persists memo_line_2 alongside memo", () => {
+    const v = validateManualPost({
+      basis: "ACCRUAL", posting_date: "2026-05-26", description: "two-line memo",
+      lines: [
+        { line_number: 1, account_id: UUID, debit: "10", credit: "0", memo: "first line", memo_line_2: "second line" },
+        { line_number: 2, account_id: UUID, debit: "0",  credit: "10", memo: "auto", memo_line_2: "auto" },
+      ],
+    });
+    expect(v.error).toBeUndefined();
+    expect(v.data.lines[0].memo).toBe("first line");
+    expect(v.data.lines[0].memo_line_2).toBe("second line");
+    expect(v.data.lines[1].memo).toBe("auto");
+    expect(v.data.lines[1].memo_line_2).toBe("auto");
+  });
+
+  it("defaults memo_line_2 to null when omitted (backwards compat)", () => {
+    const v = validateManualPost({
+      basis: "ACCRUAL", posting_date: "2026-05-26", description: "single-line memo",
+      lines: lines({ debit: "10", memo: "only line 1" }, { credit: "10" }),
+    });
+    expect(v.error).toBeUndefined();
+    expect(v.data.lines[0].memo).toBe("only line 1");
+    expect(v.data.lines[0].memo_line_2).toBeNull();
+    expect(v.data.lines[1].memo_line_2).toBeNull();
+  });
 });
