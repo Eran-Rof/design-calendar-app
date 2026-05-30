@@ -5,6 +5,7 @@ import { useAppUnreadCount } from "../../components/notifications/useAppUnreadCo
 import { supabaseClient } from "../../utils/supabase";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import { gs1ViewToMenuKey } from "../../lib/gs1ViewToMenuKey";
+import FavoritesMenu from "../../components/FavoritesMenu";
 
 const TABS: Array<{ id: GS1Tab; label: string }> = [
   { id: "company",   label: "Company Setup" },
@@ -113,6 +114,7 @@ export default function GS1NavBar() {
           }}>{unread > 9 ? "9+" : unread}</span>
         )}
       </button>
+      <FavoritesMenu />
     </div>
   );
 }

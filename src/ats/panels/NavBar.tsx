@@ -20,6 +20,7 @@ import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
 import { usePersonalization } from "../../hooks/usePersonalization";
+import FavoritesMenu from "../../components/FavoritesMenu";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -1070,6 +1071,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
         )}
       </button>
+      <FavoritesMenu />
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
 

@@ -10,7 +10,7 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-5 — Personalization: favorites drawer + click telemetry.
-import FavoritesDrawer from "./components/FavoritesDrawer";
+import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import { usePersonalization } from "./hooks/usePersonalization";
@@ -1488,6 +1488,7 @@ export default function TechPackApp() {
               }}>{unreadTechpackNotifs > 9 ? "9+" : unreadTechpackNotifs}</span>
             )}
           </button>
+          <FavoritesMenu />
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
             {user.avatar ? (
               <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
@@ -1744,8 +1745,6 @@ export default function TechPackApp() {
       )}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
       <GlobalSearchPaletteAuto />
-      {/* Cross-cutter T4-5 — Personalization favorites drawer (fixed right). */}
-      <FavoritesDrawer />
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
     </div>

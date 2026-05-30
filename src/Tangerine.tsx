@@ -65,7 +65,7 @@ import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit nav group).
 import InternalAuditLog                from "./tanda/InternalAuditLog";
 // Cross-cutter T4-3 — Personalization favorites drawer.
-import FavoritesDrawer from "./components/FavoritesDrawer";
+import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
 import EntitySwitcher from "./components/EntitySwitcher";
 // Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
@@ -448,8 +448,6 @@ export default function Tangerine() {
         {/* Cross-cutter T11-3 — Universal audit log admin panel */}
         {activeModule === "audit_log"           && <InternalAuditLog />}
       </main>
-      {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
-      <FavoritesDrawer />
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
@@ -802,6 +800,8 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
         </button>
         {appsOpen && <AppsLauncher onClose={onCloseApps} />}
       </div>
+
+      <FavoritesMenu />
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
         {userEmail && (

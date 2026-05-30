@@ -45,7 +45,7 @@ const OrderTypeManager = lazy(() => import("./components/OrderTypeManager"));
 const RoleManager = lazy(() => import("./components/RoleManager"));
 const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
-import FavoritesDrawer from "./components/FavoritesDrawer";
+import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import AutoLandingToast from "./components/AutoLandingToast";
@@ -718,6 +718,7 @@ function App() {
             onTasks={() => setShowTaskManager(true)}
             onGenders={() => setShowGenders(true)}
           />
+          <FavoritesMenu />
           <div
             style={{
               width: 1,
@@ -1391,8 +1392,6 @@ function App() {
         ]}
         appId="dc"
       />
-      {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
-      <FavoritesDrawer />
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
