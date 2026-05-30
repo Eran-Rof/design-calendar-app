@@ -67,7 +67,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "ly_qty",         label: "LY Sold",  width: 80,  align: "right", numeric: true },
   { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
   { key: "remarks",        label: "Remarks",  width: 160 },
-  { key: "_actions",       label: "",         width: 70,  align: "center" },
+  { key: "_actions",       label: "",         width: 110, align: "center" },
 ];
 
 const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
@@ -224,11 +224,14 @@ export default function CostingGrid() {
               onClick={() => setSelectedLine(line.id)}
               onDragOver={onDragOver}
               onDrop={onDrop(line.id)}
+              onMouseEnter={(e) => { if (!isFocused) e.currentTarget.style.background = "#1E293B"; }}
+              onMouseLeave={(e) => { if (!isFocused) e.currentTarget.style.background = "transparent"; }}
               style={{
                 display: "flex", minWidth: TOTAL_WIDTH,
                 borderTop: "1px solid #334155",
                 background: isFocused ? "#172554" : "transparent",
                 cursor: "pointer",
+                transition: "background 0.12s",
               }}
             >
               {COLUMNS.map((c) => {
@@ -316,16 +319,28 @@ export default function CostingGrid() {
 
                 // Row actions
                 if (c.key === "_actions") {
+                  const quoteCount = (vendorQuotes[line.id] || []).length;
                   return (
-                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                    <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setSelectedLine(line.id)}
+                        title={`Open vendor quotes${quoteCount ? ` (${quoteCount})` : ""}`}
+                        style={{
+                          background: isFocused ? "#3B82F6" : "transparent",
+                          color: isFocused ? "#fff" : "#60A5FA",
+                          border: "1px solid #3B82F6", borderRadius: 3,
+                          padding: "2px 6px", fontSize: 10, cursor: "pointer",
+                        }}
+                      >$ Qts{quoteCount ? ` (${quoteCount})` : ""}</button>
                       <button
                         onClick={() => deleteLine(line.id)}
+                        title="Delete row"
                         style={{
                           background: "transparent", color: "#F87171",
                           border: "1px solid #7F1D1D", borderRadius: 3,
-                          padding: "2px 8px", fontSize: 10, cursor: "pointer",
+                          padding: "2px 6px", fontSize: 10, cursor: "pointer",
                         }}
-                      >Delete</button>
+                      >×</button>
                     </div>
                   );
                 }
