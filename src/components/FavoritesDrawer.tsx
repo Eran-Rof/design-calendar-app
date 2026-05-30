@@ -37,7 +37,7 @@
 // styles since the repo doesn't use Tailwind. Conventions cribbed from
 // src/tanda/styles.ts.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePersonalization } from "../hooks/usePersonalization";
 import { MENU_KEY_BY_KEY, MENU_KEYS, type MenuKey } from "../lib/menuKeys";
 import {
@@ -254,42 +254,16 @@ export default function FavoritesDrawer(): JSX.Element {
   const grouped = useMemo(() => groupFavorites(favorites), [favorites]);
   const currentIsFav = currentView.menuKey ? favorites.includes(currentView.menuKey) : false;
 
-  // Push panel content below the strip when expanded so it does NOT overlay
-  // the page (e.g. Style Master's title + search bar). The menu and strip
-  // are both position:fixed; adding body padding-top shifts ALL document
-  // content down without affecting those overlays.
+  // NOTE: A previous iteration set document.body.style.paddingTop to push
+  // panel content below the strip when expanded. That broke the Tangerine
+  // header (position: sticky, top: 0) because sticky elements live in
+  // normal flow — body padding shifted the sticky element's flow position
+  // DOWN, so the strip's fixed top:56 ended up ABOVE the menu.
   //
-  // We measure the strip's ACTUAL rendered height with ResizeObserver — the
-  // empty-state message ("No favorites yet…") wraps to multiple lines and
-  // makes the strip ~80px instead of the 52px single-row case. A hardcoded
-  // figure (108px = STRIP_TOP + 52) under-shoots and the strip still
-  // overlaps content. The ref + observer auto-corrects every layout.
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    if (typeof document === "undefined") return;
-    const body = document.body;
-    const prev = body.style.paddingTop;
-    if (drawerCollapsed) {
-      body.style.paddingTop = "";
-      return () => { body.style.paddingTop = prev; };
-    }
-    const apply = () => {
-      const h = stripRef.current?.getBoundingClientRect().height ?? 0;
-      // STRIP_TOP (56) + measured strip height = total overlay coverage
-      // below the top of the viewport. Body padding = that, so all flow
-      // content starts just below the strip's bottom edge.
-      body.style.paddingTop = `${STRIP_TOP + Math.ceil(h)}px`;
-    };
-    apply();
-    const ro = typeof ResizeObserver !== "undefined" && stripRef.current
-      ? new ResizeObserver(apply)
-      : null;
-    if (ro && stripRef.current) ro.observe(stripRef.current);
-    return () => {
-      ro?.disconnect();
-      body.style.paddingTop = prev;
-    };
-  }, [drawerCollapsed, favorites.length, currentView.menuKey]);
+  // Decision: don't auto-push. The drawer is now collapsed by default
+  // (drawer behavior — operator opens it on demand via the top-right
+  // pill), and when the operator explicitly opens it they accept the
+  // momentary overlay until they collapse it again. Standard drawer UX.
 
   function navigate(route: string): void {
     if (typeof window === "undefined") return;
@@ -372,7 +346,6 @@ export default function FavoritesDrawer(): JSX.Element {
   return (
     <>
       <div
-        ref={stripRef}
         data-testid="favorites-strip"
         role="complementary"
         aria-label="Favorites"
