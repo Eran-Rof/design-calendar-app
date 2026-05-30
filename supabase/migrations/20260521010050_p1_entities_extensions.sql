@@ -39,24 +39,38 @@ ALTER TABLE entities
 -- 4. Unique code per system (case-sensitive); CHECK on basis + fiscal month
 -- All constraints wrapped in DO/EXCEPTION so re-running on a prod state
 -- that already has them (from a past paste-bundle apply) is idempotent.
+-- Catches BOTH duplicate_object (42710 — CHECK constraint name clash) AND
+-- duplicate_table (42P07 — UNIQUE constraint's backing index name clash).
 DO $$ BEGIN
   ALTER TABLE entities ADD CONSTRAINT entities_code_unique UNIQUE (code);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_table  THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE entities ADD CONSTRAINT entities_basis_check
     CHECK (accounting_basis_primary IN ('ACCRUAL', 'CASH'));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_table  THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE entities ADD CONSTRAINT entities_fiscal_month_check
     CHECK (fiscal_year_start_month BETWEEN 1 AND 12);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_table  THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE entities ADD CONSTRAINT entities_currency_check
     CHECK (functional_currency ~ '^[A-Z]{3}$');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_table  THEN NULL;
+END $$;
 
 COMMENT ON COLUMN entities.code                     IS 'Short entity code (e.g. ROF). Drives PO/SO/invoice numbering prefixes. Unique.';
 COMMENT ON COLUMN entities.functional_currency      IS 'Functional reporting currency. USD only at launch (per Tangerine P1 decision); schema future-proofs M2.';
