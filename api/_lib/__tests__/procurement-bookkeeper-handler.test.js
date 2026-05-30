@@ -1,5 +1,7 @@
-// Tests for Tangerine P13-3 — bookkeeper queue handler + bookkeeper-approve
-// STUB (the real approval flow lands in P13-4).
+// Tests for Tangerine P13-3 — bookkeeper queue handler smoke + carry-over
+// guard that the P13-3 stub no longer ships (it was replaced by the real
+// P13-4 handler — full coverage lives in
+// api/_handlers/internal/procurement/invoices/__tests__/bookkeeper-approve.test.js).
 
 import { describe, it, expect, vi } from "vitest";
 
@@ -18,17 +20,7 @@ function mockRes() {
   return res;
 }
 
-describe("procurement bookkeeper-approve STUB", () => {
-  it("returns 501 with chunk=P13-4 detail for valid uuid", async () => {
-    const req = { method: "POST", query: { id: "00000000-0000-0000-0000-000000000001" } };
-    const res = mockRes();
-    await bookkeeperApprove(req, res);
-    expect(res.statusCode).toBe(501);
-    expect(res.body.error).toBe("Not implemented");
-    expect(res.body.chunk).toBe("P13-4");
-    expect(res.body.invoice_id).toBe("00000000-0000-0000-0000-000000000001");
-  });
-
+describe("procurement bookkeeper-approve — P13-4 wire-through guards (carry-over from P13-3 stub)", () => {
   it("rejects missing id with 400", async () => {
     const req = { method: "POST", query: {} };
     const res = mockRes();
@@ -60,14 +52,6 @@ describe("procurement bookkeeper-approve STUB", () => {
     expect(res.headers["Access-Control-Allow-Methods"]).toMatch(/POST/);
   });
 
-  it("returns chunk pointer detail mentioning P13-4 implementation", async () => {
-    const req = { method: "POST", query: { id: "00000000-0000-0000-0000-000000000abc" } };
-    const res = mockRes();
-    await bookkeeperApprove(req, res);
-    expect(res.body.detail).toMatch(/P13-4/);
-    expect(res.body.detail).toMatch(/P3 AP posting service/);
-  });
-
   it("CORS allow-origin is wildcard", async () => {
     const req = { method: "POST", query: { id: "00000000-0000-0000-0000-00000000abcd" } };
     const res = mockRes();
@@ -75,13 +59,16 @@ describe("procurement bookkeeper-approve STUB", () => {
     expect(res.headers["Access-Control-Allow-Origin"]).toBe("*");
   });
 
-  it("does not silently 200 — guarantees handler never claims success", async () => {
-    const req = { method: "POST", query: { id: "00000000-0000-0000-0000-00000000beef" } };
+  it("no longer returns 501 — stub replaced in P13-4", async () => {
+    const req = {
+      method: "POST",
+      query: { id: "00000000-0000-0000-0000-000000000001" },
+      body: { action: "approve", reason: "test" },
+      headers: {},
+    };
     const res = mockRes();
     await bookkeeperApprove(req, res);
-    expect(res.statusCode).not.toBe(200);
-    expect(res.statusCode).not.toBe(201);
-    expect(res.statusCode).not.toBe(202);
+    expect(res.statusCode).not.toBe(501);
   });
 });
 
