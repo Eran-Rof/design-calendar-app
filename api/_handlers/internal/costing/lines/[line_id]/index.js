@@ -20,8 +20,8 @@ const EDITABLE = [
   "priced_date", "fob_cost", "duty_rate", "freight", "insurance", "other_costs",
   "landed_cost", "margin_pct",
   "selected_vendor_quote_id",
-  "ly_qty", "ly_unit_cost", "ly_total_margin", "ly_margin_pct",
-  "t3_qty", "t3_unit_cost", "t3_total_cost", "t3_margin_pct",
+  "ly_qty", "ly_unit_cost", "ly_unit_price", "ly_total_margin", "ly_margin_pct",
+  "t3_qty", "t3_unit_cost", "t3_unit_price", "t3_total_cost", "t3_margin_pct",
   "comp_refreshed_at",
 ];
 
