@@ -142,6 +142,116 @@ export async function countUnmatchedMarketplaceDeposits(admin, period) {
   return { perTable, total, errors };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// P9-8 unresolved recon variances augmentation
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Per arch §3.4: period close should surface (and soft-block) when any
+// reconciliation domain has an unresolved variance for the period being
+// closed. "Unresolved" means a recon_run with status='variance' whose
+// period_end <= preflight.period.ends_on AND no SUBSEQUENT clean run
+// for the same (domain, period_start, period_end) tuple exists.
+//
+// Pre-cutover (parallel_run_status[domain] in {'parallel','xoro_truth'}
+// or absent) this is a SOFT block per D4 — surfaced to the operator
+// but `blocking:false` so they can still soft-close. After P9-9 sign-off
+// flips parallel_run_status[domain] to 'tangerine_solo' / 'tangerine_truth',
+// the same check becomes a HARD block (blocking:true). This chunk seeds
+// the SOFT path; P9-9 will branch on cutover state.
+//
+// Returns { perDomain: {ap:N, ar:N, ...}, total: int, errors: [], sampleRuns:[] }.
+
+export const RECON_DOMAINS = ["ap", "ar", "cash", "gl", "inventory"];
+
+export async function countUnresolvedReconVariances(admin, period) {
+  const perDomain = {};
+  const errors = [];
+  const sampleRuns = [];
+  let total = 0;
+
+  for (const domain of RECON_DOMAINS) {
+    perDomain[domain] = 0;
+  }
+
+  try {
+    // Fetch every recon_run for this (entity, period_end window). We
+    // need both variance and any later runs to dedupe: a domain that
+    // had a variance run on Monday and a clean re-run on Tuesday for
+    // the same (period_start, period_end) is resolved.
+    const { data, error } = await admin
+      .from("recon_runs")
+      .select("id, domain, status, period_start, period_end, completed_at, started_at, totals_jsonb")
+      .eq("entity_id", period.entity_id)
+      .lte("period_end", period.ends_on)
+      .order("completed_at", { ascending: false });
+    if (error) {
+      const msg = String(error.message || "").toLowerCase();
+      if (
+        msg.includes("does not exist") ||
+        msg.includes("undefined_table") ||
+        msg.includes("could not find the table")
+      ) {
+        // P9-1 migration not applied → nothing to check; treat as 0.
+        return { perDomain, total: 0, errors: [], sampleRuns: [] };
+      }
+      errors.push({ scope: "recon_runs_read", error: error.message });
+      return { perDomain, total: 0, errors, sampleRuns: [] };
+    }
+
+    // Group by (domain, period_start, period_end). Within each group,
+    // the most recent (sorted DESC by completed_at) wins. If that
+    // latest run is status='variance' it's unresolved.
+    const latestByKey = new Map();
+    for (const row of data || []) {
+      const key = `${row.domain}::${row.period_start}::${row.period_end}`;
+      if (!latestByKey.has(key)) {
+        latestByKey.set(key, row);
+      }
+    }
+    for (const row of latestByKey.values()) {
+      if (row.status !== "variance") continue;
+      if (!RECON_DOMAINS.includes(row.domain)) continue;
+      perDomain[row.domain] += 1;
+      total += 1;
+      if (sampleRuns.length < 10) {
+        sampleRuns.push({
+          recon_run_id: row.id,
+          domain: row.domain,
+          period_start: row.period_start,
+          period_end: row.period_end,
+        });
+      }
+    }
+  } catch (e) {
+    errors.push({ scope: "recon_runs_read", error: e instanceof Error ? e.message : String(e) });
+  }
+
+  return { perDomain, total, errors, sampleRuns };
+}
+
+// Compose the single preflight row from an unresolved-recon snapshot.
+// Pre-cutover this is a SOFT block (blocking:false). P9-9 will add the
+// hard-block branch keyed on entities.parallel_run_status[domain].
+export function buildUnresolvedReconRow(snapshot) {
+  if (snapshot.total === 0) {
+    return {
+      check_name: "unresolved_recon_variances",
+      status: "pass",
+      detail: "No unresolved Parallel-Run reconciliation variances at or before period end",
+      blocking: false,
+    };
+  }
+  const parts = RECON_DOMAINS
+    .filter((d) => (snapshot.perDomain[d] || 0) > 0)
+    .map((d) => `${d.toUpperCase()}: ${snapshot.perDomain[d]}`);
+  return {
+    check_name: "unresolved_recon_variances",
+    status: "fail",
+    detail: `${snapshot.total} unresolved Parallel-Run reconciliation variance${snapshot.total === 1 ? "" : "s"} at or before period end — ${parts.join(", ")}. Open InternalReconciliationDashboard to triage. Advisory until per-domain cutover sign-off (P9-9).`,
+    blocking: false,
+  };
+}
+
 // Compose the single preflight row from a deposit-count snapshot.
 export function buildMarketplaceDepositsRow(snapshot) {
   if (snapshot.total === 0) {
@@ -181,6 +291,10 @@ export async function runPreflight(admin, period) {
   if (period.ends_on) {
     const snapshot = await countUnmatchedMarketplaceDeposits(admin, period);
     rows.push(buildMarketplaceDepositsRow(snapshot));
+
+    // P9-8: unresolved recon variances soft-block.
+    const reconSnap = await countUnresolvedReconVariances(admin, period);
+    rows.push(buildUnresolvedReconRow(reconSnap));
   }
 
   return { rows, summary: summarize(rows) };
