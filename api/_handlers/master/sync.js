@@ -191,21 +191,57 @@ export default async function handler(req, res) {
   }
   counts.deduped_to_unique_skus = candidates.size;
 
-  // Bulk upsert. ignoreDuplicates: false makes existing rows go through
-  // ON CONFLICT DO UPDATE, but the SET clause only touches columns
-  // included in the payload — unit_cost / unit_price (not passed) stay
-  // under the Excel uploader's authority.
-  const rows = Array.from(candidates.values());
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    const { error } = await admin
+  // Split candidates by existence so we can apply different policies:
+  //   - INSERTs need is_apparel:false in the payload, otherwise the column
+  //     DEFAULT true combined with our missing size/inseam/length/fit trips
+  //     the apparel_dims_required CHECK. (Merchandiser flips is_apparel back
+  //     to true via the admin UI once they finish backfilling dims — same
+  //     flow Tangerine P1 Chunk 4.5 already established.)
+  //   - UPDATEs must NOT include is_apparel, or every existing merchandiser-
+  //     curated bottoms row would get demoted to is_apparel=false.
+  // Same authority model as unit_cost / unit_price exclusion above.
+  const allSkus = Array.from(candidates.keys());
+  const existingSkus = new Set();
+  for (let i = 0; i < allSkus.length; i += CHUNK) {
+    const chunk = allSkus.slice(i, i + CHUNK);
+    const { data, error } = await admin
       .from("ip_item_master")
-      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
+      .select("sku_code")
+      .in("sku_code", chunk);
     if (error) {
-      counts.errors.push(`upsert chunk ${i}: ${error.message}`);
+      counts.errors.push(`pre-fetch chunk ${i}: ${error.message}`);
       continue;
     }
-    counts.upserted += chunk.length;
+    for (const r of (data || [])) existingSkus.add(r.sku_code);
+  }
+
+  const newRows = [];
+  const updateRows = [];
+  for (const cand of candidates.values()) {
+    if (existingSkus.has(cand.sku_code)) {
+      updateRows.push(cand);
+    } else {
+      newRows.push({ ...cand, is_apparel: false });
+    }
+  }
+  counts.new_rows = newRows.length;
+  counts.updated_rows = updateRows.length;
+
+  // Upsert each list. ignoreDuplicates: false makes existing rows go through
+  // ON CONFLICT DO UPDATE, but the SET clause only touches columns included
+  // in the payload — fields not passed stay under the prior-source authority.
+  for (const [label, rows] of [["new", newRows], ["update", updateRows]]) {
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const { error } = await admin
+        .from("ip_item_master")
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
+      if (error) {
+        counts.errors.push(`upsert ${label} chunk ${i}: ${error.message}`);
+        continue;
+      }
+      counts.upserted += chunk.length;
+    }
   }
 
   return res.status(200).json({ processed: true, ...counts });
