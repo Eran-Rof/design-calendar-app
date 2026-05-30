@@ -419,6 +419,9 @@ import h422 from "./internal/users/me/preferences/favorites.js";
 import h423 from "./internal/users/me/preferences/home-route.js";
 import h424 from "./internal/users/me/menu-click/index.js";
 import h425 from "./internal/users/me/menu-usage/top.js";
+// Universal Column Visibility (Operator ask #1, 2026-05-30):
+//   h510 = PUT /api/internal/users/me/preferences/table-visibility
+import h510 from "./internal/users/me/preferences/table-visibility.js";
 // P10-2b — Entity-switcher API (deferred from P10-2).
 //   h430 = PUT /api/internal/users/me/entity-switch  (validate membership)
 //   h431 = PUT /api/internal/users/me/entity-default (toggle is_default)
@@ -953,6 +956,10 @@ export const ROUTES = [
   // handlers (not the bare-GET map) when the dispatcher walks ROUTES top-down.
   { pattern: "/api/internal/users/me/preferences/favorites",           handler: h422 },
   { pattern: "/api/internal/users/me/preferences/home-route",          handler: h423 },
+  // Universal Column Visibility (Operator ask #1, 2026-05-30). Subpath PUT
+  // registered BEFORE the bare /preferences GET so the dispatcher matches
+  // this dedicated handler.
+  { pattern: "/api/internal/users/me/preferences/table-visibility",    handler: h510 },
   { pattern: "/api/internal/users/me/preferences",                     handler: h421 },
   { pattern: "/api/internal/users/me/menu-click",                      handler: h424 },
   { pattern: "/api/internal/users/me/menu-usage/top",                  handler: h425 },
