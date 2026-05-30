@@ -48,7 +48,7 @@ export default function StylePickerCell({ value, onPick, onChange, placeholder, 
     if (!open || !inputRef.current) return;
     const compute = () => {
       const r = inputRef.current!.getBoundingClientRect();
-      setPos({ left: r.left, top: r.bottom + 2, width: Math.max(r.width, 260) });
+      setPos({ left: r.left, top: r.bottom + 2, width: Math.max(r.width, 200) });
     };
     compute();
     window.addEventListener("scroll", compute, true);
