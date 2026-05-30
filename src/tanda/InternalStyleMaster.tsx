@@ -8,10 +8,24 @@
 // reads/writes the style_fabric_codes junction. The subsection manages its own
 // state and calls /api/internal/style-fabric-codes directly — the style_master
 // save flow is unchanged.
+//
+// Style Master Sweep (2026-05-30) — operator asks #5/#6/#7/#12:
+//   • #5  Adds group_name / category_name / sub_category_name columns to the
+//         list view and edit modal (SearchableSelect inputs since these have
+//         a small but growing set of values across the catalog).
+//   • #6  Replaces the modal title with "Style: <code> <name>" (edit) or
+//         "Add Style" (add). Adds a notes-log section showing timestamp +
+//         author email + note text, with an inline "Add note" composer.
+//   • #7  style_name is now backfilled by the migration, so the list cell
+//         renders the populated value (still falls back to "—" defensively).
+//   • #12 Gender dropdown is the canonical six-letter set
+//         { M, B, C, G, W, U } with descriptive labels.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
 
 type Style = {
   id: string;
@@ -27,10 +41,22 @@ type Style = {
   lifecycle_status: string;
   planning_class: string | null;
   base_fabric: string | null;
+  group_name: string | null;
+  category_name: string | null;
+  sub_category_name: string | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+};
+
+type StyleNote = {
+  id: string;
+  style_id: string;
+  note_text: string;
+  created_by: string | null;
+  created_by_email: string | null;
+  created_at: string;
 };
 
 const C = {
@@ -39,7 +65,18 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 
-const GENDER_OPTIONS    = ["", "M", "WMS", "B", "C", "G", "U"];
+// Canonical gender set (operator ask #12, 2026-05-30).
+// Display labels show the code + a descriptive name; value is the single letter.
+const GENDER_OPTIONS: { value: string; label: string }[] = [
+  { value: "",  label: "(none)"      },
+  { value: "M", label: "M — Mens"    },
+  { value: "B", label: "B — Boys"    },
+  { value: "C", label: "C — Child"   },
+  { value: "G", label: "G — Girls"   },
+  { value: "W", label: "W — Womens"  },
+  { value: "U", label: "U — Unisex"  },
+];
+
 const LIFECYCLE_OPTIONS = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_OPTIONS  = ["", "core", "seasonal", "fashion"];
 
@@ -71,6 +108,24 @@ const td: React.CSSProperties = {
   color: C.text, fontSize: 13,
 };
 
+function genderLabelFor(code: string | null): string {
+  if (!code) return "—";
+  const hit = GENDER_OPTIONS.find((o) => o.value === code);
+  return hit ? hit.label : code;
+}
+
+// Distinct + sorted list of values currently in use for one classifier column.
+// Drives the SearchableSelect options so operators can pick an existing value
+// or type a new one (the component accepts free text via its onChange).
+function distinctValues(rows: Style[], key: keyof Style): string[] {
+  const set = new Set<string>();
+  for (const r of rows) {
+    const v = r[key];
+    if (typeof v === "string" && v.trim()) set.add(v.trim());
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 export default function InternalStyleMaster() {
   const [rows, setRows] = useState<Style[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,7 +135,7 @@ export default function InternalStyleMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
@@ -95,9 +150,12 @@ export default function InternalStyleMaster() {
     } finally {
       setLoading(false);
     }
-  }
+    // q is read at call-time via the input's Enter handler / Search button;
+    // including it in deps would refetch on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeDeleted]);
 
-  useEffect(() => { void load(); }, [includeDeleted]);
+  useEffect(() => { void load(); }, [load]);
 
   async function softDelete(id: string) {
     if (!confirm("Soft-delete this style? Can be restored by an admin SQL update.")) return;
@@ -109,6 +167,12 @@ export default function InternalStyleMaster() {
       alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+
+  // Memoized distinct-value lists for the three SearchableSelect inputs in the
+  // modal. Recomputes only when the row set changes.
+  const groupOptions = useMemo(() => distinctValues(rows, "group_name"), [rows]);
+  const categoryOptions = useMemo(() => distinctValues(rows, "category_name"), [rows]);
+  const subCategoryOptions = useMemo(() => distinctValues(rows, "sub_category_name"), [rows]);
 
   return (
     <div style={{ color: C.text }}>
@@ -140,20 +204,23 @@ export default function InternalStyleMaster() {
           filename="style-master"
           sheetName="Style Master"
           columns={[
-            { key: "style_code",       header: "Style Number" },
-            { key: "style_name",       header: "Style Name" },
-            { key: "description",      header: "Description" },
-            { key: "gender_code",      header: "Gender" },
-            { key: "season",           header: "Season" },
-            { key: "design_year",      header: "Year", format: "number" },
-            { key: "lifecycle_status", header: "Lifecycle" },
-            { key: "is_apparel",       header: "Apparel" },
-            { key: "planning_class",   header: "Planning Class" },
-            { key: "base_fabric",      header: "Base Fabric" },
-            { key: "launch_date",      header: "Launch Date", format: "date" },
-            { key: "created_at",       header: "Created", format: "datetime" },
-            { key: "updated_at",       header: "Updated", format: "datetime" },
-            { key: "deleted_at",       header: "Deleted", format: "datetime" },
+            { key: "style_code",        header: "Style Number" },
+            { key: "style_name",        header: "Style Name" },
+            { key: "description",       header: "Description" },
+            { key: "gender_code",       header: "Gender" },
+            { key: "group_name",        header: "Group" },
+            { key: "category_name",     header: "Category" },
+            { key: "sub_category_name", header: "Sub Category" },
+            { key: "season",            header: "Season" },
+            { key: "design_year",       header: "Year", format: "number" },
+            { key: "lifecycle_status",  header: "Lifecycle" },
+            { key: "is_apparel",        header: "Apparel" },
+            { key: "planning_class",    header: "Planning Class" },
+            { key: "base_fabric",       header: "Base Fabric" },
+            { key: "launch_date",       header: "Launch Date", format: "date" },
+            { key: "created_at",        header: "Created", format: "datetime" },
+            { key: "updated_at",        header: "Updated", format: "datetime" },
+            { key: "deleted_at",        header: "Deleted", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
       </div>
@@ -177,6 +244,9 @@ export default function InternalStyleMaster() {
                 <th style={th}>Style Name</th>
                 <th style={th}>Description</th>
                 <th style={th}>Gender</th>
+                <th style={th}>Group</th>
+                <th style={th}>Category</th>
+                <th style={th}>Sub Category</th>
                 <th style={th}>Season</th>
                 <th style={th}>Year</th>
                 <th style={th}>Lifecycle</th>
@@ -192,7 +262,10 @@ export default function InternalStyleMaster() {
                   </td>
                   <td style={td}>{r.style_name || "—"}</td>
                   <td style={td}>{r.description}</td>
-                  <td style={td}>{r.gender_code || "—"}</td>
+                  <td style={td}>{genderLabelFor(r.gender_code)}</td>
+                  <td style={td}>{r.group_name || "—"}</td>
+                  <td style={td}>{r.category_name || "—"}</td>
+                  <td style={td}>{r.sub_category_name || "—"}</td>
                   <td style={td}>{r.season || "—"}</td>
                   <td style={td}>{r.design_year ?? "—"}</td>
                   <td style={td}>{r.lifecycle_status}</td>
@@ -212,8 +285,27 @@ export default function InternalStyleMaster() {
         )}
       </div>
 
-      {addOpen && <StyleFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
-      {editing && <StyleFormModal mode="edit" style={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {addOpen && (
+        <StyleFormModal
+          mode="add"
+          groupOptions={groupOptions}
+          categoryOptions={categoryOptions}
+          subCategoryOptions={subCategoryOptions}
+          onClose={() => setAddOpen(false)}
+          onSaved={() => { setAddOpen(false); void load(); }}
+        />
+      )}
+      {editing && (
+        <StyleFormModal
+          mode="edit"
+          style={editing}
+          groupOptions={groupOptions}
+          categoryOptions={categoryOptions}
+          subCategoryOptions={subCategoryOptions}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); void load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -221,22 +313,28 @@ export default function InternalStyleMaster() {
 interface ModalProps {
   mode: "add" | "edit";
   style?: Style;
+  groupOptions: string[];
+  categoryOptions: string[];
+  subCategoryOptions: string[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
+function StyleFormModal({ mode, style, groupOptions, categoryOptions, subCategoryOptions, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    style_code:        style?.style_code        ?? "",
-    style_name:        style?.style_name        ?? "",
-    description:       style?.description       ?? "",
-    gender_code:       style?.gender_code       ?? "",
-    season:            style?.season            ?? "",
-    design_year:       style?.design_year       != null ? String(style.design_year) : "",
-    lifecycle_status:  style?.lifecycle_status  ?? "active",
-    planning_class:    style?.planning_class    ?? "",
-    is_apparel:        style?.is_apparel        ?? true,
-    base_fabric:       style?.base_fabric       ?? "",
+    style_code:         style?.style_code         ?? "",
+    style_name:         style?.style_name         ?? "",
+    description:        style?.description        ?? "",
+    gender_code:        style?.gender_code        ?? "",
+    season:             style?.season             ?? "",
+    design_year:        style?.design_year        != null ? String(style.design_year) : "",
+    lifecycle_status:   style?.lifecycle_status   ?? "active",
+    planning_class:     style?.planning_class     ?? "",
+    is_apparel:         style?.is_apparel         ?? true,
+    base_fabric:        style?.base_fabric        ?? "",
+    group_name:         style?.group_name         ?? "",
+    category_name:      style?.category_name      ?? "",
+    sub_category_name:  style?.sub_category_name  ?? "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -246,15 +344,18 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
     setErr(null);
     try {
       const body: Record<string, unknown> = {
-        style_name:       form.style_name.trim() || null,
-        description:      form.description.trim(),
-        gender_code:      form.gender_code || null,
-        season:           form.season || null,
-        design_year:      form.design_year ? parseInt(form.design_year, 10) : null,
-        lifecycle_status: form.lifecycle_status,
-        planning_class:   form.planning_class || null,
-        is_apparel:       form.is_apparel,
-        base_fabric:      form.base_fabric || null,
+        style_name:        form.style_name.trim() || null,
+        description:       form.description.trim(),
+        gender_code:       form.gender_code || null,
+        season:            form.season || null,
+        design_year:       form.design_year ? parseInt(form.design_year, 10) : null,
+        lifecycle_status:  form.lifecycle_status,
+        planning_class:    form.planning_class || null,
+        is_apparel:        form.is_apparel,
+        base_fabric:       form.base_fabric || null,
+        group_name:        form.group_name.trim() || null,
+        category_name:     form.category_name.trim() || null,
+        sub_category_name: form.sub_category_name.trim() || null,
       };
       let url: string;
       let method: string;
@@ -280,6 +381,11 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
     }
   }
 
+  const title =
+    mode === "add"
+      ? "Add Style"
+      : `Style: ${style?.style_code ?? ""}${style?.style_name ? ` ${style.style_name}` : ""}`;
+
   return (
     <div
       onClick={onClose}
@@ -289,9 +395,7 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
         onClick={(e) => e.stopPropagation()}
         style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 24, width: "min(92vw, 760px)", maxHeight: "90vh", overflowY: "auto", color: C.text }}
       >
-        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
-          {mode === "add" ? "Add style" : `Edit ${style!.style_code}`}
-        </h3>
+        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{title}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Style Number">
@@ -327,10 +431,43 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
             />
           </Field>
           <Field label="Gender">
-            <select value={form.gender_code} onChange={(e) => setForm({ ...form, gender_code: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {GENDER_OPTIONS.map((g) => <option key={g} value={g}>{g || "(none)"}</option>)}
+            <select
+              value={form.gender_code}
+              onChange={(e) => setForm({ ...form, gender_code: e.target.value })}
+              style={inputStyle as React.CSSProperties}
+            >
+              {GENDER_OPTIONS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
             </select>
           </Field>
+
+          {/* Operator ask #5 — group / category / sub_category classifier inputs.
+              SearchableSelect lets operators pick an existing value (from the
+              current dataset) or type a new one without leaving the keyboard. */}
+          <Field label="Group">
+            <FreeTextSearchableSelect
+              value={form.group_name}
+              onChange={(v) => setForm({ ...form, group_name: v })}
+              choices={groupOptions}
+              placeholder="e.g. Apparel"
+            />
+          </Field>
+          <Field label="Category">
+            <FreeTextSearchableSelect
+              value={form.category_name}
+              onChange={(v) => setForm({ ...form, category_name: v })}
+              choices={categoryOptions}
+              placeholder="e.g. Tops"
+            />
+          </Field>
+          <Field label="Sub Category">
+            <FreeTextSearchableSelect
+              value={form.sub_category_name}
+              onChange={(v) => setForm({ ...form, sub_category_name: v })}
+              choices={subCategoryOptions}
+              placeholder="e.g. T-Shirts"
+            />
+          </Field>
+
           <Field label="Season">
             <input type="text" value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} style={inputStyle} placeholder="e.g. FW26" />
           </Field>
@@ -362,6 +499,12 @@ function StyleFormModal({ mode, style, onClose, onSaved }: ModalProps) {
           <StyleFabricsSection styleId={style.id} />
         )}
 
+        {/* Operator ask #6 — notes log section. Only meaningful on existing
+            rows, so we render it for edit mode only. */}
+        {mode === "edit" && style && (
+          <StyleNotesSection styleId={style.id} />
+        )}
+
         {err && (
           <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>
             {err}
@@ -384,6 +527,60 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FreeTextSearchableSelect — thin wrapper around <SearchableSelect> that lets
+// the operator either choose from the existing distinct values OR type a brand
+// new one. Implementation: when the typed value doesn't match any choice, we
+// synthesize a "(use: …)" option so the user can commit it; SearchableSelect's
+// onChange returns the option value, which is exactly the typed text.
+// ─────────────────────────────────────────────────────────────────────────────
+function FreeTextSearchableSelect({
+  value,
+  onChange,
+  choices,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  choices: string[];
+  placeholder?: string;
+}) {
+  const options: SearchableSelectOption[] = useMemo(() => {
+    const base: SearchableSelectOption[] = [
+      { value: "", label: "(none)" },
+      ...choices.map((c) => ({ value: c, label: c })),
+    ];
+    // If the current value isn't one of the known choices, surface it as the
+    // selected option so the picker shows it.
+    if (value && !choices.includes(value)) {
+      base.push({ value, label: value });
+    }
+    return base;
+  }, [choices, value]);
+
+  // SearchableSelect supports picking from a list; for true free-text entry
+  // we render a small adjacent text input so the operator can type a new value
+  // and the change reflects immediately. The picker handles the "select from
+  // known values" path.
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
+      <SearchableSelect
+        value={value || null}
+        onChange={onChange}
+        options={options}
+        placeholder={placeholder || "Pick or type below"}
+      />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ ...inputStyle, fontSize: 12 }}
+        placeholder="…or type a new value"
+      />
     </div>
   );
 }
@@ -589,4 +786,137 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
       )}
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Style Master Sweep (#6) — Notes log embedded in the style edit modal.
+// Reads/writes /api/internal/style-master/notes directly.
+// ─────────────────────────────────────────────────────────────────────────────
+function StyleNotesSection({ styleId }: { styleId: string }) {
+  const [notes, setNotes] = useState<StyleNote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  const cachedUserId = getCachedAuthUserId();
+  const cachedUserEmail = getCachedAuthUserEmail();
+
+  async function loadNotes() {
+    setErr(null);
+    try {
+      const r = await fetch(`/api/internal/style-master/notes?style_id=${styleId}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setNotes(await r.json() as StyleNote[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadNotes(); }, [styleId]);
+
+  async function addNote() {
+    const text = draft.trim();
+    if (!text) return;
+    setPosting(true);
+    setErr(null);
+    try {
+      const body: Record<string, unknown> = {
+        style_id: styleId,
+        note_text: text,
+      };
+      if (cachedUserId) body.created_by = cachedUserId;
+      if (cachedUserEmail) body.created_by_email = cachedUserEmail;
+      const r = await fetch(`/api/internal/style-master/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setDraft("");
+      await loadNotes();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, padding: 12, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Notes</div>
+        <div style={{ fontSize: 11, color: C.textMuted }}>
+          {cachedUserEmail ? `Signed in as ${cachedUserEmail}` : "Signed-in email not detected — notes will tag (unknown)"}
+        </div>
+      </div>
+
+      {err && (
+        <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>
+          {err}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !posting && draft.trim()) void addNote(); }}
+          style={{ ...inputStyle, flex: 1 }}
+          placeholder="Add a note…"
+          disabled={posting}
+        />
+        <button
+          onClick={() => void addNote()}
+          style={{ ...btnPrimary, opacity: posting || !draft.trim() ? 0.6 : 1 }}
+          disabled={posting || !draft.trim()}
+        >
+          {posting ? "Adding…" : "Add note"}
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ color: C.textMuted, fontSize: 12, padding: "4px 0" }}>Loading…</div>
+      ) : notes.length === 0 ? (
+        <div style={{ color: C.textMuted, fontSize: 12, padding: "4px 0" }}>No notes yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+          {notes.map((n) => (
+            <li
+              key={n.id}
+              style={{
+                background: C.card,
+                border: `1px solid ${C.cardBdr}`,
+                borderRadius: 6,
+                padding: "6px 10px",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, color: C.textMuted, marginBottom: 2 }}>
+                <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                  {formatNoteTimestamp(n.created_at)}
+                </span>
+                <span>{n.created_by_email || "(unknown)"}</span>
+              </div>
+              <div style={{ color: C.text, whiteSpace: "pre-wrap" }}>{n.note_text}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function formatNoteTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return iso;
+  }
 }

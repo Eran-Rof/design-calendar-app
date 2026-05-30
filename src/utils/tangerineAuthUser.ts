@@ -1,25 +1,28 @@
 // src/utils/tangerineAuthUser.ts
 //
-// Tiny shared helper for the Tangerine cached auth.users.id. Centralizes the
-// localStorage key + back-compat read so all three panels (Approval Requests
-// inbox, Notification Center, Notification Preferences) read/write the same
-// slot. The auth-bridge chunk replaces the manual "paste your uuid" prompts.
+// Tiny shared helper for the Tangerine cached auth.users.id + signed-in email.
+// Centralizes the localStorage keys + back-compat read so all panels read/write
+// the same slot. The auth-bridge chunk replaces the manual "paste your uuid"
+// prompts and the Style Master notes log (2026-05-30) reads the email
+// snapshot to tag each note.
 //
-// Storage key:
-//   tangerine.auth_user_id  — new (set by /api/internal/auth/provision on
-//                              first MS sign-in, then cached for subsequent
-//                              calls during this browser session)
+// Storage keys:
+//   tangerine.auth_user_id     — auth.users.id (set by /api/internal/auth/provision
+//                                 on first MS sign-in, then cached for the
+//                                 browser session).
+//   tangerine.auth_user_email  — snapshot of the signed-in email (mail or UPN)
+//                                 from MS Graph /me; used by audit-style UIs
+//                                 like the Style Master notes log.
 //
-// Legacy key (back-compat):
+// Legacy key (back-compat for user_id):
 //   tangerine.notifications.user_id  — old key used by InternalNotification*
-//                                      before the bridge existed. We read it
-//                                      as a fallback so an operator who has
-//                                      already typed their uuid into the
-//                                      Notification Center input doesn't have
-//                                      to re-paste after upgrade.
+//                                      before the bridge existed. Read as a
+//                                      fallback so a previously-pasted uuid
+//                                      keeps working after upgrade.
 
-const NEW_KEY = "tangerine.auth_user_id";
-const LEGACY_KEY = "tangerine.notifications.user_id";
+const NEW_KEY        = "tangerine.auth_user_id";
+const LEGACY_KEY     = "tangerine.notifications.user_id";
+const EMAIL_KEY      = "tangerine.auth_user_email";
 
 export function getCachedAuthUserId(): string {
   try {
@@ -43,5 +46,21 @@ export function setCachedAuthUserId(uid: string): void {
       localStorage.removeItem(NEW_KEY);
       localStorage.removeItem(LEGACY_KEY);
     }
+  } catch (_) { /* SSR / private mode */ }
+}
+
+export function getCachedAuthUserEmail(): string {
+  try {
+    const v = localStorage.getItem(EMAIL_KEY);
+    if (v && v.trim()) return v.trim();
+  } catch (_) { /* SSR / private mode */ }
+  return "";
+}
+
+export function setCachedAuthUserEmail(email: string | null | undefined): void {
+  try {
+    const trimmed = (email || "").trim();
+    if (trimmed) localStorage.setItem(EMAIL_KEY, trimmed);
+    else        localStorage.removeItem(EMAIL_KEY);
   } catch (_) { /* SSR / private mode */ }
 }
