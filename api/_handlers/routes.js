@@ -492,6 +492,38 @@ import h486 from "./internal/audit/log.js";
 //   h482 = POST /api/internal/recon/run-cash
 import h482 from "./internal/recon/run-cash.js";
 
+// Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+// Handler vars shifted past audit's h485/h486 — search/sales-reps onwards
+// use h493-h496 instead of h485-h488 to avoid collision.
+import h475 from "./internal/costing/projects/index.js";
+import h476 from "./internal/costing/projects/[id]/index.js";
+import h477 from "./internal/costing/projects/[id]/lines.js";
+import h478 from "./internal/costing/lines/[line_id]/index.js";
+import h479 from "./internal/costing/lines/[line_id]/quotes/index.js";
+import h480 from "./internal/costing/lines/[line_id]/quotes/[quote_id].js";
+import h481 from "./internal/costing/lines/[line_id]/select-quote.js";
+import h497 from "./internal/costing/search/styles.js";
+import h483 from "./internal/costing/search/vendors.js";
+import h484 from "./internal/costing/search/customers.js";
+import h493 from "./internal/costing/search/sales-reps.js";
+import h494 from "./internal/costing/search/fabrics.js";
+import h495 from "./internal/costing/search/categories.js";
+import h496 from "./internal/costing/search/scales.js";
+
+// Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
+//   h489 = POST /api/internal/costing/comp/ly         (last-year per-style aggregates)
+//   h490 = POST /api/internal/costing/comp/t3         (trailing-3-month per-style aggregates)
+// PPK guard: qty_grain='unit' filter; comp_grain_warning when window was all
+// pack-grain (per project_ppk_grain_rule_CANONICAL).
+import h489 from "./internal/costing/comp/ly.js";
+import h490 from "./internal/costing/comp/t3.js";
+
+// Costing Module — Chunk 7 (compliance checklist handlers).
+//   h491 GET/POST   /api/internal/costing/lines/:line_id/compliance
+//   h492 PUT/DELETE /api/internal/costing/lines/:line_id/compliance/:req_id
+import h491 from "./internal/costing/lines/[line_id]/compliance/index.js";
+import h492 from "./internal/costing/lines/[line_id]/compliance/[req_id].js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -963,6 +995,28 @@ export const ROUTES = [
   { pattern: "/api/internal/audit/log",                                handler: h486 },
   // P9-4 — Cash reconciliation manual trigger.
   { pattern: "/api/internal/recon/run-cash",                           handler: h482 },
+  // Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+  // h482 was taken by P9-4 on main; search/styles uses h497 instead.
+  { pattern: "/api/internal/costing/projects",                         handler: h475 },
+  { pattern: "/api/internal/costing/projects/:id",                     handler: h476 },
+  { pattern: "/api/internal/costing/projects/:id/lines",               handler: h477 },
+  { pattern: "/api/internal/costing/lines/:line_id",                   handler: h478 },
+  { pattern: "/api/internal/costing/lines/:line_id/quotes",            handler: h479 },
+  { pattern: "/api/internal/costing/lines/:line_id/quotes/:quote_id",  handler: h480 },
+  { pattern: "/api/internal/costing/lines/:line_id/select-quote",      handler: h481 },
+  { pattern: "/api/internal/costing/search/styles",                    handler: h497 },
+  { pattern: "/api/internal/costing/search/vendors",                   handler: h483 },
+  { pattern: "/api/internal/costing/search/customers",                 handler: h484 },
+  { pattern: "/api/internal/costing/search/sales-reps",                handler: h493 },
+  { pattern: "/api/internal/costing/search/fabrics",                   handler: h494 },
+  { pattern: "/api/internal/costing/search/categories",                handler: h495 },
+  { pattern: "/api/internal/costing/search/scales",                    handler: h496 },
+  // Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
+  { pattern: "/api/internal/costing/comp/ly",                          handler: h489 },
+  { pattern: "/api/internal/costing/comp/t3",                          handler: h490 },
+  // Costing Module — Chunk 7 (compliance checklist handlers).
+  { pattern: "/api/internal/costing/lines/:line_id/compliance",            handler: h491 },
+  { pattern: "/api/internal/costing/lines/:line_id/compliance/:req_id",    handler: h492 },
 ];
 
 export function compileRoutes(routes) {
