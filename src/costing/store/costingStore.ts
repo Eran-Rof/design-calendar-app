@@ -27,6 +27,11 @@ type State = {
   // Null = no filter (show all lines). Stage names are derived in usePlanFlow.
   stageFilter: string | null;
   setStageFilter: (stage: string | null) => void;
+  // In-app toast notice (replaces window.alert across the costing UI; same
+  // visual language as App.tsx's saveErr toast).
+  notice: { message: string; level: "error" | "info" } | null;
+  setNotice: (message: string, level?: "error" | "info") => void;
+  clearNotice: () => void;
   loading: boolean;
   error: string | null;
 
@@ -76,6 +81,9 @@ export const useCostingStore = create<State>((set, get) => ({
   selectedLineId: null,
   stageFilter: null,
   setStageFilter(stage) { set({ stageFilter: stage }); },
+  notice: null,
+  setNotice(message, level = "error") { set({ notice: { message, level } }); },
+  clearNotice() { set({ notice: null }); },
   loading: false,
   error: null,
 

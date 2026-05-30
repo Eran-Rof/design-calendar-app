@@ -51,7 +51,12 @@ export default async function handler(req, res) {
     if (status && !["na","required","submitted","approved","rejected"].includes(status)) {
       return res.status(400).json({ error: "invalid status" });
     }
+    // Inherit entity_id from parent line.
+    const { data: parentLine } = await admin.from("costing_lines")
+      .select("entity_id").eq("id", lineId).maybeSingle();
+    if (!parentLine) return res.status(404).json({ error: "Line not found" });
     const insert = {
+      entity_id: entity_id || parentLine.entity_id,
       costing_line_id: lineId,
       requirement_code: String(requirement_code).trim().toUpperCase(),
       status: status || "required",
@@ -59,7 +64,6 @@ export default async function handler(req, res) {
       attachment_url: attachment_url || null,
       completed_at: completed_at || null,
     };
-    if (entity_id) insert.entity_id = entity_id;
 
     const { data, error } = await admin.from("costing_line_compliance")
       .insert(insert).select("*").single();
