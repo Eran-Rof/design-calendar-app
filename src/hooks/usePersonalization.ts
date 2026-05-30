@@ -48,13 +48,16 @@ interface CacheShape {
 const DRAWER_COLLAPSED_LOCAL_KEY = "favorites_drawer_collapsed";
 
 function readDrawerCollapsedFromLocalStorage(): boolean {
-  if (typeof window === "undefined") return false;
+  // Default to COLLAPSED on first load so the strip does not overlay
+  // panel content (e.g. the Style Master search bar). Operator clicks
+  // the top-right pill to expand. Once they make any choice it persists.
+  if (typeof window === "undefined") return true;
   try {
     const v = window.localStorage.getItem(DRAWER_COLLAPSED_LOCAL_KEY);
-    if (v === null) return false;
+    if (v === null) return true;
     return v === "1" || v === "true";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -296,7 +299,7 @@ export function usePersonalization(): UsePersonalization {
 export function __resetPersonalizationCacheForTests(): void {
   cache.favorites = [];
   cache.homeRoute = null;
-  cache.drawerCollapsed = false;
+  cache.drawerCollapsed = true;
   cache.loading = false;
   cache.status = "unloaded";
   cache.error = null;
