@@ -11,6 +11,8 @@
 
 import { useState } from "react";
 import { usePersonalization } from "../hooks/usePersonalization";
+import { MENU_KEY_BY_KEY } from "../lib/menuKeys";
+import { emitFavoritesToast } from "./favoritesToast";
 
 interface FavoriteStarProps {
   menuKey: string;
@@ -18,9 +20,15 @@ interface FavoriteStarProps {
   size?: number;
   /** Optional className for extra spacing/positioning. */
   className?: string;
+  /**
+   * When true (default), emit an "Added to favorites" / "Removed from
+   * favorites" toast on click. Settings rows pass `silent` to avoid a
+   * second toast for each row when the operator is bulk-pinning.
+   */
+  silent?: boolean;
 }
 
-export default function FavoriteStar({ menuKey, size = 14, className }: FavoriteStarProps) {
+export default function FavoriteStar({ menuKey, size = 14, className, silent = false }: FavoriteStarProps) {
   const { favorites, toggleFavorite } = usePersonalization();
   const [busy, setBusy] = useState(false);
   const isFav = favorites.includes(menuKey);
@@ -30,11 +38,23 @@ export default function FavoriteStar({ menuKey, size = 14, className }: Favorite
     e.stopPropagation();
     if (busy) return;
     setBusy(true);
+    const wasFav = isFav;
+    const label = MENU_KEY_BY_KEY[menuKey]?.label ?? menuKey;
     try {
       await toggleFavorite(menuKey);
+      if (!silent) {
+        emitFavoritesToast(
+          wasFav ? "removed" : "added",
+          wasFav
+            ? `Removed "${label}" from favorites`
+            : `Added "${label}" to favorites`,
+        );
+      }
     } catch {
-      // Hook already rolled back. We could surface a toast here once
-      // an app-wide toast bus is wired (T4-4); for now stay silent.
+      // Hook already rolled back. Surface an error toast (unless silent).
+      if (!silent) {
+        emitFavoritesToast("error", `Could not update favorites for "${label}"`);
+      }
     } finally {
       setBusy(false);
     }
