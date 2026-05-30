@@ -246,6 +246,13 @@ export interface VendorHit {
   country: string | null;
   default_currency: string | null;
   status: string | null;
+  /**
+   * 'portal' = vendors table (FK target for costing_line_vendors.vendor_id).
+   * 'planning' = ip_vendor_master (Xoro nightly sync — most factories live
+   *              here). On pick, the cell must materialize a portal row via
+   *              addVendor() first before using the id in addQuote().
+   */
+  source?: "portal" | "planning";
 }
 
 export interface FabricHit {
