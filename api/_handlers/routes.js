@@ -626,6 +626,11 @@ import h468 from "../cron/fba-inventory-daily.js";
 //   h470 = GET/POST /api/cron/fba-returns-daily (Vercel cron, 04:30 UTC)
 import h469 from "./internal/fba/sync-returns.js";
 import h470 from "../cron/fba-returns-daily.js";
+// P12a-4 — Amazon FBA settlement reconciliation (weekly cron, bank ↔ clearing).
+//   h462 = POST /api/internal/fba/sync-settlements (manual trigger)
+//   h463 = GET/POST /api/cron/fba-settlements-weekly (Vercel cron, Wed 06:00 UTC)
+import h462 from "./internal/fba/sync-settlements.js";
+import h463 from "../cron/fba-settlements-weekly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1188,6 +1193,9 @@ export const ROUTES = [
   // P12a-6 — Amazon FBA returns sync (restock vs writeoff + credit memos).
   { pattern: "/api/internal/fba/sync-returns",                         handler: h469 },
   { pattern: "/api/cron/fba-returns-daily",                            handler: h470 },
+  // P12a-4 — Amazon FBA settlement reconciliation (weekly).
+  { pattern: "/api/internal/fba/sync-settlements",                     handler: h462 },
+  { pattern: "/api/cron/fba-settlements-weekly",                       handler: h463 },
 ];
 
 export function compileRoutes(routes) {
