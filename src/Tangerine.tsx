@@ -66,6 +66,8 @@ import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 import InternalPOOrigination          from "./tanda/InternalPOOrigination";
 import InternalReceiving              from "./tanda/InternalReceiving";
 import InternalBookkeeperApprovalQueue from "./tanda/InternalBookkeeperApprovalQueue";
+// Tangerine P13-5 — 📦 Procurement group (M26 QC inspections).
+import InternalQCInspections          from "./tanda/InternalQCInspections";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -252,6 +254,8 @@ const MODULES: ModuleDef[] = [
   { key: "procurement_pos",               label: "PO Origination",       emoji: "📦", group: "Procurement" },
   { key: "procurement_receiving",         label: "Receiving",            emoji: "📥", group: "Procurement" },
   { key: "procurement_bookkeeper_queue",  label: "Bookkeeper Queue",     emoji: "✅", group: "Procurement" },
+  // Tangerine P13-5 — 📦 Procurement group (M26 QC).
+  { key: "procurement_qc_inspections",    label: "QC Inspections",       emoji: "🔍", group: "Procurement" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -438,6 +442,8 @@ export default function Tangerine() {
         {activeModule === "procurement_pos"              && <InternalPOOrigination />}
         {activeModule === "procurement_receiving"        && <InternalReceiving />}
         {activeModule === "procurement_bookkeeper_queue" && <InternalBookkeeperApprovalQueue />}
+        {/* Tangerine P13-5 — 📦 Procurement group (QC). */}
+        {activeModule === "procurement_qc_inspections"   && <InternalQCInspections />}
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
