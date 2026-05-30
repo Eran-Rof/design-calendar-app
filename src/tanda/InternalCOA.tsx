@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 // Cross-cutter T11-3 — audit-trail drop-in for the GL account detail modal.
 import RowHistory from "./components/RowHistory";
 
@@ -100,7 +102,10 @@ export default function InternalCOA() {
   const [rows, setRows] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  // Operator ask #8 — search-as-you-type. The synchronous `value` binds to
+  // the input so typing feels instant; `debouncedValue` is what drives the
+  // fetch. 200ms matches the T6 GlobalSearchPalette cadence.
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [typeFilter, setTypeFilter] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -111,7 +116,7 @@ export default function InternalCOA() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (typeFilter) params.set("account_type", typeFilter);
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/gl-accounts?${params.toString()}`);
@@ -124,7 +129,7 @@ export default function InternalCOA() {
     }
   }
 
-  useEffect(() => { void load(); }, [typeFilter, includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, typeFilter, includeInactive]);
 
   async function del(a: Account) {
     if (!confirm(`Delete account ${a.code} (${a.name})?\nWill fail if any journal entry references it — use status=inactive instead in that case.`)) return;
@@ -150,19 +155,17 @@ export default function InternalCOA() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="text"
-          placeholder="Search code or name…"
+        <DynamicSearchInput
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
-          style={{ ...inputStyle, maxWidth: 280 }}
+          onChange={setQ}
+          placeholder="Search code or name…"
+          ariaLabel="Search chart of accounts"
+          wrapperStyle={{ maxWidth: 280 }}
         />
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
           <option value="">All types</option>
           {TYPE_VALUES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input
             type="checkbox"
