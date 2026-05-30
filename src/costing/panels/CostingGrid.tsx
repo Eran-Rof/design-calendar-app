@@ -234,7 +234,9 @@ export default function CostingGrid() {
               onClick={() => setSelectedLine(line.id)}
               onDragOver={onDragOver}
               onDrop={onDrop(line.id)}
-              onMouseEnter={(e) => { if (!isFocused) e.currentTarget.style.background = "#1E293B"; }}
+              // Hover background — visible against the row's #0F172A page bg.
+              // #1E293B was too close to the page bg; #334155 has clear contrast.
+              onMouseEnter={(e) => { if (!isFocused) e.currentTarget.style.background = "#334155"; }}
               onMouseLeave={(e) => { if (!isFocused) e.currentTarget.style.background = "transparent"; }}
               style={{
                 display: "flex", minWidth: TOTAL_WIDTH,
