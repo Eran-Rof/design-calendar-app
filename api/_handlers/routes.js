@@ -490,7 +490,7 @@ import h474 from "../cron/faire-returns-weekly.js";
 //   h496 = GET / PATCH /api/internal/procurement/receipts/:id
 //   h497 = POST        /api/internal/procurement/receipts/:id/save-rollups
 //   h498 = GET         /api/internal/procurement/bookkeeper-queue
-//   h499 = POST        /api/internal/procurement/invoices/:id/bookkeeper-approve  (STUB, P13-4)
+//   h499 = POST        /api/internal/procurement/invoices/:id/bookkeeper-approve  (P13-4)
 // (h492 + h495 reserved — paired with h491 / h494; index handlers serve both verbs)
 import h491 from "./internal/procurement/pos/index.js";
 import h493 from "./internal/procurement/pos/[id].js";

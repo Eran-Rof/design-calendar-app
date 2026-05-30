@@ -2,7 +2,7 @@
 
 > **AUTO-GENERATED — DO NOT EDIT BY HAND.** Run `node scripts/regenerate-schema-doc.mjs` to refresh.
 >
-> Generated from `supabase/migrations/*.sql` (190 migration files). Latest: `20260629A10000_p13_chunk2_legacy_bridge.sql`.
+> Generated from `supabase/migrations/*.sql` (191 migration files). Latest: `20260629C00000_p13_chunk4_bookkeeper_approval_audit.sql`.
 
 **Purpose:** quick-reference for column names, types, defaults, and CHECK constraints across all currently-shipped Tangerine tables. Read this BEFORE writing any SQL bundle that references existing tables — column-name bugs (`is_active` vs `status`, `payment_method` vs `customer_payment_method`) waste paste cycles.
 
@@ -10,7 +10,7 @@
 - ✅ `CREATE TABLE`, `ALTER TABLE ADD/DROP COLUMN`, single-column `ADD CONSTRAINT CHECK ... IN (...)`.
 - ❌ Indexes, triggers, functions/RPCs, RLS policies, views, generated columns, INSERT seeds, COMMENT ON — these don't help avoid column-name bugs and aren't reflected here. For function bodies / RPC signatures, search the migrations directly.
 
-**Stats:** 272 tables · 260 CREATE TABLE · 640 ALTER TABLE
+**Stats:** 273 tables · 261 CREATE TABLE · 641 ALTER TABLE
 
 ---
 
@@ -354,6 +354,18 @@ _(no columns parsed)_
 - `resolved_customer_id` uuid → `customers`
 - `notes` text
 - `logged_at` timestamptz NOT NULL DEFAULT now()
+
+## `bookkeeper_approval_log`  _(P13-4)_
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `entity_id` uuid → `entities` NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
+- `invoice_id` uuid → `invoices` NOT NULL
+- `action` text NOT NULL CHECK `action IN ('approved','rejected')`
+- `bookkeeper_employee_id` uuid → `employees`
+- `bookkeeper_auth_id` uuid → `auth.users`
+- `reason` text NOT NULL
+- `je_id` uuid → `journal_entries`
+- `approved_at` timestamptz NOT NULL DEFAULT now()
 
 ## `broker_invoices`  _(P13-2)_
 
