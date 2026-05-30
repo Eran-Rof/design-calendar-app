@@ -28,16 +28,19 @@
 // reconciler later posts the offsetting clearing-to-bank JE.
 //
 // COGS (5000 / 1300 inventory):
-//   D5 explicitly defers per-line COGS to a separate path. We skip it here
-//   so the AR JE posts at receipt-of-order without waiting for
-//   SKU→ip_item_master resolution. A future P11-5 pass picks up
-//   shopify_order_lines rows with ip_item_master_id set and emits the
-//   FIFO consume / COGS JE separately.
+//   D5 explicitly defers per-line COGS to a separate JE. After the AR JE
+//   lands we invoke postShopifyOrderCogs (P11-5) as a best-effort follow-up.
+//   COGS failures (insufficient inventory, missing 5000/1300 codes, etc)
+//   are logged on the return shape but NOT thrown — the AR JE has already
+//   persisted irreversibly and the operator can retry COGS manually via
+//   POST /api/internal/shopify/post-cogs/:id.
 //
 // source='shopify' is stamped on the ar_invoices row per
 // feedback_source_tagging_enforcement.
 //
 // BigInt cents throughout per project_tangerine_progress money handling.
+
+import { postShopifyOrderCogs as defaultPostShopifyOrderCogs } from "./post-order-cogs.js";
 
 const ZERO = 0n;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -321,12 +324,14 @@ export function buildArInvoiceRow({ order, customerId, accounts, jeId }) {
  * @param {Object} args
  * @param {string} args.shopifyOrderId      UUID of shopify_orders.id.
  * @param {Object} args.adminClient         Supabase service-role client.
+ * @param {Object} [args.deps]              Test injection.
+ *   @param {(a)=>Promise<*>} [args.deps.postShopifyOrderCogs]
  * @returns {Promise<
  *   {status:'already_posted', je_id:string} |
- *   {status:'posted', je_id:string, ar_invoice_id:string}
+ *   {status:'posted', je_id:string, ar_invoice_id:string, cogs?:Object}
  * >}
  */
-export async function postShopifyOrderJe({ shopifyOrderId, adminClient }) {
+export async function postShopifyOrderJe({ shopifyOrderId, adminClient, deps = {} }) {
   if (!shopifyOrderId || !UUID_RE.test(String(shopifyOrderId))) {
     throw new Error("shopifyOrderId must be a uuid");
   }
@@ -441,10 +446,38 @@ export async function postShopifyOrderJe({ shopifyOrderId, adminClient }) {
     throw e;
   }
 
+  // 8. Best-effort COGS follow-up (P11-5). Failure here MUST NOT throw —
+  //    the AR JE has already persisted and is irreversible at this point.
+  //    Operator can retry via /api/internal/shopify/post-cogs/:id.
+  const postCogs = deps.postShopifyOrderCogs || defaultPostShopifyOrderCogs;
+  let cogsResult = null;
+  let cogsError = null;
+  try {
+    cogsResult = await postCogs({
+      shopifyOrderId,
+      adminClient,
+    });
+  } catch (e) {
+    cogsError = {
+      message: e instanceof Error ? e.message : String(e),
+      code: e?.code || null,
+      line_errors: e?.line_errors || undefined,
+    };
+    // Best-effort log — console is the only surface available to a pure
+    // service function. The cron / manual handler also surfaces the AR
+    // success cleanly to the caller.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[shopify P11-5] COGS post failed for ${shopifyOrderId} (AR JE ${jeId} already persisted):`,
+      cogsError.message,
+    );
+  }
+
   return {
     status: "posted",
     je_id: jeId,
     ar_invoice_id: arInvoice.id,
+    cogs: cogsResult || (cogsError ? { error: cogsError } : null),
   };
 }
 

@@ -31,6 +31,11 @@
 //   - postShopifyOrderJe is itself idempotent on shopify_orders.je_id, so
 //     calling it for an order that JUST got posted (by webhook racing us)
 //     short-circuits with status='already_posted' rather than double-posting.
+//   - As of P11-5, postShopifyOrderJe also triggers postShopifyOrderCogs
+//     internally as a best-effort follow-up. The backfill therefore covers
+//     both AR + COGS posting via the single postShopifyOrderJe call below —
+//     no separate wiring needed here. COGS errors are absorbed by
+//     postShopifyOrderJe and surfaced on result.cogs but never throw.
 //
 // xlsx N/A — pure HTTP + DB orchestration.
 
@@ -324,5 +329,29 @@ export async function upsertAndMaybePostOrder({
     storeSummary.jes_already_posted += 1;
   } else if (result?.status === "posted") {
     storeSummary.jes_posted += 1;
+  }
+
+  // P11-5: track the nested COGS result so the backfill summary surfaces
+  // partial-post outcomes (eg. AR JE landed but COGS failed for an
+  // operator to retry manually).
+  if (result?.cogs) {
+    storeSummary.cogs_posted = storeSummary.cogs_posted || 0;
+    storeSummary.cogs_already_posted = storeSummary.cogs_already_posted || 0;
+    storeSummary.cogs_skipped = storeSummary.cogs_skipped || 0;
+    storeSummary.cogs_errors = storeSummary.cogs_errors || [];
+
+    if (result.cogs.error) {
+      storeSummary.cogs_errors.push({
+        shopify_order_id: shopifyOrderUuid,
+        error: result.cogs.error.message,
+        code: result.cogs.error.code,
+      });
+    } else if (result.cogs.status === "posted") {
+      storeSummary.cogs_posted += 1;
+    } else if (result.cogs.status === "already_posted") {
+      storeSummary.cogs_already_posted += 1;
+    } else if (result.cogs.status === "no_cogs") {
+      storeSummary.cogs_skipped += 1;
+    }
   }
 }
