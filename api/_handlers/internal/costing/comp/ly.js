@@ -32,6 +32,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { fetchOpenSoComp } from "./_open-so-helper.js";
+import { todayIsoUTC } from "./_today.js";
 
 export const config = { maxDuration: 30 };
 
@@ -202,6 +204,35 @@ export default async function handler(req, res) {
     if (net != null && net > 0) {
       slot.netSum += net;
       if (marginPct != null) slot.marginPctNum += net * marginPct;
+    }
+  }
+
+  // 4. Forward-looking SO addition. When `to >= today` the window
+  //    overlaps the future — fold ip_open_sales_orders into the same
+  //    per-style aggregates so the operator sees projected sales (with
+  //    cost estimated via ip_item_avg_cost). Mirrors the ATS sales-
+  //    comps SO margin pattern (src/ats/salesCompsSoMargin.ts).
+  if (to >= todayIsoUTC()) {
+    try {
+      const soBySku = await fetchOpenSoComp(admin, allSkuIds, from, to);
+      for (const [skuId, soSlot] of soBySku.entries()) {
+        const sc = skuIdToStyle.get(skuId);
+        if (!sc) continue;
+        const slot = agg.get(sc);
+        if (!slot) continue;
+        slot.sawAnyRow = true;
+        slot.sawUnitRow = true; // open SOs are unit-grain by source
+        slot.qty += soSlot.qty;
+        slot.txnCount += soSlot.txnCount;
+        slot.costSum += soSlot.costSum;
+        slot.netSum += soSlot.netSum;
+        slot.marginPctNum += soSlot.marginPctNum;
+        slot.marginSum += soSlot.netSum - soSlot.costSum;
+      }
+    } catch (e) {
+      // Non-fatal — historical aggregates still return cleanly.
+      // eslint-disable-next-line no-console
+      console.warn(`[costing/comp/ly] open-SO fold failed: ${e.message}`);
     }
   }
 

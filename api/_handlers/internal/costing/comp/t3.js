@@ -23,6 +23,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { fetchOpenSoComp } from "./_open-so-helper.js";
+import { todayIsoUTC } from "./_today.js";
 
 export const config = { maxDuration: 30 };
 
@@ -161,6 +163,32 @@ export default async function handler(req, res) {
     if (net != null && net > 0) {
       slot.netSum += net;
       if (marginPct != null) slot.marginPctNum += net * marginPct;
+    }
+  }
+
+  // Forward-looking SO addition (same logic as /comp/ly). When the
+  // selected period extends to/past today, fold open SOs into the
+  // per-style aggregates so the operator sees projected sales.
+  if (to >= todayIsoUTC()) {
+    try {
+      const soBySku = await fetchOpenSoComp(admin, allSkuIds, from, to);
+      for (const [skuId, soSlot] of soBySku.entries()) {
+        const sc = skuIdToStyle.get(skuId);
+        if (!sc) continue;
+        const slot = agg.get(sc);
+        if (!slot) continue;
+        slot.sawAnyRow = true;
+        slot.sawUnitRow = true;
+        slot.qty += soSlot.qty;
+        slot.txnCount += soSlot.txnCount;
+        slot.costSum += soSlot.costSum;
+        slot.netSum += soSlot.netSum;
+        slot.marginPctNum += soSlot.marginPctNum;
+        slot.marginSum += soSlot.netSum - soSlot.costSum;
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`[costing/comp/t3] open-SO fold failed: ${e.message}`);
     }
   }
 
