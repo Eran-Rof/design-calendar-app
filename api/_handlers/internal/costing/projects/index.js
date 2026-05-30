@@ -70,7 +70,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "invalid status" });
     }
 
+    // Resolve entity_id: body → X-Entity-ID header → first entities row.
+    // current_entity_id() DEFAULT returns NULL under service_role (no
+    // auth.uid()), so the handler must explicitly inject the value.
+    let resolvedEntityId = entity_id || req.headers["x-entity-id"] || null;
+    if (!resolvedEntityId) {
+      const { data: ent } = await admin.from("entities").select("id").limit(1).maybeSingle();
+      resolvedEntityId = ent?.id || null;
+    }
+    if (!resolvedEntityId) {
+      return res.status(400).json({ error: "Could not resolve entity_id (no body, no header, no entities row)" });
+    }
+
     const insert = {
+      entity_id: resolvedEntityId,
       project_name: String(project_name).trim(),
       brand: brand || null,
       gender_code: gender_code || null,
@@ -85,8 +98,6 @@ export default async function handler(req, res) {
       user_id: user_id || null,
       created_by_user_id: created_by_user_id || null,
     };
-    // entity_id: prefer explicit; otherwise DEFAULT current_entity_id() resolves it
-    if (entity_id) insert.entity_id = entity_id;
 
     const { data, error } = await admin.from("costing_projects").insert(insert).select("*").single();
     if (error) return res.status(500).json({ error: error.message });

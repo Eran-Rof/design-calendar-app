@@ -73,7 +73,7 @@ export default function ProjectEditView() {
     try {
       await update(id, form);
     } catch (e) {
-      window.alert(`Save failed: ${(e as Error).message}`);
+      useCostingStore.getState().setNotice(`Save failed: ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }

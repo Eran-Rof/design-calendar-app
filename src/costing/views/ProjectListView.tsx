@@ -7,6 +7,7 @@
 import React, { useEffect } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { fmtDateDisplay, statusLabel, statusColor, navigate } from "../helpers";
+import { appConfirm } from "../../utils/theme";
 import ExportButton from "../../tanda/exports/ExportButton";
 import type { CostingProject } from "../types";
 
@@ -17,6 +18,7 @@ export default function ProjectListView() {
   const list     = useCostingStore((s) => s.listProjects);
   const create   = useCostingStore((s) => s.createProject);
   const del      = useCostingStore((s) => s.deleteProject);
+  const setNotice = useCostingStore((s) => s.setNotice);
 
   useEffect(() => { list(); }, [list]);
 
@@ -27,18 +29,20 @@ export default function ProjectListView() {
       const p = await create({ project_name: name.trim() });
       navigate("edit", p.id);
     } catch (e) {
-      window.alert(`Could not create project: ${(e as Error).message}`);
+      setNotice(`Could not create project: ${(e as Error).message}`);
     }
   };
 
   const onOpen = (id: string) => navigate("edit", id);
-  const onDelete = async (p: CostingProject) => {
-    if (!window.confirm(`Delete "${p.project_name}"? This cascades to all lines, quotes, and compliance rows.`)) return;
-    try {
-      await del(p.id);
-    } catch (e) {
-      window.alert(`Could not delete: ${(e as Error).message}`);
-    }
+  const onDelete = (p: CostingProject) => {
+    appConfirm(
+      `Delete "${p.project_name}"? This cascades to all lines, quotes, and compliance rows.`,
+      "Delete",
+      async () => {
+        try { await del(p.id); }
+        catch (e) { setNotice(`Could not delete: ${(e as Error).message}`); }
+      },
+    );
   };
 
   const exportRows = projects.map((p) => ({

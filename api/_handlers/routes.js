@@ -503,8 +503,6 @@ import h479 from "./internal/costing/lines/[line_id]/quotes/index.js";
 import h480 from "./internal/costing/lines/[line_id]/quotes/[quote_id].js";
 import h481 from "./internal/costing/lines/[line_id]/select-quote.js";
 import h497 from "./internal/costing/search/styles.js";
-// Debug-only — token-probe; delete after auth debugging done.
-import h498 from "./internal/costing/_token-probe.js";
 import h483 from "./internal/costing/search/vendors.js";
 import h484 from "./internal/costing/search/customers.js";
 import h493 from "./internal/costing/search/sales-reps.js";
@@ -1007,8 +1005,6 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/quotes/:quote_id",  handler: h480 },
   { pattern: "/api/internal/costing/lines/:line_id/select-quote",      handler: h481 },
   { pattern: "/api/internal/costing/search/styles",                    handler: h497 },
-  // Debug-only — token-probe; returns no auth check, only env-var summary. Delete after debugging.
-  { pattern: "/api/internal/costing/_token-probe",                     handler: h498 },
   { pattern: "/api/internal/costing/search/vendors",                   handler: h483 },
   { pattern: "/api/internal/costing/search/customers",                 handler: h484 },
   { pattern: "/api/internal/costing/search/sales-reps",                handler: h493 },

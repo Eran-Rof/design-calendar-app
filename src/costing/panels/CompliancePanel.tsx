@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
+import { appConfirm } from "../../utils/theme";
 import type { CostingComplianceStatus, CostingLineCompliance } from "../types";
 
 const DEFAULT_CODES = ["CPSIA", "PROP65", "FLAMMABILITY", "LABEL_FIBER_CONTENT", "COO"];
@@ -154,7 +155,7 @@ export default function CompliancePanel() {
                   </Td>
                   <Td>
                     <button
-                      onClick={() => { if (window.confirm(`Remove ${r.requirement_code}?`)) deleteCompliance(selectedLineId, r.id); }}
+                      onClick={() => appConfirm(`Remove ${r.requirement_code}?`, "Remove", () => deleteCompliance(selectedLineId, r.id))}
                       style={{ background: "transparent", color: "#EF4444", border: "1px solid #EF4444", padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontSize: 11 }}
                     >×</button>
                   </Td>

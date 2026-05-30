@@ -57,7 +57,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "invalid status" });
     }
 
+    // Inherit entity_id from the parent line (current_entity_id() DEFAULT
+    // returns NULL under service_role).
+    const { data: parentLine } = await admin.from("costing_lines")
+      .select("entity_id").eq("id", lineId).maybeSingle();
+    if (!parentLine) return res.status(404).json({ error: "Line not found" });
     const insert = {
+      entity_id: entity_id || parentLine.entity_id,
       costing_line_id: lineId,
       vendor_id,
       quoted_cost: Number(quoted_cost),
@@ -69,7 +75,6 @@ export default async function handler(req, res) {
       status: status || "pending",
       notes: notes || null,
     };
-    if (entity_id) insert.entity_id = entity_id;
 
     const { data, error } = await admin.from("costing_line_vendors").insert(insert).select("*").single();
     if (error) return res.status(500).json({ error: error.message });

@@ -6,6 +6,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
+import { appConfirm } from "../../utils/theme";
 import VendorPickerCell from "./VendorPickerCell";
 import type { CostingLineVendor } from "../types";
 import type { VendorHit } from "../services/costingApi";
@@ -46,10 +47,11 @@ export default function VendorQuotePanel() {
 
   if (!selectedLineId || !line) return null;
 
+  const setNotice = useCostingStore.getState().setNotice;
   const onAdd = async () => {
-    if (!draftVendor) { window.alert("Pick a vendor first."); return; }
+    if (!draftVendor) { setNotice("Pick a vendor first."); return; }
     const cost = Number(draftCost);
-    if (!isFinite(cost) || cost < 0) { window.alert("Enter a valid quoted cost."); return; }
+    if (!isFinite(cost) || cost < 0) { setNotice("Enter a valid quoted cost."); return; }
     await addQuote(selectedLineId, {
       vendor_id: draftVendor.id,
       quoted_cost: cost,
@@ -272,9 +274,7 @@ function QuoteRow({ quote, lineId, onUpdate, onDelete, onSelect }: {
               style={btnStyle("#3B82F6")}
             >Edit</button>
             <button
-              onClick={() => {
-                if (window.confirm("Delete this quote?")) onDelete(lineId, quote.id);
-              }}
+              onClick={() => appConfirm("Delete this quote?", "Delete", () => onDelete(lineId, quote.id))}
               style={btnStyle("#EF4444")}
             >Delete</button>
           </div>

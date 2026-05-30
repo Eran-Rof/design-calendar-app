@@ -71,6 +71,13 @@ export default async function handler(req, res) {
     const lines = Array.isArray(body?.lines) ? body.lines : [];
     if (lines.length === 0) return res.status(400).json({ error: "lines must be non-empty" });
 
+    // Inherit entity_id from the parent project (current_entity_id() DEFAULT
+    // returns NULL under service_role, so the handler must inject it).
+    const { data: project } = await admin.from("costing_projects")
+      .select("entity_id").eq("id", projectId).maybeSingle();
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const parentEntityId = project.entity_id;
+
     const toInsert = [];
     const toUpdate = [];
     lines.forEach((l, idx) => {
@@ -79,7 +86,7 @@ export default async function handler(req, res) {
       if (l.id) {
         toUpdate.push({ id: l.id, ...fields });
       } else {
-        toInsert.push({ project_id: projectId, ...fields });
+        toInsert.push({ entity_id: parentEntityId, project_id: projectId, ...fields });
       }
     });
 

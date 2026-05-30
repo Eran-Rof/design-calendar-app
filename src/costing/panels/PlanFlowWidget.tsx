@@ -45,7 +45,7 @@ export default function PlanFlowWidget() {
     try {
       await update(project.id, { status: next });
     } catch (e) {
-      window.alert(`Status change failed: ${(e as Error).message}`);
+      useCostingStore.getState().setNotice(`Status change failed: ${(e as Error).message}`);
     }
   };
 
