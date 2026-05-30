@@ -16,13 +16,15 @@ const STATUS_LABEL: Record<CostingStatus, string> = {
   cancelled:   "Cancelled",
 };
 
-const STATUS_COLOR: Record<CostingStatus, { bg: string; fg: string }> = {
-  draft:       { bg: "#E5E7EB", fg: "#374151" },
-  in_progress: { bg: "#DBEAFE", fg: "#1E40AF" },
-  quoted:      { bg: "#FEF3C7", fg: "#92400E" },
-  awarded:     { bg: "#DCFCE7", fg: "#166534" },
-  closed:      { bg: "#E0E7FF", fg: "#3730A3" },
-  cancelled:   { bg: "#FEE2E2", fg: "#991B1B" },
+// Palette mirrors STATUS_CONFIG in src/utils/constants.ts so badges match
+// the visual language of ATS / Tanda / Design Calendar.
+const STATUS_COLOR: Record<CostingStatus, { bg: string; fg: string; border: string }> = {
+  draft:       { bg: "#F3F4F6", fg: "#6B7280", border: "#D1D5DB" }, // Not Started gray
+  in_progress: { bg: "#FFFBEB", fg: "#B45309", border: "#FCD34D" }, // In Progress amber
+  quoted:      { bg: "#F5F3FF", fg: "#6D28D9", border: "#C4B5FD" }, // Review purple
+  awarded:     { bg: "#ECFDF5", fg: "#065F46", border: "#6EE7B7" }, // Approved green
+  closed:      { bg: "#D1FAE5", fg: "#047857", border: "#34D399" }, // Complete green
+  cancelled:   { bg: "#FEF2F2", fg: "#B91C1C", border: "#FCA5A5" }, // Delayed red
 };
 
 export function statusLabel(s: CostingStatus): string { return STATUS_LABEL[s] || s; }
