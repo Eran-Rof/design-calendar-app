@@ -43,12 +43,16 @@ export default async function handler(req, res) {
   const like = q ? `%${q.replace(/[%_]/g, "\\$&")}%` : null;
 
   // Source A — portal vendors (operational). Active = status='active'.
+  // Include both `name` (the original column, populated since Phase 0) and
+  // `legal_name` (added later in P1, mostly NULL for backfilled rows). The
+  // dedup pass below prefers legal_name → name → code so vendors imported
+  // before P1 still show a human-readable label.
   let vendorsQuery = admin.from("vendors")
-    .select("id, code, legal_name, country, default_currency, status")
+    .select("id, code, name, legal_name, country, default_currency, status")
     .eq("status", "active")
     .limit(limit);
-  if (like) vendorsQuery = vendorsQuery.or(`legal_name.ilike.${like},code.ilike.${like}`);
-  vendorsQuery = vendorsQuery.order("legal_name", { ascending: true });
+  if (like) vendorsQuery = vendorsQuery.or(`legal_name.ilike.${like},name.ilike.${like},code.ilike.${like}`);
+  vendorsQuery = vendorsQuery.order("name", { ascending: true });
 
   // Source B — planning vendors. Active = active=true. Includes
   // portal_vendor_id so we can dedup against source A by the FK first
@@ -72,10 +76,12 @@ export default async function handler(req, res) {
   const out = new Map();
   for (const v of portalRows) {
     const key = (v.code || "").toLowerCase().trim() || `__pid_${v.id}`;
+    // Prefer legal_name (post-P1 canonical) but fall back to name (the
+    // original column) — most existing vendors only have `name` populated.
     out.set(key, {
       id: v.id,
       code: v.code,
-      legal_name: v.legal_name,
+      legal_name: v.legal_name || v.name || null,
       country: v.country,
       default_currency: v.default_currency,
       status: v.status,
