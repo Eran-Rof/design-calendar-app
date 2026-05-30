@@ -393,6 +393,9 @@ import h380 from "./internal/pim/styles/[style_id]/images/index.js";
 import h381 from "./internal/pim/styles/[style_id]/images/[id].js";
 import h382 from "./internal/pim/styles/[style_id]/images/[id]/delete.js";
 import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
+// P8-9 — CRM tasks-due-tomorrow daily cron. Renumbered h390 → h527 on
+// rebase (h390 taken on main). APPEND ONLY.
+import h527 from "../cron/crm-tasks-due-tomorrow.js";
 // T10 cross-cutter Xoro shadow mirror handlers. APPEND ONLY.
 //   h400 = T10-2 AR mirror
 //   h401 = T10-3 AP mirror (this PR)
@@ -1135,6 +1138,8 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-reps/:id/assignments",              handler: h526 },
   { pattern: "/api/internal/sales-reps/:id",                          handler: h524 },
   { pattern: "/api/internal/sales-reps",                              handler: h523 },
+  // P8-9 — CRM tasks-due-tomorrow daily cron.
+  { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },
 ];
 
 export function compileRoutes(routes) {
