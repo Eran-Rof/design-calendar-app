@@ -549,6 +549,10 @@ import h502 from "./internal/users/me/preferences/drawer-collapsed.js";
 //        values across style_master, drives the searchable dropdowns in the
 //        edit modal (replaces the in-browser distinct-from-loaded-rows path).
 import h511 from "./internal/style-master/dim-values.js";
+// P9-3 — AR Parallel-Run reconciliation engine (manual trigger).
+//   h512 = POST /api/internal/recon/run-ar  (renumbered from h481 on rebase —
+//   h481 is taken by costing/select-quote on main; next free is h512.)
+import h512 from "./internal/recon/run-ar.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1062,6 +1066,8 @@ export const ROUTES = [
   // /preferences entries above so the top-down dispatcher routes
   // /preferences/drawer-collapsed to this dedicated handler.
   { pattern: "/api/internal/users/me/preferences/drawer-collapsed",        handler: h502 },
+  // P9-3 — AR Parallel-Run reconciliation engine (manual + replay).
+  { pattern: "/api/internal/recon/run-ar",                             handler: h512 },
 ];
 
 export function compileRoutes(routes) {
