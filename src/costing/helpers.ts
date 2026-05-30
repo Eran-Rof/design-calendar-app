@@ -33,10 +33,14 @@ export const ALL_STATUSES: CostingStatus[] = [
 ];
 
 // URL helpers for the query-string sub-routing inside /costing.
-export function getView(): "list" | "edit" {
+export type CostingViewName = "list" | "edit" | "settings";
+
+export function getView(): CostingViewName {
   if (typeof window === "undefined") return "list";
   const v = new URLSearchParams(window.location.search).get("view");
-  return v === "edit" ? "edit" : "list";
+  if (v === "edit") return "edit";
+  if (v === "settings") return "settings";
+  return "list";
 }
 
 export function getEditId(): string | null {
@@ -44,7 +48,7 @@ export function getEditId(): string | null {
   return new URLSearchParams(window.location.search).get("id");
 }
 
-export function navigate(view: "list" | "edit", id?: string | null) {
+export function navigate(view: CostingViewName, id?: string | null) {
   if (typeof window === "undefined") return;
   const sp = new URLSearchParams();
   sp.set("view", view);

@@ -4,6 +4,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useVendorSearch } from "../hooks/useStyleSearch";
+import { addVendor } from "../services/costingApi";
+import { useCostingStore } from "../store/costingStore";
 import type { VendorHit } from "../services/costingApi";
 
 interface Props {
@@ -16,8 +18,29 @@ interface Props {
 export default function VendorPickerCell({ value, onPick, placeholder, inputStyle }: Props) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value || "");
+  const [adding, setAdding] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const { rows, loading, search } = useVendorSearch();
+  const setNotice = useCostingStore((s) => s.setNotice);
+
+  const canAdd = text.trim().length > 0 && !loading && !rows.some((r) => (r.legal_name || r.code || "").toLowerCase() === text.trim().toLowerCase());
+
+  const onInlineAdd = async () => {
+    const name = text.trim();
+    if (!name) return;
+    setAdding(true);
+    try {
+      const created = await addVendor(name);
+      setText(created.legal_name || created.code || "");
+      setOpen(false);
+      onPick(created);
+      setNotice(`Added new vendor "${name}"`, "info");
+    } catch (e) {
+      setNotice(`Could not add vendor: ${(e as Error).message}`);
+    } finally {
+      setAdding(false);
+    }
+  };
 
   useEffect(() => { setText(value || ""); }, [value]);
 
@@ -89,6 +112,19 @@ export default function VendorPickerCell({ value, onPick, placeholder, inputStyl
           ))}
           {!loading && rows.length === 0 && text && (
             <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>No matches.</div>
+          )}
+          {canAdd && (
+            <button
+              type="button"
+              disabled={adding}
+              onMouseDown={(e) => { e.preventDefault(); onInlineAdd(); }}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "6px 10px", background: "#0F172A",
+                border: "none", color: "#10B981", cursor: adding ? "wait" : "pointer",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >{adding ? "Adding…" : `+ Add new vendor "${text.trim()}"`}</button>
           )}
         </div>
       )}

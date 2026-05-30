@@ -46,6 +46,12 @@ export default function CostingNavBar() {
         >
           + New
         </button>
+        <button
+          onClick={() => navigate("settings")}
+          style={navBtn(view === "settings")}
+        >
+          Masters
+        </button>
       </div>
     </div>
   );

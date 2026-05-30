@@ -243,6 +243,22 @@ export async function searchFabrics(q: string, signal?: AbortSignal): Promise<Fa
   return out.rows || [];
 }
 
+export async function searchColors(q: string, signal?: AbortSignal): Promise<string[]> {
+  const sp = new URLSearchParams();
+  if (q) sp.set("q", q);
+  const res = await fetch(`/api/internal/costing/search/colors?${sp.toString()}`, { signal });
+  const out = await json<{ rows: string[] }>(res);
+  return out.rows || [];
+}
+
+export async function addVendor(name: string, opts?: { code?: string; country?: string }): Promise<VendorHit> {
+  return json<VendorHit>(await fetch(`/api/internal/costing/add-vendor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, ...opts }),
+  }));
+}
+
 // ── Style → SKU / target-cost seed helper ───────────────────────────────────
 //
 // Given a style code, returns a representative SKU + its avg cost (from

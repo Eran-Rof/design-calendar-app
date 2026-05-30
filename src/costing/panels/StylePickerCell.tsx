@@ -1,11 +1,12 @@
 // StylePickerCell — autocomplete cell for picking a style_master row.
 //
-// Renders as a free-text input. Each keystroke fires a debounced search
-// against /api/internal/costing/search/styles. The dropdown lists up to 25
-// hits; clicking one calls onPick(style) so the parent (CostingGrid row)
-// can apply the prefill + seed target_cost via resolveCost().
+// The dropdown is rendered into document.body via a portal with
+// position:fixed so it isn't clipped by the grid's overflow:auto wrapper.
+// Width is computed from the input's getBoundingClientRect so the popup
+// hugs the cell on the left but extends to ~280px wide for readability.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { useStyleSearch } from "../hooks/useStyleSearch";
 import type { StyleHit } from "../services/costingApi";
 
@@ -17,32 +18,99 @@ interface Props {
   cellStyle?: React.CSSProperties;
 }
 
+interface Position { left: number; top: number; width: number }
+
 export default function StylePickerCell({ value, onPick, onChange, placeholder, cellStyle }: Props) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value || "");
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<Position | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const { rows, loading, search } = useStyleSearch();
 
-  // Sync external value changes.
   useEffect(() => { setText(value || ""); }, [value]);
 
-  // Outside-click closer.
+  // Outside-click closer — must consider both the input and the portaled popup.
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const t = e.target as Node;
+      if (inputRef.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
     };
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Recompute popup position when opening or when the input moves (scroll).
+  useLayoutEffect(() => {
+    if (!open || !inputRef.current) return;
+    const compute = () => {
+      const r = inputRef.current!.getBoundingClientRect();
+      setPos({ left: r.left, top: r.bottom + 2, width: Math.max(r.width, 260) });
+    };
+    compute();
+    window.addEventListener("scroll", compute, true);
+    window.addEventListener("resize", compute);
+    return () => {
+      window.removeEventListener("scroll", compute, true);
+      window.removeEventListener("resize", compute);
+    };
+  }, [open]);
+
+  const popup = open && pos && (rows.length > 0 || loading) ? ReactDOM.createPortal(
+    <div
+      ref={popRef}
+      style={{
+        position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+        maxHeight: 260, overflowY: "auto",
+        background: "#1E293B", border: "1px solid #475569",
+        borderRadius: 4, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
+        zIndex: 9999,
+      }}
+    >
+      {loading && <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>Searching…</div>}
+      {rows.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setText(s.style_code || "");
+            setOpen(false);
+            onPick(s);
+          }}
+          style={{
+            display: "block", width: "100%", textAlign: "left",
+            padding: "5px 10px", background: "transparent",
+            border: "none", borderBottom: "1px solid #334155",
+            color: "#E2E8F0", cursor: "pointer", fontSize: 12,
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+        >
+          <div style={{ fontWeight: 600 }}>{s.style_code}</div>
+          <div style={{ fontSize: 11, color: "#94A3B8" }}>
+            {s.style_name || s.description || ""}
+            {s.gender_code ? ` · ${s.gender_code}` : ""}
+            {s.base_fabric ? ` · ${s.base_fabric}` : ""}
+          </div>
+        </button>
+      ))}
+      {!loading && rows.length === 0 && text && (
+        <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>No matches.</div>
+      )}
+    </div>,
+    document.body,
+  ) : null;
+
   return (
-    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+    <div style={{ position: "relative", width: "100%" }}>
       <input
+        ref={inputRef}
         value={text}
-        placeholder={placeholder || "Type style code…"}
+        placeholder={placeholder || "Style…"}
         onChange={(e) => {
           const v = e.target.value;
           setText(v);
@@ -58,48 +126,7 @@ export default function StylePickerCell({ value, onPick, onChange, placeholder, 
           ...cellStyle,
         }}
       />
-      {open && (rows.length > 0 || loading) && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 50,
-          minWidth: 320, maxHeight: 280, overflowY: "auto",
-          background: "#1E293B", border: "1px solid #475569",
-          borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-          marginTop: 2,
-        }}>
-          {loading && <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>Searching…</div>}
-          {rows.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onMouseDown={(e) => {
-                // Use mousedown so the input doesn't blur first.
-                e.preventDefault();
-                setText(s.style_code || "");
-                setOpen(false);
-                onPick(s);
-              }}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "6px 10px", background: "transparent",
-                border: "none", borderBottom: "1px solid #334155",
-                color: "#E2E8F0", cursor: "pointer", fontSize: 12,
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-            >
-              <div style={{ fontWeight: 600 }}>{s.style_code}</div>
-              <div style={{ fontSize: 11, color: "#94A3B8" }}>
-                {s.style_name || s.description || ""}
-                {s.gender_code ? ` · ${s.gender_code}` : ""}
-                {s.base_fabric ? ` · ${s.base_fabric}` : ""}
-              </div>
-            </button>
-          ))}
-          {!loading && rows.length === 0 && text && (
-            <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>No matches.</div>
-          )}
-        </div>
-      )}
+      {popup}
     </div>
   );
 }

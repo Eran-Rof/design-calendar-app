@@ -14,6 +14,8 @@ import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
 import { usePlanFlow } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
+import MasterSelectCell from "./MasterSelectCell";
+import ColorPickerCell from "./ColorPickerCell";
 import { fetchStyleSeedSku } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import type { CostingLine } from "../types";
@@ -39,9 +41,8 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: "_drag",          label: "",         width: 24,  align: "center" },
-  { key: "style_code",     label: "Style#",   width: 110 },
-  { key: "style_name",     label: "Style Name", width: 140 },
-  { key: "description",    label: "Desc",     width: 180 },
+  { key: "style_code",     label: "Style#",   width: 130 },
+  { key: "description",    label: "Desc",     width: 200 },
   { key: "size_scale_label", label: "Scale",  width: 80 },
   { key: "fabric_code",    label: "Fabric",   width: 110 },
   { key: "fit",            label: "Fit",      width: 90 },
@@ -81,6 +82,12 @@ export default function CostingGrid() {
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
+  const loadMasters = useCostingStore((s) => s.loadMasters);
+
+  // Load fit/closure/waist/comment masters on mount so the cell dropdowns
+  // have their options populated. Settings view also calls this, but mounting
+  // here makes the grid self-sufficient.
+  React.useEffect(() => { loadMasters(); }, [loadMasters]);
 
   // Chunk 6 — Plan Flow widget writes stageFilter to the store; we filter the
   // visible rows by per-line derived stage. lineStageById comes from the same
@@ -343,6 +350,32 @@ export default function CostingGrid() {
                           textAlign: "right", background: "transparent",
                           border: "1px solid transparent", color: "#E2E8F0", outline: "none",
                         }}
+                      />
+                    </div>
+                  );
+                }
+
+                // Master-list dropdowns (Fit / Closure / Waist / Comment).
+                if (c.key === "fit" || c.key === "bottom_closure" || c.key === "waist_type" || c.key === "comment") {
+                  const kind = c.key === "fit" ? "fit" : c.key === "bottom_closure" ? "closure" : c.key === "waist_type" ? "waist" : "comment";
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <MasterSelectCell
+                        kind={kind as "fit" | "closure" | "waist" | "comment"}
+                        value={(line[c.key as keyof CostingLine] as string | null) ?? null}
+                        onChange={(v) => updateLine(line.id, { [c.key]: v } as Partial<CostingLine>)}
+                      />
+                    </div>
+                  );
+                }
+
+                // Color — autocomplete from ip_item_master + extras.
+                if (c.key === "color") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <ColorPickerCell
+                        value={line.color}
+                        onChange={(v) => updateLine(line.id, { color: v })}
                       />
                     </div>
                   );
