@@ -254,6 +254,21 @@ export default function FavoritesDrawer(): JSX.Element {
   const grouped = useMemo(() => groupFavorites(favorites), [favorites]);
   const currentIsFav = currentView.menuKey ? favorites.includes(currentView.menuKey) : false;
 
+  // Push panel content below the strip when expanded so it does NOT overlay
+  // the page (e.g. Style Master's search bar). The menu and the strip are
+  // both position:fixed; adding body padding-top shifts ALL document content
+  // down without affecting the fixed overlays.
+  //   - Collapsed: padding 0 (existing behavior, content under the menu)
+  //   - Expanded: padding 108 (56px menu + ~52px strip) so content starts
+  //     just below the strip's bottom edge.
+  // The 108px figure mirrors STRIP_TOP (56) + strip-row height (~52).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prev = document.body.style.paddingTop;
+    document.body.style.paddingTop = drawerCollapsed ? "" : "108px";
+    return () => { document.body.style.paddingTop = prev; };
+  }, [drawerCollapsed]);
+
   function navigate(route: string): void {
     if (typeof window === "undefined") return;
     window.location.href = route;
