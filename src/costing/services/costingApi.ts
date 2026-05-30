@@ -265,10 +265,11 @@ export interface FabricHit {
   composition_text: string | null;
 }
 
-export async function searchStyles(q: string, signal?: AbortSignal): Promise<StyleHit[]> {
+export async function searchStyles(q: string, opts?: { limit?: number; signal?: AbortSignal }): Promise<StyleHit[]> {
   const sp = new URLSearchParams();
   if (q) sp.set("q", q);
-  const res = await fetch(`/api/internal/costing/search/styles?${sp.toString()}`, { signal });
+  if (opts?.limit) sp.set("limit", String(opts.limit));
+  const res = await fetch(`/api/internal/costing/search/styles?${sp.toString()}`, { signal: opts?.signal });
   const out = await json<{ rows: StyleHit[] }>(res);
   return out.rows || [];
 }

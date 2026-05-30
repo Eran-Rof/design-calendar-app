@@ -27,7 +27,7 @@ export function useStyleSearch() {
       const ac = new AbortController();
       ctrl.current = ac;
       try {
-        const hits = await searchStyles(trimmed, ac.signal);
+        const hits = await searchStyles(trimmed, { signal: ac.signal });
         if (!ac.signal.aborted) setRows(hits);
       } catch {
         if (!ac.signal.aborted) setRows([]);

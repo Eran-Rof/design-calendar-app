@@ -117,6 +117,12 @@ type State = {
   // the popover renders immediately without an async wait.
   vendorsForPicker: api.VendorHit[];
   loadVendorsForPicker: () => Promise<void>;
+
+  // Pre-loaded style list for the grid's style picker — same shape as
+  // vendorsForPicker. Lets the popover filter in-memory (ATS toolbar
+  // pattern) instead of async-search-per-keystroke.
+  stylesForPicker: api.StyleHit[];
+  loadStylesForPicker: () => Promise<void>;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -597,6 +603,19 @@ export const useCostingStore = create<State>((set, get) => ({
       set({ vendorsForPicker: rows });
     } catch (e) {
       set({ error: `loadVendorsForPicker: ${(e as Error).message}` });
+    }
+  },
+
+  // ── Style picker pre-load ────────────────────────────────────────────────
+
+  stylesForPicker: [],
+
+  async loadStylesForPicker() {
+    try {
+      const rows = await api.searchStyles("", { limit: 500 });
+      set({ stylesForPicker: rows });
+    } catch (e) {
+      set({ error: `loadStylesForPicker: ${(e as Error).message}` });
     }
   },
 }));

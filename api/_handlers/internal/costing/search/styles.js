@@ -35,11 +35,12 @@ export default async function handler(req, res) {
   // (Xoro nightly sync populates style_master per-entity; sparse entities
   // would otherwise see an empty dropdown).
   const entityId = url.searchParams.get("entity_id");
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1000);
 
   let query = admin.from("style_master")
     .select("id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric, lifecycle_status")
     .is("deleted_at", null)
-    .limit(50);
+    .limit(limit);
   if (entityId) query = query.eq("entity_id", entityId);
   if (q) {
     const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
