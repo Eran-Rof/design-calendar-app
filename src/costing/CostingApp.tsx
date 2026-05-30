@@ -10,6 +10,7 @@ import { ConfirmModal } from "../components/Modal";
 import CostingNavBar from "./panels/NavBar";
 import ProjectListView from "./views/ProjectListView";
 import ProjectEditView from "./views/ProjectEditView";
+import SettingsView from "./views/SettingsView";
 import { getView } from "./helpers";
 import { useCostingStore } from "./store/costingStore";
 
@@ -53,6 +54,7 @@ export default function CostingApp() {
       <div style={{ flex: 1, overflowY: "auto" }}>
         {view === "list" && <ProjectListView />}
         {view === "edit" && <ProjectEditView />}
+        {view === "settings" && <SettingsView />}
       </div>
 
       {confirmState && (

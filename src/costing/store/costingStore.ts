@@ -7,6 +7,7 @@
 import { create } from "zustand";
 import * as api from "../services/costingApi";
 import { fetchLyComp, fetchT3Comp } from "../services/compService";
+import { sbLoad as sbLoadSvc, sbSave as sbSaveSvc } from "../../store/supabaseService";
 import type {
   CostingProject,
   CostingLine,
@@ -15,6 +16,18 @@ import type {
   CostingProjectDraft,
   CostingProjectPatch,
 } from "../types";
+
+export type MasterKind = "fit" | "closure" | "waist" | "comment";
+export interface MasterEntry { id: string; name: string }
+
+const MASTER_KEY: Record<MasterKind, string> = {
+  fit:     "costing_fits",
+  closure: "costing_closures",
+  waist:   "costing_waists",
+  comment: "costing_comments",
+};
+
+const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `m_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
 
 type State = {
   projects: CostingProject[];
@@ -70,6 +83,21 @@ type State = {
   addCompliance: (lineId: string, draft: api.ComplianceDraft) => Promise<CostingLineCompliance | null>;
   updateCompliance: (lineId: string, reqId: string, patch: Partial<api.ComplianceDraft>) => Promise<void>;
   deleteCompliance: (lineId: string, reqId: string) => Promise<void>;
+
+  // Masters (Fit / Closure / Waist / Comment lists, stored as JSON blobs in
+  // app_data — same pattern as brands/seasons/customers used by the other
+  // apps in the suite). Color is intentionally NOT a master — autocomplete
+  // sources from ip_item_master.color via /api/internal/costing/search/colors
+  // and operator-added extras (costing_extra_colors).
+  masters: Record<MasterKind, MasterEntry[]>;
+  loadMasters: () => Promise<void>;
+  addMaster: (kind: MasterKind, name: string) => Promise<void>;
+  deleteMaster: (kind: MasterKind, id: string) => Promise<void>;
+
+  // Operator-added extra colors (saved to app_data.costing_extra_colors so
+  // /search/colors will pick them up next reload).
+  extraColors: string[];
+  addExtraColor: (name: string) => Promise<void>;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -440,6 +468,63 @@ export const useCostingStore = create<State>((set, get) => ({
     } catch (e) {
       set({ error: (e as Error).message });
     }
+  },
+
+  // ── Masters (app_data JSON blobs) ─────────────────────────────────────────
+
+  masters: { fit: [], closure: [], waist: [], comment: [] },
+  extraColors: [],
+
+  async loadMasters() {
+    try {
+      const [fit, closure, waist, comment, extras] = await Promise.all([
+        sbLoadSvc(MASTER_KEY.fit),
+        sbLoadSvc(MASTER_KEY.closure),
+        sbLoadSvc(MASTER_KEY.waist),
+        sbLoadSvc(MASTER_KEY.comment),
+        sbLoadSvc("costing_extra_colors"),
+      ]);
+      set({
+        masters: {
+          fit:     Array.isArray(fit)     ? (fit as MasterEntry[])     : [],
+          closure: Array.isArray(closure) ? (closure as MasterEntry[]) : [],
+          waist:   Array.isArray(waist)   ? (waist as MasterEntry[])   : [],
+          comment: Array.isArray(comment) ? (comment as MasterEntry[]) : [],
+        },
+        extraColors: Array.isArray(extras) ? (extras as string[]) : [],
+      });
+    } catch (e) {
+      set({ error: `loadMasters: ${(e as Error).message}` });
+    }
+  },
+
+  async addMaster(kind, name) {
+    const clean = name.trim();
+    if (!clean) return;
+    const current = get().masters[kind] || [];
+    if (current.some((m) => m.name.toLowerCase() === clean.toLowerCase())) return;
+    const next = [...current, { id: newId(), name: clean }];
+    set((s) => ({ masters: { ...s.masters, [kind]: next } }));
+    try { await sbSaveSvc(MASTER_KEY[kind], next); }
+    catch (e) { set({ error: `addMaster: ${(e as Error).message}` }); }
+  },
+
+  async deleteMaster(kind, id) {
+    const next = (get().masters[kind] || []).filter((m) => m.id !== id);
+    set((s) => ({ masters: { ...s.masters, [kind]: next } }));
+    try { await sbSaveSvc(MASTER_KEY[kind], next); }
+    catch (e) { set({ error: `deleteMaster: ${(e as Error).message}` }); }
+  },
+
+  async addExtraColor(name) {
+    const clean = name.trim();
+    if (!clean) return;
+    const current = get().extraColors;
+    if (current.some((c) => c.toLowerCase() === clean.toLowerCase())) return;
+    const next = [...current, clean].sort();
+    set({ extraColors: next });
+    try { await sbSaveSvc("costing_extra_colors", next); }
+    catch (e) { set({ error: `addExtraColor: ${(e as Error).message}` }); }
   },
 }));
 
