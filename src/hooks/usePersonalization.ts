@@ -299,7 +299,10 @@ export function usePersonalization(): UsePersonalization {
 export function __resetPersonalizationCacheForTests(): void {
   cache.favorites = [];
   cache.homeRoute = null;
-  cache.drawerCollapsed = true;
+  // Match production initial-load behavior: read from localStorage so tests
+  // that set the storage key in beforeEach get the corresponding initial
+  // collapsed state. With no key set, defaults to COLLAPSED (true).
+  cache.drawerCollapsed = readDrawerCollapsedFromLocalStorage();
   cache.loading = false;
   cache.status = "unloaded";
   cache.error = null;
