@@ -26,7 +26,40 @@ type Account = {
   description: string | null;
   created_at: string;
   updated_at: string;
+  // Real-money balance from vw_gl_account_balances (ACCRUAL-basis, sign-
+  // flipped so positive = on the account's normal side). Optional because
+  // older callers / failed view-fetch may omit it; default to 0 on render.
+  balance_signed_cents?: number | string | null;
 };
+
+// USD formatting with thousands separators + 2 decimals. Operates on cents
+// to avoid float drift; negative values get a leading minus.
+export function formatBalanceCents(c: number | string | null | undefined): string {
+  const n = Number(c ?? 0);
+  if (!Number.isFinite(n)) return "$0.00";
+  const neg = n < 0;
+  const abs = Math.abs(n);
+  const whole = Math.trunc(abs / 100);
+  const frac = abs - whole * 100;
+  return `${neg ? "-" : ""}$${whole.toLocaleString()}.${String(frac).padStart(2, "0")}`;
+}
+
+// Default drill-down window — 90 days, same as the GL Detail panel's default.
+function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function isoMinusDays(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function buildGLDetailHref(accountId: string, fromISO?: string, toISO?: string): string {
+  const params = new URLSearchParams();
+  params.set("view", "gl_detail");
+  params.set("account_id", accountId);
+  params.set("from", fromISO || isoMinusDays(90));
+  params.set("to",   toISO   || todayISO());
+  return `/tangerine?${params.toString()}`;
+}
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -143,17 +176,18 @@ export default function InternalCOA() {
           filename="chart-of-accounts"
           sheetName="Chart of Accounts"
           columns={[
-            { key: "code",            header: "Code" },
-            { key: "name",            header: "Name" },
-            { key: "account_type",    header: "Type" },
-            { key: "account_subtype", header: "Subtype" },
-            { key: "normal_balance",  header: "Normal Balance" },
-            { key: "status",          header: "Status" },
-            { key: "is_postable",     header: "Postable" },
-            { key: "is_control",      header: "Control" },
-            { key: "description",     header: "Description" },
-            { key: "created_at",      header: "Created", format: "datetime" },
-            { key: "updated_at",      header: "Updated", format: "datetime" },
+            { key: "code",                  header: "Code" },
+            { key: "name",                  header: "Name" },
+            { key: "account_type",          header: "Type" },
+            { key: "account_subtype",       header: "Subtype" },
+            { key: "normal_balance",        header: "Normal" },
+            { key: "balance_signed_cents",  header: "Balance",      format: "currency_cents" },
+            { key: "status",                header: "Status" },
+            { key: "is_postable",           header: "Postable" },
+            { key: "is_control",            header: "Control" },
+            { key: "description",           header: "Description" },
+            { key: "created_at",            header: "Created",      format: "datetime" },
+            { key: "updated_at",            header: "Updated",      format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
       </div>
@@ -179,7 +213,11 @@ export default function InternalCOA() {
                 <th style={th}>Name</th>
                 <th style={th}>Type</th>
                 <th style={th}>Subtype</th>
-                <th style={th}>Balance</th>
+                {/* Operator ask #15: was "Balance" (showing DEBIT/CREDIT label),
+                    renamed to "Normal" so it doesn't collide with the new
+                    money-balance column to its right. */}
+                <th style={th}>Normal</th>
+                <th style={{ ...th, textAlign: "right" }}>Balance</th>
                 <th style={th}>Status</th>
                 <th style={{ ...th, textAlign: "center" }}>Postable</th>
                 <th style={{ ...th, textAlign: "center" }}>Control</th>
@@ -187,22 +225,52 @@ export default function InternalCOA() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((a) => (
-                <tr key={a.id} style={a.status === "inactive" ? { opacity: 0.5 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{a.code}</td>
-                  <td style={td}>{a.name}</td>
-                  <td style={td}>{a.account_type}</td>
-                  <td style={td}>{a.account_subtype || "—"}</td>
-                  <td style={td}>{a.normal_balance}</td>
-                  <td style={td}>{a.status}</td>
-                  <td style={{ ...td, textAlign: "center" }}>{a.is_postable ? "✓" : "✗"}</td>
-                  <td style={{ ...td, textAlign: "center" }}>{a.is_control ? "✓" : "✗"}</td>
-                  <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => setEditing(a)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => void del(a)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((a) => {
+                const balCents = Number(a.balance_signed_cents ?? 0);
+                const balText = formatBalanceCents(balCents);
+                const isZero = !Number.isFinite(balCents) || balCents === 0;
+                const isNeg  = Number.isFinite(balCents) && balCents < 0;
+                const balColor = isZero ? C.textMuted : isNeg ? C.danger : C.text;
+                return (
+                  <tr key={a.id} style={a.status === "inactive" ? { opacity: 0.5 } : {}}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{a.code}</td>
+                    <td style={td}>{a.name}</td>
+                    <td style={td}>{a.account_type}</td>
+                    <td style={td}>{a.account_subtype || "—"}</td>
+                    <td style={td}>{a.normal_balance}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                      <a
+                        href={buildGLDetailHref(a.id)}
+                        title={`Open GL Detail for ${a.code} — ${a.name} (last 90 days)`}
+                        style={{
+                          color: balColor,
+                          textDecoration: "none",
+                          borderBottom: isZero ? "none" : `1px dotted ${C.primary}`,
+                          cursor: "pointer",
+                          fontWeight: isZero ? 400 : 600,
+                        }}
+                        onClick={(e) => {
+                          // Plain left-click → SPA navigation; let modifier
+                          // keys + middle-click fall through to default <a>
+                          // behaviour so the operator can open in a new tab.
+                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                          e.preventDefault();
+                          window.location.href = buildGLDetailHref(a.id);
+                        }}
+                      >
+                        {balText}
+                      </a>
+                    </td>
+                    <td style={td}>{a.status}</td>
+                    <td style={{ ...td, textAlign: "center" }}>{a.is_postable ? "✓" : "✗"}</td>
+                    <td style={{ ...td, textAlign: "center" }}>{a.is_control ? "✓" : "✗"}</td>
+                    <td style={{ ...td, textAlign: "right" }}>
+                      <button onClick={() => setEditing(a)} style={btnSecondary}>Edit</button>
+                      <button onClick={() => void del(a)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

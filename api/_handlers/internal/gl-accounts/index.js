@@ -77,7 +77,31 @@ export default async function handler(req, res) {
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+    const rows = data || [];
+
+    // Merge real-money balances from vw_gl_account_balances (ACCRUAL-basis,
+    // sign-flipped to be positive on each account's normal side). Single
+    // additional round-trip keyed by entity_id — never N+1 per row. Failure
+    // here is non-fatal: COA list still renders without balances if the view
+    // is unavailable (e.g. fresh DB before the 20260630 migration applies).
+    if (rows.length > 0) {
+      const { data: balRows, error: balErr } = await admin
+        .from("vw_gl_account_balances")
+        .select("account_id, balance_signed_cents")
+        .eq("entity_id", entityId);
+      if (!balErr && Array.isArray(balRows)) {
+        const byId = new Map(balRows.map((b) => [b.account_id, Number(b.balance_signed_cents) || 0]));
+        for (const r of rows) {
+          r.balance_signed_cents = byId.get(r.id) ?? 0;
+        }
+      } else {
+        for (const r of rows) {
+          r.balance_signed_cents = 0;
+        }
+      }
+    }
+
+    return res.status(200).json(rows);
   }
 
   if (req.method === "POST") {
