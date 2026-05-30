@@ -87,7 +87,6 @@ const COLUMNS: ColumnDef[] = [
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
   { key: "sell_price",     label: "Sell",     width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
-  { key: "priced_date",    label: "Priced",   width: 140 },
   { key: "ly_unit_cost",   label: "LY Cost",  width: 80,  align: "right", numeric: true },
   { key: "ly_qty",         label: "LY Sold",  width: 80,  align: "right", numeric: true },
   { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
@@ -608,25 +607,6 @@ export default function CostingGrid() {
                         value={line.color}
                         styleCode={line.style_code}
                         onChange={(v) => updateLine(line.id, { color: v })}
-                      />
-                    </div>
-                  );
-                }
-
-                // Date input
-                if (c.key === "priced_date") {
-                  return (
-                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="date"
-                        defaultValue={line.priced_date || ""}
-                        onBlur={(e) => updateLine(line.id, { priced_date: e.target.value || null })}
-                        style={{
-                          width: "100%", padding: "4px 6px", fontSize: 11,
-                          background: "transparent", border: "1px solid transparent",
-                          color: "#E2E8F0", outline: "none",
-                          colorScheme: "dark",
-                        }}
                       />
                     </div>
                   );
