@@ -27,9 +27,6 @@ ALTER TABLE inventory_layers
   ));
 
 COMMENT ON COLUMN inventory_layers.source_kind IS
-  'ap_invoice | adjustment | opening_balance | transfer_in | credit_memo_return. ' ||
-  'source_invoice_id is set when source_kind=ap_invoice; source_adjustment_id ' ||
-  'when source_kind=adjustment. credit_memo_return layers carry the credit ' ||
-  'memo id in notes (FK column added in a later chunk).';
+  'ap_invoice | adjustment | opening_balance | transfer_in | credit_memo_return. source_invoice_id is set when source_kind=ap_invoice; source_adjustment_id when source_kind=adjustment. credit_memo_return layers carry the credit memo id in notes (FK column added in a later chunk).';
 
 NOTIFY pgrst, 'reload schema';
