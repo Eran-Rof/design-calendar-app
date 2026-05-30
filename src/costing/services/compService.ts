@@ -35,29 +35,43 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
  *                    If provided, BOTH endpoints of the supplied window
  *                    are shifted back 12 months by the server.
  */
+export interface CompFilters {
+  /** Override the default comp window (LY shifts back 12mo, T3 uses as-is). */
+  window?: CompWindow;
+  /** Narrow ip_item_master rows by color (ILIKE). */
+  color?: string;
+  /** Narrow sales rows by vendor (vendors.id FK). */
+  vendor_id?: string;
+}
+
 export function fetchLyComp(
   styleCodes: string[],
-  window?: CompWindow,
+  filters?: CompFilters,
 ): Promise<CompResultMap> {
   if (!Array.isArray(styleCodes) || styleCodes.length === 0) {
     return Promise.resolve({});
   }
-  const body: { style_codes: string[]; window?: CompWindow } = {
+  const body: { style_codes: string[]; window?: CompWindow; color?: string; vendor_id?: string } = {
     style_codes: styleCodes,
   };
-  if (window) body.window = window;
+  if (filters?.window) body.window = filters.window;
+  if (filters?.color) body.color = filters.color;
+  if (filters?.vendor_id) body.vendor_id = filters.vendor_id;
   return postJson<CompResultMap>("/api/internal/costing/comp/ly", body);
 }
 
-/**
- * Fetch trailing-3-month comp aggregates for a batch of style codes.
- * Window is fixed server-side: today − 3 calendar months → today.
- */
-export function fetchT3Comp(styleCodes: string[]): Promise<CompResultMap> {
+export function fetchT3Comp(
+  styleCodes: string[],
+  filters?: CompFilters,
+): Promise<CompResultMap> {
   if (!Array.isArray(styleCodes) || styleCodes.length === 0) {
     return Promise.resolve({});
   }
-  return postJson<CompResultMap>("/api/internal/costing/comp/t3", {
+  const body: { style_codes: string[]; window?: CompWindow; color?: string; vendor_id?: string } = {
     style_codes: styleCodes,
-  });
+  };
+  if (filters?.window) body.window = filters.window;
+  if (filters?.color) body.color = filters.color;
+  if (filters?.vendor_id) body.vendor_id = filters.vendor_id;
+  return postJson<CompResultMap>("/api/internal/costing/comp/t3", body);
 }

@@ -87,9 +87,15 @@ const COLUMNS: ColumnDef[] = [
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
   { key: "sell_price",     label: "Sell",     width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
-  { key: "ly_unit_cost",   label: "LY Cost",  width: 80,  align: "right", numeric: true },
-  { key: "ly_qty",         label: "LY Sold",  width: 80,  align: "right", numeric: true },
-  { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
+  // LY comp — qty col dropped, replaced by sales-price (LY Sls Prc).
+  // Mgn now computed display-side from (sls_prc - cost) / sls_prc.
+  { key: "ly_unit_cost",   label: "LY Cost",     width: 80,  align: "right" },
+  { key: "ly_unit_price",  label: "LY Sls Prc",  width: 90,  align: "right" },
+  { key: "ly_margin_pct",  label: "LY Mgn %",    width: 80,  align: "right" },
+  // T3 comp (trailing 3 months) — same three columns.
+  { key: "t3_unit_cost",   label: "T3 Cost",     width: 80,  align: "right" },
+  { key: "t3_unit_price",  label: "T3 Sls Prc",  width: 90,  align: "right" },
+  { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
@@ -110,6 +116,9 @@ export default function CostingGrid() {
   const setNotice = useCostingStore((s) => s.setNotice);
   const loadMasters = useCostingStore((s) => s.loadMasters);
   const loadVendorsForPicker = useCostingStore((s) => s.loadVendorsForPicker);
+  const compPeriod = useCostingStore((s) => s.compPeriod);
+  const setCompPeriod = useCostingStore((s) => s.setCompPeriod);
+  const refreshComp = useCostingStore((s) => s.refreshComp);
 
   // Persisted column show/hide (localStorage). Toggleable via the
   // <ColumnsButton/> in the grid toolbar. visibleColumns derives from
@@ -167,6 +176,35 @@ export default function CostingGrid() {
   // have their options populated. Settings view also calls this, but mounting
   // here makes the grid self-sufficient.
   React.useEffect(() => { loadMasters(); loadVendorsForPicker(); }, [loadMasters, loadVendorsForPicker]);
+
+  // Auto-refresh LY + T3 comp whenever a line's (style_code, color,
+  // selected_vendor_quote_id) tuple changes OR the operator changes the
+  // comp period. Debounced 600ms so a sequence of cell edits (style
+  // pick → color → vendor) coalesces into one refresh per row.
+  // Snapshot tuples per line so we only fire when something actually
+  // shifted (avoids re-fetching on every unrelated render).
+  const compSigsRef = React.useRef<Map<string, string>>(new Map());
+  React.useEffect(() => {
+    const t = window.setTimeout(() => {
+      const sigs = compSigsRef.current;
+      const changed: string[] = [];
+      for (const ln of lines) {
+        if (!ln.style_code) continue;
+        const sig = `${ln.style_code}|${ln.color || ""}|${ln.selected_vendor_quote_id || ""}|${compPeriod ? compPeriod.from + ":" + compPeriod.to : ""}`;
+        if (sigs.get(ln.id) !== sig) {
+          sigs.set(ln.id, sig);
+          changed.push(ln.id);
+        }
+      }
+      if (changed.length > 0) {
+        void refreshComp(changed).catch(() => { /* error surfaced in store */ });
+      }
+    }, 600);
+    return () => window.clearTimeout(t);
+    // We watch the line shape + selected vendor + period — refresh fires
+    // when any line's relevant fields change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines.map((l) => `${l.id}:${l.style_code}:${l.color}:${l.selected_vendor_quote_id}`).join("~"), compPeriod?.from, compPeriod?.to]);
 
   // Chunk 6 — Plan Flow widget writes stageFilter to the store; we filter the
   // visible rows by per-line derived stage. lineStageById comes from the same
@@ -284,6 +322,58 @@ export default function CostingGrid() {
         >
           {generating ? "Generating…" : `Vendor RFQ${selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}`}
         </button>
+        {/* Comp period from/to — drives /comp/ly + /comp/t3 windows.
+            Empty = endpoint defaults (LY: trailing 365d shifted -12mo;
+            T3: trailing 3 months). Each end stamped together — both
+            need values for the override to apply. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
+          <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Comp period</span>
+          <input
+            type="date"
+            value={compPeriod?.from || ""}
+            onChange={(e) => {
+              const from = e.target.value || "";
+              const to = compPeriod?.to || "";
+              setCompPeriod(from && to ? { from, to } : null);
+            }}
+            title="Comp period FROM — LY shifts back 12 months from this window"
+            style={{
+              background: "#0F172A", color: "#E2E8F0",
+              border: "1px solid #334155", borderRadius: 4,
+              padding: "4px 6px", fontSize: 11, outline: "none",
+              colorScheme: "dark",
+            }}
+          />
+          <span style={{ color: "#64748B", fontSize: 11 }}>→</span>
+          <input
+            type="date"
+            value={compPeriod?.to || ""}
+            onChange={(e) => {
+              const to = e.target.value || "";
+              const from = compPeriod?.from || "";
+              setCompPeriod(from && to ? { from, to } : null);
+            }}
+            title="Comp period TO"
+            style={{
+              background: "#0F172A", color: "#E2E8F0",
+              border: "1px solid #334155", borderRadius: 4,
+              padding: "4px 6px", fontSize: 11, outline: "none",
+              colorScheme: "dark",
+            }}
+          />
+          {compPeriod && (
+            <button
+              type="button"
+              onClick={() => setCompPeriod(null)}
+              title="Reset to endpoint defaults"
+              style={{
+                background: "transparent", color: "#F87171",
+                border: "1px solid #7F1D1D", borderRadius: 3,
+                padding: "2px 6px", fontSize: 10, cursor: "pointer",
+              }}
+            >reset</button>
+          )}
+        </div>
         <div style={{ marginLeft: "auto" }}>
           <ColumnsButton
             columns={toggleableColumns}
@@ -444,30 +534,57 @@ export default function CostingGrid() {
                 }
 
                 // Avg cost — read-only seed from ip_item_avg_cost on style
-                // pick. The "→ Tgt" button copies the value into Tgt Cost
-                // (Tgt Cost no longer auto-seeds; this is the explicit
-                // "use the historical avg as my target" shortcut).
+                // pick. (The "→ Tgt" copy button was removed per operator
+                // ask — the column is purely informational now.)
                 if (c.key === "avg_cost") {
                   const v = line.avg_cost;
-                  const canCopy = v != null && v > 0;
                   return (
-                    <div key={c.key} style={{ ...style, color: "#94A3B8", padding: "0 4px", gap: 4, justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
-                      <span style={{ flex: 1, textAlign: "right", fontStyle: v == null ? "italic" : "normal" }}>
+                    <div key={c.key} style={{ ...style, color: "#94A3B8" }}>
+                      <span style={{ width: "100%", padding: "0 6px", fontStyle: v == null ? "italic" : "normal" }}>
                         {v == null ? "—" : fmtMoney.format(v)}
                       </span>
-                      {canCopy && (
-                        <button
-                          type="button"
-                          title="Copy Avg Cost into Tgt Cost"
-                          onClick={() => updateLine(line.id, { target_cost: v })}
-                          style={{
-                            background: "transparent", color: "#60A5FA",
-                            border: "1px solid #3B82F6", borderRadius: 3,
-                            padding: "0 5px", fontSize: 9, fontWeight: 700,
-                            cursor: "pointer", lineHeight: 1.6,
-                          }}
-                        >→ Tgt</button>
-                      )}
+                    </div>
+                  );
+                }
+
+                // LY + T3 read-only display cells. Auto-compute margin
+                // pct from (sls_prc - cost) / sls_prc when the server-
+                // stamped margin is null but both legs are present, so
+                // newly stamped rows show a value before the next refresh.
+                if (c.key === "ly_unit_cost" || c.key === "t3_unit_cost") {
+                  const v = c.key === "ly_unit_cost" ? line.ly_unit_cost : line.t3_unit_cost;
+                  return (
+                    <div key={c.key} style={{ ...style, color: "#94A3B8" }}>
+                      <span style={{ width: "100%", padding: "0 6px" }}>
+                        {v == null ? "—" : fmtMoney.format(v)}
+                      </span>
+                    </div>
+                  );
+                }
+                if (c.key === "ly_unit_price" || c.key === "t3_unit_price") {
+                  const v = c.key === "ly_unit_price" ? line.ly_unit_price : line.t3_unit_price;
+                  return (
+                    <div key={c.key} style={{ ...style, color: "#A7F3D0" }}>
+                      <span style={{ width: "100%", padding: "0 6px" }}>
+                        {v == null ? "—" : fmtMoney.format(v)}
+                      </span>
+                    </div>
+                  );
+                }
+                if (c.key === "ly_margin_pct" || c.key === "t3_margin_pct") {
+                  const isLy = c.key === "ly_margin_pct";
+                  const stored = isLy ? line.ly_margin_pct : line.t3_margin_pct;
+                  const cost = isLy ? line.ly_unit_cost : line.t3_unit_cost;
+                  const price = isLy ? line.ly_unit_price : line.t3_unit_price;
+                  let pct = stored;
+                  if (pct == null && cost != null && price != null && price > 0) {
+                    pct = ((price - cost) / price) * 100;
+                  }
+                  return (
+                    <div key={c.key} style={{ ...style, color: "#94A3B8" }}>
+                      <span style={{ width: "100%", padding: "0 6px" }}>
+                        {pct == null ? "—" : `${fmtPct.format(pct)}%`}
+                      </span>
                     </div>
                   );
                 }

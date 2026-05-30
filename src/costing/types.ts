@@ -75,6 +75,10 @@ export interface CostingLine {
   target_cost: number | null;
   /** Read-only historical reference, written once on style pick from ip_item_avg_cost. */
   avg_cost: number | null;
+  /** LY weighted-avg sales price, stamped by /api/internal/costing/comp/ly. */
+  ly_unit_price: number | null;
+  /** T3 weighted-avg sales price, stamped by /api/internal/costing/comp/t3. */
+  t3_unit_price: number | null;
   sell_target: number | null;
   sell_price: number | null;
   priced_date: string | null;
@@ -169,6 +173,8 @@ export type CostingView = "list" | "edit";
 export interface CompResult {
   qty: number;
   weighted_unit_cost: number | null;
+  /** Weighted avg sales price = sum(net_amount) / sum(qty). Both LY + T3. */
+  weighted_unit_price: number | null;
   weighted_margin_pct: number | null;
   txn_count: number;
   window_from?: string;

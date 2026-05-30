@@ -1,10 +1,15 @@
 // api/internal/costing/comp/t3
 //
-// POST { style_codes: string[] }
+// POST {
+//   style_codes: string[],
+//   window?: { from: ISO, to: ISO },     // overrides the default 3-month window
+//   color?: string,
+//   vendor_id?: string,
+// }
 //
 // Trailing-3-month comp aggregation for a batch of styles. Aggregates
-// ip_sales_history_wholesale qty / unit_cost / margin over the window
-// `today - 3 calendar months` → `today`.
+// ip_sales_history_wholesale qty / unit_cost / unit_price / margin over
+// the window `today - 3 calendar months` → `today` (unless overridden).
 //
 // PPK guard (per project_ppk_grain_rule_CANONICAL): we filter to
 // `qty_grain = 'unit'` ONLY. Pack-grain rows are silently dropped; styles
@@ -61,16 +66,27 @@ export default async function handler(req, res) {
   if (styleCodes.length === 0) {
     return res.status(400).json({ error: "style_codes (non-empty array) is required" });
   }
+  const colorFilter = typeof body?.color === "string" && body.color.trim() ? body.color.trim().toLowerCase() : null;
+  const vendorIdFilter = typeof body?.vendor_id === "string" && body.vendor_id.trim() ? body.vendor_id.trim() : null;
 
-  const to = todayIso();
-  const from = isoMinusMonths(to, 3);
+  // Allow operator override of the default 3-month window.
+  let to, from;
+  if (body?.window?.from && body?.window?.to) {
+    from = String(body.window.from).slice(0, 10);
+    to = String(body.window.to).slice(0, 10);
+  } else {
+    to = todayIso();
+    from = isoMinusMonths(to, 3);
+  }
 
-  // 1. Resolve style_code → sku_id via ip_item_master.
-  const { data: masterRows, error: masterErr } = await admin
+  // 1. Resolve style_code → sku_id via ip_item_master (optional color narrowing).
+  let masterQuery = admin
     .from("ip_item_master")
-    .select("id, style_code")
+    .select("id, style_code, color")
     .in("style_code", styleCodes)
     .range(0, 9999);
+  if (colorFilter) masterQuery = masterQuery.ilike("color", colorFilter);
+  const { data: masterRows, error: masterErr } = await masterQuery;
   if (masterErr) return res.status(500).json({ error: masterErr.message });
 
   const skuIdToStyle = new Map();
@@ -85,6 +101,7 @@ export default async function handler(req, res) {
     out[sc] = {
       qty: 0,
       weighted_unit_cost: null,
+      weighted_unit_price: null,
       total_cost: 0,
       weighted_margin_pct: null,
       txn_count: 0,
@@ -97,14 +114,16 @@ export default async function handler(req, res) {
     return res.status(200).json(out);
   }
 
-  // 2. Bulk-fetch sales rows for those skus in the window.
-  const { data: salesRows, error: salesErr } = await admin
+  // 2. Bulk-fetch sales rows for those skus in the window (optional vendor filter).
+  let salesQuery = admin
     .from("ip_sales_history_wholesale")
     .select("sku_id, qty, qty_grain, qty_units, net_amount, unit_cost_at_sale, margin_amount, margin_pct")
     .in("sku_id", allSkuIds)
     .gte("txn_date", from)
     .lte("txn_date", to)
     .range(0, 99999);
+  if (vendorIdFilter) salesQuery = salesQuery.eq("vendor_id", vendorIdFilter);
+  const { data: salesRows, error: salesErr } = await salesQuery;
   if (salesErr) return res.status(500).json({ error: salesErr.message });
 
   // 3. Aggregate per-style with PPK guard.
@@ -150,6 +169,7 @@ export default async function handler(req, res) {
     if (!slot) continue;
     out[sc].qty = slot.qty;
     out[sc].weighted_unit_cost = slot.qty > 0 ? slot.costSum / slot.qty : null;
+    out[sc].weighted_unit_price = slot.qty > 0 ? slot.netSum / slot.qty : null;
     out[sc].total_cost = slot.costSum;
     out[sc].weighted_margin_pct = slot.netSum > 0 ? slot.marginPctNum / slot.netSum : null;
     out[sc].txn_count = slot.txnCount;

@@ -123,6 +123,13 @@ type State = {
   // pattern) instead of async-search-per-keystroke.
   stylesForPicker: api.StyleHit[];
   loadStylesForPicker: () => Promise<void>;
+
+  // Operator-set comp period (drives /comp/ly + /comp/t3 windows).
+  // Null = use endpoint defaults (LY = last calendar year; T3 = trailing
+  // 3 months). When set, BOTH endpoints honour the same {from,to}; the
+  // LY endpoint shifts the window back 12 months internally.
+  compPeriod: { from: string; to: string } | null;
+  setCompPeriod: (p: { from: string; to: string } | null) => void;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -418,39 +425,61 @@ export const useCostingStore = create<State>((set, get) => ({
     const targetLines = lineIds === "all"
       ? state.lines
       : state.lines.filter((l) => lineIds.includes(l.id));
-    const styleToLineIds = new Map<string, string[]>();
+
+    // Group lines by (style_code, color, vendor_id) tuple. Color +
+    // vendor narrow the /comp/ly + /comp/t3 queries so each line gets
+    // a result scoped to its own slice of sales history. Lines without
+    // a style_code can't be compared and are skipped.
+    type Tuple = { styleCode: string; color: string | null; vendorId: string | null; lineIds: string[] };
+    const tuples = new Map<string, Tuple>();
     for (const ln of targetLines) {
       if (!ln.style_code) continue;
-      const arr = styleToLineIds.get(ln.style_code) || [];
-      arr.push(ln.id);
-      styleToLineIds.set(ln.style_code, arr);
+      const color = ln.color && ln.color.trim() ? ln.color.trim() : null;
+      const quotes = state.vendorQuotes[ln.id] || [];
+      const selectedQuote = quotes.find((q) => q.status === "selected");
+      const vendorId = selectedQuote?.vendor_id || null;
+      const key = `${ln.style_code}|${color || ""}|${vendorId || ""}`;
+      if (!tuples.has(key)) tuples.set(key, { styleCode: ln.style_code, color, vendorId, lineIds: [] });
+      tuples.get(key)!.lineIds.push(ln.id);
     }
-    const styleCodes = Array.from(styleToLineIds.keys());
-    if (styleCodes.length === 0) return;
+    if (tuples.size === 0) return;
 
     set({ loading: true, error: null });
     try {
-      const [ly, t3] = await Promise.all([
-        fetchLyComp(styleCodes),
-        fetchT3Comp(styleCodes),
-      ]);
       const refreshedAt = new Date().toISOString();
+      const period = state.compPeriod || undefined;
       const updates: CostingLine[] = [];
-      for (const [styleCode, ids] of styleToLineIds.entries()) {
-        const lyAgg = ly[styleCode];
-        const t3Agg = t3[styleCode];
+
+      // Fan out one /comp/ly + /comp/t3 pair per tuple (typical project
+      // < 30 lines, so worst case ~60 round-trips with concurrency 6).
+      const tupleEntries = Array.from(tuples.values());
+      for (const t of tupleEntries) {
+        const filters = {
+          window: period ? { from: period.from, to: period.to } : undefined,
+          color: t.color || undefined,
+          vendor_id: t.vendorId || undefined,
+        };
+        // eslint-disable-next-line no-await-in-loop
+        const [ly, t3] = await Promise.all([
+          fetchLyComp([t.styleCode], filters),
+          fetchT3Comp([t.styleCode], filters),
+        ]);
+        const lyAgg = ly[t.styleCode];
+        const t3Agg = t3[t.styleCode];
         const patch: Partial<CostingLine> = {
           ly_qty: lyAgg ? lyAgg.qty : null,
           ly_unit_cost: lyAgg ? lyAgg.weighted_unit_cost : null,
+          ly_unit_price: lyAgg ? lyAgg.weighted_unit_price : null,
           ly_total_margin: lyAgg && typeof lyAgg.total_margin === "number" ? lyAgg.total_margin : null,
           ly_margin_pct: lyAgg ? lyAgg.weighted_margin_pct : null,
           t3_qty: t3Agg ? t3Agg.qty : null,
           t3_unit_cost: t3Agg ? t3Agg.weighted_unit_cost : null,
+          t3_unit_price: t3Agg ? t3Agg.weighted_unit_price : null,
           t3_total_cost: t3Agg && typeof t3Agg.total_cost === "number" ? t3Agg.total_cost : null,
           t3_margin_pct: t3Agg ? t3Agg.weighted_margin_pct : null,
           comp_refreshed_at: refreshedAt,
         };
-        for (const id of ids) {
+        for (const id of t.lineIds) {
           // eslint-disable-next-line no-await-in-loop
           const updated = await api.updateLine(id, patch);
           updates.push(updated);
@@ -605,6 +634,11 @@ export const useCostingStore = create<State>((set, get) => ({
       set({ error: `loadVendorsForPicker: ${(e as Error).message}` });
     }
   },
+
+  // ── Comp period (drives LY + T3 windows) ────────────────────────────────
+
+  compPeriod: null,
+  setCompPeriod(p) { set({ compPeriod: p }); },
 
   // ── Style picker pre-load ────────────────────────────────────────────────
 
