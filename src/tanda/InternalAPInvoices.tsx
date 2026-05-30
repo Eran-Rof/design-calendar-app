@@ -5,8 +5,21 @@
 // supports vendor dropdown, header expense_account/ap_account pickers,
 // and mixed expense/inventory lines. Post / Pay / Void actions wired to the
 // dedicated handlers.
+//
+// Wave 5 adoption sweep (2026-05-30):
+//   • TablePrefs — gear-icon column show/hide, persisted per-user under
+//     tableKey "tangerine:apinvoices:columns".
+//   • Row-click + ScrollHighlight — click anywhere on a list row (except
+//     the action buttons) to open the edit modal; the most-recently-clicked
+//     row gets a fading blue highlight that re-fires on scroll-back-in.
+//   • DynamicSearchInput — replaces the "<input> + Search button" pattern
+//     with a 200ms-debounced live-filter input.
+//   • SearchableSelect — already adopted for vendor / expense / AP / per-line
+//     account pickers; extended in this sweep to the Source filter (11
+//     options) and the Pay modal's Bank account picker (chart of accounts
+//     can grow past 7 postable bank entries).
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -14,6 +27,12 @@ import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
 // Cross-cutter T11-3 — audit-trail drop-in for the detail modal.
 import RowHistory from "./components/RowHistory";
+// Wave 5 primitives.
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 
 type GlStatus = "draft" | "unposted" | "pending_approval" | "posted" | "paid" | "void" | "reversed";
 
@@ -135,6 +154,19 @@ function dollarsToCentsBigInt(s: string): bigint | null {
   return neg ? -cents : cents;
 }
 
+// Universal column visibility — operator ask #1.
+// One TABLE_KEY per panel; per-user hidden-set persists via /preferences.
+const AP_INVOICES_TABLE_KEY = "tangerine:apinvoices:columns";
+const AP_INVOICES_COLUMNS: ColumnDef[] = [
+  { key: "posting_date",   label: "Posting" },
+  { key: "due_date",       label: "Due" },
+  { key: "vendor",         label: "Vendor" },
+  { key: "invoice_number", label: "Invoice #" },
+  { key: "gl_status",      label: "Status" },
+  { key: "total",          label: "Total" },
+  { key: "paid",           label: "Paid" },
+];
+
 export default function InternalAPInvoices() {
   const [rows, setRows] = useState<APInvoice[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -144,7 +176,9 @@ export default function InternalAPInvoices() {
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
   const [vendorFilter, setVendorFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
-  const [search, setSearch] = useState("");
+  // Wave 5 — DynamicSearchInput-controlled debounced search (200ms).
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } =
+    useDebouncedSearch("", 200);
   const [includeVoid, setIncludeVoid] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -152,7 +186,27 @@ export default function InternalAPInvoices() {
   const [payOpen, setPayOpen] = useState<APInvoice | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function load() {
+  // Universal row-click primitive — open edit modal when any non-interactive
+  // cell of the row is clicked (Post / Pay / Void buttons keep their existing
+  // stopPropagation safety as well via INTERACTIVE_SELECTOR).
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<APInvoice>({
+    onRowClick: (inv) => { setEditing(inv); setEditOpen(true); },
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (inv) => `Edit AP invoice ${inv.invoice_number}`,
+  });
+
+  // Universal column visibility hook.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    AP_INVOICES_TABLE_KEY,
+    AP_INVOICES_COLUMNS,
+  );
+  const isVisible = useCallback(
+    (k: string) => visibleColumns.has(k),
+    [visibleColumns],
+  );
+
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
@@ -160,7 +214,7 @@ export default function InternalAPInvoices() {
       if (statusFilter) params.set("status", statusFilter);
       if (vendorFilter) params.set("vendor_id", vendorFilter);
       if (sourceFilter) params.set("source", sourceFilter);
-      if (search.trim()) params.set("q", search.trim());
+      if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
       if (includeVoid) params.set("include_void", "true");
       const r = await fetch(`/api/internal/ap-invoices?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -170,9 +224,9 @@ export default function InternalAPInvoices() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [statusFilter, vendorFilter, sourceFilter, searchDebounced, includeVoid]);
 
-  useEffect(() => { void load(); }, [statusFilter, vendorFilter, sourceFilter, includeVoid]);
+  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     fetch("/api/internal/vendors")
@@ -239,7 +293,7 @@ export default function InternalAPInvoices() {
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as GlStatus | "")} style={{ ...inputStyle, width: 180 }}>
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
@@ -259,26 +313,35 @@ export default function InternalAPInvoices() {
             placeholder="All vendors"
           />
         </div>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 150 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <input
-          type="text" placeholder="Search invoice #" value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void load(); }}
-          style={{ ...inputStyle, width: 220 }}
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+          />
+        </div>
+        <DynamicSearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search invoice #…"
+          ariaLabel="Search AP invoices by invoice number"
+          wrapperStyle={{ maxWidth: 240 }}
         />
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeVoid} onChange={(e) => setIncludeVoid(e.target.checked)} />
           Include void
         </label>
+        <TablePrefsButton
+          tableKey={AP_INVOICES_TABLE_KEY}
+          columns={AP_INVOICES_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows.map((inv) => ({
             posting_date: inv.posting_date,
@@ -326,13 +389,13 @@ export default function InternalAPInvoices() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Posting</th>
-                <th style={th}>Due</th>
-                <th style={th}>Vendor</th>
-                <th style={th}>Invoice #</th>
-                <th style={th}>Status</th>
-                <th style={{ ...th, textAlign: "right" }}>Total</th>
-                <th style={{ ...th, textAlign: "right" }}>Paid</th>
+                <th style={th} hidden={!isVisible("posting_date")}>Posting</th>
+                <th style={th} hidden={!isVisible("due_date")}>Due</th>
+                <th style={th} hidden={!isVisible("vendor")}>Vendor</th>
+                <th style={th} hidden={!isVisible("invoice_number")}>Invoice #</th>
+                <th style={th} hidden={!isVisible("gl_status")}>Status</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("paid")}>Paid</th>
                 <th style={{ ...th, width: 260 }}></th>
               </tr>
             </thead>
@@ -344,32 +407,44 @@ export default function InternalAPInvoices() {
                 const isVoid = inv.gl_status === "void" || inv.gl_status === "reversed";
                 const isPendingApproval = inv.gl_status === "pending_approval";
                 const owedCents = BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0");
+                const rowProps = getRowProps(inv);
                 return (
-                  <tr
+                  <ScrollHighlightRow
                     key={inv.id}
-                    onClick={() => { setEditing(inv); setEditOpen(true); }}
-                    style={{ cursor: "pointer", ...(isVoid ? { opacity: 0.5 } : {}) }}
+                    rowId={inv.id}
+                    highlightedRowId={highlightedId}
+                    {...rowProps}
+                    style={{ ...(rowProps.style || {}), ...(isVoid ? { opacity: 0.5 } : {}) }}
                   >
-                    <td style={td}>{inv.posting_date}</td>
-                    <td style={td}>{inv.due_date || "—"}</td>
-                    <td style={td}>{vendorMap[inv.vendor_id]?.name || inv.vendor_id.slice(0, 8)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                    <td style={td} hidden={!isVisible("posting_date")}>{inv.posting_date}</td>
+                    <td style={td} hidden={!isVisible("due_date")}>{inv.due_date || "—"}</td>
+                    <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || inv.vendor_id.slice(0, 8)}</td>
+                    <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                      hidden={!isVisible("invoice_number")}
+                    >
                       {inv.invoice_number}
                       <SourceBadge source={inv.source} />
                     </td>
-                    <td style={td}>
+                    <td style={td} hidden={!isVisible("gl_status")}>
                       <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
+                    <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
+                      hidden={!isVisible("total")}
+                    >
                       {fmtCents(inv.total_amount_cents)}
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
+                    <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
+                      hidden={!isVisible("paid")}
+                    >
                       {fmtCents(inv.paid_amount_cents)}
                     </td>
-                    <td style={{ ...td, textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ ...td, textAlign: "right" }}>
                       {isDraft && (
                         <button
-                          onClick={() => void doPost(inv)} style={btnSuccess}
+                          onClick={(e) => { e.stopPropagation(); void doPost(inv); }} style={btnSuccess}
                           disabled={busy === inv.id}
                         >
                           Post
@@ -380,7 +455,7 @@ export default function InternalAPInvoices() {
                       )}
                       {isPosted && owedCents > 0n && (
                         <button
-                          onClick={() => setPayOpen(inv)} style={btnPrimary}
+                          onClick={(e) => { e.stopPropagation(); setPayOpen(inv); }} style={btnPrimary}
                           disabled={busy === inv.id}
                         >
                           Pay
@@ -391,14 +466,14 @@ export default function InternalAPInvoices() {
                       )}
                       {!isVoid && (
                         <button
-                          onClick={() => void doVoid(inv)} style={{ ...btnDanger, marginLeft: 6 }}
+                          onClick={(e) => { e.stopPropagation(); void doVoid(inv); }} style={{ ...btnDanger, marginLeft: 6 }}
                           disabled={busy === inv.id}
                         >
                           Void
                         </button>
                       )}
                     </td>
-                  </tr>
+                  </ScrollHighlightRow>
                 );
               })}
             </tbody>
@@ -916,12 +991,15 @@ function APPaymentModal({
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Bank account">
-            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} style={inputStyle as React.CSSProperties}>
-              <option value="">(entity default)</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={bankAccountId || null}
+              onChange={(v) => setBankAccountId(v)}
+              options={[
+                { value: "", label: "(entity default)" },
+                ...accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+              ]}
+              placeholder="(entity default)"
+            />
           </Field>
           <Field label="Reference">
             <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="check #, wire confirm, etc" style={inputStyle} />
