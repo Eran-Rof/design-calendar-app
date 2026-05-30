@@ -68,6 +68,9 @@ import InternalReceiving              from "./tanda/InternalReceiving";
 import InternalBookkeeperApprovalQueue from "./tanda/InternalBookkeeperApprovalQueue";
 // Tangerine P13-5 — 📦 Procurement group (M26 QC inspections).
 import InternalQCInspections          from "./tanda/InternalQCInspections";
+// Tangerine P13-6 — 📦 Procurement group (M48 trade compliance — vendor certs + import docs).
+import InternalVendorCompliance       from "./tanda/InternalVendorCompliance";
+import InternalImportDocs             from "./tanda/InternalImportDocs";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -151,7 +154,12 @@ type ModuleKey =
   // Tangerine P13-3 — 📦 Procurement group (PO origination, receiving, bookkeeper queue).
   | "procurement_pos"
   | "procurement_receiving"
-  | "procurement_bookkeeper_queue";
+  | "procurement_bookkeeper_queue"
+  // Tangerine P13-5 — 📦 Procurement group (M26 QC inspections).
+  | "procurement_qc_inspections"
+  // Tangerine P13-6 — 📦 Procurement group (M48 trade compliance).
+  | "procurement_vendor_compliance"
+  | "procurement_import_docs";
 
 type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Procurement";
 
@@ -256,6 +264,9 @@ const MODULES: ModuleDef[] = [
   { key: "procurement_bookkeeper_queue",  label: "Bookkeeper Queue",     emoji: "✅", group: "Procurement" },
   // Tangerine P13-5 — 📦 Procurement group (M26 QC).
   { key: "procurement_qc_inspections",    label: "QC Inspections",       emoji: "🔍", group: "Procurement" },
+  // Tangerine P13-6 — 📦 Procurement group (M48 trade compliance).
+  { key: "procurement_vendor_compliance", label: "Vendor Compliance",    emoji: "🛡️", group: "Procurement" },
+  { key: "procurement_import_docs",       label: "Import Docs",          emoji: "📄", group: "Procurement" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -444,6 +455,9 @@ export default function Tangerine() {
         {activeModule === "procurement_bookkeeper_queue" && <InternalBookkeeperApprovalQueue />}
         {/* Tangerine P13-5 — 📦 Procurement group (QC). */}
         {activeModule === "procurement_qc_inspections"   && <InternalQCInspections />}
+        {/* Tangerine P13-6 — 📦 Procurement group (M48 trade compliance). */}
+        {activeModule === "procurement_vendor_compliance" && <InternalVendorCompliance />}
+        {activeModule === "procurement_import_docs"       && <InternalImportDocs />}
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />

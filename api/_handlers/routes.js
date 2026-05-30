@@ -511,6 +511,22 @@ import h505 from "./internal/procurement/qc-inspections/[id].js";
 import h506 from "./internal/procurement/qc-findings/index.js";
 import h508 from "./internal/procurement/qc-findings/[id].js";
 
+// P13-6 — M48 vendor compliance certifications + import documentation +
+// per-PO compliance status + expiring-cert cron entrypoint.
+//   h510 = GET / POST          /api/internal/procurement/compliance-certs
+//   h512 = GET / PATCH / DELETE /api/internal/procurement/compliance-certs/:id
+//   h514 = GET / POST          /api/internal/procurement/import-docs
+//   h516 = GET / PATCH / DELETE /api/internal/procurement/import-docs/:id
+//   h518 = GET                 /api/internal/procurement/compliance-status/po/:uuid_id
+//   h519 = GET / POST          /api/cron/compliance-expiring-daily
+// (h511 / h513 / h515 / h517 reserved — paired index handlers serve all verbs)
+import h510 from "./internal/procurement/compliance-certs/index.js";
+import h512 from "./internal/procurement/compliance-certs/[id].js";
+import h514 from "./internal/procurement/import-docs/index.js";
+import h516 from "./internal/procurement/import-docs/[id].js";
+import h518 from "./internal/procurement/compliance-status/po/[uuid_id].js";
+import h519 from "../cron/compliance-expiring-daily.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -993,6 +1009,14 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/qc-inspections",               handler: h503 },
   { pattern: "/api/internal/procurement/qc-findings/:id",              handler: h508 },
   { pattern: "/api/internal/procurement/qc-findings",                  handler: h506 },
+  // P13-6 — M48 trade compliance (:id routes BEFORE the bare collections —
+  // the dispatcher returns the first match).
+  { pattern: "/api/internal/procurement/compliance-status/po/:uuid_id", handler: h518 },
+  { pattern: "/api/internal/procurement/compliance-certs/:id",         handler: h512 },
+  { pattern: "/api/internal/procurement/compliance-certs",             handler: h510 },
+  { pattern: "/api/internal/procurement/import-docs/:id",              handler: h516 },
+  { pattern: "/api/internal/procurement/import-docs",                  handler: h514 },
+  { pattern: "/api/cron/compliance-expiring-daily",                    handler: h519 },
 ];
 
 export function compileRoutes(routes) {
