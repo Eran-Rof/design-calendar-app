@@ -327,7 +327,18 @@ export default function FavoritesDrawer(): JSX.Element {
     }
   }
 
-  // Collapsed: thin pill at the top-right of the menu bar.
+  // Collapsed: a small "★ Favorites ▾" tab hanging just BELOW the menu bar
+  // at the right edge.
+  //
+  // History: the pill originally rendered INSIDE the menu band (top:
+  // STRIP_TOP - 28 = 28px, zIndex 49). Every app nav is position:sticky /
+  // fixed at top:0 with zIndex 100, so the pill painted BEHIND the menu and
+  // was invisible — and even if it weren't, the menu's right edge is packed
+  // with Settings / avatar / Sign-Out buttons it would collide with. Once
+  // #609 made the drawer default to collapsed, the strip "disappeared"
+  // entirely. Fix: anchor the pill at the bottom edge of the menu (top:
+  // STRIP_TOP) and lift its zIndex ABOVE the nav so it is always visible and
+  // never overlaps the nav's own controls.
   if (drawerCollapsed) {
     return (
       <>
@@ -335,9 +346,12 @@ export default function FavoritesDrawer(): JSX.Element {
           data-testid="favorites-strip-collapsed"
           style={{
             position: "fixed",
-            top: STRIP_TOP - 28,
-            right: 8,
-            zIndex: 49,
+            top: STRIP_TOP,
+            right: 12,
+            // Must beat the app nav's zIndex (100, see src/tanda/styles.ts
+            // S.nav and the App/Tangerine headers) or the pill hides behind
+            // the menu bar.
+            zIndex: 101,
           }}
         >
           <button
