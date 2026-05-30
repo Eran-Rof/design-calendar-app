@@ -483,6 +483,23 @@ import h466 from "./internal/shopify/webhooks/disputes.js";
 import h473 from "./internal/faire/sync-returns.js";
 import h474 from "../cron/faire-returns-weekly.js";
 
+// P13-3 — M11 PO origination + M38 receiving + D19 bookkeeper queue.
+//   h491 = GET / POST  /api/internal/procurement/pos
+//   h493 = GET / PATCH /api/internal/procurement/pos/:id
+//   h494 = GET / POST  /api/internal/procurement/receipts
+//   h496 = GET / PATCH /api/internal/procurement/receipts/:id
+//   h497 = POST        /api/internal/procurement/receipts/:id/save-rollups
+//   h498 = GET         /api/internal/procurement/bookkeeper-queue
+//   h499 = POST        /api/internal/procurement/invoices/:id/bookkeeper-approve  (STUB, P13-4)
+// (h492 + h495 reserved — paired with h491 / h494; index handlers serve both verbs)
+import h491 from "./internal/procurement/pos/index.js";
+import h493 from "./internal/procurement/pos/[id].js";
+import h494 from "./internal/procurement/receipts/index.js";
+import h496 from "./internal/procurement/receipts/[id].js";
+import h497 from "./internal/procurement/receipts/save-rollups.js";
+import h498 from "./internal/procurement/bookkeeper-queue/index.js";
+import h499 from "./internal/procurement/invoices/bookkeeper-approve.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -949,6 +966,16 @@ export const ROUTES = [
   { pattern: "/api/cron/walmart-returns-daily",                        handler: h472 },
   // P11-8 — Shopify dispute (chargeback) webhook intake.
   { pattern: "/api/internal/shopify/webhooks/disputes",                handler: h466 },
+  // P13-3 — M11 PO origination + M38 receiving + D19 bookkeeper queue.
+  // More-specific routes registered BEFORE :id so the dispatcher matches
+  // them first (the linear scan returns the first matching pattern).
+  { pattern: "/api/internal/procurement/receipts/:id/save-rollups",    handler: h497 },
+  { pattern: "/api/internal/procurement/invoices/:id/bookkeeper-approve", handler: h499 },
+  { pattern: "/api/internal/procurement/pos/:id",                      handler: h493 },
+  { pattern: "/api/internal/procurement/pos",                          handler: h491 },
+  { pattern: "/api/internal/procurement/receipts/:id",                 handler: h496 },
+  { pattern: "/api/internal/procurement/receipts",                     handler: h494 },
+  { pattern: "/api/internal/procurement/bookkeeper-queue",             handler: h498 },
 ];
 
 export function compileRoutes(routes) {
