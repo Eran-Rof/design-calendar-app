@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "deploy": "npm run build && node scripts/setup-vercel.mjs && vercel --prod --prebuilt",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "test:eval": "RUN_AI_EVAL=1 vitest run api/_lib/ai/__tests__/golden-questions.test.js",
     "staging:local": "node scripts/staging-setup.mjs --local",
     "staging:remote": "node scripts/staging-setup.mjs --remote",

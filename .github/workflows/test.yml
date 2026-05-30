@@ -23,4 +23,7 @@ jobs:
           node-version: 22
           cache: "npm"
       - run: npm ci
+      # Type-check gate (the repo's vite/esbuild build only transpiles, so
+      # type errors used to slip through to runtime). Must stay green.
+      - run: npm run typecheck
       - run: npm test
