@@ -15,6 +15,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { FaireClient, FaireApiError, isFaireConfigured } from "../_lib/marketplaces/faire/client.js";
 import { decryptToken } from "../_lib/marketplaces/faire/token-encryption.js";
+import { postFairePayoutJe } from "../_lib/marketplaces/faire/post-payout-je.js";
 
 export const config = { maxDuration: 300 };
 
@@ -95,6 +96,9 @@ export async function runFairePayoutsIngest(supabase, opts = {}) {
   const summary = {
     shops_scanned: 0,
     payouts_upserted_total: 0,
+    je_posted_total: 0,
+    je_skipped_total: 0,
+    je_errors: [],
     errors: [],
     per_shop: [],
   };
@@ -105,6 +109,9 @@ export async function runFairePayoutsIngest(supabase, opts = {}) {
       faire_shop_id: shop.id,
       shop_name: shop.shop_name,
       payouts_upserted: 0,
+      je_posted: 0,
+      je_skipped: 0,
+      je_errors: [],
       pages_walked: 0,
       cursor_updated: false,
       error: null,
@@ -122,6 +129,9 @@ export async function runFairePayoutsIngest(supabase, opts = {}) {
     }
 
     summary.payouts_upserted_total += shopSummary.payouts_upserted;
+    summary.je_posted_total        += shopSummary.je_posted;
+    summary.je_skipped_total       += shopSummary.je_skipped;
+    summary.je_errors              = summary.je_errors.concat(shopSummary.je_errors);
   }
 
   return summary;
@@ -186,13 +196,29 @@ async function upsertPayout(supabase, shop, payout, shopSummary) {
     raw_payload: payout,
   };
 
-  const { error } = await supabase
+  const { data: upPayout, error } = await supabase
     .from("faire_payouts")
-    .upsert(payoutRow, { onConflict: "faire_shop_id,faire_payout_id" });
-  if (error) {
-    throw new Error(`faire_payouts upsert failed for ${payoutRow.faire_payout_id}: ${error.message}`);
+    .upsert(payoutRow, { onConflict: "faire_shop_id,faire_payout_id" })
+    .select("id")
+    .maybeSingle();
+  if (error || !upPayout) {
+    throw new Error(`faire_payouts upsert failed for ${payoutRow.faire_payout_id}: ${error?.message || "no row"}`);
   }
   shopSummary.payouts_upserted += 1;
+
+  // ── P12c-3: Post the bank deposit JE for this payout ────────────────────
+  // Idempotent — already_posted short-circuits via faire_payouts.je_id.
+  try {
+    const out = await postFairePayoutJe({
+      fairePayoutId: upPayout.id,
+      adminClient: supabase,
+    });
+    if (out.status === "posted") shopSummary.je_posted += 1;
+    else if (out.status === "already_posted") shopSummary.je_skipped += 1;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    shopSummary.je_errors.push(`faire_payout ${upPayout.id}: ${msg}`);
+  }
 }
 
 /**

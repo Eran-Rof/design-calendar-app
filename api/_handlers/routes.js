@@ -613,6 +613,9 @@ import h446 from "./internal/shopify/post-cogs/[id].js";
 import h447 from "./internal/shopify/webhooks/refunds.js";
 import h448 from "./internal/shopify/process-refund/[id].js";
 import h449 from "../cron/shopify-refunds-backfill.js";
+// P12c-3 — Faire AR JE posting (per-order + per-payout manual backfill).
+import h460 from "./internal/faire/post-order/[id].js";
+import h461 from "./internal/faire/post-payout/[id].js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1166,6 +1169,9 @@ export const ROUTES = [
   { pattern: "/api/internal/shopify/webhooks/refunds",                 handler: h447 },
   { pattern: "/api/internal/shopify/process-refund/:id",               handler: h448 },
   { pattern: "/api/cron/shopify-refunds-backfill",                     handler: h449 },
+  // P12c-3 — Faire AR JE posting (per-order + per-payout manual backfill).
+  { pattern: "/api/internal/faire/post-order/:id",                     handler: h460 },
+  { pattern: "/api/internal/faire/post-payout/:id",                    handler: h461 },
 ];
 
 export function compileRoutes(routes) {
