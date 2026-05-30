@@ -567,6 +567,21 @@ import h513 from "./internal/recon/run-ap.js";
 //   h514 = POST /api/internal/recon/run-gl (renumbered from h483 on rebase —
 //   h483 taken by costing on main; h512 AR, h513 AP; next free is h514.)
 import h514 from "./internal/recon/run-gl.js";
+// P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
+//   h515 = POST /api/internal/recon/run-inventory (renumbered from h484 on rebase —
+//   h484 taken by costing on main; h512 AR, h513 AP, h514 GL; next free is h515.)
+import h515 from "./internal/recon/run-inventory.js";
+// P9-7 — Reconciliation dashboard read handlers + clear flow (APPEND-ONLY).
+//   Renumbered from h487-h490 on rebase (those are taken on main); recon
+//   block continues h516-h519 after the engines (h512-h515).
+//   h516 = GET  /api/internal/recon/runs
+//   h517 = GET  /api/internal/recon/variances
+//   h518 = POST /api/internal/recon/variances/:id/clear
+//   h519 = GET  /api/internal/recon/cutovers
+import h516 from "./internal/recon/runs.js";
+import h517 from "./internal/recon/variances.js";
+import h518 from "./internal/recon/clear.js";
+import h519 from "./internal/recon/cutovers.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1091,6 +1106,15 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/run-ap",                             handler: h513 },
   // P9-5 — GL reconciliation engine (lagging indicator + missing_standalone_je auto-cat).
   { pattern: "/api/internal/recon/run-gl",                             handler: h514 },
+  // P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
+  { pattern: "/api/internal/recon/run-inventory",                      handler: h515 },
+  // P9-7 — Reconciliation dashboard read handlers + clear flow. Subpath
+  // /variances/:id/clear MUST come before the bare /variances list route
+  // so the dispatcher matches it first (regex order = ROUTES order).
+  { pattern: "/api/internal/recon/variances/:id/clear",                handler: h518 },
+  { pattern: "/api/internal/recon/variances",                          handler: h517 },
+  { pattern: "/api/internal/recon/runs",                               handler: h516 },
+  { pattern: "/api/internal/recon/cutovers",                           handler: h519 },
 ];
 
 export function compileRoutes(routes) {
