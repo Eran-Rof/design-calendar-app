@@ -488,6 +488,10 @@ import h466 from "./internal/shopify/webhooks/disputes.js";
 //   h474 = GET  /api/cron/faire-returns-weekly        (Mon 05:30 UTC)
 import h473 from "./internal/faire/sync-returns.js";
 import h474 from "../cron/faire-returns-weekly.js";
+// P10-6 — Per-entity COA "Copy from ROF" wizard.
+//   h528 = POST /api/internal/entities/:id/coa-copy-from-rof (renumbered from
+//   h475 on rebase — h475 is costing/projects on main).
+import h528 from "./internal/entities/[id]/coa-copy.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -1140,6 +1144,8 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-reps",                              handler: h523 },
   // P8-9 — CRM tasks-due-tomorrow daily cron.
   { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },
+  // P10-6 — Per-entity COA copy-from-ROF wizard.
+  { pattern: "/api/internal/entities/:id/coa-copy-from-rof",           handler: h528 },
 ];
 
 export function compileRoutes(routes) {

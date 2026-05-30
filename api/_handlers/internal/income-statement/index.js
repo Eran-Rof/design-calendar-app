@@ -51,6 +51,17 @@ async function resolveDefaultEntityId(admin) {
   return data.id;
 }
 
+// P10-8 D9: respect X-Entity-ID header (set by the P10-5 switcher); fall back
+// to ROF when absent.
+export async function resolveReportEntityId(admin, req) {
+  const hdr = (req.headers?.["x-entity-id"] || req.headers?.["X-Entity-ID"] || "").toString().trim();
+  if (hdr) {
+    const { data } = await admin.from("entities").select("id").eq("id", hdr).maybeSingle();
+    if (data?.id) return data.id;
+  }
+  return await resolveDefaultEntityId(admin);
+}
+
 // Try to derive the current FY start/today from `gl_periods` so the default
 // window aligns with the operator's fiscal calendar. If that table is empty or
 // errors, fall back to a hardcoded calendar-year window (Jan 1 → today).
@@ -125,7 +136,8 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const entityId = await resolveDefaultEntityId(admin);
+  // P10-8 D9: respect X-Entity-ID from the entity switcher; fall back to ROF.
+  const entityId = await resolveReportEntityId(admin, req);
   if (!entityId) return res.status(500).json({ error: "Default entity (ROF) not found" });
 
   const url = new URL(req.url, `https://${req.headers.host}`);
