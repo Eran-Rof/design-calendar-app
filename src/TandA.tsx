@@ -74,7 +74,7 @@ import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-3 — Personalization: favorites drawer + menu-click telemetry.
-import FavoritesDrawer from "./components/FavoritesDrawer";
+import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import AutoLandingToast from "./components/AutoLandingToast";
@@ -1534,6 +1534,7 @@ function TandAApp() {
             </button>
           )}
           <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
+          <FavoritesMenu />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {user.avatar ? (
               <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
@@ -2082,8 +2083,6 @@ function TandAApp() {
         ]}
         appId="po_wip"
       />
-      {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
-      <FavoritesDrawer />
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}

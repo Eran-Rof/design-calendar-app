@@ -24,7 +24,6 @@ import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
 import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
-import FavoritesDrawer from "./components/FavoritesDrawer";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import { usePersonalization } from "./hooks/usePersonalization";
@@ -1093,8 +1092,6 @@ function ATSReport() {
   return (
     <>
       {panel}
-      {/* Cross-cutter T4-5 — Personalization favorites drawer (fixed right). */}
-      <FavoritesDrawer />
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
     </>
