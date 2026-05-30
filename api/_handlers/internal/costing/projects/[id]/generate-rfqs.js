@@ -141,7 +141,7 @@ export default async function handler(req, res) {
     const totalQty = vendorLines.reduce((s, l) => s + (Number(l.target_qty) || 0), 0);
     const totalBudget = vendorLines.reduce((s, l) => s + (Number(l.target_qty) || 0) * (Number(l.target_cost) || 0), 0);
 
-    const { data: rfq, error: rfqErr } = await admin.from("rfqs").insert({
+    const baseInsert = {
       entity_id: entityId,
       title,
       description: `RFQ generated from costing project "${project.project_name}" (${vendorLines.length} line${vendorLines.length === 1 ? "" : "s"}).`,
@@ -152,7 +152,20 @@ export default async function handler(req, res) {
       estimated_budget: Number.isFinite(totalBudget) && totalBudget > 0 ? totalBudget : null,
       currency: project.currency || "USD",
       created_by: "costing_module",
-    }).select("id").maybeSingle();
+    };
+    // Include source_costing_project_id when the migration has run; retry
+    // without it on "column does not exist" so the RFQ still gets created
+    // pre-migration (customer/project link is filled in once the column
+    // exists + future RFQs get linked automatically).
+    let rfq;
+    let rfqErr;
+    ({ data: rfq, error: rfqErr } = await admin.from("rfqs").insert({
+      ...baseInsert,
+      source_costing_project_id: project.id,
+    }).select("id").maybeSingle());
+    if (rfqErr && /source_costing_project_id/.test(rfqErr.message || "")) {
+      ({ data: rfq, error: rfqErr } = await admin.from("rfqs").insert(baseInsert).select("id").maybeSingle());
+    }
 
     if (rfqErr || !rfq) {
       errors.push({ vendor_id: vendorId, vendor: vendorLabel, error: rfqErr?.message || "rfqs insert returned no row" });
