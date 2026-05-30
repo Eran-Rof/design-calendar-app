@@ -16,6 +16,8 @@ import { usePlanFlow } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
 import MasterSelectCell from "./MasterSelectCell";
 import ColorPickerCell from "./ColorPickerCell";
+import ColumnsButton from "./ColumnsButton";
+import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { appConfirm } from "../../utils/theme";
@@ -85,6 +87,15 @@ export default function CostingGrid() {
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
   const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);
   const loadMasters = useCostingStore((s) => s.loadMasters);
+
+  // Persisted column show/hide (localStorage). Toggleable via the
+  // <ColumnsButton/> in the grid toolbar. visibleColumns derives from
+  // COLUMNS minus the hidden set; visibleWidth keeps header/body/footer
+  // minWidth in lockstep so nothing drifts when columns toggle.
+  const { hiddenColumns, toggleColumn, resetColumns } = usePersistedHiddenColumns("costing_grid_hidden_columns");
+  const visibleColumns = COLUMNS.filter((c) => !hiddenColumns.has(c.key));
+  const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
+  const toggleableColumns = COLUMNS.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
 
   // "$ Qts" button: select the line AND open the per-project panel.
   const openQuotesFor = (lineId: string) => {
@@ -190,23 +201,30 @@ export default function CostingGrid() {
             fontSize: 12, fontWeight: 600,
           }}
         >+ Add row</button>
+        <div style={{ marginLeft: "auto" }}>
+          <ColumnsButton
+            columns={toggleableColumns}
+            hidden={hiddenColumns}
+            onToggle={toggleColumn}
+            onReset={resetColumns}
+          />
+        </div>
       </div>
 
       <div style={{
         border: "1px solid #334155", borderRadius: 6,
         background: "#1E293B", overflowX: "auto",
       }}>
-        {/* Header */}
-        <div style={{ display: "flex", minWidth: TOTAL_WIDTH, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
-          {COLUMNS.map((c) => (
+        {/* Header — cells use flex:0 0 width + box-sizing:border-box so the
+            border doesn't push width outward, matching body + footer exactly. */}
+        <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
+          {visibleColumns.map((c) => (
             <div key={c.key} style={{
-              width: c.width, flexShrink: 0,
-              // 10px right-pad matches numeric/text cell pad (4px cell + 6px input)
-              // so the header label right-edge aligns with the input text right-edge.
+              flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
               padding: "8px 10px", fontSize: 10, fontWeight: 700,
               color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
               textAlign: c.align || "left",
-              borderRight: "1px solid #1E293B",
+              borderRight: "1px solid #475569",
             }}>{c.label}</div>
           ))}
         </div>
@@ -239,16 +257,16 @@ export default function CostingGrid() {
               onMouseEnter={(e) => { if (!isFocused) e.currentTarget.style.background = "#334155"; }}
               onMouseLeave={(e) => { if (!isFocused) e.currentTarget.style.background = "transparent"; }}
               style={{
-                display: "flex", minWidth: TOTAL_WIDTH,
+                display: "flex", minWidth: visibleWidth,
                 borderTop: "1px solid #334155",
                 background: isFocused ? "#172554" : "transparent",
                 cursor: "default",
                 transition: "background 0.12s",
               }}
             >
-              {COLUMNS.map((c) => {
+              {visibleColumns.map((c) => {
                 const style: React.CSSProperties = {
-                  width: c.width, flexShrink: 0,
+                  flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
                   padding: "0 4px",
                   fontSize: 12, color: "#E2E8F0",
                   textAlign: c.align || "left",
@@ -256,7 +274,6 @@ export default function CostingGrid() {
                   borderBottom: "1px solid #475569",
                   display: "flex", alignItems: "center",
                   minHeight: 32,
-                  overflow: "hidden", // keep date picker + long text inside
                 };
 
                 // Drag handle
@@ -460,18 +477,18 @@ export default function CostingGrid() {
         {/* Footer */}
         {lines.length > 0 && (
           <div style={{
-            display: "flex", minWidth: TOTAL_WIDTH,
+            display: "flex", minWidth: visibleWidth,
             borderTop: "2px solid #475569",
             background: "#0F172A", fontWeight: 700, color: "#E2E8F0",
             fontSize: 12, position: "sticky", bottom: 0, zIndex: 4,
           }}>
-            {COLUMNS.map((c) => {
+            {visibleColumns.map((c) => {
               const style: React.CSSProperties = {
-                width: c.width, flexShrink: 0,
+                flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
                 // Matches header pad so footer totals line up under header labels.
                 padding: "8px 10px",
                 textAlign: c.align || "left",
-                borderRight: "1px solid #334155",
+                borderRight: "1px solid #475569",
                 display: "flex", alignItems: "center",
                 minHeight: 36,
               };

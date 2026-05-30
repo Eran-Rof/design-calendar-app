@@ -6,11 +6,11 @@
 
 import { useState } from "react";
 
-const STORAGE_KEY = "ws_planning_hidden_columns";
+const DEFAULT_STORAGE_KEY = "ws_planning_hidden_columns";
 
-function loadHiddenColumns(): Set<string> {
+function loadHiddenColumns(storageKey: string): Set<string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return new Set();
     const arr = JSON.parse(raw);
     return new Set(Array.isArray(arr) ? arr : []);
@@ -26,8 +26,13 @@ export interface HiddenColumnsApi {
   resetColumns: () => void;
 }
 
-export function usePersistedHiddenColumns(): HiddenColumnsApi {
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(loadHiddenColumns);
+/**
+ * Accepts an optional storageKey so each grid that wants column-visibility
+ * memory can have its own. Defaults to "ws_planning_hidden_columns" for
+ * backwards compat with existing wholesale planning callers.
+ */
+export function usePersistedHiddenColumns(storageKey: string = DEFAULT_STORAGE_KEY): HiddenColumnsApi {
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => loadHiddenColumns(storageKey));
 
   const toggleColumn = (key: string) => {
     setHiddenColumns((prev) => {
@@ -35,7 +40,7 @@ export function usePersistedHiddenColumns(): HiddenColumnsApi {
       if (next.has(key)) next.delete(key);
       else next.add(key);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(next)));
+        localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
       } catch { /* ignore quota */ }
       return next;
     });
@@ -43,7 +48,7 @@ export function usePersistedHiddenColumns(): HiddenColumnsApi {
 
   const resetColumns = () => {
     setHiddenColumns(new Set());
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
   };
 
   return { hiddenColumns, toggleColumn, resetColumns };
