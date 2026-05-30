@@ -64,9 +64,11 @@ export default async function handler(req, res) {
   const lineIds = Array.isArray(body?.line_ids) ? body.line_ids.filter((s) => typeof s === "string" && s.length > 0) : [];
   if (lineIds.length === 0) return res.status(400).json({ error: "line_ids[] is required and must be non-empty" });
 
-  // 1. Project (for title + currency + due date defaults).
+  // 1. Project (for title + due date defaults). costing_projects has no
+  // `currency` column — RFQs default to USD on the insert below. If a
+  // multi-currency costing project lands later, add the column then.
   const { data: project, error: projectErr } = await admin.from("costing_projects")
-    .select("id, project_name, brand, due_date, currency")
+    .select("id, project_name, brand, due_date")
     .eq("id", projectId).maybeSingle();
   if (projectErr) return res.status(500).json({ error: projectErr.message });
   if (!project) return res.status(404).json({ error: "Project not found" });
@@ -150,7 +152,7 @@ export default async function handler(req, res) {
       delivery_required_by: project.due_date || null,
       estimated_quantity: Math.round(totalQty) || null,
       estimated_budget: Number.isFinite(totalBudget) && totalBudget > 0 ? totalBudget : null,
-      currency: project.currency || "USD",
+      currency: "USD",
       created_by: "costing_module",
     };
     // Include source_costing_project_id when the migration has run; retry
