@@ -3,12 +3,30 @@
 // Tangerine P2 Chunk 8 - HR/Employee master admin panel.
 // CRUD over employees. manager_employee_id picker is a dropdown of other
 // active employees. Soft-delete via PATCH is_active=false.
+//
+// Wave 5 universal-primitive adoption (2026-05-30):
+//   - TablePrefs           — per-user column show/hide on the list table.
+//   - useRowClickEdit +    — click anywhere on a row (except action buttons)
+//     ScrollHighlightRow     to open the edit modal; faded blue trail keeps
+//                            track of where the operator last clicked.
+//   - DynamicSearchInput   — replaces the old <input> + onChange wiring with
+//                            a 200ms-debounced searchbox + clear-X built in.
+//   - SearchableSelect     — manager picker in the modal swaps native
+//                            <select> for the type-ahead combobox (employee
+//                            rosters can easily exceed the ~7-option
+//                            threshold this primitive targets).
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the employee detail modal.
 import RowHistory from "./components/RowHistory";
+// Wave 5 universal primitives.
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
 type Employee = {
   id: string;
@@ -29,6 +47,18 @@ type Employee = {
   created_at: string;
   updated_at: string;
 };
+
+// Wave 5 — column visibility registry. Persistence key namespace follows
+// the project convention used by InternalStyleMaster ("tangerine:<panel>:columns").
+const EMPLOYEES_TABLE_KEY = "tangerine:employees:columns";
+const EMPLOYEES_COLUMNS: ColumnDef[] = [
+  { key: "code",        label: "Code" },
+  { key: "name",        label: "Name" },
+  { key: "email",       label: "Email" },
+  { key: "title",       label: "Title" },
+  { key: "department",  label: "Department" },
+  { key: "active",      label: "Active" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -71,6 +101,23 @@ export default function InternalEmployees() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
 
+  // Wave 5 — column visibility (per-user persisted via user_preferences).
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    EMPLOYEES_TABLE_KEY,
+    EMPLOYEES_COLUMNS,
+  );
+  const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  // Wave 5 — universal row-click + scroll-highlight. Clicking anywhere on a
+  // row opens the edit modal; the inline <button>s already short-circuit via
+  // the hook's INTERACTIVE_SELECTOR (no extra stopPropagation needed).
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<Employee>({
+    onRowClick: (e) => setEditing(e),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (e) => `Edit employee ${e.code}${e.display_name ? ` ${e.display_name}` : ""}`,
+  });
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -110,11 +157,24 @@ export default function InternalEmployees() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <input style={{ ...inputStyle, width: 280 }} placeholder="Search code / name / email" value={q} onChange={(e) => setQ(e.target.value)} />
+        <DynamicSearchInput
+          value={q}
+          onChange={setQ}
+          placeholder="Search code / name / email"
+          ariaLabel="Search employees"
+          wrapperStyle={{ maxWidth: 280 }}
+        />
         <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Show inactive
         </label>
+        <TablePrefsButton
+          tableKey={EMPLOYEES_TABLE_KEY}
+          columns={EMPLOYEES_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="employees"
@@ -145,12 +205,12 @@ export default function InternalEmployees() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Code</th>
-              <th style={th}>Name</th>
-              <th style={th}>Email</th>
-              <th style={th}>Title</th>
-              <th style={th}>Department</th>
-              <th style={th}>Active</th>
+              <th style={th} hidden={!isVisible("code")}>Code</th>
+              <th style={th} hidden={!isVisible("name")}>Name</th>
+              <th style={th} hidden={!isVisible("email")}>Email</th>
+              <th style={th} hidden={!isVisible("title")}>Title</th>
+              <th style={th} hidden={!isVisible("department")}>Department</th>
+              <th style={th} hidden={!isVisible("active")}>Active</th>
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -162,13 +222,19 @@ export default function InternalEmployees() {
               </td></tr>
             )}
             {rows.map((e) => (
-              <tr key={e.id} style={e.is_active ? {} : { opacity: 0.55 }}>
-                <td style={{ ...td, fontFamily: "monospace" }}>{e.code}</td>
-                <td style={td}>{e.display_name}</td>
-                <td style={{ ...td, color: C.textSub }}>{e.email}</td>
-                <td style={td}>{e.title || "—"}</td>
-                <td style={td}>{e.department || "—"}</td>
-                <td style={td}>{e.is_active ? "🟢" : "⚪"}</td>
+              <ScrollHighlightRow
+                key={e.id}
+                rowId={e.id}
+                highlightedRowId={highlightedId}
+                {...getRowProps(e)}
+                style={e.is_active ? undefined : { opacity: 0.55 }}
+              >
+                <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("code")}>{e.code}</td>
+                <td style={td} hidden={!isVisible("name")}>{e.display_name}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("email")}>{e.email}</td>
+                <td style={td} hidden={!isVisible("title")}>{e.title || "—"}</td>
+                <td style={td} hidden={!isVisible("department")}>{e.department || "—"}</td>
+                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "🟢" : "⚪"}</td>
                 <td style={td}>
                   <button style={btnSecondary} onClick={() => setEditing(e)}>Edit</button>
                   &nbsp;
@@ -176,7 +242,7 @@ export default function InternalEmployees() {
                     <button style={btnDanger} onClick={() => void deactivate(e.id)}>Deactivate</button>
                   )}
                 </td>
-              </tr>
+              </ScrollHighlightRow>
             ))}
           </tbody>
         </table>
@@ -269,7 +335,25 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
     }
   }
 
-  const otherActive = employees.filter((e) => e.id !== employee?.id && e.is_active);
+  const otherActive = useMemo(
+    () => employees.filter((e) => e.id !== employee?.id && e.is_active),
+    [employees, employee?.id],
+  );
+
+  // Wave 5 — Manager picker swap: native <select> → SearchableSelect.
+  // Employee rosters grow past the ~7-option threshold the primitive
+  // targets; the haystack includes the employee code so filtering by
+  // "EB001" or by display name both work.
+  const managerOptions: SearchableSelectOption[] = useMemo(() => {
+    return [
+      { value: "", label: "(none)" },
+      ...otherActive.map((m) => ({
+        value: m.id,
+        label: `${m.display_name} (${m.code})`,
+        searchHaystack: `${m.display_name} ${m.code} ${m.email ?? ""}`,
+      })),
+    ];
+  }, [otherActive]);
 
   return (
     <div style={{
@@ -317,10 +401,13 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
             <input style={inputStyle} value={form.department} onChange={(e) => set("department", e.target.value)} />
           </Field>
           <Field label="Manager">
-            <select style={inputStyle} value={form.manager_employee_id} onChange={(e) => set("manager_employee_id", e.target.value)}>
-              <option value="">(none)</option>
-              {otherActive.map((m) => <option key={m.id} value={m.id}>{m.display_name} ({m.code})</option>)}
-            </select>
+            <SearchableSelect
+              value={form.manager_employee_id || null}
+              onChange={(v) => set("manager_employee_id", v)}
+              options={managerOptions}
+              placeholder="(none)"
+              emptyText="No matching employees"
+            />
           </Field>
           <Field label="auth_user_id (optional)">
             <input style={inputStyle} value={form.auth_user_id} onChange={(e) => set("auth_user_id", e.target.value)} placeholder="uuid of auth.users row" />
