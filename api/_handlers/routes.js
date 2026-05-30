@@ -500,6 +500,11 @@ import h487 from "./internal/recon/runs.js";
 import h488 from "./internal/recon/variances.js";
 import h489 from "./internal/recon/clear.js";
 import h490 from "./internal/recon/cutovers.js";
+// P9-8 — Weekly cron orchestrator + manual run-all trigger (APPEND-ONLY).
+//   h500 = POST /api/internal/recon/run-all   (manual orchestrator trigger)
+//   h501 = GET/POST /api/cron/recon-weekly    (Monday 06:00 UTC cron)
+import h500 from "./internal/recon/run-all.js";
+import h501 from "../cron/recon-weekly.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -965,7 +970,6 @@ export const ROUTES = [
   // P12b-5 — Walmart returns sync (credit memo + restock + restocking fee).
   { pattern: "/api/internal/walmart/sync-returns",                     handler: h471 },
   { pattern: "/api/cron/walmart-returns-daily",                        handler: h472 },
-<<<<<<< HEAD
   // P11-8 — Shopify dispute (chargeback) webhook intake.
   { pattern: "/api/internal/shopify/webhooks/disputes",                handler: h466 },
   // Cross-cutter T11-3 — Universal audit log read endpoints.
@@ -980,6 +984,10 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/variances",                          handler: h488 },
   { pattern: "/api/internal/recon/runs",                               handler: h487 },
   { pattern: "/api/internal/recon/cutovers",                           handler: h490 },
+  // P9-8 — Weekly recon orchestrator. run-all is the manual trigger;
+  // recon-weekly is the cron entrypoint (Monday 06:00 UTC).
+  { pattern: "/api/internal/recon/run-all",                            handler: h500 },
+  { pattern: "/api/cron/recon-weekly",                                 handler: h501 },
 ];
 
 export function compileRoutes(routes) {
