@@ -28,6 +28,8 @@
 //     errors:        [ { domain, kind, message }, ... ],
 //   }
 
+import { isDomainSolo } from "./solo-skip.js";
+
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** True iff `v` is a YYYY-MM-DD string that round-trips through Date. */
@@ -392,6 +394,12 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
   // ────────────────────────────────────────────────────────────────────
   // AR
   // ────────────────────────────────────────────────────────────────────
+  // Per P9-9: skip the AR summary JE if AR has cut over to solo —
+  // Tangerine is authoritative and the daily summary JE is now posted
+  // by the live AR module, not the mirror.
+  if (await isDomainSolo(supabase, entity_id, "ar")) {
+    result.skipped.push({ domain: "ar", reason: "solo_cutover" });
+  } else
   try {
     const arRun = await findCompletedRun(supabase, { entity_id, domain: "ar", mirror_date });
     if (!arRun) {
@@ -437,6 +445,10 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
   // ────────────────────────────────────────────────────────────────────
   // AP
   // ────────────────────────────────────────────────────────────────────
+  // Per P9-9: skip the AP summary JE if AP has cut over to solo.
+  if (await isDomainSolo(supabase, entity_id, "ap")) {
+    result.skipped.push({ domain: "ap", reason: "solo_cutover" });
+  } else
   try {
     const apRun = await findCompletedRun(supabase, { entity_id, domain: "ap", mirror_date });
     if (!apRun) {
@@ -482,6 +494,10 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
   // ────────────────────────────────────────────────────────────────────
   // Inventory (only if delta ≥ $1)
   // ────────────────────────────────────────────────────────────────────
+  // Per P9-9: skip the inventory summary JE if inventory has cut over.
+  if (await isDomainSolo(supabase, entity_id, "inventory")) {
+    result.skipped.push({ domain: "inventory", reason: "solo_cutover" });
+  } else
   try {
     const invRun = await findCompletedRun(supabase, { entity_id, domain: "inventory", mirror_date });
     if (!invRun) {

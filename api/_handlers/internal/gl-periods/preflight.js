@@ -230,9 +230,18 @@ export async function countUnresolvedReconVariances(admin, period) {
 }
 
 // Compose the single preflight row from an unresolved-recon snapshot.
-// Pre-cutover this is a SOFT block (blocking:false). P9-9 will add the
-// hard-block branch keyed on entities.parallel_run_status[domain].
-export function buildUnresolvedReconRow(snapshot) {
+// Pre-cutover this is a SOFT block (blocking:false). After P9-9 sign-off
+// flips entities.parallel_run_status[domain].status to 'solo', the same
+// check becomes a HARD block (blocking:true) — operators can't close a
+// period that still carries unresolved variances on a domain Tangerine
+// is now authoritative for.
+//
+// Behavior:
+//   - blocking = true  iff ANY domain in the snapshot.perDomain map
+//                       has at least one unresolved variance AND that
+//                       domain is in 'solo' status on the entity.
+//   - blocking = false otherwise (pre-cutover / parallel mode).
+export function buildUnresolvedReconRow(snapshot, soloDomains = []) {
   if (snapshot.total === 0) {
     return {
       check_name: "unresolved_recon_variances",
@@ -241,15 +250,71 @@ export function buildUnresolvedReconRow(snapshot) {
       blocking: false,
     };
   }
-  const parts = RECON_DOMAINS
-    .filter((d) => (snapshot.perDomain[d] || 0) > 0)
-    .map((d) => `${d.toUpperCase()}: ${snapshot.perDomain[d]}`);
+  const soloSet = new Set(Array.isArray(soloDomains) ? soloDomains : []);
+  const domainsWithVariances = RECON_DOMAINS.filter(
+    (d) => (snapshot.perDomain[d] || 0) > 0,
+  );
+  const soloDomainsWithVariances = domainsWithVariances.filter((d) =>
+    soloSet.has(d),
+  );
+  const parallelDomainsWithVariances = domainsWithVariances.filter(
+    (d) => !soloSet.has(d),
+  );
+  const parts = domainsWithVariances.map(
+    (d) =>
+      `${d.toUpperCase()}: ${snapshot.perDomain[d]}${soloSet.has(d) ? " (post-cutover)" : ""}`,
+  );
+
+  const blocking = soloDomainsWithVariances.length > 0;
+  const detailHead = `${snapshot.total} unresolved Parallel-Run reconciliation variance${snapshot.total === 1 ? "" : "s"} at or before period end — ${parts.join(", ")}.`;
+  let detailTail;
+  if (blocking) {
+    detailTail =
+      ` ${soloDomainsWithVariances.map((d) => d.toUpperCase()).join(", ")} ` +
+      `${soloDomainsWithVariances.length === 1 ? "is" : "are"} post-cutover (solo) — period cannot close with open variances on a domain Tangerine is authoritative for. ` +
+      `Open InternalReconciliationDashboard to triage.`;
+    if (parallelDomainsWithVariances.length > 0) {
+      detailTail +=
+        ` Parallel-run domains (${parallelDomainsWithVariances.map((d) => d.toUpperCase()).join(", ")}) remain advisory until their own cutover sign-off.`;
+    }
+  } else {
+    detailTail =
+      ` Open InternalReconciliationDashboard to triage. Advisory until per-domain cutover sign-off (P9-9).`;
+  }
+
   return {
     check_name: "unresolved_recon_variances",
     status: "fail",
-    detail: `${snapshot.total} unresolved Parallel-Run reconciliation variance${snapshot.total === 1 ? "" : "s"} at or before period end — ${parts.join(", ")}. Open InternalReconciliationDashboard to triage. Advisory until per-domain cutover sign-off (P9-9).`,
-    blocking: false,
+    detail: `${detailHead}${detailTail}`,
+    blocking,
   };
+}
+
+// Read entities.parallel_run_status and return the list of recon
+// domains currently in 'solo' status. Best-effort: any error returns
+// an empty list (treat as pre-cutover, soft-block).
+export async function fetchSoloDomains(admin, entity_id) {
+  if (!entity_id) return [];
+  try {
+    const { data, error } = await admin
+      .from("entities")
+      .select("parallel_run_status")
+      .eq("id", entity_id)
+      .maybeSingle();
+    if (error || !data) return [];
+    const blob = data.parallel_run_status;
+    if (!blob || typeof blob !== "object") return [];
+    const out = [];
+    for (const d of RECON_DOMAINS) {
+      const entry = blob[d];
+      if (entry && typeof entry === "object" && entry.status === "solo") {
+        out.push(d);
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 // Compose the single preflight row from a deposit-count snapshot.
@@ -292,9 +357,15 @@ export async function runPreflight(admin, period) {
     const snapshot = await countUnmatchedMarketplaceDeposits(admin, period);
     rows.push(buildMarketplaceDepositsRow(snapshot));
 
-    // P9-8: unresolved recon variances soft-block.
+    // P9-8 / P9-9: unresolved recon variances.
+    //   - Pre-cutover (parallel mode): soft-block (advisory only).
+    //   - Post-cutover (parallel_run_status[domain].status === 'solo'):
+    //     hard-block if there's an unresolved variance on the cut-over
+    //     domain — the operator can't close a period with open variances
+    //     on a domain Tangerine is now authoritative for.
     const reconSnap = await countUnresolvedReconVariances(admin, period);
-    rows.push(buildUnresolvedReconRow(reconSnap));
+    const soloDomains = await fetchSoloDomains(admin, period.entity_id);
+    rows.push(buildUnresolvedReconRow(reconSnap, soloDomains));
   }
 
   return { rows, summary: summarize(rows) };

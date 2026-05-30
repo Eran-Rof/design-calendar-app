@@ -32,6 +32,8 @@
 //     errors: [ { kind, ...context } ],
 //   }
 
+import { isDomainSolo, makeSoloSkippedSummary } from "./solo-skip.js";
+
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isISODate(v) {
@@ -192,6 +194,14 @@ export async function mirrorArForDate(supabase, entity_id, mirror_date) {
   if (!isISODate(mirror_date)) {
     summary.errors.push({ kind: "bad_date", message: `mirror_date '${mirror_date}' is not YYYY-MM-DD` });
     return summary;
+  }
+
+  // Per P9-9: if entities.parallel_run_status.ar.status === 'solo' for
+  // this entity, AR has cut over and Tangerine is authoritative; skip
+  // the mirror to avoid overwriting direct AR rows with stale Xoro
+  // mirror rows.
+  if (await isDomainSolo(supabase, entity_id, "ar")) {
+    return makeSoloSkippedSummary("ar");
   }
 
   const { start, end } = dayBounds(mirror_date);

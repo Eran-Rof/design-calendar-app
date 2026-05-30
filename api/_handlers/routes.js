@@ -505,6 +505,9 @@ import h490 from "./internal/recon/cutovers.js";
 //   h501 = GET/POST /api/cron/recon-weekly    (Monday 06:00 UTC cron)
 import h500 from "./internal/recon/run-all.js";
 import h501 from "../cron/recon-weekly.js";
+// P9-9 — Cutover signoff (operator-confirmed solo flip per domain) (APPEND-ONLY).
+//   h502 = POST /api/internal/recon/cutover-signoff
+import h502 from "./internal/recon/cutover-signoff.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -988,6 +991,8 @@ export const ROUTES = [
   // recon-weekly is the cron entrypoint (Monday 06:00 UTC).
   { pattern: "/api/internal/recon/run-all",                            handler: h500 },
   { pattern: "/api/cron/recon-weekly",                                 handler: h501 },
+  // P9-9 — Cutover signoff (operator-confirmed solo flip per domain).
+  { pattern: "/api/internal/recon/cutover-signoff",                    handler: h502 },
 ];
 
 export function compileRoutes(routes) {
