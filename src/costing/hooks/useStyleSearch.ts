@@ -70,7 +70,7 @@ export function useVendorSearch() {
       const ac = new AbortController();
       ctrl.current = ac;
       try {
-        const hits = await searchVendors(trimmed, ac.signal);
+        const hits = await searchVendors(trimmed, { signal: ac.signal });
         if (!ac.signal.aborted) setRows(hits);
       } catch {
         if (!ac.signal.aborted) setRows([]);

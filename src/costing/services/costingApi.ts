@@ -263,10 +263,11 @@ export async function searchStyles(q: string, signal?: AbortSignal): Promise<Sty
   return out.rows || [];
 }
 
-export async function searchVendors(q: string, signal?: AbortSignal): Promise<VendorHit[]> {
+export async function searchVendors(q: string, opts?: { limit?: number; signal?: AbortSignal }): Promise<VendorHit[]> {
   const sp = new URLSearchParams();
   if (q) sp.set("q", q);
-  const res = await fetch(`/api/internal/costing/search/vendors?${sp.toString()}`, { signal });
+  if (opts?.limit) sp.set("limit", String(opts.limit));
+  const res = await fetch(`/api/internal/costing/search/vendors?${sp.toString()}`, { signal: opts?.signal });
   const out = await json<{ rows: VendorHit[] }>(res);
   return out.rows || [];
 }

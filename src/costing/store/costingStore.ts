@@ -110,6 +110,13 @@ type State = {
   // /search/colors will pick them up next reload).
   extraColors: string[];
   addExtraColor: (name: string) => Promise<void>;
+
+  // Pre-loaded vendor list for the grid's vendor picker. Loaded once on
+  // grid mount (small, <100 active vendors typically). Same pattern the
+  // planning grid uses for its color picker — pre-load the options so
+  // the popover renders immediately without an async wait.
+  vendorsForPicker: api.VendorHit[];
+  loadVendorsForPicker: () => Promise<void>;
 };
 
 export const useCostingStore = create<State>((set, get) => ({
@@ -578,6 +585,19 @@ export const useCostingStore = create<State>((set, get) => ({
     set({ extraColors: next });
     try { await sbSaveSvc("costing_extra_colors", next); }
     catch (e) { set({ error: `addExtraColor: ${(e as Error).message}` }); }
+  },
+
+  // ── Vendor picker pre-load ────────────────────────────────────────────────
+
+  vendorsForPicker: [],
+
+  async loadVendorsForPicker() {
+    try {
+      const rows = await api.searchVendors("", { limit: 500 });
+      set({ vendorsForPicker: rows });
+    } catch (e) {
+      set({ error: `loadVendorsForPicker: ${(e as Error).message}` });
+    }
   },
 }));
 

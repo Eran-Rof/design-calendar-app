@@ -1,6 +1,7 @@
 // api/internal/costing/search/vendors
-// GET ?q=<text>  → up to 25 active vendors
-// ILIKE on legal_name, code.
+// GET ?q=<text>&limit=<int>  → up to N active vendors (default 25, max 500)
+// ILIKE on legal_name, code. Higher limit lets the popover picker pre-load
+// the entire vendor list once instead of relying on as-you-type search.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
@@ -24,11 +25,12 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const q = (url.searchParams.get("q") || "").trim();
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "25", 10) || 25, 500);
 
   let query = admin.from("vendors")
     .select("id, code, legal_name, country, default_currency, status")
     .eq("status", "active")
-    .limit(25);
+    .limit(limit);
   if (q) {
     const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
     query = query.or(`legal_name.ilike.${like},code.ilike.${like}`);

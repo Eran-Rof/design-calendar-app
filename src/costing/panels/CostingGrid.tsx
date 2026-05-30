@@ -109,6 +109,7 @@ export default function CostingGrid() {
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
   const setNotice = useCostingStore((s) => s.setNotice);
   const loadMasters = useCostingStore((s) => s.loadMasters);
+  const loadVendorsForPicker = useCostingStore((s) => s.loadVendorsForPicker);
 
   // Persisted column show/hide (localStorage). Toggleable via the
   // <ColumnsButton/> in the grid toolbar. visibleColumns derives from
@@ -165,7 +166,7 @@ export default function CostingGrid() {
   // Load fit/closure/waist/comment masters on mount so the cell dropdowns
   // have their options populated. Settings view also calls this, but mounting
   // here makes the grid self-sufficient.
-  React.useEffect(() => { loadMasters(); }, [loadMasters]);
+  React.useEffect(() => { loadMasters(); loadVendorsForPicker(); }, [loadMasters, loadVendorsForPicker]);
 
   // Chunk 6 — Plan Flow widget writes stageFilter to the store; we filter the
   // visible rows by per-line derived stage. lineStageById comes from the same
