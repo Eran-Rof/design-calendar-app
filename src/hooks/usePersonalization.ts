@@ -48,17 +48,13 @@ interface CacheShape {
 const DRAWER_COLLAPSED_LOCAL_KEY = "favorites_drawer_collapsed";
 
 function readDrawerCollapsedFromLocalStorage(): boolean {
-  // Default to COLLAPSED on first load so the strip does not overlay
-  // panel content (e.g. the Style Master search bar). Operator clicks
-  // the top-right pill to expand. Once they make any choice it persists.
-  if (typeof window === "undefined") return true;
-  try {
-    const v = window.localStorage.getItem(DRAWER_COLLAPSED_LOCAL_KEY);
-    if (v === null) return true;
-    return v === "1" || v === "true";
-  } catch {
-    return true;
-  }
+  // 2026-05-30: the strip is a true drawer per operator — ALWAYS starts
+  // closed on every page load. We deliberately ignore any prior local
+  // value so the operator does not see a stale expanded layout after
+  // changing preferences. The in-memory toggle still works during the
+  // session; the localStorage write below stays as a defensive shadow
+  // copy but is never read back.
+  return true;
 }
 
 function writeDrawerCollapsedToLocalStorage(collapsed: boolean): void {
@@ -108,10 +104,13 @@ async function fetchPreferences(): Promise<void> {
         ? (favRow!.keys as unknown[]).filter((k): k is string => typeof k === "string")
         : [];
       cache.homeRoute = typeof homeRow?.menu_key === "string" ? homeRow.menu_key : null;
-      if (typeof drawerRow?.collapsed === "boolean") {
-        cache.drawerCollapsed = drawerRow.collapsed;
-        writeDrawerCollapsedToLocalStorage(drawerRow.collapsed);
-      }
+      // 2026-05-30: per operator, the favorites strip behaves like a true
+      // drawer — closed by default on every page load, opened on demand
+      // via the top-right ★ pill, no cross-session persistence. We
+      // deliberately IGNORE drawerRow.collapsed from the server here so
+      // the strip starts collapsed on every visit. The PUT handler still
+      // exists for backwards-compat but is no longer read on load.
+      void drawerRow;
       cache.status = "ready";
       cache.error = null;
     } catch (e) {
@@ -299,13 +298,20 @@ export function usePersonalization(): UsePersonalization {
 export function __resetPersonalizationCacheForTests(): void {
   cache.favorites = [];
   cache.homeRoute = null;
-  // Match production initial-load behavior: read from localStorage so tests
-  // that set the storage key in beforeEach get the corresponding initial
-  // collapsed state. With no key set, defaults to COLLAPSED (true).
-  cache.drawerCollapsed = readDrawerCollapsedFromLocalStorage();
+  // Always start collapsed — matches production "drawer is closed by
+  // default every page load" behavior. Tests that need the expanded
+  // layout call __setDrawerCollapsedForTests(false) after reset.
+  cache.drawerCollapsed = true;
   cache.loading = false;
   cache.status = "unloaded";
   cache.error = null;
   inFlight = null;
   listeners.clear();
+}
+
+/** @internal — force the drawer open/closed in tests without going through
+ *  the user-toggle path. Use in beforeEach for tests that exercise the
+ *  expanded strip layout. */
+export function __setDrawerCollapsedForTests(value: boolean): void {
+  cache.drawerCollapsed = value;
 }
