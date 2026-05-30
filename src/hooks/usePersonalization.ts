@@ -11,10 +11,16 @@
 //     React Context wiring around every shell.
 //   • Click telemetry is fire-and-forget — never blocks navigation.
 //
-// Optimistic updates: toggleFavorite / setHomeRoute mutate the local cache
-// immediately, then PUT. On failure we roll back AND surface an Error
-// reject to the caller so the UI can decide what to do (toast / silent /
-// re-throw).
+// Optimistic updates: toggleFavorite / setHomeRoute / setDrawerCollapsed
+// mutate the local cache immediately, then PUT. On failure we roll back
+// AND surface an Error reject to the caller so the UI can decide what to
+// do (toast / silent / re-throw).
+//
+// T4-7 (favorites-drawer redesign — operator asks #2 + #3) added
+// `drawerCollapsed` to the cache so the horizontal favorites strip can
+// persist its open/closed state per-user. The previous version persisted
+// to localStorage which doesn't survive a fresh laptop; we keep
+// localStorage as the offline fallback before the cache hydrates.
 
 import { useEffect, useState, useCallback } from "react";
 
@@ -22,10 +28,12 @@ import { useEffect, useState, useCallback } from "react";
 
 type FavoritesValue = { keys?: unknown };
 type HomeRouteValue = { menu_key?: unknown };
+type DrawerCollapsedValue = { collapsed?: unknown };
 
 interface CacheShape {
   favorites: string[];
   homeRoute: string | null;
+  drawerCollapsed: boolean;
   loading: boolean;
   /**
    * `unloaded` = no fetch attempted yet, `loading` = in-flight, `ready`
@@ -37,9 +45,29 @@ interface CacheShape {
   error: string | null;
 }
 
+const DRAWER_COLLAPSED_LOCAL_KEY = "favorites_drawer_collapsed";
+
+function readDrawerCollapsedFromLocalStorage(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const v = window.localStorage.getItem(DRAWER_COLLAPSED_LOCAL_KEY);
+    if (v === null) return false;
+    return v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeDrawerCollapsedToLocalStorage(collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(DRAWER_COLLAPSED_LOCAL_KEY, collapsed ? "1" : "0"); }
+  catch { /* ignore */ }
+}
+
 const cache: CacheShape = {
   favorites: [],
   homeRoute: null,
+  drawerCollapsed: readDrawerCollapsedFromLocalStorage(),
   loading: false,
   status: "unloaded",
   error: null,
@@ -72,10 +100,15 @@ async function fetchPreferences(): Promise<void> {
       const json = (await res.json()) as Record<string, unknown>;
       const favRow = (json.favorites ?? null) as FavoritesValue | null;
       const homeRow = (json.home_route ?? null) as HomeRouteValue | null;
+      const drawerRow = (json.drawer_collapsed ?? null) as DrawerCollapsedValue | null;
       cache.favorites = Array.isArray(favRow?.keys)
         ? (favRow!.keys as unknown[]).filter((k): k is string => typeof k === "string")
         : [];
       cache.homeRoute = typeof homeRow?.menu_key === "string" ? homeRow.menu_key : null;
+      if (typeof drawerRow?.collapsed === "boolean") {
+        cache.drawerCollapsed = drawerRow.collapsed;
+        writeDrawerCollapsedToLocalStorage(drawerRow.collapsed);
+      }
       cache.status = "ready";
       cache.error = null;
     } catch (e) {
@@ -114,11 +147,24 @@ async function putHomeRoute(menuKey: string): Promise<void> {
   }
 }
 
+async function putDrawerCollapsed(collapsed: boolean): Promise<void> {
+  const res = await fetch("/api/internal/users/me/preferences/drawer-collapsed", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ collapsed }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`PUT drawer-collapsed failed (${res.status}): ${txt || res.statusText}`);
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 export interface UsePersonalization {
   favorites: string[];
   homeRoute: string | null;
+  drawerCollapsed: boolean;
   loading: boolean;
   error: string | null;
   /**
@@ -132,6 +178,7 @@ export interface UsePersonalization {
   status: "unloaded" | "loading" | "ready" | "error";
   toggleFavorite: (menuKey: string) => Promise<void>;
   setHomeRoute: (menuKey: string) => Promise<void>;
+  setDrawerCollapsed: (collapsed: boolean) => Promise<void>;
   logClick: (menuKey: string) => void;
   /** Force a re-fetch of /preferences. Mostly for tests + error recovery. */
   refresh: () => Promise<void>;
@@ -187,6 +234,24 @@ export function usePersonalization(): UsePersonalization {
     }
   }, []);
 
+  const setDrawerCollapsedFn = useCallback(async (collapsed: boolean): Promise<void> => {
+    const prev = cache.drawerCollapsed;
+    cache.drawerCollapsed = collapsed;
+    // Mirror to localStorage so the next page load has the right initial
+    // state even before /preferences hydrates.
+    writeDrawerCollapsedToLocalStorage(collapsed);
+    notify();
+    try {
+      await putDrawerCollapsed(collapsed);
+    } catch (e) {
+      cache.drawerCollapsed = prev;
+      writeDrawerCollapsedToLocalStorage(prev);
+      cache.error = e instanceof Error ? e.message : String(e);
+      notify();
+      throw e;
+    }
+  }, []);
+
   const logClick = useCallback((menuKey: string): void => {
     // Fire-and-forget. NEVER awaited. Swallow every error — telemetry
     // failures must not affect navigation.
@@ -211,11 +276,13 @@ export function usePersonalization(): UsePersonalization {
   return {
     favorites: cache.favorites,
     homeRoute: cache.homeRoute,
+    drawerCollapsed: cache.drawerCollapsed,
     loading: cache.loading,
     error: cache.error,
     status: cache.status,
     toggleFavorite,
     setHomeRoute: setHomeRouteFn,
+    setDrawerCollapsed: setDrawerCollapsedFn,
     logClick,
     refresh,
   };
@@ -229,6 +296,7 @@ export function usePersonalization(): UsePersonalization {
 export function __resetPersonalizationCacheForTests(): void {
   cache.favorites = [];
   cache.homeRoute = null;
+  cache.drawerCollapsed = false;
   cache.loading = false;
   cache.status = "unloaded";
   cache.error = null;

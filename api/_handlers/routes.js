@@ -538,6 +538,11 @@ import h492 from "./internal/costing/lines/[line_id]/compliance/[req_id].js";
 //   h501 GET/POST  /api/internal/style-master/notes
 import h501 from "./internal/style-master/notes.js";
 
+// Cross-cutter T4-7 — Personalization drawer-collapsed persistence
+// (favorites drawer redesign — operator asks #2 + #3).
+//   h502 PUT /api/internal/users/me/preferences/drawer-collapsed
+import h502 from "./internal/users/me/preferences/drawer-collapsed.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -1042,6 +1047,12 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/compliance/:req_id",    handler: h492 },
   // Costing Module — RFQ generation (replaces the vendor quotes side panel).
   { pattern: "/api/internal/costing/projects/:id/generate-rfqs",           handler: h504 },
+  // Cross-cutter T4-7 — Personalization drawer-collapsed persistence
+  // (favorites drawer redesign — operator asks #2 + #3). Listed AFTER the
+  // existing /preferences/favorites + /preferences/home-route + bare
+  // /preferences entries above so the top-down dispatcher routes
+  // /preferences/drawer-collapsed to this dedicated handler.
+  { pattern: "/api/internal/users/me/preferences/drawer-collapsed",        handler: h502 },
 ];
 
 export function compileRoutes(routes) {
