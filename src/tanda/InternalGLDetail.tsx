@@ -90,11 +90,38 @@ function isoMinusDays(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Read drill-down deep-link params from the current URL exactly once.
+// COA panel sends `/tangerine?view=gl_detail&account_id=…&from=YYYY-MM-DD&to=YYYY-MM-DD`.
+// Each param is validated; invalid values fall through to defaults rather
+// than throwing so a botched URL still renders the standard panel.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function readDeepLink(search: string): { account_id?: string; from?: string; to?: string } {
+  const out: { account_id?: string; from?: string; to?: string } = {};
+  try {
+    const p = new URLSearchParams(search);
+    const aid = (p.get("account_id") || "").trim();
+    if (UUID_RE.test(aid)) out.account_id = aid;
+    const f = (p.get("from") || "").trim();
+    if (ISO_DATE_RE.test(f)) out.from = f;
+    const t = (p.get("to") || "").trim();
+    if (ISO_DATE_RE.test(t)) out.to = t;
+  } catch {
+    // Malformed query — return empty so caller falls back to defaults.
+  }
+  return out;
+}
+
 export default function InternalGLDetail() {
+  const initial = typeof window !== "undefined"
+    ? readDeepLink(window.location.search)
+    : {};
+
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [accountId, setAccountId] = useState<string>("");
-  const [fromDate, setFromDate] = useState<string>(isoMinusDays(90));
-  const [toDate, setToDate] = useState<string>(todayISO());
+  const [accountId, setAccountId] = useState<string>(initial.account_id || "");
+  const [fromDate, setFromDate] = useState<string>(initial.from || isoMinusDays(90));
+  const [toDate, setToDate] = useState<string>(initial.to || todayISO());
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -110,6 +137,16 @@ export default function InternalGLDetail() {
         setAccounts(active);
       })
       .catch(() => {});
+  }, []);
+
+  // Auto-load when arriving via deep link (COA balance click-through).
+  // Fires once on mount only — operator interactions go through the Load
+  // button as before so we don't surprise them with mid-edit refetches.
+  useEffect(() => {
+    if (initial.account_id) {
+      void load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {

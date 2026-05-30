@@ -273,7 +273,20 @@ export default function Tangerine() {
   // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
   // Fires once per tab session at app-shell root. See useAutoLanding.ts.
   const landing = useAutoLanding();
-  const [activeModule, setActiveModule] = useState<ModuleKey | null>(null);
+  // Deep-link support: `?view=<module_key>` (used by COA balance click-
+  // through → GL Detail, the menu registry, and future favorites). Read
+  // exactly once at mount; subsequent navigation goes through setActiveModule.
+  const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const v = new URLSearchParams(window.location.search).get("view");
+      return v && (MODULES as { key: string }[]).some((m) => m.key === v)
+        ? (v as ModuleKey)
+        : null;
+    } catch {
+      return null;
+    }
+  });
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [userEmail, setUserEmail] = useState<string | null>(null);
