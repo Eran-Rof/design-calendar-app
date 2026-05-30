@@ -20,6 +20,7 @@ import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
 import ScalePickerCell from "./ScalePickerCell";
 import FabricPickerCell from "./FabricPickerCell";
+import HistoricalCostCell from "./HistoricalCostCell";
 import ColumnsButton from "./ColumnsButton";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
@@ -74,7 +75,8 @@ const COLUMNS: ColumnDef[] = [
   { key: "comment",        label: "Comment",  width: 160 },
   { key: "target_qty",     label: "Qty",      width: 80,  align: "right", numeric: true },
   { key: "_vendor",        label: "Vendor",   width: 130 },
-  { key: "avg_cost",       label: "Avg Cost", width: 80,  align: "right" },
+  { key: "avg_cost",       label: "Avg Cost", width: 130, align: "right" },
+  { key: "_history",       label: "PO History", width: 100, align: "center" },
   { key: "target_cost",    label: "Tgt Cost", width: 80,  align: "right", numeric: true },
   { key: "fob_cost",       label: "FOB",      width: 80,  align: "right", numeric: true },
   { key: "duty_rate",      label: "Duty %",   width: 70,  align: "right", numeric: true },
@@ -205,10 +207,9 @@ export default function CostingGrid() {
         }
         const resolved = resolveCost(seed.sku_code, { avgCostMap: avgMap });
         if (resolved.cost != null && resolved.cost > 0) {
-          patch.target_cost = resolved.cost;
-          // avg_cost is a read-only historical reference — set once at pick
-          // time so the operator can see where target_cost was seeded from
-          // even after they edit target_cost.
+          // Only seed avg_cost — Tgt Cost stays empty so the operator
+          // decides what to enter. The Avg Cost cell has a "→ Tgt" copy
+          // button that pushes the value into target_cost when wanted.
           patch.avg_cost = resolved.cost;
         }
       }
@@ -444,15 +445,42 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Avg cost — read-only reference from ip_item_avg_cost at
-                // style-pick time. Different from target_cost (editable).
+                // Avg cost — read-only seed from ip_item_avg_cost on style
+                // pick. The "→ Tgt" button copies the value into Tgt Cost
+                // (Tgt Cost no longer auto-seeds; this is the explicit
+                // "use the historical avg as my target" shortcut).
                 if (c.key === "avg_cost") {
                   const v = line.avg_cost;
+                  const canCopy = v != null && v > 0;
                   return (
-                    <div key={c.key} style={{ ...style, color: "#94A3B8" }}>
-                      <span style={{ width: "100%", padding: "0 6px", fontStyle: v == null ? "italic" : "normal" }}>
+                    <div key={c.key} style={{ ...style, color: "#94A3B8", padding: "0 4px", gap: 4, justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
+                      <span style={{ flex: 1, textAlign: "right", fontStyle: v == null ? "italic" : "normal" }}>
                         {v == null ? "—" : fmtMoney.format(v)}
                       </span>
+                      {canCopy && (
+                        <button
+                          type="button"
+                          title="Copy Avg Cost into Tgt Cost"
+                          onClick={() => updateLine(line.id, { target_cost: v })}
+                          style={{
+                            background: "transparent", color: "#60A5FA",
+                            border: "1px solid #3B82F6", borderRadius: 3,
+                            padding: "0 5px", fontSize: 9, fontWeight: 700,
+                            cursor: "pointer", lineHeight: 1.6,
+                          }}
+                        >→ Tgt</button>
+                      )}
+                    </div>
+                  );
+                }
+
+                // PO History — popover trigger; opens HistoricalCostCell
+                // which pulls tanda_pos rows matching the line's style +
+                // selected vendor (incl. archived). Read-only reference.
+                if (c.key === "_history") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <HistoricalCostCell lineId={line.id} />
                     </div>
                   );
                 }

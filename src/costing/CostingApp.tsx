@@ -11,6 +11,8 @@ import CostingNavBar from "./panels/NavBar";
 import ProjectListView from "./views/ProjectListView";
 import ProjectEditView from "./views/ProjectEditView";
 import SettingsView from "./views/SettingsView";
+import RfqListView from "./views/RfqListView";
+import RfqEditView from "./views/RfqEditView";
 import { getView } from "./helpers";
 import { useCostingStore } from "./store/costingStore";
 
@@ -55,6 +57,8 @@ export default function CostingApp() {
         {view === "list" && <ProjectListView />}
         {view === "edit" && <ProjectEditView />}
         {view === "settings" && <SettingsView />}
+        {view === "rfq-list" && <RfqListView />}
+        {view === "rfq-edit" && <RfqEditView />}
       </div>
 
       {confirmState && (

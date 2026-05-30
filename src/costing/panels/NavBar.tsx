@@ -36,7 +36,7 @@ export default function CostingNavBar() {
       <div style={{ display: "flex", gap: 2 }}>
         <button
           onClick={() => navigate("list")}
-          style={navBtn(view === "list")}
+          style={navBtn(view === "list" || view === "edit")}
         >
           Projects
         </button>
@@ -45,6 +45,12 @@ export default function CostingNavBar() {
           style={navBtn(false)}
         >
           + New
+        </button>
+        <button
+          onClick={() => navigate("rfq-list")}
+          style={navBtn(view === "rfq-list" || view === "rfq-edit")}
+        >
+          RFQs
         </button>
         <button
           onClick={() => navigate("settings")}

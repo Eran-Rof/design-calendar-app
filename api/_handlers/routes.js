@@ -513,6 +513,12 @@ import h500 from "./internal/costing/add-vendor.js";
 // silently overwriting the costing one and breaking the dispatcher import,
 // which 500'd every /api/internal/** endpoint with FUNCTION_INVOCATION_FAILED).
 import h504 from "./internal/costing/projects/[id]/generate-rfqs.js";
+// RFQ list view (PR #598 — restored after PR #607 inadvertently removed
+// these imports during routes.js conflict resolution).
+import h505 from "./internal/costing/rfqs/index.js";
+import h506 from "./internal/costing/rfqs/[id]/index.js";
+// PO-history popover for the costing grid.
+import h507 from "./internal/costing/lines/[line_id]/po-history.js";
 import h483 from "./internal/costing/search/vendors.js";
 import h484 from "./internal/costing/search/customers.js";
 import h493 from "./internal/costing/search/sales-reps.js";
@@ -1068,6 +1074,11 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/compliance/:req_id",    handler: h492 },
   // Costing Module — RFQ generation (replaces the vendor quotes side panel).
   { pattern: "/api/internal/costing/projects/:id/generate-rfqs",           handler: h504 },
+  // Costing Module — RFQ list view (restored after PR #607 routes.js drift).
+  { pattern: "/api/internal/costing/rfqs",                                 handler: h505 },
+  { pattern: "/api/internal/costing/rfqs/:id",                             handler: h506 },
+  // Costing Module — PO-history popover on the costing grid (this PR).
+  { pattern: "/api/internal/costing/lines/:line_id/po-history",            handler: h507 },
   // Cross-cutter T4-7 — Personalization drawer-collapsed persistence
   // (favorites drawer redesign — operator asks #2 + #3). Listed AFTER the
   // existing /preferences/favorites + /preferences/home-route + bare
