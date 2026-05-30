@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { fmtDateDisplay, statusLabel, statusColor, navigate } from "../helpers";
-import { appConfirm } from "../../utils/theme";
+import { appConfirm, TH } from "../../utils/theme";
 import { Modal } from "../../components/Modal";
 import ExportButton from "../../tanda/exports/ExportButton";
 import type { CostingProject } from "../types";
@@ -157,7 +157,7 @@ export default function ProjectListView() {
       {newModalOpen && (
         <Modal title="New costing project" onClose={() => setNewModalOpen(false)}>
           <div style={{ padding: "18px 32px 26px" }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#4A5568", marginBottom: 6, letterSpacing: ".04em", textTransform: "uppercase" }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6, letterSpacing: ".04em", textTransform: "uppercase" }}>
               Project name
             </label>
             <input
@@ -167,9 +167,9 @@ export default function ProjectListView() {
               placeholder='e.g. "BOYS 7/1 DDP QTN"'
               autoFocus
               style={{
-                width: "100%", padding: "10px 12px", fontSize: 14,
-                border: "1px solid #CBD5E0", borderRadius: 8, outline: "none",
-                fontFamily: "inherit",
+                width: "100%", padding: "9px 12px", fontSize: 14,
+                border: `1px solid ${TH.border}`, borderRadius: 6, outline: "none",
+                fontFamily: "inherit", color: TH.text, background: TH.surface,
               }}
             />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
@@ -177,20 +177,20 @@ export default function ProjectListView() {
                 onClick={() => setNewModalOpen(false)}
                 disabled={creating}
                 style={{
-                  background: "transparent", color: "#4A5568",
-                  border: "1px solid #CBD5E0", padding: "8px 18px",
-                  borderRadius: 8, cursor: creating ? "not-allowed" : "pointer",
-                  fontSize: 13, fontWeight: 500,
+                  background: "transparent", color: TH.textSub,
+                  border: `1px solid ${TH.border}`, padding: "7px 18px",
+                  borderRadius: 6, cursor: creating ? "not-allowed" : "pointer",
+                  fontSize: 13, fontWeight: 500, fontFamily: "inherit",
                 }}
               >Cancel</button>
               <button
                 onClick={submitNew}
                 disabled={!newName.trim() || creating}
                 style={{
-                  background: "#10B981", color: "#fff",
-                  border: "none", padding: "8px 18px",
-                  borderRadius: 8, cursor: (!newName.trim() || creating) ? "not-allowed" : "pointer",
-                  fontSize: 13, fontWeight: 600,
+                  background: TH.primary, color: "#fff",
+                  border: "none", padding: "7px 18px",
+                  borderRadius: 6, cursor: (!newName.trim() || creating) ? "not-allowed" : "pointer",
+                  fontSize: 13, fontWeight: 600, fontFamily: "inherit",
                   opacity: (!newName.trim() || creating) ? 0.55 : 1,
                 }}
               >{creating ? "Creating…" : "Create"}</button>
