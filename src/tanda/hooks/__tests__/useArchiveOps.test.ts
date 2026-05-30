@@ -216,42 +216,51 @@ describe("useArchiveOps", () => {
       const opts = createOpts();
 
       mockFetchSequence([
-        // 1st: delete PO record
+        // 1st: insert tombstone (so nightly Xoro sync won't resurrect the PO)
         { ok: true, json: null },
-        // 2nd: select milestones
+        // 2nd: delete PO record
+        { ok: true, json: null },
+        // 3rd: select milestones
         { ok: true, json: [{ id: "ms_1", data: { po_number: "PO-DEL" } }] },
-        // 3rd: delete milestone
+        // 4th: delete milestone
         { ok: true, json: null },
-        // 4th: select notes
+        // 5th: select notes
         { ok: true, json: [{ id: "note_1" }] },
-        // 5th: delete note
+        // 6th: delete note
         { ok: true, json: null },
-        // 6th: loadArchivedPOs reload
+        // 7th: loadArchivedPOs reload
         { ok: true, json: [] },
       ]);
 
       const ops = useArchiveOps(opts);
       await ops.permanentDeleteArchived(["PO-DEL"]);
 
-      // Should have made multiple fetch calls (delete PO, select+delete milestones, select+delete notes, reload)
-      expect(mockFetch).toHaveBeenCalledTimes(6);
+      expect(mockFetch).toHaveBeenCalledTimes(7);
 
-      // Verify delete calls
-      const deleteCall1 = mockFetch.mock.calls[0];
-      expect(deleteCall1[1].method).toBe("DELETE");
-      expect(deleteCall1[0]).toContain("tanda_pos");
+      // First call should be the tombstone insert
+      const tombstoneCall = mockFetch.mock.calls[0];
+      expect(tombstoneCall[1].method).toBe("POST");
+      expect(tombstoneCall[0]).toContain("tanda_po_tombstones");
+      expect(JSON.parse(tombstoneCall[1].body)).toMatchObject({ po_number: "PO-DEL" });
+
+      // Second call should be the tanda_pos delete
+      const deleteCall = mockFetch.mock.calls[1];
+      expect(deleteCall[1].method).toBe("DELETE");
+      expect(deleteCall[0]).toContain("tanda_pos");
     });
 
     it("handles multiple PO numbers", async () => {
       const opts = createOpts();
 
-      // For each PO: delete PO, select milestones (empty), select notes (empty)
+      // For each PO: tombstone insert, delete PO, select milestones (empty), select notes (empty)
       mockFetchSequence([
         // PO-1
+        { ok: true, json: null }, // tombstone insert
         { ok: true, json: null }, // delete PO
         { ok: true, json: [] },   // select milestones
         { ok: true, json: [] },   // select notes
         // PO-2
+        { ok: true, json: null }, // tombstone insert
         { ok: true, json: null }, // delete PO
         { ok: true, json: [] },   // select milestones
         { ok: true, json: [] },   // select notes
@@ -262,14 +271,15 @@ describe("useArchiveOps", () => {
       const ops = useArchiveOps(opts);
       await ops.permanentDeleteArchived(["PO-1", "PO-2"]);
 
-      // 3 calls per PO + 1 reload = 7
-      expect(mockFetch).toHaveBeenCalledTimes(7);
+      // 4 calls per PO + 1 reload = 9
+      expect(mockFetch).toHaveBeenCalledTimes(9);
     });
 
     it("reloads archived POs after deletion", async () => {
       const opts = createOpts();
 
       mockFetchSequence([
+        { ok: true, json: null }, // tombstone insert
         { ok: true, json: null }, // delete PO
         { ok: true, json: [] },   // select milestones
         { ok: true, json: [] },   // select notes

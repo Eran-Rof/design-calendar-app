@@ -132,6 +132,8 @@ export default async function handler(req, res) {
     archived_source_cache_terminal: 0,
     archived_source_missing_from_xoro: 0,
     skipped_no_po_number: 0,
+    skipped_tombstoned: 0,
+    user_archived_preserved: 0,
     buyer_po_preserved: 0,
     per_status: [],
     errors: [],
@@ -230,6 +232,29 @@ export default async function handler(req, res) {
       }
     }
 
+    // 3b. Load tombstones. A tombstoned po_number is a PO the user has
+    //     permanently-deleted from PO WIP. We must NOT upsert it back even
+    //     if Xoro still reports the PO as active — otherwise the delete
+    //     silently reverses on the next nightly run (the bug that motivated
+    //     the tombstone table; see migration 20260629C00000).
+    const tombstoned = new Set();
+    {
+      const { data, error } = await admin
+        .from("tanda_po_tombstones")
+        .select("po_number");
+      if (error) {
+        result.errors.push(`tombstone lookup: ${error.message}`);
+      } else if (Array.isArray(data)) {
+        for (const r of data) tombstoned.add(r.po_number);
+      }
+    }
+    for (const poNumber of [...byPo.keys()]) {
+      if (tombstoned.has(poNumber)) {
+        byPo.delete(poNumber);
+        result.skipped_tombstoned++;
+      }
+    }
+
     // 4. Decide which POs to archive. Mirrors src/tanda/syncLogic.ts::
     //    getArchiveDecisions exactly — three sources, same guards.
     const archiveByPo = new Map(); // poNumber → flat-or-null
@@ -282,6 +307,14 @@ export default async function handler(req, res) {
       const userBuyerPo = (cached?.buyer_po) || "";
       const buyerPo = userBuyerPo || flat.BuyerPo || "";
       if (userBuyerPo) result.buyer_po_preserved++;
+      // Preserve a user-set `_archived: true` from the cached row. The
+      // previous code stamped `_archived: false` on every active upsert,
+      // which silently reversed every manual Archive action in PO WIP
+      // (Xoro keeps reporting the PO as Open/Released, so the sync wiped
+      // the flag on the next run). User-initiated archive sticks; un-
+      // archive is still possible from the PO WIP UI (writes false).
+      const wasUserArchived = cached?.data?._archived === true;
+      if (wasUserArchived) result.user_archived_preserved++;
       activeRows.push({
         po_number: poNumber,
         vendor: flat.VendorName ?? "",
@@ -289,9 +322,13 @@ export default async function handler(req, res) {
         date_expected: flat.DateExpectedDelivery || null,
         status: flat.StatusName ?? "",
         buyer_po: buyerPo || null,
-        // Strip _archived from the data blob so a previously-archived PO
-        // that flipped back to active (rare but possible) gets re-activated.
-        data: { ...flat, BuyerPo: buyerPo, _archived: false },
+        data: {
+          ...flat,
+          BuyerPo: buyerPo,
+          ...(wasUserArchived
+            ? { _archived: true, _archivedAt: cached.data._archivedAt ?? now }
+            : { _archived: false }),
+        },
         synced_at: now,
       });
     }
