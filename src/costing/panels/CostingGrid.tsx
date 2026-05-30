@@ -196,7 +196,8 @@ export default function CostingGrid() {
               padding: "8px 8px", fontSize: 10, fontWeight: 700,
               color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
               textAlign: c.align || "left",
-              borderRight: "1px solid #1E293B",
+              borderRight: "1px solid #475569",
+              borderBottom: "1px solid #475569",
             }}>{c.label}</div>
           ))}
         </div>
@@ -235,7 +236,8 @@ export default function CostingGrid() {
                   padding: "0 4px",
                   fontSize: 12, color: "#E2E8F0",
                   textAlign: c.align || "left",
-                  borderRight: "1px solid #1E293B",
+                  borderRight: "1px solid #475569",
+              borderBottom: "1px solid #475569",
                   display: "flex", alignItems: "center",
                   minHeight: 32,
                 };
@@ -338,17 +340,30 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <input
+                        // Re-keyed so the input remounts (and shows the new value)
+                        // when the underlying line field changes from elsewhere
+                        // (e.g. target_cost seeded after a style pick). Without this,
+                        // defaultValue would freeze at the first render's value and
+                        // the operator would think the field is read-only.
+                        key={`${line.id}:${String(c.key)}:${String(v ?? "")}`}
                         defaultValue={display === "" ? "" : String(display)}
                         type="text"
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
                         onBlur={(e) => {
                           const raw = e.target.value.replace(/[^0-9.\-]/g, "");
                           const num = raw === "" ? null : Number(raw);
-                          updateLine(line.id, { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>);
+                          updateLine(line.id, { [c.key]: isFinite(num as number) ? num : null } as Partial<CostingLine>);
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.background = "#0F172A";
+                          e.currentTarget.style.borderColor = "#60A5FA";
+                          e.currentTarget.select();
                         }}
                         style={{
                           width: "100%", padding: "4px 6px", fontSize: 12,
                           textAlign: "right", background: "transparent",
                           border: "1px solid transparent", color: "#E2E8F0", outline: "none",
+                          cursor: "text",
                         }}
                       />
                     </div>
@@ -406,13 +421,19 @@ export default function CostingGrid() {
                 return (
                   <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                     <input
+                      key={`${line.id}:${String(c.key)}:${String(v ?? "")}`}
                       defaultValue={(v as string | null) ?? ""}
                       type="text"
-                      onBlur={(e) => updateLine(line.id, { [key]: e.target.value || null } as Partial<CostingLine>)}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
+                      onBlur={(e) => updateLine(line.id, { [c.key]: e.target.value || null } as Partial<CostingLine>)}
+                      onFocus={(e) => {
+                        e.currentTarget.style.background = "#0F172A";
+                        e.currentTarget.style.borderColor = "#60A5FA";
+                      }}
                       style={{
                         width: "100%", padding: "4px 6px", fontSize: 12,
                         background: "transparent", border: "1px solid transparent",
-                        color: "#E2E8F0", outline: "none",
+                        color: "#E2E8F0", outline: "none", cursor: "text",
                       }}
                     />
                   </div>
@@ -435,7 +456,8 @@ export default function CostingGrid() {
                 width: c.width, flexShrink: 0,
                 padding: "8px 8px",
                 textAlign: c.align || "left",
-                borderRight: "1px solid #1E293B",
+                borderRight: "1px solid #475569",
+              borderBottom: "1px solid #475569",
                 display: "flex", alignItems: "center",
                 minHeight: 36,
               };
