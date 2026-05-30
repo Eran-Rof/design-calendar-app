@@ -91,7 +91,6 @@ const COLUMNS: ColumnDef[] = [
   { key: "ly_qty",         label: "LY Sold",  width: 80,  align: "right", numeric: true },
   { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
   { key: "_compliance",    label: "Compliance", width: 180 },
-  { key: "remarks",        label: "Remarks",  width: 160 },
   { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
 
