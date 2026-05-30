@@ -29,12 +29,31 @@
 //     The legacy text column `base_fabric_legacy` is read-only here, surfaced
 //     as a muted help line beside the picker if the FK is unset and a legacy
 //     value exists, so operators can see what to re-pick.
+//
+// Style Master Polish (2026-05-30) — operator asks A/B/C:
+//   • A   Search is now dynamic via <DynamicSearchInput> + useDebouncedSearch
+//         (200 ms cadence, matching CustomerMaster + COA). The previous
+//         Enter-or-click-Search workflow had become the operator's primary
+//         complaint after PR #595 (TablePrefs) shipped; the input was wired
+//         but the load() callback only refetched on explicit submit.
+//   • B   The three classifier dropdowns (Group / Category / Sub Category)
+//         pull their option set from /api/internal/style-master/dim-values
+//         (distinct values across the whole table, not just the page that
+//         happens to be loaded). When the signed-in operator is an admin
+//         (cached MS auth user uuid present) an "+ Add new…" row is
+//         surfaced; non-admins can still pick existing values but cannot
+//         introduce new ones from the modal.
+//   • C   Gender dropdown labels now show just the descriptive name
+//         ("Mens", "Boys", "Child", "Girls", "Womens", "Unisex"). The
+//         stored value remains the single-letter code (M/B/C/G/W/U).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
@@ -94,22 +113,30 @@ type StyleNote = {
   created_at: string;
 };
 
+type DimValues = {
+  groups: string[];
+  categories: string[];
+  sub_categories: string[];
+};
+
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 
-// Canonical gender set (operator ask #12, 2026-05-30).
-// Display labels show the code + a descriptive name; value is the single letter.
+// Canonical gender set (operator ask #12, 2026-05-30 + polish ask C 2026-05-30).
+// The STORED value is the single letter (M/B/C/G/W/U); the display LABEL is
+// just the descriptive name with the prefix dropped (operator's preference —
+// "M — Mens" was visually busy in the dropdown).
 const GENDER_OPTIONS: { value: string; label: string }[] = [
-  { value: "",  label: "(none)"      },
-  { value: "M", label: "M — Mens"    },
-  { value: "B", label: "B — Boys"    },
-  { value: "C", label: "C — Child"   },
-  { value: "G", label: "G — Girls"   },
-  { value: "W", label: "W — Womens"  },
-  { value: "U", label: "U — Unisex"  },
+  { value: "",  label: "(none)" },
+  { value: "M", label: "Mens"   },
+  { value: "B", label: "Boys"   },
+  { value: "C", label: "Child"  },
+  { value: "G", label: "Girls"  },
+  { value: "W", label: "Womens" },
+  { value: "U", label: "Unisex" },
 ];
 
 const LIFECYCLE_OPTIONS = ["active", "phased_out", "discontinued", "core"];
@@ -149,23 +176,14 @@ function genderLabelFor(code: string | null): string {
   return hit ? hit.label : code;
 }
 
-// Distinct + sorted list of values currently in use for one classifier column.
-// Drives the SearchableSelect options so operators can pick an existing value
-// or type a new one (the component accepts free text via its onChange).
-function distinctValues(rows: Style[], key: keyof Style): string[] {
-  const set = new Set<string>();
-  for (const r of rows) {
-    const v = r[key];
-    if (typeof v === "string" && v.trim()) set.add(v.trim());
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
-
 export default function InternalStyleMaster() {
   const [rows, setRows] = useState<Style[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  // Polish ask A — search-as-you-type. `q` binds to the input (synchronous);
+  // `qDebounced` is what drives the fetch effect. 200 ms matches the cadence
+  // used by Customer Master, COA, and the T6 GlobalSearchPalette.
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
@@ -188,12 +206,43 @@ export default function InternalStyleMaster() {
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
 
+  // Polish ask B — admin gate for the "+ Add new…" classifier path. Same
+  // signal the mirror-status panel uses: a non-empty cached MS auth user
+  // uuid is what the operator gets only after completing MS sign-in.
+  const authUserId = getCachedAuthUserId();
+  const isAdmin = !!authUserId;
+
+  // Polish ask B — dim-value cache. Fetched once on mount, refreshed after
+  // a save (so newly-added values become visible without a hard reload).
+  const [dimValues, setDimValues] = useState<DimValues>({
+    groups: [],
+    categories: [],
+    sub_categories: [],
+  });
+
+  const loadDimValues = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/internal/style-master/dim-values`);
+      if (!r.ok) return; // non-fatal — modal will show whatever values arrive
+      const data = await r.json();
+      if (data && typeof data === "object") {
+        setDimValues({
+          groups: Array.isArray(data.groups) ? data.groups : [],
+          categories: Array.isArray(data.categories) ? data.categories : [],
+          sub_categories: Array.isArray(data.sub_categories) ? data.sub_categories : [],
+        });
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeDeleted) params.set("include_deleted", "true");
       const r = await fetch(`/api/internal/style-master?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -203,12 +252,10 @@ export default function InternalStyleMaster() {
     } finally {
       setLoading(false);
     }
-    // q is read at call-time via the input's Enter handler / Search button;
-    // including it in deps would refetch on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeDeleted]);
+  }, [qDebounced, includeDeleted]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadDimValues(); }, [loadDimValues]);
 
   async function softDelete(id: string) {
     if (!confirm("Soft-delete this style? Can be restored by an admin SQL update.")) return;
@@ -221,11 +268,13 @@ export default function InternalStyleMaster() {
     }
   }
 
-  // Memoized distinct-value lists for the three SearchableSelect inputs in the
-  // modal. Recomputes only when the row set changes.
-  const groupOptions = useMemo(() => distinctValues(rows, "group_name"), [rows]);
-  const categoryOptions = useMemo(() => distinctValues(rows, "category_name"), [rows]);
-  const subCategoryOptions = useMemo(() => distinctValues(rows, "sub_category_name"), [rows]);
+  // Refresh hook handed to the modal so a successful save can repaint both
+  // the row list AND the dim-value cache (in case a brand-new classifier
+  // was added).
+  const afterModalSave = useCallback(() => {
+    void load();
+    void loadDimValues();
+  }, [load, loadDimValues]);
 
   return (
     <div style={{ color: C.text }}>
@@ -234,16 +283,14 @@ export default function InternalStyleMaster() {
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Search style number, name or description…"
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <DynamicSearchInput
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
-          style={{ ...inputStyle, maxWidth: 360 }}
+          onChange={setQ}
+          placeholder="Search style number, name or description…"
+          ariaLabel="Search styles"
+          wrapperStyle={{ maxWidth: 360 }}
         />
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input
             type="checkbox"
@@ -368,22 +415,20 @@ export default function InternalStyleMaster() {
       {addOpen && (
         <StyleFormModal
           mode="add"
-          groupOptions={groupOptions}
-          categoryOptions={categoryOptions}
-          subCategoryOptions={subCategoryOptions}
+          dimValues={dimValues}
+          isAdmin={isAdmin}
           onClose={() => setAddOpen(false)}
-          onSaved={() => { setAddOpen(false); void load(); }}
+          onSaved={() => { setAddOpen(false); afterModalSave(); }}
         />
       )}
       {editing && (
         <StyleFormModal
           mode="edit"
           style={editing}
-          groupOptions={groupOptions}
-          categoryOptions={categoryOptions}
-          subCategoryOptions={subCategoryOptions}
+          dimValues={dimValues}
+          isAdmin={isAdmin}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); void load(); }}
+          onSaved={() => { setEditing(null); afterModalSave(); }}
         />
       )}
     </div>
@@ -393,14 +438,13 @@ export default function InternalStyleMaster() {
 interface ModalProps {
   mode: "add" | "edit";
   style?: Style;
-  groupOptions: string[];
-  categoryOptions: string[];
-  subCategoryOptions: string[];
+  dimValues: DimValues;
+  isAdmin: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function StyleFormModal({ mode, style, groupOptions, categoryOptions, subCategoryOptions, onClose, onSaved }: ModalProps) {
+function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     style_code:           style?.style_code            ?? "",
     style_name:           style?.style_name            ?? "",
@@ -561,31 +605,39 @@ function StyleFormModal({ mode, style, groupOptions, categoryOptions, subCategor
             </select>
           </Field>
 
-          {/* Operator ask #5 — group / category / sub_category classifier inputs.
-              SearchableSelect lets operators pick an existing value (from the
-              current dataset) or type a new one without leaving the keyboard. */}
+          {/* Polish ask B — classifier dropdowns. Options sourced from the
+              dim-values endpoint (distinct values across the whole catalog).
+              When isAdmin, the SearchableSelect surfaces an "+ Add new…" row
+              that commits whatever the operator typed; non-admins see the
+              existing values only. */}
           <Field label="Group">
-            <FreeTextSearchableSelect
+            <DimValuePicker
               value={form.group_name}
               onChange={(v) => setForm({ ...form, group_name: v })}
-              choices={groupOptions}
-              placeholder="e.g. Apparel"
+              choices={dimValues.groups}
+              isAdmin={isAdmin}
+              placeholder="Pick a group…"
+              addNewTitle="group"
             />
           </Field>
           <Field label="Category">
-            <FreeTextSearchableSelect
+            <DimValuePicker
               value={form.category_name}
               onChange={(v) => setForm({ ...form, category_name: v })}
-              choices={categoryOptions}
-              placeholder="e.g. Tops"
+              choices={dimValues.categories}
+              isAdmin={isAdmin}
+              placeholder="Pick a category…"
+              addNewTitle="category"
             />
           </Field>
           <Field label="Sub Category">
-            <FreeTextSearchableSelect
+            <DimValuePicker
               value={form.sub_category_name}
               onChange={(v) => setForm({ ...form, sub_category_name: v })}
-              choices={subCategoryOptions}
-              placeholder="e.g. T-Shirts"
+              choices={dimValues.sub_categories}
+              isAdmin={isAdmin}
+              placeholder="Pick a sub-category…"
+              addNewTitle="sub-category"
             />
           </Field>
 
@@ -663,56 +715,67 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FreeTextSearchableSelect — thin wrapper around <SearchableSelect> that lets
-// the operator either choose from the existing distinct values OR type a brand
-// new one. Implementation: when the typed value doesn't match any choice, we
-// synthesize a "(use: …)" option so the user can commit it; SearchableSelect's
-// onChange returns the option value, which is exactly the typed text.
+// DimValuePicker — Polish ask B.
+//
+// Wraps <SearchableSelect> with the existing-value list for one classifier
+// column (group_name / category_name / sub_category_name). The dropdown is
+// pre-populated with the distinct values currently in style_master and
+// supports type-as-you-go filtering.
+//
+// Admin behaviour: when `isAdmin` is true, the popover surfaces an
+// "+ Add new <title>…" row. Picking it commits whatever the operator
+// typed; the new value will land on the row when the modal saves and
+// will appear in subsequent dim-value loads automatically.
+//
+// Non-admin behaviour: the add-new row is hidden. The picker still lets
+// the operator change the value to anything already in the dim list,
+// just not add a brand new one. (If the operator is editing a row whose
+// classifier is already a free-text value not in the dim list, the
+// current value is surfaced as a one-shot option so the picker shows
+// it correctly.)
 // ─────────────────────────────────────────────────────────────────────────────
-function FreeTextSearchableSelect({
+function DimValuePicker({
   value,
   onChange,
   choices,
+  isAdmin,
   placeholder,
+  addNewTitle,
 }: {
   value: string;
   onChange: (v: string) => void;
   choices: string[];
+  isAdmin: boolean;
   placeholder?: string;
+  addNewTitle: string;
 }) {
   const options: SearchableSelectOption[] = useMemo(() => {
     const base: SearchableSelectOption[] = [
       { value: "", label: "(none)" },
       ...choices.map((c) => ({ value: c, label: c })),
     ];
-    // If the current value isn't one of the known choices, surface it as the
-    // selected option so the picker shows it.
+    // If the row's current value isn't one of the known choices, surface it
+    // as a one-off option so the picker can render the current selection.
     if (value && !choices.includes(value)) {
       base.push({ value, label: value });
     }
     return base;
   }, [choices, value]);
 
-  // SearchableSelect supports picking from a list; for true free-text entry
-  // we render a small adjacent text input so the operator can type a new value
-  // and the change reflects immediately. The picker handles the "select from
-  // known values" path.
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
-      <SearchableSelect
-        value={value || null}
-        onChange={onChange}
-        options={options}
-        placeholder={placeholder || "Pick or type below"}
-      />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ ...inputStyle, fontSize: 12 }}
-        placeholder="…or type a new value"
-      />
-    </div>
+    <SearchableSelect
+      value={value || null}
+      onChange={onChange}
+      options={options}
+      placeholder={placeholder}
+      onAddNew={isAdmin ? (q) => { if (q.trim()) onChange(q.trim()); } : undefined}
+      addNewLabel={(q) => {
+        const trimmed = q.trim();
+        return trimmed
+          ? `+ Add new ${addNewTitle} "${trimmed}"`
+          : `+ Add new ${addNewTitle}…`;
+      }}
+    />
   );
 }
 

@@ -402,3 +402,87 @@ describe("SearchableSelect — props", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 });
+
+describe("SearchableSelect — onAddNew (Polish ask B, 2026-05-30)", () => {
+  it("does not render the add-new row when onAddNew is undefined", async () => {
+    const user = userEvent.setup();
+    render(
+      <SearchableSelect value={null} onChange={vi.fn()} options={basicOptions()} />,
+    );
+    const input = screen.getByRole("combobox").querySelector("input")!;
+    await user.click(input);
+    await user.type(input, "Zeta");
+    expect(screen.queryByText(/\+ Add/)).not.toBeInTheDocument();
+  });
+
+  it("renders the add-new row once the user types something", async () => {
+    const user = userEvent.setup();
+    const onAddNew = vi.fn();
+    render(
+      <SearchableSelect
+        value={null}
+        onChange={vi.fn()}
+        options={basicOptions()}
+        onAddNew={onAddNew}
+      />,
+    );
+    const input = screen.getByRole("combobox").querySelector("input")!;
+    await user.click(input);
+    // Empty query: no add-new row yet (we want a typed value to commit).
+    expect(screen.queryByText(/\+ Add/)).not.toBeInTheDocument();
+    await user.type(input, "Zeta");
+    expect(screen.getByText('+ Add "Zeta"')).toBeInTheDocument();
+  });
+
+  it("clicking the add-new row invokes onAddNew with the typed value", async () => {
+    const user = userEvent.setup();
+    const onAddNew = vi.fn();
+    render(
+      <SearchableSelect
+        value={null}
+        onChange={vi.fn()}
+        options={basicOptions()}
+        onAddNew={onAddNew}
+      />,
+    );
+    const input = screen.getByRole("combobox").querySelector("input")!;
+    await user.click(input);
+    await user.type(input, "Zeta");
+    fireEvent.mouseDown(screen.getByText('+ Add "Zeta"'));
+    expect(onAddNew).toHaveBeenCalledWith("Zeta");
+  });
+
+  it("renders the add-new row even with zero matches, so an admin can recover", async () => {
+    const user = userEvent.setup();
+    const onAddNew = vi.fn();
+    render(
+      <SearchableSelect
+        value={null}
+        onChange={vi.fn()}
+        options={basicOptions()}
+        onAddNew={onAddNew}
+      />,
+    );
+    const input = screen.getByRole("combobox").querySelector("input")!;
+    await user.click(input);
+    await user.type(input, "qqqq");
+    expect(screen.getByText('+ Add "qqqq"')).toBeInTheDocument();
+  });
+
+  it("uses a custom addNewLabel when provided", async () => {
+    const user = userEvent.setup();
+    render(
+      <SearchableSelect
+        value={null}
+        onChange={vi.fn()}
+        options={basicOptions()}
+        onAddNew={vi.fn()}
+        addNewLabel={(q) => `+ New category "${q || "..."}"`}
+      />,
+    );
+    const input = screen.getByRole("combobox").querySelector("input")!;
+    await user.click(input);
+    await user.type(input, "Bottoms");
+    expect(screen.getByText('+ New category "Bottoms"')).toBeInTheDocument();
+  });
+});

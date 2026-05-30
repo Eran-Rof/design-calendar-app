@@ -543,6 +543,13 @@ import h501 from "./internal/style-master/notes.js";
 //   h502 PUT /api/internal/users/me/preferences/drawer-collapsed
 import h502 from "./internal/users/me/preferences/drawer-collapsed.js";
 
+// Style Master Polish 2026-05-30 — operator ask B (dim-value dropdowns).
+//   h511 GET  /api/internal/style-master/dim-values
+//        Returns { groups, categories, sub_categories } — distinct existing
+//        values across style_master, drives the searchable dropdowns in the
+//        edit modal (replaces the in-browser distinct-from-loaded-rows path).
+import h511 from "./internal/style-master/dim-values.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -752,6 +759,8 @@ export const ROUTES = [
   { pattern: "/api/internal/entities", handler: h205 },
   // Style Master Sweep 2026-05-30 — notes route must precede /:id so the
   // literal "notes" segment isn't captured as an :id param (first match wins).
+  // Same for dim-values (Polish chunk, 2026-05-30).
+  { pattern: "/api/internal/style-master/dim-values", handler: h511 },
   { pattern: "/api/internal/style-master/notes", handler: h501 },
   { pattern: "/api/internal/style-master/:id", handler: h252 },
   { pattern: "/api/internal/style-master", handler: h251 },

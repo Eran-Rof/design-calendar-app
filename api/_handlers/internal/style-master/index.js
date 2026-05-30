@@ -79,13 +79,28 @@ export default async function handler(req, res) {
       .limit(limit);
 
     if (!includeDeleted) query = query.is("deleted_at", null);
+    // Polish 2026-05-30 — search covers the three classifier columns too so
+    // a query like "Tops" or "T-Shirts" matches rows even when style code /
+    // name / description don't mention them. Fabric name/code search runs
+    // as a separate lookup pass below — PostgREST `.or()` cannot reach
+    // through an embedded relation in a single filter expression. We escape
+    // % and , that PostgREST treats as filter separators inside `.or()`;
+    // both are illegal in our actual classifier strings so a strict reject
+    // is sufficient.
     if (q) {
-      // Search style_master text columns. Fabric name/code search is handled
-      // by a separate lookup pass below — PostgREST `.or()` cannot reach
-      // through an embedded relation in a single filter expression.
-      query = query.or(
-        `style_code.ilike.%${q}%,style_name.ilike.%${q}%,description.ilike.%${q}%`,
-      );
+      const safe = q.replace(/[,%]/g, " ").trim();
+      if (safe) {
+        query = query.or(
+          [
+            `style_code.ilike.%${safe}%`,
+            `style_name.ilike.%${safe}%`,
+            `description.ilike.%${safe}%`,
+            `group_name.ilike.%${safe}%`,
+            `category_name.ilike.%${safe}%`,
+            `sub_category_name.ilike.%${safe}%`,
+          ].join(","),
+        );
+      }
     }
 
     const { data, error } = await query;
