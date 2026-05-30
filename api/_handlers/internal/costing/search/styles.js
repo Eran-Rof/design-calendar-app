@@ -38,7 +38,12 @@ export default async function handler(req, res) {
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1000);
 
   let query = admin.from("style_master")
-    .select("id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric, lifecycle_status")
+    // base_fabric was renamed to base_fabric_legacy in PR #596
+    // (20260630020000_style_master_base_fabric_fk.sql); aliased back to
+    // `base_fabric` here so existing callers (StylePickerCell + the grid's
+    // onStylePick auto-fill into line.fabric_code) keep working without
+    // a wider refactor.
+    .select("id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric:base_fabric_legacy, lifecycle_status")
     .is("deleted_at", null)
     .limit(limit);
   if (entityId) query = query.eq("entity_id", entityId);
