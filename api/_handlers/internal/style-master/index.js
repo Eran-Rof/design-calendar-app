@@ -60,7 +60,11 @@ export default async function handler(req, res) {
     const url = new URL(req.url, `https://${req.headers.host}`);
     const includeDeleted = url.searchParams.get("include_deleted") === "true";
     const q = (url.searchParams.get("q") || "").trim();
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 500);
+    // Default + cap raised 2026-05-30 — operator reported "most styles missing"
+    // because the previous 200/500 cap silently truncated the list. This is an
+    // internal admin tool with a small entity-scoped table; 10k is well above
+    // any plausible style count and still fits one Vercel response.
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "5000", 10) || 5000, 10000);
 
     let query = admin
       .from("style_master")
