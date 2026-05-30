@@ -557,6 +557,10 @@ import h512 from "./internal/recon/run-ar.js";
 //   h513 = POST /api/internal/recon/run-ap (renumbered from h480 on rebase —
 //   h480 taken by costing on main; h512 by P9-3 AR; next free is h513.)
 import h513 from "./internal/recon/run-ap.js";
+// P9-5 — GL reconciliation engine manual trigger (lagging indicator).
+//   h514 = POST /api/internal/recon/run-gl (renumbered from h483 on rebase —
+//   h483 taken by costing on main; h512 AR, h513 AP; next free is h514.)
+import h514 from "./internal/recon/run-gl.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1074,6 +1078,8 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/run-ar",                             handler: h512 },
   // P9-2 — Parallel-Run AP reconciliation engine (manual / replay).
   { pattern: "/api/internal/recon/run-ap",                             handler: h513 },
+  // P9-5 — GL reconciliation engine (lagging indicator + missing_standalone_je auto-cat).
+  { pattern: "/api/internal/recon/run-gl",                             handler: h514 },
 ];
 
 export function compileRoutes(routes) {
