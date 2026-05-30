@@ -26,20 +26,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "../../../supabase/migrations");
 
 // ── Grandfathered pre-existing violations (resolve & remove; never add) ────
-// Versions currently used by >1 migration file. KNOWN BUG: one of each pair
-// may not have applied to prod — flagged for manual resolution. New
-// duplicates beyond this set fail the gate.
-const KNOWN_DUPLICATE_VERSIONS = new Set([
-  "20260629C00000", // je_memo_line_2.sql + tanda_po_tombstones.sql (PRs #587/#541)
-]);
+// Versions currently used by >1 migration file. New duplicates beyond this
+// set fail the gate. (The original 20260629C00000 collision was RESOLVED on
+// 2026-05-30 by renaming tanda_po_tombstones → 20260630010000, so this set
+// is now empty — keep it that way.)
+const KNOWN_DUPLICATE_VERSIONS = new Set([]);
 // Files whose version prefix is not purely numeric (legacy A/B/C same-day
-// sub-ordering). New non-numeric timestamps fail the gate.
+// sub-ordering). New non-numeric timestamps fail the gate; this list must
+// shrink over time, never grow.
 const KNOWN_NONNUMERIC = new Set([
   "20260629A00000_p13_chunk1_procurement_schema.sql",
   "20260629A10000_p13_chunk2_legacy_bridge.sql",
   "20260629B00000_t11_chunk2_audit_rpc.sql",
   "20260629C00000_je_memo_line_2.sql",
-  "20260629C00000_tanda_po_tombstones.sql",
 ]);
 
 function listMigrations() {
