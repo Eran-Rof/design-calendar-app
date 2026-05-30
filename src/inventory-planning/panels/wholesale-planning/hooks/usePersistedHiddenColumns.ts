@@ -6,11 +6,11 @@
 
 import { useState } from "react";
 
-const STORAGE_KEY = "ws_planning_hidden_columns";
+const DEFAULT_STORAGE_KEY = "ws_planning_hidden_columns";
 
-function loadHiddenColumns(): Set<string> {
+function loadHiddenColumns(storageKey: string): Set<string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return new Set();
     const arr = JSON.parse(raw);
     return new Set(Array.isArray(arr) ? arr : []);
@@ -26,8 +26,18 @@ export interface HiddenColumnsApi {
   resetColumns: () => void;
 }
 
-export function usePersistedHiddenColumns(): HiddenColumnsApi {
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(loadHiddenColumns);
+/**
+ * localStorage-backed Set<string> for column hide/show toggle. Synchronous
+ * write inside the setter so a planner's preference can't be dropped by an
+ * unmount mid-write.
+ *
+ * @param storageKey  localStorage key. Defaults to "ws_planning_hidden_columns"
+ *                    so existing call sites in the wholesale planning grid
+ *                    keep their persisted state. Pass a distinct key for
+ *                    each grid that wants its own column-visibility memory.
+ */
+export function usePersistedHiddenColumns(storageKey: string = DEFAULT_STORAGE_KEY): HiddenColumnsApi {
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => loadHiddenColumns(storageKey));
 
   const toggleColumn = (key: string) => {
     setHiddenColumns((prev) => {
@@ -35,7 +45,7 @@ export function usePersistedHiddenColumns(): HiddenColumnsApi {
       if (next.has(key)) next.delete(key);
       else next.add(key);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(next)));
+        localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
       } catch { /* ignore quota */ }
       return next;
     });
@@ -43,7 +53,7 @@ export function usePersistedHiddenColumns(): HiddenColumnsApi {
 
   const resetColumns = () => {
     setHiddenColumns(new Set());
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
   };
 
   return { hiddenColumns, toggleColumn, resetColumns };

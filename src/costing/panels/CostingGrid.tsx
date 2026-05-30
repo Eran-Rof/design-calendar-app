@@ -14,6 +14,8 @@ import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
 import { usePlanFlow } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
+import ColumnsButton from "./ColumnsButton";
+import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import type { CostingLine } from "../types";
@@ -81,6 +83,15 @@ export default function CostingGrid() {
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
+
+  // Persisted column show/hide. Reuses the wholesale-planning hook with a
+  // distinct localStorage key so the costing grid has its own memory.
+  const { hiddenColumns, toggleColumn, resetColumns } = usePersistedHiddenColumns("costing_grid_hidden_columns");
+  const visibleColumns = COLUMNS.filter((c) => !hiddenColumns.has(c.key));
+  const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
+  // Columns the picker exposes — drop the unlabeled chrome columns (drag
+  // handle, actions) from the toggle UI but include them visually.
+  const toggleableColumns = COLUMNS.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
 
   // Chunk 6 — Plan Flow widget writes stageFilter to the store; we filter the
   // visible rows by per-line derived stage. lineStageById comes from the same
@@ -175,6 +186,14 @@ export default function CostingGrid() {
             fontSize: 12, fontWeight: 600,
           }}
         >+ Add row</button>
+        <div style={{ marginLeft: "auto" }}>
+          <ColumnsButton
+            columns={toggleableColumns}
+            hidden={hiddenColumns}
+            onToggle={toggleColumn}
+            onReset={resetColumns}
+          />
+        </div>
       </div>
 
       <div style={{
@@ -182,14 +201,14 @@ export default function CostingGrid() {
         background: "#1E293B", overflowX: "auto",
       }}>
         {/* Header */}
-        <div style={{ display: "flex", minWidth: TOTAL_WIDTH, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
-          {COLUMNS.map((c) => (
+        <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
+          {visibleColumns.map((c) => (
             <div key={c.key} style={{
               width: c.width, flexShrink: 0,
               padding: "8px 8px", fontSize: 10, fontWeight: 700,
               color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
               textAlign: c.align || "left",
-              borderRight: "1px solid #1E293B",
+              borderRight: "1px solid #334155",
             }}>{c.label}</div>
           ))}
         </div>
@@ -216,19 +235,19 @@ export default function CostingGrid() {
               onDragOver={onDragOver}
               onDrop={onDrop(line.id)}
               style={{
-                display: "flex", minWidth: TOTAL_WIDTH,
+                display: "flex", minWidth: visibleWidth,
                 borderTop: "1px solid #334155",
                 background: isFocused ? "#172554" : "transparent",
                 cursor: "pointer",
               }}
             >
-              {COLUMNS.map((c) => {
+              {visibleColumns.map((c) => {
                 const style: React.CSSProperties = {
                   width: c.width, flexShrink: 0,
                   padding: "0 4px",
                   fontSize: 12, color: "#E2E8F0",
                   textAlign: c.align || "left",
-                  borderRight: "1px solid #1E293B",
+                  borderRight: "1px solid #334155",
                   display: "flex", alignItems: "center",
                   minHeight: 32,
                 };
@@ -392,17 +411,17 @@ export default function CostingGrid() {
         {/* Footer */}
         {lines.length > 0 && (
           <div style={{
-            display: "flex", minWidth: TOTAL_WIDTH,
+            display: "flex", minWidth: visibleWidth,
             borderTop: "2px solid #475569",
             background: "#0F172A", fontWeight: 700, color: "#E2E8F0",
             fontSize: 12, position: "sticky", bottom: 0, zIndex: 4,
           }}>
-            {COLUMNS.map((c) => {
+            {visibleColumns.map((c) => {
               const style: React.CSSProperties = {
                 width: c.width, flexShrink: 0,
                 padding: "8px 8px",
                 textAlign: c.align || "left",
-                borderRight: "1px solid #1E293B",
+                borderRight: "1px solid #334155",
                 display: "flex", alignItems: "center",
                 minHeight: 36,
               };
