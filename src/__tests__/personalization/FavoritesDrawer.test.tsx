@@ -40,9 +40,14 @@ function setLocation(href: string): void {
 
 describe("FavoritesDrawer — horizontal strip layout (T4-7)", () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    // Default for fresh users is COLLAPSED (set 2026-05-30 — the expanded
+    // strip was overlaying panel content). These tests exercise the
+    // EXPANDED strip layout, so force it expanded here BEFORE resetting
+    // the cache (which reads from localStorage).
+    window.localStorage.setItem("favorites_drawer_collapsed", "0");
     __resetPersonalizationCacheForTests();
     __resetFavoritesToastsForTests();
-    window.localStorage.clear();
     setLocation("/tanda?view=dashboard");
     vi.restoreAllMocks();
   });
