@@ -7,13 +7,34 @@
 //
 // tax_exempt_certificate is NEVER touched here — it's a PII-adjacent field
 // handled by a dedicated workflow (not built).
+//
+// Wave 5 primitive adoption (2026-05-30):
+//   • TablePrefs        — per-user column show/hide (gear button) for the
+//                         list grid; persists via user_preferences.
+//   • Row-click + Scroll
+//     Highlight         — click anywhere on a row to open the edit modal;
+//                         briefly fades a highlight on the clicked row.
+//   • DynamicSearchInput — debounced (200 ms) search-as-you-type, replacing
+//                         the previous text input + explicit Search button.
+//   • SearchableSelect  — applied to the Payment-terms picker in the edit
+//                         modal (the only DB-driven dropdown that can grow
+//                         beyond ~7 entries). Customer-type / status /
+//                         type-filter selects are 3–5 fixed enum values, so
+//                         native <select> remains the right choice there.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the customer detail modal.
 import RowHistory from "./components/RowHistory";
+// Wave 5 primitives.
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type Customer = {
   id: string;
@@ -60,6 +81,18 @@ type PaymentTermOption = {
   due_days: number;
   is_active: boolean;
 };
+
+// Wave 5 — per-user column visibility for the customer list grid.
+const CUSTOMER_MASTER_TABLE_KEY = "tangerine:customermaster:columns";
+const CUSTOMER_MASTER_COLUMNS: ColumnDef[] = [
+  { key: "code",           label: "Code"          },
+  { key: "name",           label: "Name"          },
+  { key: "customer_type",  label: "Type"          },
+  { key: "country",        label: "Country"       },
+  { key: "status",         label: "Status"        },
+  { key: "credit_limit",   label: "Credit Limit"  },
+  { key: "payment_terms",  label: "Payment Terms" },
+];
 
 const btnPrimary: React.CSSProperties = {
   background: C.primary, color: "white", border: 0, padding: "8px 14px",
@@ -112,18 +145,39 @@ export default function InternalCustomerMaster() {
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  // Wave 5 — search-as-you-type. Synchronous `q` binds to the input so
+  // typing feels instant; `qDebounced` drives the fetch (200 ms cadence,
+  // matching the COA panel and the T6 GlobalSearchPalette).
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [typeFilter, setTypeFilter] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
 
-  async function load() {
+  // Wave 5 — row-click opens the edit modal; soft-deleted rows are
+  // non-interactive (matches the existing "Edit / Delete buttons hidden
+  // when deleted_at is set" rule).
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<Customer>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit customer ${r.code || r.customer_code || r.name}`,
+    disabled: (r) => !!r.deleted_at,
+  });
+
+  // Wave 5 — column visibility (gear button next to search).
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CUSTOMER_MASTER_TABLE_KEY,
+    CUSTOMER_MASTER_COLUMNS,
+  );
+  const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       if (typeFilter) params.set("customer_type", typeFilter);
       const [custRes, ptRes] = await Promise.all([
@@ -140,11 +194,14 @@ export default function InternalCustomerMaster() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [qDebounced, includeInactive, typeFilter]);
 
-  useEffect(() => { void load(); }, [includeInactive, typeFilter]);
+  useEffect(() => { void load(); }, [load]);
 
-  const termById = new Map(paymentTerms.map((t) => [t.id, t]));
+  const termById = useMemo(
+    () => new Map(paymentTerms.map((t) => [t.id, t])),
+    [paymentTerms],
+  );
 
   async function softDelete(c: Customer) {
     if (!confirm(`Deactivate this customer?\n\n${c.name}\n\nThis soft-deletes the row. An admin can restore via SQL.`)) return;
@@ -165,17 +222,20 @@ export default function InternalCustomerMaster() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="text"
-          placeholder="Search name, code, or customer_code…"
+        <DynamicSearchInput
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
-          style={{ ...inputStyle, maxWidth: 360 }}
+          onChange={setQ}
+          placeholder="Search name, code, or customer_code…"
+          ariaLabel="Search customers"
+          wrapperStyle={{ maxWidth: 360 }}
         />
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <span style={{ textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11, color: C.textMuted }}>Type</span>
+          {/*
+            Native <select> retained — only 5 fixed enum values, well under
+            the >7 threshold where SearchableSelect's type-ahead becomes
+            useful.
+          */}
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 140 }}>
             <option value="">(all)</option>
             {CUSTOMER_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -189,6 +249,13 @@ export default function InternalCustomerMaster() {
           />
           Show inactive
         </label>
+        <TablePrefsButton
+          tableKey={CUSTOMER_MASTER_TABLE_KEY}
+          columns={CUSTOMER_MASTER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="customers"
@@ -226,30 +293,39 @@ export default function InternalCustomerMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Type</th>
-                <th style={th}>Country</th>
-                <th style={th}>Status</th>
-                <th style={{ ...th, textAlign: "right" }}>Credit Limit</th>
-                <th style={th}>Payment Terms</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("customer_type")}>Type</th>
+                <th style={th} hidden={!isVisible("country")}>Country</th>
+                <th style={th} hidden={!isVisible("status")}>Status</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("credit_limit")}>Credit Limit</th>
+                <th style={th} hidden={!isVisible("payment_terms")}>Payment Terms</th>
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} style={r.deleted_at ? { opacity: 0.4 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                <ScrollHighlightRow
+                  key={r.id}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
+                  style={r.deleted_at ? { opacity: 0.4 } : undefined}
+                >
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>
                     {r.code || r.customer_code || "—"}
                   </td>
-                  <td style={td}>{r.name}</td>
-                  <td style={td}>{r.customer_type}</td>
-                  <td style={td}>{r.country || "—"}</td>
-                  <td style={td}><span style={statusPill(r.status)}>{r.status}</span></td>
-                  <td style={{ ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                  <td style={td} hidden={!isVisible("name")}>{r.name}</td>
+                  <td style={td} hidden={!isVisible("customer_type")}>{r.customer_type}</td>
+                  <td style={td} hidden={!isVisible("country")}>{r.country || "—"}</td>
+                  <td style={td} hidden={!isVisible("status")}><span style={statusPill(r.status)}>{r.status}</span></td>
+                  <td
+                    style={{ ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                    hidden={!isVisible("credit_limit")}
+                  >
                     {fmtMoney(r.credit_limit)}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("payment_terms")}>
                     {r.payment_terms_id ? (
                       termById.get(r.payment_terms_id)?.code || r.payment_terms_id.slice(0, 8) + "…"
                     ) : r.payment_terms ? (
@@ -259,12 +335,12 @@ export default function InternalCustomerMaster() {
                   <td style={{ ...td, textAlign: "right" }}>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
-                        <button onClick={() => void softDelete(r)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                       </>
                     )}
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>
@@ -314,6 +390,25 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Wave 5 — payment-terms picker is the only modal dropdown whose option
+  // list comes from a DB table (payment_terms) and can grow beyond a
+  // handful, so we route it through SearchableSelect. The customer_type
+  // and status selects below stay as native <select> elements (5 and 3
+  // fixed enum values respectively).
+  const paymentTermsOptions: SearchableSelectOption[] = useMemo(() => {
+    const active = paymentTerms.filter((t) => t.is_active || t.id === form.payment_terms_id);
+    return [
+      { value: "", label: "(none — inherit / no default)" },
+      ...active.map((t) => ({
+        value: t.id,
+        label: `${t.code} — ${t.name} (${t.due_days}d)`,
+        // Make the search match on the code, name, and the formatted due-days
+        // chunk so an operator typing "n30" / "net 30" / "30d" all land.
+        searchHaystack: `${t.code} ${t.name} ${t.due_days}d net${t.due_days}`,
+      })),
+    ];
+  }, [paymentTerms, form.payment_terms_id]);
 
   async function submit() {
     setSubmitting(true);
@@ -396,16 +491,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             <input type="text" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} style={inputStyle} placeholder="e.g. US" />
           </Field>
           <Field label="Payment terms">
-            <select
-              value={form.payment_terms_id}
-              onChange={(e) => setForm({ ...form, payment_terms_id: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              <option value="">(none — inherit / no default)</option>
-              {paymentTerms.filter((t) => t.is_active || t.id === form.payment_terms_id).map((t) => (
-                <option key={t.id} value={t.id}>{t.code} — {t.name} ({t.due_days}d)</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={form.payment_terms_id || null}
+              onChange={(v) => setForm({ ...form, payment_terms_id: v })}
+              options={paymentTermsOptions}
+              placeholder="Pick a payment term…"
+            />
             {mode === "edit" && customer?.payment_terms && !form.payment_terms_id && (
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
                 Legacy free-text: &quot;{customer.payment_terms}&quot; — pick from list to migrate.
