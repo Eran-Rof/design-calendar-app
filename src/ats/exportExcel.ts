@@ -504,8 +504,16 @@ export function buildExportPayload(
   const periodValueOf = (r: ATSRow, i: number): number => {
     return periodAvail(r, periods, i);
   };
-  const sumStartLetter = colLetter(COL.spacerL);   // L (empty spacer)
-  const sumEndLetter = colLetter(COL.lastPeriod);  // last period letter
+  // SUM range covers ONLY the period columns. Old code started from
+  // the spacer at COL.spacerL — the spacer is empty so the cached
+  // value was correct, but after hide-zero column drops reflowed the
+  // layout, the literal "L:lastPeriod" Excel range over-reached into
+  // the Total column itself (Total moves leftward into what was the
+  // lastPeriod letter, so the formula now circularly references its
+  // own cell). Narrowing the range to firstPeriod:lastPeriod removes
+  // that whole class of bug.
+  const sumStartLetter = colLetter(COL.firstPeriod);
+  const sumEndLetter   = colLetter(COL.lastPeriod);
 
   // ── BP-level (style_code) max Sls Prc ─────────────────────────────────
   // Operator rule: all variants of the same BP must show the same
@@ -1730,6 +1738,36 @@ export function buildExportPayload(
           return { s: { r: m.s.r, c: sc }, e: { r: m.e.r, c: ec } };
         })
         .filter((m): m is { s: { r: number; c: number }; e: { r: number; c: number } } => m !== null);
+
+      // Rewrite every cell formula's column letters to match the new
+      // post-hide-zero layout. Formula text was emitted earlier in the
+      // pipeline using the ORIGINAL column letters (e.g. SUM(M11:R11)
+      // for periods M..R); after the kept-list compaction those letters
+      // refer to different cells in the reflowed worksheet. Without this
+      // rewrite, the Total cell's SUM ends up summing whatever cells now
+      // sit at M..R (often the row's own Total column, self-referencing).
+      const colLetterToIdx = (letters: string): number => {
+        let n = 0;
+        for (let i = 0; i < letters.length; i++) {
+          n = n * 26 + (letters.charCodeAt(i) - 64);
+        }
+        return n;
+      };
+      for (const row of effectiveAllRows) {
+        if (!row) continue;
+        for (const cell of row) {
+          if (!cell || typeof cell.f !== "string") continue;
+          cell.f = cell.f.replace(/([A-Z]+)(\d+)/g, (whole, lettersRaw, digits) => {
+            const origIdx = colLetterToIdx(lettersRaw);
+            const newIdx = columnIndexMap!.get(origIdx);
+            // Dropped column: keep the original letter — Excel evaluates
+            // the cell as empty, producing a slight under-count rather
+            // than a wildly wrong sum from a self-reference.
+            if (newIdx === undefined) return whole;
+            return `${colLetter(newIdx)}${digits}`;
+          });
+        }
+      }
     }
   }
 
