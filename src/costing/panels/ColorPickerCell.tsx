@@ -13,10 +13,17 @@ import { useCostingStore } from "../store/costingStore";
 interface Props {
   value: string | null;
   onChange: (next: string | null) => void;
+  /**
+   * When provided, the dropdown only shows colors that exist on SKUs under
+   * this style code in ip_item_master. Falls back to all colors when null.
+   * Operator-added extras (costing_extra_colors) are always included
+   * regardless — those are global suggestions, not style-scoped.
+   */
+  styleCode?: string | null;
   cellStyle?: React.CSSProperties;
 }
 
-export default function ColorPickerCell({ value, onChange, cellStyle }: Props) {
+export default function ColorPickerCell({ value, onChange, styleCode, cellStyle }: Props) {
   const [text, setText] = useState(value || "");
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<string[]>([]);
@@ -35,17 +42,19 @@ export default function ColorPickerCell({ value, onChange, cellStyle }: Props) {
     return () => window.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Debounced search.
+  // Debounced search. Re-fires when styleCode changes so picking a new style
+  // re-scopes the color list to that style's available colors.
   useEffect(() => {
     if (!open) return;
+    const controller = new AbortController();
     const t = window.setTimeout(async () => {
       try {
-        const out = await searchColors(text);
+        const out = await searchColors(text, { styleCode, signal: controller.signal });
         setRows(out);
       } catch { /* silent */ }
     }, 200);
-    return () => window.clearTimeout(t);
-  }, [text, open]);
+    return () => { window.clearTimeout(t); controller.abort(); };
+  }, [text, open, styleCode]);
 
   const onCommit = (next: string | null) => {
     setText(next || "");

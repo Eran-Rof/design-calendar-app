@@ -478,11 +478,15 @@ export default function CostingGrid() {
                 }
 
                 // Color — autocomplete from ip_item_master + extras.
+                // Scoped to the line's style_code so the operator only sees
+                // colors that style actually comes in (plus their global
+                // freeform extras).
                 if (c.key === "color") {
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <ColorPickerCell
                         value={line.color}
+                        styleCode={line.style_code}
                         onChange={(v) => updateLine(line.id, { color: v })}
                       />
                     </div>
