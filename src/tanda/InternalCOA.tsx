@@ -13,6 +13,9 @@ import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 // Cross-cutter T11-3 — audit-trail drop-in for the GL account detail modal.
 import RowHistory from "./components/RowHistory";
+// Universal row-click + scroll-highlight primitive (operator ask #4).
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type Account = {
   id: string;
@@ -110,6 +113,15 @@ export default function InternalCOA() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
+  // Universal row-click primitive (operator ask #4) — click anywhere on a
+  // row (except interactive children: Edit/Delete buttons, the Balance
+  // link to GL Detail) to open the edit modal.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<Account>({
+    onRowClick: (a) => setEditing(a),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (a) => `Edit account ${a.code} ${a.name}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -235,7 +247,13 @@ export default function InternalCOA() {
                 const isNeg  = Number.isFinite(balCents) && balCents < 0;
                 const balColor = isZero ? C.textMuted : isNeg ? C.danger : C.text;
                 return (
-                  <tr key={a.id} style={a.status === "inactive" ? { opacity: 0.5 } : {}}>
+                  <ScrollHighlightRow
+                    key={a.id}
+                    rowId={a.id}
+                    highlightedRowId={highlightedId}
+                    {...getRowProps(a)}
+                    style={a.status === "inactive" ? { opacity: 0.5 } : undefined}
+                  >
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{a.code}</td>
                     <td style={td}>{a.name}</td>
                     <td style={td}>{a.account_type}</td>
@@ -268,10 +286,10 @@ export default function InternalCOA() {
                     <td style={{ ...td, textAlign: "center" }}>{a.is_postable ? "✓" : "✗"}</td>
                     <td style={{ ...td, textAlign: "center" }}>{a.is_control ? "✓" : "✗"}</td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      <button onClick={() => setEditing(a)} style={btnSecondary}>Edit</button>
-                      <button onClick={() => void del(a)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditing(a); }} style={btnSecondary}>Edit</button>
+                      <button onClick={(e) => { e.stopPropagation(); void del(a); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                     </td>
-                  </tr>
+                  </ScrollHighlightRow>
                 );
               })}
             </tbody>

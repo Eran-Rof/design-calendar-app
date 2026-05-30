@@ -27,6 +27,9 @@ import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
+// Universal row-click + scroll-highlight primitive (operator ask #4).
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 // Universal Column Visibility primitive (Operator ask #1, 2026-05-30).
 // Style Master is the demo panel; the other Tangerine panels are swept in
@@ -153,6 +156,16 @@ export default function InternalStyleMaster() {
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
+  // Universal row-click primitive (operator ask #4) — click anywhere on a
+  // row (except Edit/Delete buttons) to open the edit modal. Soft-deleted
+  // rows are non-interactive.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<Style>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit style ${r.style_code}${r.style_name ? ` ${r.style_name}` : ""}`,
+    disabled: (r) => !!r.deleted_at,
+  });
 
   // Universal column visibility — gear-icon next to search; choices persist
   // per-user via user_preferences (key='table_visibility').
@@ -290,7 +303,13 @@ export default function InternalStyleMaster() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} style={r.deleted_at ? { opacity: 0.4 } : {}}>
+                <ScrollHighlightRow
+                  key={r.id}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
+                  style={r.deleted_at ? { opacity: 0.4 } : undefined}
+                >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("style_code")}>
                     {r.style_code}
                   </td>
@@ -307,12 +326,12 @@ export default function InternalStyleMaster() {
                   <td style={{ ...td, textAlign: "right" }}>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
-                        <button onClick={() => void softDelete(r.id)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); void softDelete(r.id); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                       </>
                     )}
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>

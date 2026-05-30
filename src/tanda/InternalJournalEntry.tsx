@@ -12,6 +12,9 @@ import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 // Cross-cutter T11-3 — audit-trail drop-in for the JE detail modal.
 import RowHistory from "./components/RowHistory";
+// Universal row-click + scroll-highlight primitive (operator ask #4).
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type JELine = {
   id?: string;
@@ -137,6 +140,16 @@ export default function InternalJournalEntry() {
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const [postOpen, setPostOpen] = useState(false);
   const [detail, setDetail] = useState<JE | null>(null);
+  // Universal row-click primitive (operator ask #4) — replaces the
+  // hand-rolled onClick/setDetail on each <tr>. The hook handles
+  // modifier-key fall-through, keyboard activation, and tracks the
+  // last-clicked row id for the scroll-highlight fade.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<JE>({
+    onRowClick: (je) => setDetail(je),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (je) => `Open journal entry ${je.id.slice(0, 8)}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -257,9 +270,11 @@ export default function InternalJournalEntry() {
             </thead>
             <tbody>
               {rows.map((je) => (
-                <tr
+                <ScrollHighlightRow
                   key={je.id}
-                  onClick={() => setDetail(je)}
+                  rowId={je.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(je)}
                   style={{
                     ...(je.status !== "posted" ? { opacity: 0.55 } : {}),
                     cursor: "pointer",
@@ -287,7 +302,7 @@ export default function InternalJournalEntry() {
                       </button>
                     )}
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>
