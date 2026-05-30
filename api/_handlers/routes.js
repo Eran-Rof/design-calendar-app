@@ -582,6 +582,11 @@ import h516 from "./internal/recon/runs.js";
 import h517 from "./internal/recon/variances.js";
 import h518 from "./internal/recon/clear.js";
 import h519 from "./internal/recon/cutovers.js";
+// P6-6 — Reconciliation runs. Renumbered h336-h338 → h520-h522 on rebase
+// (h336-h338 are taken on main). APPEND ONLY.
+import h520 from "./internal/bank-recon-runs/index.js";
+import h521 from "./internal/bank-recon-runs/[id].js";
+import h522 from "./internal/bank-recon-runs/compute.js";
 
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
@@ -1115,6 +1120,10 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/variances",                          handler: h517 },
   { pattern: "/api/internal/recon/runs",                               handler: h516 },
   { pattern: "/api/internal/recon/cutovers",                           handler: h519 },
+  // P6-6 — Reconciliation runs. Subpath BEFORE bare /:id.
+  { pattern: "/api/internal/bank-recon-runs/:id/compute", handler: h522 },
+  { pattern: "/api/internal/bank-recon-runs/:id",         handler: h521 },
+  { pattern: "/api/internal/bank-recon-runs",             handler: h520 },
 ];
 
 export function compileRoutes(routes) {

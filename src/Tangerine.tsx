@@ -41,6 +41,7 @@ import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
 import InternalCashFlow           from "./tanda/InternalCashFlow";
 import InternalYearEndClose       from "./tanda/InternalYearEndClose";
 import InternalBankReconciliation from "./tanda/InternalBankReconciliation";
+import InternalBankReconReport    from "./tanda/InternalBankReconReport";
 import InternalApprovalRules           from "./tanda/InternalApprovalRules";
 import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
@@ -118,6 +119,7 @@ type ModuleKey =
   | "cash_flow"
   | "year_end_close"
   | "bank_reconciliation"
+  | "bank_recon_report"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -215,6 +217,8 @@ const MODULES: ModuleDef[] = [
   { key: "year_end_close",    label: "Year-End Close",    emoji: "🔚", group: "Accounting" },
   // P6-5: Bank Reconciliation (accounts overview + unmatched txn queue).
   { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "🏦", group: "Accounting" },
+  // P6-6: Per (bank_account, period) reconciliation report.
+  { key: "bank_recon_report", label: "Recon Report",      emoji: "⚖️", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
   { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
@@ -419,6 +423,7 @@ export default function Tangerine() {
         {activeModule === "cash_flow"         && <InternalCashFlow />}
         {activeModule === "year_end_close"    && <InternalYearEndClose />}
         {activeModule === "bank_reconciliation" && <InternalBankReconciliation />}
+        {activeModule === "bank_recon_report" && <InternalBankReconReport />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}
