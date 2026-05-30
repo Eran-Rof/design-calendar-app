@@ -62,6 +62,10 @@ import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 import InternalShopifyRefunds         from "./tanda/InternalShopifyRefunds";
 // Tangerine P12-99 — Marketplaces status panel (Shopify / FBA / Walmart / Faire dashboard).
 import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
+// Tangerine P13-3 — 📦 Procurement group (M11 PO origination + M38 receiving + D19 bookkeeper queue).
+import InternalPOOrigination          from "./tanda/InternalPOOrigination";
+import InternalReceiving              from "./tanda/InternalReceiving";
+import InternalBookkeeperApprovalQueue from "./tanda/InternalBookkeeperApprovalQueue";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesDrawer from "./components/FavoritesDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -141,9 +145,13 @@ type ModuleKey =
   // P11-7 — Shopify Refunds reports panel.
   | "shopify_refunds"
   // Tangerine P12-99 — Marketplaces status (Shopify / FBA / Walmart / Faire).
-  | "marketplace_status";
+  | "marketplace_status"
+  // Tangerine P13-3 — 📦 Procurement group (PO origination, receiving, bookkeeper queue).
+  | "procurement_pos"
+  | "procurement_receiving"
+  | "procurement_bookkeeper_queue";
 
-type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces";
+type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Procurement";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -157,7 +165,7 @@ type ModuleDef = {
 // "invoice posts → check pipeline → log activity" so it follows Accounting and
 // precedes the cross-functional Reports group.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Marketplaces", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
+  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Procurement", "Customer Service", "Shopify", "Marketplaces", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
@@ -166,6 +174,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "CRM":              "🤝",
   "Reports":          "📊",
   "Inventory":        "📦",
+  "Procurement":      "📦",
   "Customer Service": "🤝",
   "Shopify":          "🛍️",
   "Marketplaces":     "🛒",
@@ -239,6 +248,10 @@ const MODULES: ModuleDef[] = [
   { key: "shopify_refunds",     label: "Refunds",           emoji: "↩️", group: "Shopify" },
   // Tangerine P12-99 — Marketplaces close-out status panel (Shopify / FBA / Walmart / Faire).
   { key: "marketplace_status",  label: "Marketplace Status",emoji: "🛒", group: "Marketplaces" },
+  // Tangerine P13-3 — 📦 Procurement group (M11 + M38 + D19 bookkeeper queue).
+  { key: "procurement_pos",               label: "PO Origination",       emoji: "📦", group: "Procurement" },
+  { key: "procurement_receiving",         label: "Receiving",            emoji: "📥", group: "Procurement" },
+  { key: "procurement_bookkeeper_queue",  label: "Bookkeeper Queue",     emoji: "✅", group: "Procurement" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -421,6 +434,10 @@ export default function Tangerine() {
         {activeModule === "shopify_refunds"     && <InternalShopifyRefunds />}
         {/* Tangerine P12-99 — Marketplaces close-out status dashboard */}
         {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
+        {/* Tangerine P13-3 — 📦 Procurement group */}
+        {activeModule === "procurement_pos"              && <InternalPOOrigination />}
+        {activeModule === "procurement_receiving"        && <InternalReceiving />}
+        {activeModule === "procurement_bookkeeper_queue" && <InternalBookkeeperApprovalQueue />}
       </main>
       {/* Cross-cutter T4-3 — Personalization favorites drawer (fixed right). */}
       <FavoritesDrawer />
