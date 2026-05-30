@@ -39,7 +39,7 @@ function pick(obj, fields) {
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID, X-Internal-Token");
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -94,6 +94,14 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: "RFQ not found" });
     return res.status(200).json({ rfq: data });
+  }
+
+  if (req.method === "DELETE") {
+    // CASCADE on rfq_line_items + rfq_invitations means a single delete
+    // tears down the whole RFQ (header + lines + invitations + quotes).
+    const { error } = await admin.from("rfqs").delete().eq("id", id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(204).end();
   }
 
   return res.status(405).json({ error: "Method not allowed" });

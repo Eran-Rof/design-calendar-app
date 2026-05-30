@@ -448,3 +448,7 @@ export async function updateRfq(id: string, patch: RfqPatch): Promise<RfqListRow
   }));
   return out.rfq;
 }
+
+export async function deleteRfq(id: string): Promise<void> {
+  return json<void>(await fetch(`/api/internal/costing/rfqs/${id}`, { method: "DELETE" }));
+}

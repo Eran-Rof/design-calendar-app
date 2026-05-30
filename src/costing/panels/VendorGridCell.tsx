@@ -73,7 +73,19 @@ export default function VendorGridCell({ lineId }: Props) {
   useEffect(() => { if (!open) setQuery(""); }, [open]);
 
   const selected = quotes.find((q) => q.status === "selected");
-  const selectedName = selected?.vendor?.legal_name || selected?.vendor?.code || "";
+  // Resolve display name from vendorsForPicker when the quote's joined
+  // `vendor` relation isn't hydrated (store inserts quotes optimistically
+  // without the join, so the trigger button was rendering empty right
+  // after a pick).
+  const lookup = selected?.vendor_id
+    ? vendors.find((v) => v.id === selected.vendor_id)
+    : null;
+  const selectedName =
+    selected?.vendor?.legal_name
+    || selected?.vendor?.code
+    || lookup?.legal_name
+    || lookup?.code
+    || "";
 
   // Filtered options for the popover list.
   const filtered = useMemo(() => {

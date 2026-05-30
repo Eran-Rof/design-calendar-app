@@ -8,8 +8,10 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs } from "../services/costingApi";
+import { listRfqs, deleteRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
+import { appConfirm } from "../../utils/theme";
+import { useCostingStore } from "../store/costingStore";
 import type { RfqListRow, RfqStatus } from "../types";
 
 const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
@@ -49,6 +51,23 @@ export default function RfqListView() {
   }, [q, status]);
 
   const onOpen = (id: string) => navigate("rfq-edit", id);
+  const setNotice = useCostingStore((s) => s.setNotice);
+  const onDelete = (r: RfqListRow) => {
+    const label = r.title || r.vendor_name || r.id;
+    appConfirm(
+      `Delete RFQ "${label}"? This permanently removes the header + all line items + invitations + quotes. Cannot be undone.`,
+      "Delete",
+      async () => {
+        try {
+          await deleteRfq(r.id);
+          setRows((prev) => prev.filter((x) => x.id !== r.id));
+          setNotice(`Deleted RFQ "${label}".`, "info");
+        } catch (e) {
+          setNotice(`Could not delete RFQ: ${(e as Error).message}`, "error");
+        }
+      },
+    );
+  };
 
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
@@ -104,11 +123,12 @@ export default function RfqListView() {
               <Th>Status</Th>
               <Th>Due</Th>
               <Th>Created</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+              <tr><td colSpan={11} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
                 {q || status ? "No RFQs match the filter." : "No RFQs yet — generate one from a Costing project."}
               </td></tr>
             )}
@@ -137,6 +157,18 @@ export default function RfqListView() {
                   </Td>
                   <Td>{r.delivery_required_by ? fmtDateDisplay(r.delivery_required_by) : "—"}</Td>
                   <Td>{r.created_at ? fmtDateDisplay(r.created_at.slice(0, 10)) : "—"}</Td>
+                  <Td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDelete(r); }}
+                      title="Delete this RFQ (with confirmation)"
+                      style={{
+                        background: "transparent", color: "#F87171",
+                        border: "1px solid #7F1D1D", borderRadius: 3,
+                        padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >Delete</button>
+                  </Td>
                 </tr>
               );
             })}
