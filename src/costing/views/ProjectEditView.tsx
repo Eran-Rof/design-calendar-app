@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { ALL_STATUSES, statusLabel, navigate, getEditId } from "../helpers";
+import { ALL_STATUSES, statusLabel, statusColor, navigate, getEditId } from "../helpers";
 import type { CostingStatus, CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import VendorQuotePanel from "../panels/VendorQuotePanel";
@@ -13,6 +13,12 @@ import PlanFlowWidget from "../panels/PlanFlowWidget";
 import CompliancePanel from "../panels/CompliancePanel";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
+import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
+
+// Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
+const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
+
+interface BrandRow { id: string; name: string; color?: string }
 
 export default function ProjectEditView() {
   const id = getEditId();
@@ -33,6 +39,20 @@ export default function ProjectEditView() {
 
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [saving, setSaving] = useState(false);
+  const [brands, setBrands] = useState<BrandRow[]>([]);
+
+  // Load brands from app_data on mount (same source the other apps use).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await sbLoadSvc("brands");
+        if (cancelled) return;
+        if (Array.isArray(rows)) setBrands(rows as BrandRow[]);
+      } catch { /* swallow; field stays freeform */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!id) { clear(); return; }
@@ -111,41 +131,64 @@ export default function ProjectEditView() {
 
       <div style={{
         background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
-        padding: 20, maxWidth: 760, display: "grid",
-        gridTemplateColumns: "repeat(2, 1fr)", gap: "14px 18px",
+        padding: "14px 16px", maxWidth: 880, display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
       }}>
-        <Field label="Project name">
+        <Field label="Project name" span={2}>
           <input value={form.project_name || ""} onChange={(e) => setField("project_name", e.target.value)} style={inp} />
         </Field>
         <Field label="Brand">
-          <input value={form.brand || ""} onChange={(e) => setField("brand", e.target.value)} style={inp} placeholder="BOYS / GIRLS / MEN / WOMEN / …" />
+          {brands.length > 0 ? (
+            <select value={form.brand || ""} onChange={(e) => setField("brand", e.target.value || null)} style={inp}>
+              <option value="">— select —</option>
+              {brands.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
+          ) : (
+            <input value={form.brand || ""} onChange={(e) => setField("brand", e.target.value)} style={inp} placeholder="(brands loading)" />
+          )}
         </Field>
-        <Field label="Gender code">
-          <input value={form.gender_code || ""} onChange={(e) => setField("gender_code", e.target.value)} style={inp} placeholder="B / G / M / W" />
-        </Field>
-        <Field label="Status">
-          <select value={form.status || "draft"} onChange={(e) => setField("status", e.target.value as CostingStatus)} style={inp}>
-            {ALL_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+        <Field label="Gender">
+          <select value={form.gender_code || ""} onChange={(e) => setField("gender_code", e.target.value || null)} style={inp}>
+            <option value="">— select —</option>
+            {GENDER_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         </Field>
-        <Field label="Customer ID (uuid)">
-          <input value={form.customer_id || ""} onChange={(e) => setField("customer_id", e.target.value || null)} style={inp} placeholder="Autocomplete arrives in Chunk 4" />
+
+        <Field label="Status">
+          {(() => {
+            const sc = statusColor((form.status || "draft") as CostingStatus);
+            return (
+              <select
+                value={form.status || "draft"}
+                onChange={(e) => setField("status", e.target.value as CostingStatus)}
+                style={{ ...inp, background: sc.bg, color: sc.fg, border: `1px solid ${sc.border}`, fontWeight: 600 }}
+              >
+                {ALL_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+              </select>
+            );
+          })()}
         </Field>
-        <Field label="Sales rep ID (uuid)">
-          <input value={form.sales_rep_id || ""} onChange={(e) => setField("sales_rep_id", e.target.value || null)} style={inp} placeholder="Autocomplete arrives in Chunk 4" />
+        <Field label="Customer">
+          <input value={form.customer_id || ""} onChange={(e) => setField("customer_id", e.target.value || null)} style={inp} placeholder="autocomplete coming" />
         </Field>
-        <Field label="Request date">
-          <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={inp} />
-        </Field>
-        <Field label="Due date">
-          <input type="date" value={form.due_date || ""} onChange={(e) => setField("due_date", e.target.value || null)} style={inp} />
-        </Field>
-        <Field label="Projected delivery">
-          <input type="date" value={form.projected_delivery_date || ""} onChange={(e) => setField("projected_delivery_date", e.target.value || null)} style={inp} />
+        <Field label="Sales rep">
+          <input value={form.sales_rep_id || ""} onChange={(e) => setField("sales_rep_id", e.target.value || null)} style={inp} placeholder="autocomplete coming" />
         </Field>
         <div />
-        <Field label="Notes" wide>
-          <textarea value={form.notes || ""} onChange={(e) => setField("notes", e.target.value || null)} rows={3} style={{ ...inp, fontFamily: "inherit" }} />
+
+        <Field label="Request date">
+          <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={dateInp} />
+        </Field>
+        <Field label="Due date">
+          <input type="date" value={form.due_date || ""} onChange={(e) => setField("due_date", e.target.value || null)} style={dateInp} />
+        </Field>
+        <Field label="Projected delivery">
+          <input type="date" value={form.projected_delivery_date || ""} onChange={(e) => setField("projected_delivery_date", e.target.value || null)} style={dateInp} />
+        </Field>
+        <div />
+
+        <Field label="Notes" span={4}>
+          <textarea value={form.notes || ""} onChange={(e) => setField("notes", e.target.value || null)} rows={2} style={{ ...inp, fontFamily: "inherit", resize: "vertical" }} />
         </Field>
       </div>
 
@@ -158,10 +201,10 @@ export default function ProjectEditView() {
   );
 }
 
-function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
+function Field({ label, span, children }: { label: string; span?: 1 | 2 | 3 | 4; children: React.ReactNode }) {
   return (
-    <label style={{ display: "block", gridColumn: wide ? "1 / span 2" : undefined }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>{label}</div>
+    <label style={{ display: "block", gridColumn: span ? `span ${span}` : undefined }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 3 }}>{label}</div>
       {children}
     </label>
   );
@@ -169,5 +212,14 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
 
 const inp: React.CSSProperties = {
   width: "100%", background: "#0F172A", color: "#E2E8F0",
-  border: "1px solid #334155", borderRadius: 4, padding: "6px 10px", fontSize: 13,
+  border: "1px solid #334155", borderRadius: 4, padding: "5px 8px", fontSize: 12,
+  outline: "none",
+};
+
+// Date pickers need color-scheme: dark so the browser-native calendar icon +
+// dropdown render in dark mode (otherwise the calendar button is invisible
+// on the dark input background).
+const dateInp: React.CSSProperties = {
+  ...inp,
+  colorScheme: "dark",
 };
