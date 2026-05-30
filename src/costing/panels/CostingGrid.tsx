@@ -73,6 +73,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "comment",        label: "Comment",  width: 160 },
   { key: "target_qty",     label: "Qty",      width: 80,  align: "right", numeric: true },
   { key: "_vendor",        label: "Vendor",   width: 130 },
+  { key: "avg_cost",       label: "Avg Cost", width: 80,  align: "right" },
   { key: "target_cost",    label: "Tgt Cost", width: 80,  align: "right", numeric: true },
   { key: "fob_cost",       label: "FOB",      width: 80,  align: "right", numeric: true },
   { key: "duty_rate",      label: "Duty %",   width: 70,  align: "right", numeric: true },
@@ -165,6 +166,10 @@ export default function CostingGrid() {
         const resolved = resolveCost(seed.sku_code, { avgCostMap: avgMap });
         if (resolved.cost != null && resolved.cost > 0) {
           patch.target_cost = resolved.cost;
+          // avg_cost is a read-only historical reference — set once at pick
+          // time so the operator can see where target_cost was seeded from
+          // even after they edit target_cost.
+          patch.avg_cost = resolved.cost;
         }
       }
     }
@@ -338,6 +343,19 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <ComplianceChipCell lineId={line.id} />
+                    </div>
+                  );
+                }
+
+                // Avg cost — read-only reference from ip_item_avg_cost at
+                // style-pick time. Different from target_cost (editable).
+                if (c.key === "avg_cost") {
+                  const v = line.avg_cost;
+                  return (
+                    <div key={c.key} style={{ ...style, color: "#94A3B8" }}>
+                      <span style={{ width: "100%", padding: "0 6px", fontStyle: v == null ? "italic" : "normal" }}>
+                        {v == null ? "—" : fmtMoney.format(v)}
+                      </span>
                     </div>
                   );
                 }

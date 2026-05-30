@@ -73,6 +73,8 @@ export interface CostingLine {
   remarks: string | null;
   target_qty: number | null;
   target_cost: number | null;
+  /** Read-only historical reference, written once on style pick from ip_item_avg_cost. */
+  avg_cost: number | null;
   sell_target: number | null;
   sell_price: number | null;
   priced_date: string | null;
