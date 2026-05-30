@@ -313,10 +313,14 @@ export async function searchSalesReps(q: string, signal?: AbortSignal): Promise<
   return out.rows || [];
 }
 
-export async function searchColors(q: string, signal?: AbortSignal): Promise<string[]> {
+export async function searchColors(
+  q: string,
+  opts?: { styleCode?: string | null; signal?: AbortSignal },
+): Promise<string[]> {
   const sp = new URLSearchParams();
   if (q) sp.set("q", q);
-  const res = await fetch(`/api/internal/costing/search/colors?${sp.toString()}`, { signal });
+  if (opts?.styleCode) sp.set("style_code", opts.styleCode);
+  const res = await fetch(`/api/internal/costing/search/colors?${sp.toString()}`, { signal: opts?.signal });
   const out = await json<{ rows: string[] }>(res);
   return out.rows || [];
 }

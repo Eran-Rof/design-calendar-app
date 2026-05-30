@@ -66,7 +66,10 @@ export default function VendorPickerCell({ value, onPick, placeholder, inputStyl
           search(v);
           setOpen(true);
         }}
-        onFocus={() => { if (text) { search(text); setOpen(true); } }}
+        // Open + fetch on focus even when empty — the operator can browse
+        // existing vendors (first 25) before typing. Without this they'd
+        // see an empty dropdown and assume there are no vendors.
+        onFocus={() => { search(text); setOpen(true); }}
         style={{
           width: "100%", padding: "5px 8px", fontSize: 12,
           background: "#0F172A", color: "#E2E8F0",
@@ -74,7 +77,7 @@ export default function VendorPickerCell({ value, onPick, placeholder, inputStyl
           ...inputStyle,
         }}
       />
-      {open && (rows.length > 0 || loading) && (
+      {open && (
         <div style={{
           position: "absolute", top: "100%", left: 0, zIndex: 50,
           minWidth: 280, maxHeight: 280, overflowY: "auto",
@@ -110,8 +113,10 @@ export default function VendorPickerCell({ value, onPick, placeholder, inputStyl
               </div>
             </button>
           ))}
-          {!loading && rows.length === 0 && text && (
-            <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>No matches.</div>
+          {!loading && rows.length === 0 && (
+            <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>
+              {text ? `No vendors match "${text}".` : "No vendors yet — type a name and click '+ Add new vendor'."}
+            </div>
           )}
           {canAdd && (
             <button

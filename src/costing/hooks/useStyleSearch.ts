@@ -62,11 +62,9 @@ export function useVendorSearch() {
     if (timer.current) clearTimeout(timer.current);
     if (ctrl.current) ctrl.current.abort();
     const trimmed = (q || "").trim();
-    if (trimmed.length === 0) {
-      setRows([]);
-      setLoading(false);
-      return;
-    }
+    // Unlike style search, vendor search ALWAYS fires — the handler returns
+    // the first 25 vendors when q is empty, which lets the operator browse
+    // existing vendors by clicking the field without having to type first.
     setLoading(true);
     timer.current = setTimeout(async () => {
       const ac = new AbortController();

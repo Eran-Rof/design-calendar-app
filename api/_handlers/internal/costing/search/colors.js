@@ -1,9 +1,13 @@
 // api/internal/costing/search/colors
-// GET ?q=<text>  → distinct color values from ip_item_master, plus any
-// operator-added colors from app_data["costing_extra_colors"].
+// GET ?q=<text>&style_code=<code>
+//   → distinct color values from ip_item_master (scoped to style_code when
+//     present), plus any operator-added colors from app_data["costing_extra_colors"].
 //
-// Operator can free-type any color in the grid cell; this endpoint just
-// powers the autocomplete suggestions.
+// style_code filter: when present, only colors that exist on SKUs under
+// that style are returned. This narrows the dropdown to "colors this
+// style actually comes in" instead of dumping every color in the entire
+// item master. Operator can still free-type any color in the grid cell
+// (the picker has a "+ Add" sentinel that calls the same extras blob).
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
@@ -27,12 +31,18 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+  const styleCode = (url.searchParams.get("style_code") || "").trim();
 
   // 1. Distinct colors from ip_item_master (server-side dedupe via Set).
-  const { data: itemRows, error: itemErr } = await admin.from("ip_item_master")
+  // When style_code is provided, scope to SKUs under that style only so
+  // the operator sees "this style comes in CHARCOAL, BLACK, STORMY WEATHER"
+  // instead of every color across the entire item master.
+  let itemQuery = admin.from("ip_item_master")
     .select("color")
     .not("color", "is", null)
     .range(0, 9999);
+  if (styleCode) itemQuery = itemQuery.eq("style_code", styleCode);
+  const { data: itemRows, error: itemErr } = await itemQuery;
   if (itemErr) return res.status(500).json({ error: itemErr.message });
 
   const seen = new Set();
