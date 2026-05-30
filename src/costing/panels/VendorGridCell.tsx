@@ -1,19 +1,18 @@
-// VendorGridCell — inline vendor picker for the grid's _vendor column.
+// VendorGridCell — popover vendor picker, modelled on the planning app's
+// TbdColorCell (src/inventory-planning/components/cells/TbdColorCell.tsx).
 //
-// Replaces the old "winner picker among existing quotes" UX. Now it's a
-// pure vendor autocomplete — clicking the cell shows the first 25 active
-// vendors immediately; typing filters; "+ Add new vendor" creates a new
-// vendor row inline.
+// Trigger button shows the currently-selected vendor. Click → popover with
+// a search input + scrollable list of all active vendors. Typing filters
+// the list in-memory. If the typed value isn't in the list, a "+ Add new
+// vendor" row appears at the bottom — clicking it creates a vendors row
+// via the existing add-vendor endpoint and selects it.
 //
-// On pick: creates/updates the per-line vendor selection by writing a
-// costing_line_vendors row with status='selected' (the same select-quote
-// flow Award→cost-write already uses). The line's selected_vendor_quote_id
-// gets stamped so the RFQ generation (and any other "which vendor on
-// this line?" consumer) can resolve the vendor without an extra join.
+// On pick: writes a costing_line_vendors row with status='selected' (via
+// the existing select-quote flow) so RFQ generation + Plan Flow widget
+// keep reading the per-line vendor through the existing FK chain.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { useVendorSearch } from "../hooks/useStyleSearch";
 import { addVendor } from "../services/costingApi";
 import type { CostingLineVendor } from "../types";
 import type { VendorHit } from "../services/costingApi";
@@ -22,161 +21,223 @@ interface Props {
   lineId: string;
 }
 
-// Stable empty-array reference for the Zustand selector — fresh `[]`
-// literal on each render triggers React error #185 (see PR #577).
-const EMPTY: CostingLineVendor[] = [];
+// Stable empty-array reference for the Zustand selector — see PR #577
+// (fresh `[]` per render triggers React error #185).
+const EMPTY_QUOTES: CostingLineVendor[] = [];
+const EMPTY_VENDORS: VendorHit[] = [];
 
 export default function VendorGridCell({ lineId }: Props) {
-  const quotes = useCostingStore((s) => s.vendorQuotes[lineId] || EMPTY);
+  const quotes = useCostingStore((s) => s.vendorQuotes[lineId] || EMPTY_QUOTES);
+  const vendors = useCostingStore((s) => s.vendorsForPicker || EMPTY_VENDORS);
   const lines = useCostingStore((s) => s.lines);
   const selectQuote = useCostingStore((s) => s.selectQuote);
   const addQuote = useCostingStore((s) => s.addQuote);
   const loadQuotes = useCostingStore((s) => s.loadVendorQuotes);
+  const loadVendorsForPicker = useCostingStore((s) => s.loadVendorsForPicker);
   const setNotice = useCostingStore((s) => s.setNotice);
 
-  const { rows: searchRows, loading, search } = useVendorSearch();
-
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [adding, setAdding] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
-  // Currently-selected vendor for this line (via the costing_line_vendors
-  // row with status='selected'). Renders as the cell's display label.
-  const selected = quotes.find((q) => q.status === "selected");
-  const selectedLabel = selected?.vendor?.legal_name || selected?.vendor?.code || "";
-
-  // Mirror the selected label into the input when not actively editing,
-  // so navigating away + back shows the persisted pick.
-  useEffect(() => { if (!open) setText(selectedLabel); }, [selectedLabel, open]);
-
-  // Lazy-load this line's quotes once so `selected` resolves on mount.
+  // Lazy-load this line's quotes + the entire vendor list once per mount.
   useEffect(() => {
     if (!quotes || quotes.length === 0) loadQuotes(lineId);
+    if (!vendors || vendors.length === 0) loadVendorsForPicker();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineId]);
 
-  // Outside-click closer.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
 
-  const canAdd = text.trim().length > 0
-    && !loading
-    && !searchRows.some((r) => (r.legal_name || r.code || "").toLowerCase() === text.trim().toLowerCase());
+  const selected = quotes.find((q) => q.status === "selected");
+  const selectedName = selected?.vendor?.legal_name || selected?.vendor?.code || "";
 
-  const onPickVendor = async (vendor: VendorHit) => {
-    setText(vendor.legal_name || vendor.code || "");
-    setOpen(false);
-    const line = lines.find((l) => l.id === lineId);
-    const seedCost = typeof line?.target_cost === "number" ? line.target_cost : 0;
-    // If this vendor already has a quote on the line, just promote that
-    // existing quote (no duplicate row).
-    const existing = quotes.find((q) => q.vendor_id === vendor.id);
-    if (existing) {
-      await selectQuote(lineId, existing.id);
-      return;
-    }
-    // Otherwise create a fresh quote row + promote it.
-    const created = await addQuote(lineId, {
-      vendor_id: vendor.id,
-      quoted_cost: seedCost,
-      currency: vendor.default_currency || "USD",
-      status: "received",
+  // Filtered options for the popover list.
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return vendors;
+    return vendors.filter((v) => {
+      const name = (v.legal_name || "").toLowerCase();
+      const code = (v.code || "").toLowerCase();
+      return name.includes(q) || code.includes(q);
     });
-    if (created) {
-      await selectQuote(lineId, created.id);
-    } else {
-      setNotice("Could not record vendor pick — see console for details.", "error");
+  }, [vendors, query]);
+
+  // Add-new is offered when the typed name doesn't match any existing
+  // vendor (case-insensitive on legal_name/code).
+  const queryTrim = query.trim();
+  const queryIsNew = queryTrim.length > 0
+    && !vendors.some((v) =>
+      (v.legal_name || "").toLowerCase() === queryTrim.toLowerCase()
+      || (v.code || "").toLowerCase() === queryTrim.toLowerCase()
+    );
+
+  const commitPick = async (vendor: VendorHit) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // Reuse an existing quote for this vendor if one already exists;
+      // otherwise create a new one + immediately promote it to selected.
+      const existing = quotes.find((q) => q.vendor_id === vendor.id);
+      if (existing) {
+        await selectQuote(lineId, existing.id);
+      } else {
+        const line = lines.find((l) => l.id === lineId);
+        const seedCost = typeof line?.target_cost === "number" ? line.target_cost : 0;
+        const created = await addQuote(lineId, {
+          vendor_id: vendor.id,
+          quoted_cost: seedCost,
+          currency: vendor.default_currency || "USD",
+          status: "received",
+        });
+        if (created) await selectQuote(lineId, created.id);
+        else setNotice("Could not record vendor pick — see console for details.", "error");
+      }
+      setOpen(false);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const onInlineAdd = async () => {
-    const name = text.trim();
-    if (!name) return;
-    setAdding(true);
+  const commitNew = async (name: string) => {
+    if (busy || !name) return;
+    setBusy(true);
     try {
       const created = await addVendor(name);
-      await onPickVendor(created);
+      // Reload the vendor list so the popover knows about the new vendor
+      // (also picks it up for any sibling grid cells the operator opens next).
+      await loadVendorsForPicker();
+      await commitPick(created);
       setNotice(`Added new vendor "${name}"`, "info");
     } catch (e) {
       setNotice(`Could not add vendor: ${(e as Error).message}`);
     } finally {
-      setAdding(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
-      <input
-        value={text}
-        placeholder="Vendor…"
-        // Open + fire empty search on focus so the operator sees the full
-        // vendor list immediately without typing.
-        onFocus={() => { search(text); setOpen(true); }}
-        onChange={(e) => { const v = e.target.value; setText(v); search(v); setOpen(true); }}
+    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={selectedName ? `Selected: ${selectedName}` : "Click to pick a vendor"}
         style={{
-          width: "100%", padding: "4px 6px", fontSize: 11,
-          background: "transparent", color: selected ? "#A7F3D0" : "#E2E8F0",
-          border: "1px solid transparent", borderRadius: 3, outline: "none",
-          fontWeight: selected ? 600 : 400,
+          width: "100%", textAlign: "left",
+          background: selected ? "transparent" : "transparent",
+          color: selectedName ? "#A7F3D0" : "#94A3B8",
+          border: `1px ${selectedName ? "solid" : "dashed"} #475569`,
+          borderRadius: 3,
+          padding: "3px 8px",
+          fontSize: 11,
+          cursor: "pointer",
+          fontWeight: selectedName ? 600 : 400,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 4,
         }}
-        title={selected ? `Selected: ${selectedLabel}` : "Pick or type a vendor"}
-      />
+      >
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {selectedName || "— pick vendor —"}
+        </span>
+        <span style={{ color: "#64748B", fontSize: 9 }}>▾</span>
+      </button>
       {open && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 50,
-          minWidth: 280, maxHeight: 280, overflowY: "auto",
-          background: "#1E293B", border: "1px solid #475569",
-          borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-          marginTop: 2,
-        }}>
-          {loading && <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>Searching…</div>}
-          {searchRows.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); onPickVendor(v); }}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "6px 10px", background: "transparent",
-                border: "none", borderBottom: "1px solid #334155",
-                color: "#E2E8F0", cursor: "pointer", fontSize: 12,
+        <div
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", left: 0,
+            zIndex: 60, minWidth: 260, maxHeight: 320, overflowY: "auto",
+            background: "#1E293B", border: "1px solid #475569",
+            borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{
+            padding: 8, borderBottom: "1px solid #334155",
+            position: "sticky", top: 0, background: "#1E293B",
+          }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Type to search or add new vendor…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commitNew(queryTrim); }
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-            >
-              <div style={{ fontWeight: 600 }}>{v.legal_name || v.code || v.id}</div>
-              <div style={{ fontSize: 11, color: "#94A3B8" }}>
-                {v.code ? v.code : ""}
-                {v.country ? ` · ${v.country}` : ""}
-                {v.default_currency ? ` · ${v.default_currency}` : ""}
-              </div>
-            </button>
-          ))}
-          {!loading && searchRows.length === 0 && (
-            <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>
-              {text ? `No vendors match "${text}".` : "No vendors yet — type a name and click '+ Add'."}
+              style={{
+                width: "100%", background: "#0F172A", color: "#E2E8F0",
+                border: "1px solid #334155", borderRadius: 4,
+                padding: "5px 8px", fontSize: 12, outline: "none",
+              }}
+            />
+            <div style={{ marginTop: 4, fontSize: 10, color: "#94A3B8" }}>
+              {vendors.length === 0
+                ? "No vendors yet — type a name to add one."
+                : `${filtered.length} of ${vendors.length} active vendor${vendors.length === 1 ? "" : "s"}`}
             </div>
+          </div>
+          {filtered.length === 0 && !queryIsNew && (
+            <div style={{ padding: 12, color: "#94A3B8", fontSize: 12 }}>No matches</div>
           )}
-          {canAdd && (
-            <button
-              type="button"
-              disabled={adding}
-              onMouseDown={(e) => { e.preventDefault(); onInlineAdd(); }}
+          {filtered.map((v) => {
+            const isCurrent = v.id === selected?.vendor_id;
+            const label = v.legal_name || v.code || v.id;
+            return (
+              <div
+                key={v.id}
+                role="option"
+                tabIndex={0}
+                onClick={() => commitPick(v)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commitPick(v); } }}
+                style={{
+                  padding: "6px 12px", cursor: "pointer", fontSize: 12,
+                  color: isCurrent ? "#60A5FA" : "#E2E8F0",
+                  background: isCurrent ? "#60A5FA11" : undefined,
+                  fontWeight: isCurrent ? 600 : undefined,
+                  borderBottom: "1px solid #334155",
+                }}
+                onMouseEnter={(e) => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = "#334155"; }}
+                onMouseLeave={(e) => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+              >
+                <div>{label}</div>
+                <div style={{ fontSize: 10, color: "#94A3B8" }}>
+                  {v.code ? v.code : ""}
+                  {v.country ? ` · ${v.country}` : ""}
+                  {v.default_currency ? ` · ${v.default_currency}` : ""}
+                </div>
+              </div>
+            );
+          })}
+          {queryIsNew && (
+            <div
+              role="option"
+              tabIndex={0}
+              onClick={() => commitNew(queryTrim)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commitNew(queryTrim); } }}
               style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "6px 10px", background: "#0F172A",
-                border: "none", color: "#10B981",
-                cursor: adding ? "wait" : "pointer",
-                fontSize: 12, fontWeight: 600,
+                padding: "8px 12px", cursor: busy ? "wait" : "pointer",
+                fontSize: 12, color: "#10B981",
+                background: "#10B98111",
+                borderTop: filtered.length > 0 ? "1px solid #334155" : undefined,
+                fontWeight: 600,
               }}
-            >{adding ? "Adding…" : `+ Add new vendor "${text.trim()}"`}</button>
+              title="Vendor isn't in the database yet — adds a new vendors row + selects it."
+            >
+              {busy ? "Adding…" : <>+ Add new vendor: <strong>{queryTrim}</strong></>}
+            </div>
           )}
         </div>
       )}
