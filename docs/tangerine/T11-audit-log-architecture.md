@@ -1,6 +1,14 @@
 # Cross-cutter T11 — Universal Audit Log / Row-Change Timeline
 
-Status: **DRAFT** (2026-05-29). Author: Tangerine cross-cutter stream, branch `crosscutter-t11-arch`.
+Status: **SHIPPED** (2026-05-29). All four chunks merged. Author: Tangerine cross-cutter stream.
+
+| Chunk | Status | PR |
+|---|---|---|
+| T11-1 — Schema + trigger function + 16-entity coverage | **DONE** | #521 |
+| T11-2 — `withAuditContext` API + 4 `_with_audit` RPCs + handler sweep | **DONE** | #531 |
+| T11-3 — `<RowHistory>` drop-in + `InternalAuditLog` admin panel + 9 modal mounts | **DONE** | #537 |
+| T11-4 — User-guide chapter 24 (operator-facing) | **DONE** | #544 |
+| T11-4b — Arch DONE flags + 2 memory rules + index update + handler sweep close-out | **DONE** | this PR |
 
 T11 is the cross-cutter that gives every panel in the suite — Tangerine, PO WIP, ATS, DC, GS1, Tech Pack — a single, universal "who changed what when" surface. Today the suite has a handful of one-off audit tables (`audit_logs`, `bank_match_audit`, `gl_period_status_log`, `entity_access_audit`, `compliance_audit_trail`, `ip_change_audit_log`) plus per-table `created_by_user_id` / `updated_by_user_id` columns, but **no universal viewer**. Operators (CEO + accountant) repeatedly ask "who voided that invoice?" / "who switched the customer's credit limit?" — and today the answer requires SQL.
 
@@ -274,12 +282,13 @@ T11-3 wires `<RowHistory>` into the v1 detail-modal-having panels:
 
 ## 6. Implementation chunks
 
-| Chunk | Title | Scope | Depends on |
-|---|---|---|---|
-| **T11-1** | Schema + trigger function + session-var helpers | Migration: `row_changes` table + `audit_row_changes_trigger()` PL/pgSQL function + `set_audit_context` / `clear_audit_context` RPCs + per-entity trigger attaches for the v1 set (~15 tables). `iCloud Producton Orders/sql/t11-1-audit-log.sql` paste bundle. ~25 unit tests covering trigger fires on I/U/D, no-op updates skip, session-var defaults, diff computation. | — |
-| **T11-2** | API handlers + handler-sweep wiring | New handlers: GET `/row-changes` (per-entity), GET `/row-changes/stream` (cross-entity filtered), POST `/row-changes/diff`. `api/_lib/audit/context.js` helper. Sweep all mutating internal handlers for v1 entities wrapping them in `withAuditContext`. ~40 unit tests. | T11-1 |
-| **T11-3** | `<RowHistory>` primitive + `<AuditLogPanel>` admin + detail-modal drop-ins | `src/shared/audit/RowHistory.tsx` + `src/shared/audit/diffFormatters.ts` + `src/tanda/InternalAuditLog.tsx`. Mount `<RowHistory>` in the 9 v1 detail modals. Add 🕒 Audit Log top-nav group. Drop in T7 `<DateRangePresets>`. Wire FavoriteStar + SetAsHomeButton (T4). ~35 component tests + 4 integration. | T11-2 |
-| **T11-4** | Close-out — user guide ch23 + memory rules + 3 v2 backlog items | `docs/tangerine/user-guide/23-audit-log.md` (operator-facing explanation). New memory rule: every new mutable entity adds the trigger + every new mutating handler uses `withAuditContext`. Backlog jot: revert action, partition-by-month, correlation chain renderer. | T11-3 |
+| Chunk | Status | Title | Scope | PR |
+|---|---|---|---|---|
+| **T11-1** | **DONE** | Schema + trigger function + session-var helpers | Migration: `row_changes` table + `audit_row_changes_trigger()` PL/pgSQL function + per-entity trigger attaches for the v1 set (16 tables). Unit tests cover trigger fires on I/U/D, no-op updates skip, D3 reason check, session-var defaults. | #521 |
+| **T11-2** | **DONE** | API handlers + handler-sweep wiring | `api/_lib/audit/withAuditContext.js` (`extractActorFromRequest`, `normalizeAuditContext`, `buildAuditRpcParams`, `callWithAudit`, `setAuditSessionVars`, `requireReason`, `withAuditContext`) + four SECURITY DEFINER `_with_audit` RPCs (`void_ar_invoice_with_audit`, `void_ap_invoice_with_audit`, `post_journal_entry_with_audit`, `reverse_journal_entry_with_audit`) + sweep of the AR void / AP void / JE post / JE reverse handlers. | #531 |
+| **T11-3** | **DONE** | `<RowHistory>` primitive + `<InternalAuditLog>` admin + detail-modal drop-ins | `src/tanda/components/RowHistory.tsx` + `src/tanda/InternalAuditLog.tsx`. Mounts in 9 detail modals (AR/AP invoice · JE · COA · Periods · Customer · Vendor · Employees · Cases). `🕒 Audit Log` top-nav group with filters + DateRangePresets + export. Two read-only handlers (`/audit/row-history`, `/audit/log`) backing the surfaces. | #537 |
+| **T11-4** | **DONE** | User-guide chapter 24 — operator-facing explanation of what T11 captures, what it doesn't, the two surfaces, the D3 reason rule, and the open backlog. | `docs/tangerine/user-guide/24-audit-log.md`. | #544 |
+| **T11-4b** | **DONE** | Close-out — arch doc DONE flags + Adoption section + How-to-extend guide, 2 memory feedback files (`feedback_t11_reason_required_on_voids.md`, `feedback_t11_use_with_audit_rpc_for_voids.md`), MEMORY.md index update. | This PR. | — |
 
 **Parallel waves:** T11-1 must ship first (schema gates everything). T11-2 and T11-3 can run in parallel after T11-1 lands, T11-2 driving handler wiring and T11-3 building the UI primitives against the API contract. T11-4 closes after both.
 
@@ -333,7 +342,120 @@ After T11-3 ships, the operator sees:
 
 ---
 
-## 10. Risks
+## 10. Adoption (what shipped)
+
+### 10.1 Sixteen covered entities (T11-1 PR #521)
+
+The T11-1 migration attaches `audit_row_changes_trigger()` `AFTER INSERT OR UPDATE OR DELETE` on every row of these 16 tables. The list is also the allowlist enforced by both read handlers (`api/_handlers/internal/audit/row-history.js` and `api/_handlers/internal/audit/log.js`).
+
+| # | `source_table` | Notes |
+|---|---|---|
+| 1 | `ar_invoices` | header; VOID detected via `gl_status='void'` transition |
+| 2 | `ar_invoice_lines` | line table; clusters with header via `correlation_id` |
+| 3 | `invoices` | AP header; VOID detected via `gl_status='void'` transition |
+| 4 | `invoice_line_items` | AP line table |
+| 5 | `journal_entries` | header; POST + REVERSE detected via `status` transitions |
+| 6 | `journal_entry_lines` | JE line table |
+| 7 | `gl_accounts` | COA |
+| 8 | `gl_periods` | period close/reopen |
+| 9 | `customers` | customer master |
+| 10 | `vendors` | vendor master |
+| 11 | `employees` | employee master |
+| 12 | `cases` | support cases |
+| 13 | `sales_reps` | sales-rep master |
+| 14 | `commission_payouts` | commission accruals + payouts |
+| 15 | `bank_accounts` | bank account master |
+| 16 | `virtual_cards` | the "credit cards" table in the suite (pre-P managed-card provisioning) |
+
+**Operator-confirmed decisions (architecture §14):**
+- **D1** — 16 v1 entities including `virtual_cards`. Operator confirmed `virtual_cards` is the credit-cards surface in the current suite (no `payment_methods` table exists yet).
+- **D2** — line tables included (`ar_invoice_lines`, `invoice_line_items`, `journal_entry_lines`). Trigger clusters them with their parent via `correlation_id` so "what changed on this invoice" includes the line edits.
+- **D3** — `reason` is REQUIRED on `VOID` / `POST` / `REVERSE` operations. The trigger raises `check_violation` when `app.audit_reason` is empty on those operations; the JS-side `requireReason(op, reason)` from `withAuditContext.js` short-circuits to a 400 before the write ever hits the database.
+
+### 10.2 Nine detail modals with `<RowHistory>` drop-in (T11-3 PR #537)
+
+| Panel file | Modal | `source_table` |
+|---|---|---|
+| `src/tanda/InternalARInvoices.tsx` | AR invoice detail | `ar_invoices` |
+| `src/tanda/InternalAPInvoices.tsx` | AP invoice detail | `invoices` |
+| `src/tanda/InternalJournalEntry.tsx` | JE detail | `journal_entries` |
+| `src/tanda/InternalCOA.tsx` | GL account edit | `gl_accounts` |
+| `src/tanda/InternalPeriods.tsx` | Period detail | `gl_periods` |
+| `src/tanda/InternalCustomerMaster.tsx` | Customer edit | `customers` |
+| `src/tanda/InternalVendorMaster.tsx` | Vendor edit | `vendors` |
+| `src/tanda/InternalEmployees.tsx` | Employee edit | `employees` |
+| `src/tanda/InternalCases.tsx` | Case detail | `cases` |
+
+Component: `src/tanda/components/RowHistory.tsx`. Self-contained; calls `GET /api/internal/audit/row-history?source_table=&source_id=` on mount.
+
+### 10.3 InternalAuditLog admin panel (T11-3 PR #537)
+
+`src/tanda/InternalAuditLog.tsx` under the `🕒 Audit Log` top-nav group. Cross-entity stream with filters (entity_type, actor, source, date range via T7 `<DateRangePresets>`, operation, free-text search), per-row drill-into `<RowHistory>`, universal table export per T3/T8.
+
+### 10.4 Four audit-aware RPCs (T11-2 PR #531)
+
+Each is `SECURITY DEFINER` with hardened `search_path`. Each combines `set_audit_context()` + the actual write in a single PL/pgSQL statement so the trigger sees the audit context (the supabase-js connection pool means `SET LOCAL` from one `.rpc()` call does NOT survive into a separate `.update()` call).
+
+| RPC | Returns | Purpose |
+|---|---|---|
+| `void_ar_invoice_with_audit(invoice_id, audit_*)` | `{invoice_id, gl_status, previous_gl_status}` | Flips `ar_invoices.gl_status='void'` with audit context |
+| `void_ap_invoice_with_audit(invoice_id, audit_*)` | same shape | Flips `invoices.gl_status='void'` with audit context |
+| `post_journal_entry_with_audit(je_id, audit_*)` | `{je_id, status, previous_status}` | Flips `journal_entries.status='posted'`, stamps `posted_at` |
+| `reverse_journal_entry_with_audit(je_id, reversal_je_id, audit_*)` | `{je_id, status, reversal_je_id, previous_status}` | Flips `journal_entries.status='reversed'`, stamps `reversed_by_je_id` |
+
+The `audit_*` parameter prefix (`audit_actor_auth_id`, `audit_actor_employee_id`, `audit_actor_display_name`, `audit_source`, `audit_reason`, `audit_correlation_id`) is built by `buildAuditRpcParams({actor, source, reason, correlation_id})` from `api/_lib/audit/withAuditContext.js`.
+
+---
+
+## 11. How to extend coverage
+
+Three steps to add a new entity to the T11 audit ledger:
+
+**Step 1 — Attach the trigger in a follow-up migration:**
+
+```sql
+CREATE TRIGGER audit_row_changes
+  AFTER INSERT OR UPDATE OR DELETE ON <new_table>
+  FOR EACH ROW EXECUTE FUNCTION audit_row_changes_trigger();
+```
+
+The function `audit_row_changes_trigger()` was created idempotently in T11-1 and is reused for every covered table — never modify the function to add per-entity logic; if you need operation detection (like the `gl_status='void'` → `VOID` mapping on `ar_invoices`), follow the pattern at the top of the function and extend the `IF` ladder.
+
+**Step 2 — Add the table to the allowlist in both read handlers:**
+
+```js
+// api/_handlers/internal/audit/row-history.js
+export const T11_ALLOWED_SOURCE_TABLES = [
+  "ar_invoices",
+  // ... existing 16 ...
+  "<new_table>",                       // ← add here
+];
+```
+
+`api/_handlers/internal/audit/log.js` imports `T11_ALLOWED_SOURCE_TABLES` from `row-history.js`, so a single addition covers both surfaces. The allowlist is what stops a misspelled `source_table` from quietly returning an empty stream.
+
+**Step 3 — (Optional) Drop `<RowHistory>` into the detail modal:**
+
+```tsx
+import { RowHistory } from "../components/RowHistory";
+
+// inside the detail modal body, typically at the bottom:
+<RowHistory source_table="<new_table>" source_id={row.id} />
+```
+
+The component is self-contained — no extra props needed beyond the two source fields. Empty-state ("No audit history. Changes will appear here as they happen.") is built in.
+
+**If the entity needs operation detection (VOID / POST / REVERSE):**
+
+Add a new `ELSIF` arm to the `IF (TG_OP = 'UPDATE')` block inside `audit_row_changes_trigger()`. Bump the migration with `CREATE OR REPLACE FUNCTION` (the trigger function is idempotent). The trigger writes the resolved `operation` into `row_changes.operation`, which is what the `🕒 Audit Log` panel filters by and what the D3 reason-required check keys off of.
+
+**If the entity does NOT have an `entity_id` column:**
+
+The trigger reads `entity_id` out of `to_jsonb(NEW)` / `to_jsonb(OLD)` with a soft cast; missing columns leave `row_changes.entity_id = NULL`. That works but loses the per-entity scoping in the admin panel. Recommended: add an `entity_id uuid REFERENCES entities(id)` column to the new table FIRST, then attach the trigger. Every covered v1 entity is `entity_id`-scoped.
+
+---
+
+## 12. Risks
 
 - **Trigger write overhead.** Every UPDATE on a covered table doubles writes (the row + the audit row). v1 entities are low-volume (~hundreds to thousands of rows/day combined), so impact is sub-percent. Mitigation: high-volume tables stay out of v1 (`bank_transactions`, `ip_inventory_snapshot`). If a v1 entity becomes hot, drop the trigger via a one-line migration; no data loss, just gap.
 - **`before_jsonb` blob size on wide tables.** A row with 50 columns × 100 chars = ~5KB; 10k changes/yr × 5KB = ~50MB/yr. Acceptable. Mitigation: jsonb compression on the column is native to Postgres TOAST.
@@ -345,7 +467,7 @@ After T11-3 ships, the operator sees:
 
 ---
 
-## 11. Tests
+## 13. Tests
 
 - **T11-1 (trigger):** insert → row_changes has after_jsonb only; update → before + after + changed_fields; delete → before_jsonb only; no-op update (same values) → no row_changes row; session var actor flows through; missing session var → actor NULL; raw SQL update outside `withAuditContext` → actor NULL, source 'manual' default; correlation_id propagates.
 - **T11-2 (API):** GET per-entity returns time-ordered list; GET stream filters by actor / source / date / action / entity_type; POST diff formats money cents → dollars; auth gates per standard internal-handler pattern; entity_id RLS scope (each user sees only their entity).
@@ -355,7 +477,7 @@ Target: ~100 new tests across T11-1 (~25), T11-2 (~40), T11-3 (~35). Full suite 
 
 ---
 
-## 12. References
+## 14. References
 
 - `docs/tangerine/T10-shadow-mirror-architecture.md` §1+§2 — source-tagging schema pattern and [[feedback-source-tagging-enforcement]] precedent.
 - `docs/tangerine/P2-cross-cutters-architecture.md` — M30 employees + `v_audit_user_resolved` view that T11 reuses for actor display.
@@ -367,13 +489,13 @@ Target: ~100 new tests across T11-1 (~25), T11-2 (~40), T11-3 (~35). Full suite 
 
 ---
 
-## 13. ETA
+## 15. ETA
 
 ~3-4 days end-to-end with parallel agents on T11-2 + T11-3 after T11-1 lands. T11-1 is one paste bundle + one merged PR. Comparable to T10 in shape and density.
 
 ---
 
-## 14. Operator ask — five things to confirm before T11-1 kicks off
+## 16. Operator ask — five things to confirm before T11-1 kicks off
 
 1. **Entity coverage in v1 (§0 in-scope + §3 trigger attaches).** The 15 entities chosen are the operator-asked surface (AR/AP/JE/COA/Periods/Customers/Vendors/Employees/Cases/SalesReps/CommissionPayouts/BankAccounts). Any *must-have additions* before T11-1 ships? Anything you'd *deliberately drop*? My recommendation is to ship exactly this set; future entities opt in via one-line migration.
 2. **Legacy `audit_logs` table fate.** Keep as-is (read-only historical) per T11 §0 OUT-of-scope? Or do you want T11-4 to backfill it into `row_changes` so the audit panel shows a single unified history? My recommendation is keep-as-is; backfill is fiddly and low-value (the legacy table is sparsely written).
@@ -385,7 +507,7 @@ Once confirmed, ~3-4 days to ship.
 
 ---
 
-## 15. Pairs with
+## 17. Pairs with
 
 - **`T10-shadow-mirror-architecture.md`** — source-tagging precedent; T11 reuses the enum + badge.
 - **`P2-cross-cutters-architecture.md`** — M30 employees + `v_audit_user_resolved` view.
