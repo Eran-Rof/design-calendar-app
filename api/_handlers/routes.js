@@ -505,6 +505,7 @@ import h481 from "./internal/costing/lines/[line_id]/select-quote.js";
 import h497 from "./internal/costing/search/styles.js";
 import h499 from "./internal/costing/search/colors.js";
 import h500 from "./internal/costing/add-vendor.js";
+import h501 from "./internal/costing/projects/[id]/generate-rfqs.js";
 import h483 from "./internal/costing/search/vendors.js";
 import h484 from "./internal/costing/search/customers.js";
 import h493 from "./internal/costing/search/sales-reps.js";
@@ -1028,6 +1029,8 @@ export const ROUTES = [
   // Costing Module — Chunk 7 (compliance checklist handlers).
   { pattern: "/api/internal/costing/lines/:line_id/compliance",            handler: h491 },
   { pattern: "/api/internal/costing/lines/:line_id/compliance/:req_id",    handler: h492 },
+  // Costing Module — RFQ generation (replaces the vendor quotes side panel).
+  { pattern: "/api/internal/costing/projects/:id/generate-rfqs",           handler: h501 },
 ];
 
 export function compileRoutes(routes) {

@@ -187,6 +187,32 @@ export interface SelectQuoteResult {
   cost_write_error?: string;
 }
 
+export interface GeneratedRfq {
+  rfq_id: string;
+  vendor_id: string;
+  vendor: string;
+  line_count: number;
+  total_qty: number;
+}
+
+export interface GenerateRfqsResult {
+  created: GeneratedRfq[];
+  skipped_no_vendor: string[];
+  errors?: { vendor_id: string; vendor: string; error: string }[];
+  message?: string;
+}
+
+export async function generateRfqs(projectId: string, lineIds: string[]): Promise<GenerateRfqsResult> {
+  return json<GenerateRfqsResult>(await fetch(
+    `/api/internal/costing/projects/${projectId}/generate-rfqs`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ line_ids: lineIds }),
+    },
+  ));
+}
+
 export async function selectQuote(lineId: string, quoteId: string): Promise<SelectQuoteResult> {
   return json<SelectQuoteResult>(await fetch(
     `/api/internal/costing/lines/${lineId}/select-quote`,

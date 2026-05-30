@@ -135,16 +135,6 @@ export default function ProjectListView() {
                   <Td>{p.created_at ? fmtDateDisplay(p.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Navigate to edit view + signal panel-open via URL flag.
-                        window.history.pushState({}, "", `/costing?view=edit&id=${p.id}&openQuotes=1`);
-                        window.dispatchEvent(new CustomEvent("costing:navigate"));
-                      }}
-                      style={rowBtn("#3B82F6")}
-                      title="Open vendor quotes for this project"
-                    >Quotes</button>
-                    <button
                       onClick={(e) => { e.stopPropagation(); onDelete(p); }}
                       style={rowBtn("#EF4444")}
                     >Delete</button>
