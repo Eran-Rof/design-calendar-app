@@ -1,13 +1,15 @@
-// StylePickerCell — autocomplete cell for picking a style_master row.
+// StylePickerCell — popover style picker, modelled on the ATS toolbar
+// MultiSelectDropdown pattern (single-select variant). Pre-loads the
+// full style list once on mount, then filters in-memory as the operator
+// types — no async-per-keystroke search.
 //
-// The dropdown is rendered into document.body via a portal with
-// position:fixed so it isn't clipped by the grid's overflow:auto wrapper.
-// Width is computed from the input's getBoundingClientRect so the popup
-// hugs the cell on the left but extends to ~280px wide for readability.
+// Same portal-rendered popover as VendorGridCell so the cell's
+// overflow:hidden doesn't clip the dropdown.
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { useStyleSearch } from "../hooks/useStyleSearch";
+import { useCostingStore } from "../store/costingStore";
+import { usePopoverAnchor } from "../hooks/usePopoverAnchor";
 import type { StyleHit } from "../services/costingApi";
 
 interface Props {
@@ -18,119 +20,149 @@ interface Props {
   cellStyle?: React.CSSProperties;
 }
 
-interface Position { left: number; top: number; width: number }
+const EMPTY_STYLES: StyleHit[] = [];
 
-export default function StylePickerCell({ value, onPick, onChange, placeholder, cellStyle }: Props) {
+export default function StylePickerCell({ value, onPick, placeholder }: Props) {
+  const styles = useCostingStore((s) => s.stylesForPicker || EMPTY_STYLES);
+  const loadStyles = useCostingStore((s) => s.loadStylesForPicker);
+
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState(value || "");
-  const [pos, setPos] = useState<Position | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const { rows, loading, search } = useStyleSearch();
+  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 320 });
 
-  useEffect(() => { setText(value || ""); }, [value]);
+  useEffect(() => {
+    if (!styles || styles.length === 0) loadStyles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Outside-click closer — must consider both the input and the portaled popup.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const onDocClick = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (inputRef.current?.contains(t)) return;
+      if (ref.current?.contains(t)) return;
       if (popRef.current?.contains(t)) return;
       setOpen(false);
     };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Recompute popup position when opening or when the input moves (scroll).
-  useLayoutEffect(() => {
-    if (!open || !inputRef.current) return;
-    const compute = () => {
-      const r = inputRef.current!.getBoundingClientRect();
-      setPos({ left: r.left, top: r.bottom + 2, width: Math.max(r.width, 200) });
-    };
-    compute();
-    window.addEventListener("scroll", compute, true);
-    window.addEventListener("resize", compute);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("scroll", compute, true);
-      window.removeEventListener("resize", compute);
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+  useEffect(() => { if (!open) setQuery(""); }, [open]);
 
-  const popup = open && pos ? ReactDOM.createPortal(
-    <div
-      ref={popRef}
-      style={{
-        position: "fixed", left: pos.left, top: pos.top, width: pos.width,
-        maxHeight: 260, overflowY: "auto",
-        background: "#1E293B", border: "1px solid #475569",
-        borderRadius: 4, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
-        zIndex: 9999,
-      }}
-    >
-      {loading && <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>Searching…</div>}
-      {rows.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            setText(s.style_code || "");
-            setOpen(false);
-            onPick(s);
-          }}
-          style={{
-            display: "block", width: "100%", textAlign: "left",
-            padding: "5px 10px", background: "transparent",
-            border: "none", borderBottom: "1px solid #334155",
-            color: "#E2E8F0", cursor: "pointer", fontSize: 12,
-          }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-        >
-          <div style={{ fontWeight: 600 }}>{s.style_code}</div>
-          <div style={{ fontSize: 11, color: "#94A3B8" }}>
-            {s.style_name || s.description || ""}
-            {s.gender_code ? ` · ${s.gender_code}` : ""}
-            {s.base_fabric ? ` · ${s.base_fabric}` : ""}
-          </div>
-        </button>
-      ))}
-      {!loading && rows.length === 0 && (
-        <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>
-          {text ? `No styles match "${text}".` : "No styles in this entity yet."}
-        </div>
-      )}
-    </div>,
-    document.body,
-  ) : null;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return styles;
+    return styles.filter((s) => {
+      const code = (s.style_code || "").toLowerCase();
+      const name = (s.style_name || "").toLowerCase();
+      const desc = (s.description || "").toLowerCase();
+      return code.includes(q) || name.includes(q) || desc.includes(q);
+    });
+  }, [styles, query]);
+
+  const commitPick = (style: StyleHit) => {
+    setOpen(false);
+    onPick(style);
+  };
 
   return (
-    <div style={{ position: "relative", width: "100%" }}>
-      <input
-        ref={inputRef}
-        value={text}
-        placeholder={placeholder || "Style…"}
-        onChange={(e) => {
-          const v = e.target.value;
-          setText(v);
-          onChange?.(v);
-          search(v);
-          setOpen(true);
-        }}
-        // Open + fire search on focus so the operator sees the full style
-        // list immediately (handler returns 25 active styles on empty q).
-        onFocus={() => { search(text); setOpen(true); }}
+    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        ref={anchorRef}
+        onClick={() => setOpen((v) => !v)}
+        title={value ? `Style: ${value}` : "Click to pick a style"}
         style={{
-          width: "100%", padding: "4px 6px", fontSize: 12,
-          border: "1px solid transparent", background: "transparent",
-          color: "#E2E8F0", outline: "none",
-          ...cellStyle,
+          width: "100%", textAlign: "left",
+          background: "transparent",
+          color: value ? "#E2E8F0" : "#94A3B8",
+          border: `1px ${value ? "solid" : "dashed"} #475569`,
+          borderRadius: 3,
+          padding: "3px 8px",
+          fontSize: 11,
+          cursor: "pointer",
+          fontWeight: value ? 600 : 400,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 4,
         }}
-      />
-      {popup}
+      >
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {value || placeholder || "— pick style —"}
+        </span>
+        <span style={{ color: "#64748B", fontSize: 9 }}>▾</span>
+      </button>
+      {open && pos && ReactDOM.createPortal(
+        <div
+          ref={popRef}
+          style={{
+            position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+            zIndex: 9999, maxHeight: 320, overflowY: "auto",
+            background: "#1E293B", border: "1px solid #475569",
+            borderRadius: 8, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
+          }}
+        >
+          <div style={{
+            padding: 8, borderBottom: "1px solid #334155",
+            position: "sticky", top: 0, background: "#1E293B",
+          }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Type to search styles…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{
+                width: "100%", background: "#0F172A", color: "#E2E8F0",
+                border: "1px solid #334155", borderRadius: 4,
+                padding: "5px 8px", fontSize: 12, outline: "none",
+              }}
+            />
+            <div style={{ marginTop: 4, fontSize: 10, color: "#94A3B8" }}>
+              {styles.length === 0
+                ? "Loading styles…"
+                : `${filtered.length} of ${styles.length} style${styles.length === 1 ? "" : "s"}`}
+            </div>
+          </div>
+          {filtered.length === 0 && styles.length > 0 && (
+            <div style={{ padding: 12, color: "#94A3B8", fontSize: 12 }}>No matches</div>
+          )}
+          {filtered.map((s) => {
+            const isCurrent = s.style_code === value;
+            return (
+              <div
+                key={s.id}
+                role="option"
+                tabIndex={0}
+                onClick={() => commitPick(s)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitPick(s); } }}
+                style={{
+                  padding: "6px 12px", cursor: "pointer", fontSize: 12,
+                  color: isCurrent ? "#60A5FA" : "#E2E8F0",
+                  background: isCurrent ? "#60A5FA11" : undefined,
+                  fontWeight: isCurrent ? 600 : undefined,
+                  borderBottom: "1px solid #334155",
+                }}
+                onMouseEnter={(e) => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = "#334155"; }}
+                onMouseLeave={(e) => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+              >
+                <div style={{ fontWeight: 600 }}>{s.style_code || "(no code)"}</div>
+                <div style={{ fontSize: 11, color: "#94A3B8" }}>
+                  {s.style_name || s.description || ""}
+                  {s.gender_code ? ` · ${s.gender_code}` : ""}
+                  {s.base_fabric ? ` · ${s.base_fabric}` : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

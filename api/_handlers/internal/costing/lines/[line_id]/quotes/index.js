@@ -70,7 +70,10 @@ export default async function handler(req, res) {
       currency: (currency || "USD").toUpperCase(),
       lead_time_days: lead_time_days != null ? Number(lead_time_days) : null,
       moq: moq != null ? Number(moq) : null,
-      quoted_date: quoted_date || null,
+      // quoted_date is NOT NULL on costing_line_vendors. Default to today
+      // when the caller doesn't supply one (the grid's vendor-pick flow
+      // doesn't ask the operator for a quote date).
+      quoted_date: quoted_date || new Date().toISOString().slice(0, 10),
       valid_until: valid_until || null,
       status: status || "pending",
       notes: notes || null,
