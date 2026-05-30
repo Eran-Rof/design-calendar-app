@@ -4,20 +4,21 @@
 // PATCH  — update mutable fields. Body: any subset of mutable cols (style_code rejected).
 // DELETE — soft-delete by setting deleted_at = now().
 //
-// Tangerine P1 Chunk 7.
+// Tangerine P1 Chunk 7 + Style Master Sweep 2026-05-30.
 
 import { createClient } from "@supabase/supabase-js";
 
 export const config = { maxDuration: 15 };
 
-const GENDER_VALUES    = ["M", "WMS", "B", "C", "G", "U"];
+// New canonical six-letter set per operator (#12, 2026-05-30).
+const GENDER_VALUES    = ["M", "B", "C", "G", "W", "U"];
 const LIFECYCLE_VALUES = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_VALUES  = ["core", "seasonal", "fashion"];
 
 const MUTABLE_FIELDS = new Set([
   "style_name", "description", "category_id", "gender_code", "season", "design_year",
   "is_apparel", "launch_date", "lifecycle_status", "planning_class",
-  "base_fabric", "attributes",
+  "base_fabric", "group_name", "category_name", "sub_category_name", "attributes",
 ]);
 
 function corsHeaders(res) {
@@ -120,9 +121,16 @@ export function validatePatch(body) {
     }
     out.design_year = y;
   }
-  // Normalize empty strings to null for nullable fields
-  for (const k of ["style_name", "gender_code", "season", "planning_class", "base_fabric", "category_id"]) {
+  // Normalize empty strings to null for nullable text fields.
+  for (const k of [
+    "style_name", "gender_code", "season", "planning_class", "base_fabric",
+    "category_id", "group_name", "category_name", "sub_category_name",
+  ]) {
     if (out[k] === "") out[k] = null;
+    else if (typeof out[k] === "string" && ["group_name","category_name","sub_category_name","style_name","season","base_fabric"].includes(k)) {
+      const trimmed = out[k].trim();
+      out[k] = trimmed === "" ? null : trimmed;
+    }
   }
   return { data: out };
 }

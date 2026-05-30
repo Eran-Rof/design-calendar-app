@@ -2,19 +2,26 @@
 //
 // GET  — list all style_master rows for the default entity. Returns soft-active
 //        rows by default; ?include_deleted=true returns everything.
-//        Query params: ?q=<search> matches style_code/description; ?limit=N (default 200)
-// POST — create a new style. Body: { style_code, description, category_id?, gender_code?,
-//        season?, design_year?, is_apparel?, planning_class?, lifecycle_status?, base_fabric?, attributes? }
+//        Query params: ?q=<search> matches style_code/style_name/description;
+//        ?limit=N (default 200)
+// POST — create a new style. Body: { style_code, description, category_id?,
+//        gender_code?, season?, design_year?, is_apparel?, planning_class?,
+//        lifecycle_status?, base_fabric?, group_name?, category_name?,
+//        sub_category_name?, attributes? }
 //
-// Tangerine P1 Chunk 7. Adheres to api/_handlers/internal/entities/index.js shape.
+// Tangerine P1 Chunk 7 + Style Master Sweep 2026-05-30.
 
 import { createClient } from "@supabase/supabase-js";
 
 export const config = { maxDuration: 15 };
 
-const GENDER_VALUES     = ["M", "WMS", "B", "C", "G", "U"];
+// New canonical six-letter set per operator (#12, 2026-05-30).
+// M=Mens, B=Boys, C=Child, G=Girls, W=Womens, U=Unisex.
+const GENDER_VALUES     = ["M", "B", "C", "G", "W", "U"];
 const LIFECYCLE_VALUES  = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_VALUES   = ["core", "seasonal", "fashion"];
+
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric, group_name, category_name, sub_category_name, attributes, created_at, updated_at, deleted_at";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -57,7 +64,7 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("style_master")
-      .select("id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric, attributes, created_at, updated_at, deleted_at")
+      .select(STYLE_SELECT)
       .eq("entity_id", entityId)
       .order("style_code", { ascending: true })
       .limit(limit);
@@ -93,6 +100,9 @@ export default async function handler(req, res) {
       lifecycle_status: v.data.lifecycle_status || "active",
       planning_class: v.data.planning_class || null,
       base_fabric: v.data.base_fabric || null,
+      group_name: v.data.group_name || null,
+      category_name: v.data.category_name || null,
+      sub_category_name: v.data.sub_category_name || null,
       attributes: v.data.attributes || {},
     };
 
@@ -137,6 +147,14 @@ export function validateInsert(body) {
       return { error: "design_year must be between 1990 and 2100" };
     }
     body.design_year = y;
+  }
+  // Optional classifier fields — coerce empty strings to null so the
+  // handler doesn't persist empty text.
+  for (const k of ["group_name", "category_name", "sub_category_name"]) {
+    if (body[k] != null) {
+      const trimmed = String(body[k]).trim();
+      body[k] = trimmed === "" ? null : trimmed;
+    }
   }
   return { data: body };
 }

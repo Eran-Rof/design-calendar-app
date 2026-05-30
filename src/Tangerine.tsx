@@ -72,7 +72,7 @@ import EntitySwitcher from "./components/EntitySwitcher";
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
-import { setCachedAuthUserId } from "./utils/tangerineAuthUser";
+import { setCachedAuthUserId, setCachedAuthUserEmail } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,7 +315,11 @@ export default function Tangerine() {
         if (!r.ok) throw new Error(`Graph /me HTTP ${r.status}`);
         const me = await r.json();
         if (cancelled) return;
-        setUserEmail(me.mail || me.userPrincipalName || me.displayName || null);
+        const resolvedEmail = me.mail || me.userPrincipalName || me.displayName || null;
+        setUserEmail(resolvedEmail);
+        // Cache the email snapshot so panels that need it for audit/notes
+        // (e.g. Style Master notes log) can read it without re-querying Graph.
+        setCachedAuthUserEmail(resolvedEmail);
         setAuthState("signed_in");
 
         // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision

@@ -526,6 +526,10 @@ import h490 from "./internal/costing/comp/t3.js";
 import h491 from "./internal/costing/lines/[line_id]/compliance/index.js";
 import h492 from "./internal/costing/lines/[line_id]/compliance/[req_id].js";
 
+// Style Master Sweep 2026-05-30 — operator ask #6 notes log handler.
+//   h501 GET/POST  /api/internal/style-master/notes
+import h501 from "./internal/style-master/notes.js";
+
 export const ROUTES = [
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
@@ -733,6 +737,9 @@ export const ROUTES = [
   { pattern: "/api/cron/fx-rate-sync", handler: h203 },
   { pattern: "/api/internal/disputes", handler: h204 },
   { pattern: "/api/internal/entities", handler: h205 },
+  // Style Master Sweep 2026-05-30 — notes route must precede /:id so the
+  // literal "notes" segment isn't captured as an :id param (first match wins).
+  { pattern: "/api/internal/style-master/notes", handler: h501 },
   { pattern: "/api/internal/style-master/:id", handler: h252 },
   { pattern: "/api/internal/style-master", handler: h251 },
   { pattern: "/api/internal/vendor-master/:id", handler: h254 },
