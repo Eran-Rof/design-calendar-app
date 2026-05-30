@@ -40,6 +40,13 @@ export default function ProjectEditView() {
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [saving, setSaving] = useState(false);
   const [brands, setBrands] = useState<BrandRow[]>([]);
+  // Tracks whether the local form differs from the project on the server —
+  // drives the Discard button's enabled state.
+  const dirty = !!project && Object.keys(form).some((k) => {
+    const v1 = (form as Record<string, unknown>)[k];
+    const v2 = (project as unknown as Record<string, unknown>)[k];
+    return v1 !== v2;
+  });
 
   // Load brands from app_data on mount (same source the other apps use).
   useEffect(() => {
@@ -87,16 +94,33 @@ export default function ProjectEditView() {
     );
   }
 
-  const onSave = async () => {
-    if (!id) return;
-    setSaving(true);
-    try {
-      await update(id, form);
-    } catch (e) {
-      useCostingStore.getState().setNotice(`Save failed: ${(e as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
+  // Debounced autosave — fires 800ms after the last field change so a
+  // sequence of edits coalesces into one PUT. No Save button anymore.
+  React.useEffect(() => {
+    if (!id || !dirty) return;
+    const t = window.setTimeout(async () => {
+      setSaving(true);
+      try { await update(id, form); }
+      catch (e) { useCostingStore.getState().setNotice(`Auto-save failed: ${(e as Error).message}`); }
+      finally { setSaving(false); }
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [form, id, dirty, update]);
+
+  const onDiscard = () => {
+    if (!project) return;
+    setForm({
+      project_name: project.project_name,
+      brand: project.brand,
+      gender_code: project.gender_code,
+      sales_rep_id: project.sales_rep_id,
+      customer_id: project.customer_id,
+      request_date: project.request_date,
+      due_date: project.due_date,
+      projected_delivery_date: project.projected_delivery_date,
+      status: project.status,
+      notes: project.notes,
+    });
   };
 
   const setField = <K extends keyof CostingProjectPatch>(k: K, v: CostingProjectPatch[K]) => {
@@ -111,17 +135,30 @@ export default function ProjectEditView() {
           {project?.project_name || "Loading…"}
         </h2>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{
+            fontSize: 11, color: saving ? "#FBBF24" : dirty ? "#94A3B8" : "#10B981",
+            fontWeight: 600, letterSpacing: ".04em", textTransform: "uppercase",
+          }}>
+            {saving ? "Saving…" : dirty ? "Unsaved" : "✓ Saved"}
+          </span>
           <ExportButton
             rows={exportRows as unknown as Record<string, unknown>[]}
             columns={COSTING_EXPORT_COLUMNS as unknown as never}
             filename={buildExportFilename(project)}
             sheetName="Costing"
           />
-          <button onClick={onSave} disabled={saving || loading} style={{
-            background: "#10B981", color: "#fff", border: "none",
-            padding: "6px 16px", borderRadius: 4, cursor: saving ? "not-allowed" : "pointer",
-            fontSize: 13, fontWeight: 600, opacity: saving ? 0.6 : 1,
-          }}>{saving ? "Saving…" : "Save"}</button>
+          <button
+            onClick={onDiscard}
+            disabled={!dirty || saving}
+            style={{
+              background: "transparent", color: dirty ? "#F87171" : "#475569",
+              border: `1px solid ${dirty ? "#F87171" : "#334155"}`,
+              padding: "6px 14px", borderRadius: 4,
+              cursor: dirty ? "pointer" : "not-allowed",
+              fontSize: 13, fontWeight: 600, opacity: dirty ? 1 : 0.55,
+            }}
+            title={dirty ? "Discard unsaved changes" : "No changes to discard"}
+          >Discard</button>
         </div>
       </div>
 
