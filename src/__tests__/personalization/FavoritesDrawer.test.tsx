@@ -43,6 +43,10 @@ describe("FavoritesDrawer — horizontal strip layout (T4-7)", () => {
     __resetPersonalizationCacheForTests();
     __resetFavoritesToastsForTests();
     window.localStorage.clear();
+    // Default for fresh users is COLLAPSED (set 2026-05-30 — the expanded
+    // strip was overlaying panel content). These tests exercise the
+    // EXPANDED strip layout, so explicitly force it expanded here.
+    window.localStorage.setItem("favorites_drawer_collapsed", "0");
     setLocation("/tanda?view=dashboard");
     vi.restoreAllMocks();
   });
