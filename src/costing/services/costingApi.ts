@@ -174,11 +174,21 @@ export async function deleteCompliance(lineId: string, reqId: string): Promise<v
   }));
 }
 
-export async function selectQuote(lineId: string, quoteId: string): Promise<{
+export interface SelectQuoteResult {
   line: CostingLine;
   selected_quote_id: string;
-}> {
-  return json<{ line: CostingLine; selected_quote_id: string }>(await fetch(
+  /** Number of ip_item_avg_cost rows whose standard_unit_price got rewritten. */
+  cost_write_count: number;
+  /** SKUs under this style that have no ip_item_avg_cost row yet (skipped to keep avg_cost Xoro-authoritative). */
+  cost_write_missing_count: number;
+  /** Set when the cost-write was deliberately skipped: no_style_code | non_usd_currency | no_skus_for_style. */
+  cost_write_reason?: string;
+  /** Set when the cost-write threw an exception. The quote promotion still succeeded; operator can re-select to retry. */
+  cost_write_error?: string;
+}
+
+export async function selectQuote(lineId: string, quoteId: string): Promise<SelectQuoteResult> {
+  return json<SelectQuoteResult>(await fetch(
     `/api/internal/costing/lines/${lineId}/select-quote`,
     {
       method: "POST",
