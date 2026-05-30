@@ -6,10 +6,16 @@
 //   • Gender code set normalized to { M, B, C, G, W, U }; legacy "WMS"
 //     no longer accepted (mapped to "W" by the migration).
 //   • Adds group_name / category_name / sub_category_name coverage.
+//
+// 2026-05-30 — Fabric FK (operator ask #13):
+//   • base_fabric text field replaced by base_fabric_code_id uuid FK.
+//   • validateInsert / validatePatch enforce uuid format and accept null/"" to clear.
 
 import { describe, it, expect } from "vitest";
 import { validateInsert } from "../../_handlers/internal/style-master/index.js";
 import { validatePatch } from "../../_handlers/internal/style-master/[id].js";
+
+const UUID = "11111111-2222-3333-4444-555555555555";
 
 describe("validateInsert", () => {
   it("rejects missing style_code", () => {
@@ -83,6 +89,30 @@ describe("validateInsert", () => {
     expect(v.data.category_name).toBeNull();
     expect(v.data.sub_category_name).toBeNull();
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fabric FK (operator ask #13)
+  // ─────────────────────────────────────────────────────────────────────────
+  it("accepts a uuid base_fabric_code_id", () => {
+    const v = validateInsert({ style_code: "RY1234", description: "x", base_fabric_code_id: UUID });
+    expect(v.error).toBeUndefined();
+    expect(v.data.base_fabric_code_id).toBe(UUID);
+  });
+  it("rejects a non-uuid base_fabric_code_id", () => {
+    expect(validateInsert({
+      style_code: "RY1234", description: "x", base_fabric_code_id: "not-a-uuid",
+    }).error).toMatch(/base_fabric_code_id/);
+  });
+  it("coerces empty-string base_fabric_code_id to null", () => {
+    const v = validateInsert({ style_code: "RY1234", description: "x", base_fabric_code_id: "" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.base_fabric_code_id).toBeNull();
+  });
+  it("accepts omitted base_fabric_code_id (treated as null)", () => {
+    const v = validateInsert({ style_code: "RY1234", description: "x" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.base_fabric_code_id).toBeNull();
+  });
 });
 
 describe("validatePatch", () => {
@@ -91,11 +121,15 @@ describe("validatePatch", () => {
     expect(v.data.style_code).toBeUndefined();
     expect(v.data.description).toBe("ok");
   });
+  it("filters out the legacy base_fabric text field (no longer mutable)", () => {
+    const v = validatePatch({ base_fabric: "100% Cotton", description: "ok" });
+    expect(v.data.base_fabric).toBeUndefined();
+    expect(v.data.description).toBe("ok");
+  });
   it("normalizes empty strings to null for nullable fields", () => {
-    const v = validatePatch({ gender_code: "", season: "", base_fabric: "" });
+    const v = validatePatch({ gender_code: "", season: "" });
     expect(v.data.gender_code).toBeNull();
     expect(v.data.season).toBeNull();
-    expect(v.data.base_fabric).toBeNull();
   });
   it("rejects invalid gender", () => {
     expect(validatePatch({ gender_code: "ZZ" }).error).toMatch(/gender_code/);
@@ -140,5 +174,27 @@ describe("validatePatch", () => {
     expect(v.data.group_name).toBeNull();
     expect(v.data.category_name).toBeNull();
     expect(v.data.sub_category_name).toBeNull();
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fabric FK (operator ask #13)
+  // ─────────────────────────────────────────────────────────────────────────
+  it("accepts a uuid base_fabric_code_id on patch", () => {
+    const v = validatePatch({ base_fabric_code_id: UUID });
+    expect(v.error).toBeUndefined();
+    expect(v.data.base_fabric_code_id).toBe(UUID);
+  });
+  it("rejects non-uuid base_fabric_code_id on patch", () => {
+    expect(validatePatch({ base_fabric_code_id: "bogus" }).error).toMatch(/base_fabric_code_id/);
+  });
+  it("accepts null base_fabric_code_id to clear the FK", () => {
+    const v = validatePatch({ base_fabric_code_id: null });
+    expect(v.error).toBeUndefined();
+    expect(v.data.base_fabric_code_id).toBeNull();
+  });
+  it("accepts empty-string base_fabric_code_id and normalizes to null", () => {
+    const v = validatePatch({ base_fabric_code_id: "" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.base_fabric_code_id).toBeNull();
   });
 });

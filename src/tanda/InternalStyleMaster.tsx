@@ -20,6 +20,15 @@
 //         renders the populated value (still falls back to "—" defensively).
 //   • #12 Gender dropdown is the canonical six-letter set
 //         { M, B, C, G, W, U } with descriptive labels.
+//
+// Fabric FK (2026-05-30, operator ask #13):
+//   • The free-form `base_fabric` text input is replaced by a SearchableSelect
+//     populated from /api/internal/fabric-codes (the existing fabric master).
+//     The DB column is now `base_fabric_code_id` (FK to fabric_codes.id) and
+//     the API embeds the joined `base_fabric: { id, code, name }` object.
+//     The legacy text column `base_fabric_legacy` is read-only here, surfaced
+//     as a muted help line beside the picker if the FK is unset and a legacy
+//     value exists, so operators can see what to re-pick.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
@@ -43,6 +52,7 @@ const STYLE_MASTER_COLUMNS: ColumnDef[] = [
   { key: "group_name",        label: "Group" },
   { key: "category_name",     label: "Category" },
   { key: "sub_category_name", label: "Sub Category" },
+  { key: "base_fabric",       label: "Base Fabric" },
   { key: "season",            label: "Season" },
   { key: "design_year",       label: "Year" },
   { key: "lifecycle_status",  label: "Lifecycle" },
@@ -62,7 +72,10 @@ type Style = {
   launch_date: string | null;
   lifecycle_status: string;
   planning_class: string | null;
-  base_fabric: string | null;
+  base_fabric_code_id: string | null;
+  base_fabric_legacy: string | null;
+  /** Embedded join from fabric_codes via base_fabric_code_id FK. */
+  base_fabric: { id: string; code: string; name: string } | null;
   group_name: string | null;
   category_name: string | null;
   sub_category_name: string | null;
@@ -247,7 +260,11 @@ export default function InternalStyleMaster() {
           onReset={resetToDefault}
         />
         <ExportButton
-          rows={rows as unknown as Array<Record<string, unknown>>}
+          rows={rows.map((r) => ({
+            ...r,
+            base_fabric_code: r.base_fabric?.code ?? null,
+            base_fabric_name: r.base_fabric?.name ?? null,
+          })) as unknown as Array<Record<string, unknown>>}
           filename="style-master"
           sheetName="Style Master"
           columns={[
@@ -263,7 +280,9 @@ export default function InternalStyleMaster() {
             { key: "lifecycle_status",  header: "Lifecycle" },
             { key: "is_apparel",        header: "Apparel" },
             { key: "planning_class",    header: "Planning Class" },
-            { key: "base_fabric",       header: "Base Fabric" },
+            { key: "base_fabric_code",  header: "Base Fabric Code" },
+            { key: "base_fabric_name",  header: "Base Fabric Name" },
+            { key: "base_fabric_legacy", header: "Base Fabric (legacy text)" },
             { key: "launch_date",       header: "Launch Date", format: "date" },
             { key: "created_at",        header: "Created", format: "datetime" },
             { key: "updated_at",        header: "Updated", format: "datetime" },
@@ -294,6 +313,7 @@ export default function InternalStyleMaster() {
                 <th style={th} hidden={!isVisible("group_name")}>Group</th>
                 <th style={th} hidden={!isVisible("category_name")}>Category</th>
                 <th style={th} hidden={!isVisible("sub_category_name")}>Sub Category</th>
+                <th style={th} hidden={!isVisible("base_fabric")}>Base Fabric</th>
                 <th style={th} hidden={!isVisible("season")}>Season</th>
                 <th style={th} hidden={!isVisible("design_year")}>Year</th>
                 <th style={th} hidden={!isVisible("lifecycle_status")}>Lifecycle</th>
@@ -319,6 +339,13 @@ export default function InternalStyleMaster() {
                   <td style={td} hidden={!isVisible("group_name")}>{r.group_name || "—"}</td>
                   <td style={td} hidden={!isVisible("category_name")}>{r.category_name || "—"}</td>
                   <td style={td} hidden={!isVisible("sub_category_name")}>{r.sub_category_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("base_fabric")}>
+                    {r.base_fabric
+                      ? <span><strong>{r.base_fabric.code}</strong> — {r.base_fabric.name}</span>
+                      : r.base_fabric_legacy
+                        ? <span style={{ color: C.warn }} title="Legacy free-text — re-pick in edit modal">{r.base_fabric_legacy}</span>
+                        : "—"}
+                  </td>
                   <td style={td} hidden={!isVisible("season")}>{r.season || "—"}</td>
                   <td style={td} hidden={!isVisible("design_year")}>{r.design_year ?? "—"}</td>
                   <td style={td} hidden={!isVisible("lifecycle_status")}>{r.lifecycle_status}</td>
@@ -375,40 +402,81 @@ interface ModalProps {
 
 function StyleFormModal({ mode, style, groupOptions, categoryOptions, subCategoryOptions, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    style_code:         style?.style_code         ?? "",
-    style_name:         style?.style_name         ?? "",
-    description:        style?.description        ?? "",
-    gender_code:        style?.gender_code        ?? "",
-    season:             style?.season             ?? "",
-    design_year:        style?.design_year        != null ? String(style.design_year) : "",
-    lifecycle_status:   style?.lifecycle_status   ?? "active",
-    planning_class:     style?.planning_class     ?? "",
-    is_apparel:         style?.is_apparel         ?? true,
-    base_fabric:        style?.base_fabric        ?? "",
-    group_name:         style?.group_name         ?? "",
-    category_name:      style?.category_name      ?? "",
-    sub_category_name:  style?.sub_category_name  ?? "",
+    style_code:           style?.style_code            ?? "",
+    style_name:           style?.style_name            ?? "",
+    description:          style?.description           ?? "",
+    gender_code:          style?.gender_code           ?? "",
+    season:               style?.season                ?? "",
+    design_year:          style?.design_year           != null ? String(style.design_year) : "",
+    lifecycle_status:     style?.lifecycle_status      ?? "active",
+    planning_class:       style?.planning_class        ?? "",
+    is_apparel:           style?.is_apparel            ?? true,
+    base_fabric_code_id:  style?.base_fabric_code_id   ?? "",
+    group_name:           style?.group_name            ?? "",
+    category_name:        style?.category_name         ?? "",
+    sub_category_name:    style?.sub_category_name     ?? "",
   });
+  const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Load active fabric_codes for the SearchableSelect picker. Errors are
+  // non-fatal — the operator can still save without a fabric.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/fabric-codes?limit=500`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled && Array.isArray(data)) setFabrics(data as FabricCodeLite[]);
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const fabricOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(none)" },
+      ...fabrics.map((f) => ({
+        value: f.id,
+        label: `${f.code} — ${f.name}`,
+        searchHaystack: `${f.code} ${f.name} ${f.composition_text}`,
+      })),
+    ];
+    // Defensive: if the style's current FK points at a fabric that didn't
+    // come back from the limited fetch (rare — only if >500 active fabrics
+    // exist), surface it via the embedded join so the picker can render it.
+    if (
+      style?.base_fabric_code_id &&
+      style.base_fabric &&
+      !fabrics.some((f) => f.id === style.base_fabric_code_id)
+    ) {
+      opts.push({
+        value: style.base_fabric_code_id,
+        label: `${style.base_fabric.code} — ${style.base_fabric.name}`,
+      });
+    }
+    return opts;
+  }, [fabrics, style?.base_fabric_code_id, style?.base_fabric]);
 
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
       const body: Record<string, unknown> = {
-        style_name:        form.style_name.trim() || null,
-        description:       form.description.trim(),
-        gender_code:       form.gender_code || null,
-        season:            form.season || null,
-        design_year:       form.design_year ? parseInt(form.design_year, 10) : null,
-        lifecycle_status:  form.lifecycle_status,
-        planning_class:    form.planning_class || null,
-        is_apparel:        form.is_apparel,
-        base_fabric:       form.base_fabric || null,
-        group_name:        form.group_name.trim() || null,
-        category_name:     form.category_name.trim() || null,
-        sub_category_name: form.sub_category_name.trim() || null,
+        style_name:           form.style_name.trim() || null,
+        description:          form.description.trim(),
+        gender_code:          form.gender_code || null,
+        season:               form.season || null,
+        design_year:          form.design_year ? parseInt(form.design_year, 10) : null,
+        lifecycle_status:     form.lifecycle_status,
+        planning_class:       form.planning_class || null,
+        is_apparel:           form.is_apparel,
+        base_fabric_code_id:  form.base_fabric_code_id || null,
+        group_name:           form.group_name.trim() || null,
+        category_name:        form.category_name.trim() || null,
+        sub_category_name:    form.sub_category_name.trim() || null,
       };
       let url: string;
       let method: string;
@@ -538,7 +606,17 @@ function StyleFormModal({ mode, style, groupOptions, categoryOptions, subCategor
             </select>
           </Field>
           <Field label="Base fabric">
-            <input type="text" value={form.base_fabric} onChange={(e) => setForm({ ...form, base_fabric: e.target.value })} style={inputStyle} />
+            <SearchableSelect
+              value={form.base_fabric_code_id || null}
+              onChange={(v) => setForm({ ...form, base_fabric_code_id: v })}
+              options={fabricOptions}
+              placeholder="Pick a fabric (search code / name / composition)"
+            />
+            {!form.base_fabric_code_id && style?.base_fabric_legacy && (
+              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>
+                Legacy text: <em>{style.base_fabric_legacy}</em> — pick a fabric above to replace it.
+              </div>
+            )}
           </Field>
           <Field label="Apparel?">
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
