@@ -1,13 +1,23 @@
 // api/internal/costing/search/colors
 // GET ?q=<text>&style_code=<code>
-//   → distinct color values from ip_item_master (scoped to style_code when
-//     present), plus any operator-added colors from app_data["costing_extra_colors"].
+//   → distinct color values from a union of sources, deduped + sorted.
 //
-// style_code filter: when present, only colors that exist on SKUs under
-// that style are returned. This narrows the dropdown to "colors this
-// style actually comes in" instead of dumping every color in the entire
-// item master. Operator can still free-type any color in the grid cell
-// (the picker has a "+ Add" sentinel that calls the same extras blob).
+// Sources, in order:
+//   1. ip_item_master.color    — SKU master (Xoro nightly sync). Scoped to
+//                                style_code when provided so the picker
+//                                narrows to "this style comes in CHARCOAL,
+//                                BLACK, STORMY WEATHER" instead of the
+//                                entity-wide list.
+//   2. costing_lines.color     — colors operators have typed on prior
+//                                costing rows. This is the recovery path
+//                                for entities whose ip_item_master is
+//                                sparse / not yet synced — without it the
+//                                dropdown would be empty until Xoro lands.
+//                                NOT scoped by style_code (operator may
+//                                want to reuse a color across styles).
+//   3. app_data.costing_extra_colors — operator-added freeform extras
+//                                saved via the picker's "+ Add new" button.
+//                                Always global (suggestions, not constraints).
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
@@ -33,10 +43,9 @@ export default async function handler(req, res) {
   const q = (url.searchParams.get("q") || "").trim().toLowerCase();
   const styleCode = (url.searchParams.get("style_code") || "").trim();
 
-  // 1. Distinct colors from ip_item_master (server-side dedupe via Set).
-  // When style_code is provided, scope to SKUs under that style only so
-  // the operator sees "this style comes in CHARCOAL, BLACK, STORMY WEATHER"
-  // instead of every color across the entire item master.
+  const seen = new Set();
+
+  // 1. Distinct colors from ip_item_master (Xoro-synced SKU master).
   let itemQuery = admin.from("ip_item_master")
     .select("color")
     .not("color", "is", null)
@@ -44,13 +53,23 @@ export default async function handler(req, res) {
   if (styleCode) itemQuery = itemQuery.eq("style_code", styleCode);
   const { data: itemRows, error: itemErr } = await itemQuery;
   if (itemErr) return res.status(500).json({ error: itemErr.message });
-
-  const seen = new Set();
   for (const r of itemRows || []) {
     if (r.color && typeof r.color === "string") seen.add(r.color.trim());
   }
 
-  // 2. Operator-added extras from app_data.
+  // 2. Colors typed on prior costing_lines. NOT scoped by style_code —
+  // operator may want to reuse "STORMY WEATHER" across styles.
+  try {
+    const { data: lineRows } = await admin.from("costing_lines")
+      .select("color")
+      .not("color", "is", null)
+      .range(0, 9999);
+    for (const r of lineRows || []) {
+      if (r.color && typeof r.color === "string") seen.add(r.color.trim());
+    }
+  } catch { /* non-fatal — falls back to source 1 + 3 */ }
+
+  // 3. Operator-added extras from app_data.
   try {
     const { data: extras } = await admin.from("app_data")
       .select("value").eq("key", "costing_extra_colors").maybeSingle();

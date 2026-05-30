@@ -90,24 +90,42 @@ export default function VendorGridCell({ lineId }: Props) {
     if (busy) return;
     setBusy(true);
     try {
+      // Planning-only vendors live in ip_vendor_master and don't have a
+      // portal vendors row yet — costing_line_vendors.vendor_id is a FK to
+      // vendors.id, so we materialize a portal row first via addVendor (it
+      // upserts on legal_name + entity, returning the canonical id we can
+      // safely use downstream).
+      let effective = vendor;
+      if (vendor.source === "planning") {
+        const created = await addVendor(vendor.legal_name || vendor.code || "Vendor", {
+          code: vendor.code || undefined,
+          country: vendor.country || undefined,
+        });
+        effective = { ...created, source: "portal" };
+        // Reload the picker list so the materialized portal row replaces
+        // the planning entry next time the dropdown opens.
+        void loadVendorsForPicker();
+      }
       // Reuse an existing quote for this vendor if one already exists;
       // otherwise create a new one + immediately promote it to selected.
-      const existing = quotes.find((q) => q.vendor_id === vendor.id);
+      const existing = quotes.find((q) => q.vendor_id === effective.id);
       if (existing) {
         await selectQuote(lineId, existing.id);
       } else {
         const line = lines.find((l) => l.id === lineId);
         const seedCost = typeof line?.target_cost === "number" ? line.target_cost : 0;
         const created = await addQuote(lineId, {
-          vendor_id: vendor.id,
+          vendor_id: effective.id,
           quoted_cost: seedCost,
-          currency: vendor.default_currency || "USD",
+          currency: effective.default_currency || "USD",
           status: "received",
         });
         if (created) await selectQuote(lineId, created.id);
         else setNotice("Could not record vendor pick — see console for details.", "error");
       }
       setOpen(false);
+    } catch (e) {
+      setNotice(`Could not pick vendor: ${(e as Error).message}`, "error");
     } finally {
       setBusy(false);
     }
@@ -212,7 +230,16 @@ export default function VendorGridCell({ lineId }: Props) {
                 onMouseEnter={(e) => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = "#334155"; }}
                 onMouseLeave={(e) => { if (!isCurrent) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
               >
-                <div>{label}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ flex: 1 }}>{label}</span>
+                  {v.source === "planning" && (
+                    <span style={{
+                      background: "#F59E0B22", color: "#F59E0B",
+                      border: "1px solid #F59E0B", borderRadius: 3,
+                      padding: "0 4px", fontSize: 9, fontWeight: 700,
+                    }} title="From the planning vendor master (ip_vendor_master). Picking will auto-create the portal vendor row.">planning</span>
+                  )}
+                </div>
                 <div style={{ fontSize: 10, color: "#94A3B8" }}>
                   {v.code ? v.code : ""}
                   {v.country ? ` · ${v.country}` : ""}
