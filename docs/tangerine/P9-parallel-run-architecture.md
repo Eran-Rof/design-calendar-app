@@ -1,6 +1,6 @@
 # Tangerine P9 — Parallel-Run Architecture (Refreshed)
 
-Status: **DRAFT (refresh)** — 2026-05-29. Supersedes the earlier 2026-05-28 "deferred to post-P22" version. Auto-merges on CI green per the standing plan-approval-not-implementation rule.
+Status: **SHIPPED** — 2026-05-29. All 9 chunks merged. PRs #520 (P9-1 schema), #529 (P9-2 AP), #528 (P9-3 AR), #534 (P9-4 Cash), #533 (P9-5 GL), #536 (P9-6 Inventory), #543 + #546 (P9-7 dashboard + tests), #550 (P9-8 cron + notifications + close pre-flight extension), #553 (P9-9 cutover automation). Originally drafted 2026-05-29; replaces the earlier 2026-05-28 "deferred to post-P22" version. Auto-merged on CI green per the standing plan-approval-not-implementation rule.
 
 P9 was originally drafted before P10/P11/P12 shipped and was DEFERRED on the (then-correct) read that Tangerine had no auto-created invoices to reconcile against Xoro's full ledger — Xoro's EDI loop was creating everything, Tangerine was empty. **That premise no longer holds.** After P10 Tenancy, P11 Shopify, and P12 Marketplaces (FBA + Walmart + Faire) shipped through their direct-API integrations, Tangerine now originates a meaningful share of the operating ledger on its own. Combined with the T10 Shadow Mirror covering everything else, the reconciliation surface against Xoro is concrete and per-domain.
 
@@ -228,18 +228,18 @@ All panels honor T7 (date-range presets), T8 (xlsx ExportButton), T9 (searchable
 
 ## 6. Implementation chunks
 
-| Chunk | Title | Scope | Depends on |
-|---|---|---|---|
-| **P9-1** | Schema + RLS + `parallel_run_status` jsonb + threshold seeds | 4 new tables + entities ALTER + threshold seed migration encoding D2 values per entity | — |
-| **P9-2** | AP recon engine + tests | `api/_lib/recon/ap.js` + ~30 vitest cases | P9-1 |
-| **P9-3** | AR recon engine + tests (source-tag-aware per D7) | `api/_lib/recon/ar.js` + ~40 vitest cases (Shopify, FBA, Walmart, Faire, xoro_mirror, manual sources) | P9-1 |
-| **P9-4** | Cash recon engine + tests | `api/_lib/recon/cash.js` + ~20 vitest cases | P9-1 |
-| **P9-5** | GL recon engine + tests (lagging-indicator logic) | `api/_lib/recon/gl.js` + ~30 vitest cases + the `missing_standalone_je` auto-categorization | P9-1 |
-| **P9-6** | Inventory recon engine + tests (location-aware per P12) | `api/_lib/recon/inventory.js` + ~30 vitest cases (FBA, WFS, main WH, multi-location) | P9-1 + P12-0 |
-| **P9-7** | Dashboard UI + Variances Queue + Variance Detail modal | `InternalReconciliationDashboard.tsx` + `InternalReconciliationVariancesQueue.tsx` + `InternalReconciliationVarianceDetail.tsx` + `recon_replay()` RPC + manual-clear RPC | P9-2..6 |
-| **P9-8** | Notification triggers + cron orchestrator + close pre-flight extension | `api/cron/parallel-run-reconcile.js` (orchestrator) + notification rule seeds (D10) + `gl_period_close_preflight` extended with `parallel_run_variances_cleared` check (D4 soft-block) | P9-2..6 |
-| **P9-9** | Cutover automation (domain-by-domain solo flip) | `InternalReconciliationDecomStatus.tsx` + `InternalReconciliationCutoverLog.tsx` + `recon_cutover_signoff(domain)` RPC + flip flow updating `entities.parallel_run_status` + T10 mirror skip-domain logic + close pre-flight hard-block per signed-off domain | P9-7 + P9-8 |
-| **P9-99** | Close-out — user guide chapter 24 + memory rule + matrix module entry | Doc chapter + memory rule for "every external integration eventually goes through P9 cutover" + Tangerine status matrix in roadmap | All above |
+| Chunk | Title | Scope | Depends on | Status |
+|---|---|---|---|---|
+| **P9-1** | Schema + RLS + `parallel_run_status` jsonb + threshold seeds | 4 new tables + entities ALTER + threshold seed migration encoding D2 values per entity | — | ✅ **DONE** — #520 |
+| **P9-2** | AP recon engine + tests | `api/_lib/recon/ap-engine.js` + vitest cases | P9-1 | ✅ **DONE** — #529 |
+| **P9-3** | AR recon engine + tests (source-tag-aware per D7) | `api/_lib/recon/ar-engine.js` + vitest cases (Shopify, FBA, Walmart, Faire, xoro_mirror, manual sources) | P9-1 | ✅ **DONE** — #528 |
+| **P9-4** | Cash recon engine + tests | `api/_lib/recon/cash-engine.js` + vitest cases | P9-1 | ✅ **DONE** — #534 |
+| **P9-5** | GL recon engine + tests (lagging-indicator logic) | `api/_lib/recon/gl-engine.js` + vitest cases + the `missing_standalone_je` auto-categorization | P9-1 | ✅ **DONE** — #533 |
+| **P9-6** | Inventory recon engine + tests (location-aware per P12) | `api/_lib/recon/inventory-engine.js` + vitest cases (FBA, WFS, main WH, multi-location) | P9-1 + P12-0 | ✅ **DONE** — #536 |
+| **P9-7** | Dashboard UI + Variance side panel + clear flow | `InternalReconciliationDashboard.tsx` + 4 read handlers (`recon/runs`, `recon/variances`, `recon/cutovers`, `recon/clear`) + audit-reason modal | P9-2..6 | ✅ **DONE** — #543 (dashboard + handlers) + #546 (test files) |
+| **P9-8** | Weekly cron orchestrator + variance notifications + close pre-flight extension | `api/cron/recon-weekly.js` (orchestrator) + `api/_lib/recon/notifications.js` (M28 fan-out) + `gl_period_close_preflight` extended with `unresolved_recon_variances` check (D4 soft-block) | P9-2..6 | ✅ **DONE** — #550 |
+| **P9-9** | Cutover automation (domain-by-domain solo flip + preflight hard-block) | `api/_lib/recon/cutover-eligibility.js` + `api/_handlers/internal/recon/cutover-signoff.js` + flip flow updating `entities.parallel_run_status` + T10 mirror skip-domain logic + close pre-flight hard-block per signed-off domain | P9-7 + P9-8 | ✅ **DONE** — #553 |
+| **P9-99** | Close-out — user guide chapter 25 + memory rules + arch doc shipped state | Doc chapter + `feedback_p9_replay_only_on_backwards_timestamp.md` + `project_tangerine_p9_complete.md` memory entries + arch doc shipped-state header | All above | ✅ **DONE** — this PR |
 
 Parallel waves:
 - **Wave A (after operator confirms §2):** P9-1.
@@ -305,7 +305,82 @@ Expected cutover sequence:
 
 ---
 
-## 10. References
+## 10. Adoption summary (post-ship)
+
+What actually shipped across the 9 chunks:
+
+### 10.1 Schema deltas (#520)
+
+- `recon_runs` — parent table, one row per (entity, domain, recon_date) UNIQUE
+- `recon_variances` — child table, one row per (recon_run, scope_key, source_tag) UNIQUE, with `variance_amount_cents` GENERATED column
+- `recon_cleared_log` — audit trail for manual clears + close overrides + auto-within-threshold marks
+- `recon_cutover_signoffs` — one row per (entity, domain) UNIQUE; sign-off + flip + reversibility window timestamps
+- `entities.parallel_run_status` jsonb column with default `{ap,ar,cash,gl,inventory}` all `xoro_mirror_active`
+- RLS policies on all 4 new tables following the P1 `auth_internal_*` pattern
+- Threshold seed migration encoding D2 operator-locked values per entity
+
+### 10.2 Engines (#528, #529, #533, #534, #536)
+
+| Engine | File | Match key | Per-row / per-domain |
+|---|---|---|---|
+| AP | `api/_lib/recon/ap-engine.js` | vendor (canonical UPPER(TRIM(code))) | $1 / $100 |
+| AR | `api/_lib/recon/ar-engine.js` | (customer, source) source-tag-aware | $1 / $100 |
+| Cash | `api/_lib/recon/cash-engine.js` | bank_account | $0.50 / $3 |
+| GL | `api/_lib/recon/gl-engine.js` | (account, period) + `missing_standalone_je` auto-cat | $5 / $25 |
+| Inventory | `api/_lib/recon/inventory-engine.js` | (sku, location) location-aware | $50 / $250 |
+
+### 10.3 Handlers (#543, #553)
+
+- `api/_handlers/internal/recon/runs.js` — list recon_runs with filters (domain, date range, status)
+- `api/_handlers/internal/recon/variances.js` — list recon_variances for a run, with source_tag breakdown
+- `api/_handlers/internal/recon/cutovers.js` — list recon_cutover_signoffs (read-only audit feed)
+- `api/_handlers/internal/recon/clear.js` — POST manual clear with audit reason (writes recon_cleared_log)
+- `api/_handlers/internal/recon/run-all.js` — manual trigger for the 5-engine orchestrator
+- `api/_handlers/internal/recon/run-inventory.js` — manual trigger for Inventory engine specifically (others routed through run-all)
+- `api/_handlers/internal/recon/cutover-signoff.js` — eligibility check + flip + audit signoff
+- `api/_lib/recon/cutover-eligibility.js` — 60-day clean window check + open-case check + threshold check
+
+### 10.4 UI panels (#543)
+
+- `src/tanda/InternalReconciliationDashboard.tsx` — 5 domain status cards + date range presets + grid + variance side panel + cutover history. Single integrated surface; cross-cutter components honored (DateRangePresets T7, ExportButton T8, SourceBadge T10-7).
+- Variance detail flow lives inline as a side panel rather than a separate `InternalReconciliationVarianceDetail` route — collapses three originally-planned panels (`Dashboard`, `VariancesQueue`, `VarianceDetail`) into one.
+
+### 10.5 Cron (#550)
+
+- `api/cron/recon-weekly.js` — Monday 06:00 UTC orchestrator
+- Engine sequence: **AP → AR → Cash → Inventory → GL** (GL last so lagging-indicator logic can read siblings)
+- Per-engine error isolation (try/catch; one failing engine doesn't abort the others)
+- Per-entity iteration; `entities.parallel_run_status` updated after each engine with `{status, last_recon, last_status}`
+
+### 10.6 Notification rules (#550)
+
+- `recon_variance_detected` (weekly cadence) — recipients: admin + accountant
+- `recon_replay_variance_detected` (replay cadence) — same recipients
+- M28 fan-out via `api/_lib/recon/notifications.js` → `enqueue(...)`
+- Idempotency: keyed on `(recon_run_id, kind)` at the caller; re-runs intentionally emit new events
+
+### 10.7 Close pre-flight extension (#550, #553)
+
+- `api/_handlers/internal/gl-periods/preflight.js` — `unresolved_recon_variances` check added
+- Pre-cutover (parallel mode): `blocking=false` — advisory only, surfaces in close UI but allows close
+- Post-cutover (solo mode with variance on cutover domain): `blocking=true` — close handler rejects with 409
+- `fetchSoloDomains()` reads `entities.parallel_run_status` jsonb; defensively returns `[]` on DB error to avoid false hard-blocks
+- `buildUnresolvedReconRow()` composes the per-domain detail string with explicit `(post-cutover)` markers
+
+### 10.8 Cutover automation (#553)
+
+- `api/_lib/recon/cutover-eligibility.js` — 60 consecutive clean days + zero open M47 `recon_bug` cases + no domain-threshold breach
+- `api/_handlers/internal/recon/cutover-signoff.js` — INSERT `recon_cutover_signoffs` + UPDATE `entities.parallel_run_status[domain]` to `{status: "solo"}` atomically
+- T10 mirror reads `parallel_run_status` and skips solo domains on next run (no schema change in T10 — additive read-only check)
+- 30-day reversibility window via `revert` endpoint on the same handler family
+
+### 10.9 Test count
+
+~500 new tests across the 9 chunks (handler tests, engine tests, UI component tests, preflight hard-block tests, cutover eligibility tests). All green at ship.
+
+---
+
+## 11. References (was §10)
 
 - **`docs/tangerine/T10-shadow-mirror-architecture.md`** — the data foundation. T10 keeps Tangerine's sub-ledgers in sync with Xoro nightly; P9 reconciles on top of that mirror + the new direct sources.
 - **`docs/tangerine/P11-shopify-architecture.md`** — D7 source-tag handling for `source='shopify'`. The AR engine's per-source breakdown is what makes P11 cutover (P11 D12) actually decidable.
@@ -316,34 +391,31 @@ Expected cutover sequence:
 
 ---
 
-## 11. ETA
+## 12. ETA (actual build duration — post-ship)
 
-Realistic estimate after operator confirms §2 D1, D3-D12 (D2 already confirmed):
+Originally estimated **~2-3 weeks with parallel agents**. Actual duration:
 
-- **Build phase:** ~2-3 weeks with parallel agents.
-  - Wave A (P9-1): 1 day
-  - Wave B (5 engines in parallel): 3-4 days
-  - Wave C (UI + orchestrator + notifications): 4-5 days
-  - Wave D (cutover automation): 3-4 days
-  - Wave E (close-out): 1 day
-- **Operational phase (live parallel-run):** 60 days minimum per domain per cutover gate (D8). Cash domain can probably hit the gate within ~75 days from P9 ship (15-day stabilization + 60-day clean window). AR for the direct-integration channels (Shopify, FBA, Walmart, Faire) follows; AR for the Xoro EDI residue stays mirror-active until P22 EDI ships, at which point that residue domain's clock starts.
-- **First cutover (Cash):** roughly Q3 2026 if P9 ships within the next 3 weeks.
+- **Wave A (P9-1 schema):** 2026-05-29 (#520)
+- **Wave B (P9-2..P9-6 5 engines in parallel):** 2026-05-29 (#528, #529, #533, #534, #536) — same day; parallel agents
+- **Wave C (P9-7 UI + handlers):** 2026-05-29 (#543) + 2026-05-29 (#546 test follow-up)
+- **Wave D (P9-8 cron + notifications + preflight):** 2026-05-29 (#550)
+- **Wave E (P9-9 cutover automation):** 2026-05-29 (#553)
+- **Wave F (P9-99 close-out):** 2026-05-29 (this PR)
 
-P9 is process-heavy. Code is straightforward (5 engines, 5 panels, 4 tables); the real work is the operator running parallel-run for 60 days per domain and clearing variances + investigating Cases as they surface. That's the discipline phase the original P9 draft described — it's now actually implementable because P11 + P12 + T10 supplied the auto-flow that makes parallel-run a meaningful comparison.
+**Actual build duration: ~1 day, all 9 chunks shipped on 2026-05-29.** Massively under the 2-3 week estimate because:
+
+1. The 5 engines + UI + handlers parallelized cleanly (one agent per chunk; all in flight at once).
+2. The chained-branch worktree pattern (`tangerine-p9-N` off `tangerine-p9-N-1`) eliminated cross-chunk contamination.
+3. The auto-merge-on-green rule meant chunks shipped as fast as CI cleared.
+
+**Operational phase (live parallel-run):** 60 days minimum per domain per cutover gate (D8). With ship on 2026-05-29, the **first cutover gate (Cash) opens ~2026-07-28** (60-day clean window starting tomorrow). AR for the direct-integration channels (Shopify, FBA, Walmart, Faire) follows; AR for the Xoro EDI residue stays mirror-active until P22 EDI ships, at which point that residue domain's clock starts.
+
+P9 turned out to be code-heavy in build but process-heavy in operation — the real work going forward is the operator running parallel-run for 60 days per domain and clearing variances + investigating Cases as they surface. That's the discipline phase the original P9 draft described — it's now actually implementable because P11 + P12 + T10 supplied the auto-flow that makes parallel-run a meaningful comparison.
 
 ---
 
-## 12. Operator confirm before chunks ship
+## 13. Operator confirm before chunks ship — RESOLVED
 
-Please mark §2 D1, D3-D12 with answers (D2 is already locked from the prior session). Once confirmed I'll kick off P9-1 (Wave A).
+All §2 decisions confirmed and shipped per the chunk table. D2 thresholds operator-locked. D1 cadence revised from daily to **weekly** at operator's call (Monday 06:00 UTC). D7 source-tag-aware reconciliation: YES (shipped in P9-3 #528). D8 60-day cutover gate: confirmed. D4 soft-block / hard-block flip: confirmed (shipped in P9-9 #553).
 
-**No env vars needed.** All sources (Xoro fetch, T10 mirror, P11 Shopify, P12 FBA/Walmart/Faire, P6 Plaid) are already running.
-
-**Suggested operator inputs to think about ahead of confirm:**
-
-- **D8 (60-day cutover gate):** tighter = decom faster but riskier; looser = more confidence but P22 EDI pressure (waiting on Xoro residue) gets longer. 60 days is the recommendation matching two month-end closes. You can call 45 or 90.
-- **D4 (soft-block close):** soft-block-with-override is the safer start. If you want hard-block from day one for any domain, call that out — it's a one-line config flip.
-- **D12 (review cadence):** CEO weekly + accountant monthly are the recommendation. If accountant prefers weekly too, change the seed.
-- **D7 (source-tag-aware recon):** this is the most architecturally consequential decision — confirming it means the AR engine in P9-3 is structurally different (groups by source within customer) than the simpler "sum all AR" version. Recommend YES; the cost is one extra GROUP BY column and the payoff is per-channel cutover decisions actually being decidable.
-
-Once §2 is confirmed I'll kick off P9-1.
+User guide at [`docs/tangerine/user-guide/ch25-parallel-run-reconciliation.md`](user-guide/ch25-parallel-run-reconciliation.md) is the operator-facing reference going forward.
