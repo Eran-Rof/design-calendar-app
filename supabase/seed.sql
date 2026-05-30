@@ -10,7 +10,7 @@
 DO $$
 DECLARE
   -- ── Stable UUIDs (chosen once, never changed) ─────────────────────────────
-  v_entity_id    uuid := 'e0000000-0000-0000-0000-000000000001'::uuid;
+  v_entity_id    uuid;  -- resolved by slug in the body (migration may pre-seed 'ring-of-fire')
 
   v_vendor_a     uuid := 'a0000000-0000-0000-0000-000000000001'::uuid;  -- Sunrise Apparel Co.
   v_vendor_b     uuid := 'a0000000-0000-0000-0000-000000000002'::uuid;  -- Pacific Thread Works
@@ -44,17 +44,25 @@ DECLARE
   v_contract_a   uuid := 'cc000000-0000-0000-0000-000000000001'::uuid;
   v_contract_b   uuid := 'cc000000-0000-0000-0000-000000000002'::uuid;
   v_dispute_1    uuid := 'dd000000-0000-0000-0000-000000000001'::uuid;
-  v_rfq_1        uuid := 'rr000000-0000-0000-0000-000000000001'::uuid;
-  v_workspace_1  uuid := 'ww000000-0000-0000-0000-000000000001'::uuid;
+  v_rfq_1        uuid := '9a000000-0000-0000-0000-000000000001'::uuid;
+  v_workspace_1  uuid := '9b000000-0000-0000-0000-000000000001'::uuid;
 
 BEGIN
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 1. ENTITY (buyer)
 -- ════════════════════════════════════════════════════════════════════════════
-INSERT INTO entities (id, name, slug, status)
-VALUES (v_entity_id, 'Ring of Fire Clothing', 'ring-of-fire', 'active')
-ON CONFLICT (id) DO NOTHING;
+-- Resolve the ROF entity by slug first — migration 20260419700000_entity_scoping
+-- may already have seeded 'ring-of-fire' with its own id, so a hard-coded INSERT
+-- would hit the entities_slug_key unique collision on a fresh DB. Fall back to the
+-- canonical staging UUID only when the row doesn't exist yet.
+SELECT id INTO v_entity_id FROM entities WHERE slug = 'ring-of-fire' LIMIT 1;
+IF v_entity_id IS NULL THEN
+  v_entity_id := 'e0000000-0000-0000-0000-000000000001'::uuid;
+  INSERT INTO entities (id, name, slug, status)
+  VALUES (v_entity_id, 'Ring of Fire Clothing', 'ring-of-fire', 'active')
+  ON CONFLICT (id) DO NOTHING;
+END IF;
 
 INSERT INTO entity_branding (entity_id, logo_url, primary_color, secondary_color)
 VALUES (v_entity_id, '/logo.png', '#1a1a2e', '#e94560')
@@ -126,7 +134,7 @@ VALUES
    'BDCGP', 'USLAX', now() + interval '20 days', null, 'In Transit')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO shipment_lines (shipment_id, po_line_item_id, qty_shipped)
+INSERT INTO shipment_lines (shipment_id, po_line_item_id, quantity_shipped)
 VALUES
   (v_ship_a1, v_line_a1_1, 300),
   (v_ship_a1, v_line_a1_2, 200),
@@ -158,7 +166,7 @@ VALUES
    18750.00, 0, 18750.00, 'USD', 'submitted',     now() - interval '2 days')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO invoice_line_items (invoice_id, po_line_item_id, description, qty_invoiced, unit_price, line_total)
+INSERT INTO invoice_line_items (invoice_id, po_line_item_id, description, quantity_invoiced, unit_price, line_total)
 VALUES
   (v_inv_a1, v_line_a1_1, 'Classic Tee Black M', 300, 20.00, 6000.00),
   (v_inv_a1, v_line_a1_2, 'Classic Tee Black L', 200, 20.00, 4000.00),
@@ -471,9 +479,9 @@ ON CONFLICT (vendor_id, sku) DO NOTHING;
 -- ════════════════════════════════════════════════════════════════════════════
 -- 25. ERP INTEGRATION CONFIG
 -- ════════════════════════════════════════════════════════════════════════════
-INSERT INTO erp_integrations (vendor_id, erp_type, config, status)
+INSERT INTO erp_integrations (vendor_id, type, config, status)
 VALUES
-  (v_vendor_a, 'edi_x12',
+  (v_vendor_a, 'custom',
    '{"partner_id":"SUNRISE01","isa_id":"SUNRISE001","functional_groups":["850","855","856","810"]}'::jsonb,
    'active')
 ON CONFLICT DO NOTHING;
