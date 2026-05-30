@@ -398,11 +398,12 @@ import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
 import h527 from "../cron/crm-tasks-due-tomorrow.js";
 // T10 cross-cutter Xoro shadow mirror handlers. APPEND ONLY.
 //   h400 = T10-2 AR mirror
-//   h401 = T10-3 AP mirror (this PR)
-//   h402 = T10-4 inventory rebuild
+//   h401 = T10-3 AP mirror
+//   h402 = T10-4 inventory rebuild (reserved slot on main)
 //   h403 = T10-5 daily summary JE poster
 import h400 from "./internal/xoro-mirror/ar.js";
 import h401 from "./internal/xoro-mirror/ap.js";
+import h402 from "./internal/xoro-mirror/inventory.js";
 import h403 from "./internal/xoro-mirror/summary-je.js";
 // T10-6 — Nightly Xoro mirror orchestrator cron.
 import h404 from "../cron/xoro-mirror-nightly.js";
@@ -1146,6 +1147,7 @@ export const ROUTES = [
   { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },
   // P10-6 — Per-entity COA copy-from-ROF wizard.
   { pattern: "/api/internal/entities/:id/coa-copy-from-rof",           handler: h528 },
+  { pattern: "/api/internal/xoro-mirror/inventory",                    handler: h402 },
 ];
 
 export function compileRoutes(routes) {
