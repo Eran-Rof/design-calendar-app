@@ -193,7 +193,9 @@ export default function CostingGrid() {
           {COLUMNS.map((c) => (
             <div key={c.key} style={{
               width: c.width, flexShrink: 0,
-              padding: "8px 8px", fontSize: 10, fontWeight: 700,
+              // 10px right-pad matches numeric/text cell pad (4px cell + 6px input)
+              // so the header label right-edge aligns with the input text right-edge.
+              padding: "8px 10px", fontSize: 10, fontWeight: 700,
               color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
               textAlign: c.align || "left",
               borderRight: "1px solid #1E293B",
@@ -433,9 +435,10 @@ export default function CostingGrid() {
             {COLUMNS.map((c) => {
               const style: React.CSSProperties = {
                 width: c.width, flexShrink: 0,
-                padding: "8px 8px",
+                // Matches header pad so footer totals line up under header labels.
+                padding: "8px 10px",
                 textAlign: c.align || "left",
-                borderRight: "1px solid #1E293B",
+                borderRight: "1px solid #334155",
                 display: "flex", alignItems: "center",
                 minHeight: 36,
               };
