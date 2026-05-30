@@ -261,6 +261,7 @@ export function validateManualPost(body) {
         debit:          String(l.debit ?? "0"),
         credit:         String(l.credit ?? "0"),
         memo:           l.memo ?? null,
+        memo_line_2:    l.memo_line_2 ?? null,
         subledger_type: l.subledger_type || null,
         subledger_id:   l.subledger_id || null,
       })),

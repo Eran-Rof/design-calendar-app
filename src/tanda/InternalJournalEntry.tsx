@@ -20,6 +20,13 @@ type JELine = {
   debit: string;
   credit: string;
   memo: string;
+  memo_line_2: string;
+  // Per-field "user has typed in this box" flags. Used so the auto-copy
+  // mirror between memo line 1 and line 2 only fires until BOTH lines have
+  // received user input; from that point on either field is independently
+  // editable.
+  memo_touched: boolean;
+  memo_line_2_touched: boolean;
   subledger_type: string;
   subledger_id: string;
 };
@@ -34,6 +41,7 @@ type JELineRow = {
   debit: string;
   credit: string;
   memo: string | null;
+  memo_line_2: string | null;
   subledger_type: string | null;
   subledger_id: string | null;
 };
@@ -306,18 +314,44 @@ function statusColor(s: JE["status"]) {
   return s === "posted" ? C.success : s === "draft" ? C.textMuted : C.danger;
 }
 
+// Compact numeric style — fixed-width debit/credit inputs sized for
+// $999,999,999.99 and aligned in monospace so columns line up visually.
+const moneyInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  fontVariantNumeric: "tabular-nums",
+  fontFamily: "SFMono-Regular, Menlo, monospace",
+  textAlign: "right",
+};
+
+function emptyLine(line_number: number): JELine {
+  return {
+    line_number,
+    account_id: "",
+    debit: "",
+    credit: "",
+    memo: "",
+    memo_line_2: "",
+    memo_touched: false,
+    memo_line_2_touched: false,
+    subledger_type: "",
+    subledger_id: "",
+  };
+}
+
 function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: () => void }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [basis, setBasis] = useState<"ACCRUAL" | "CASH" | "BOTH">("ACCRUAL");
   const [postingDate, setPostingDate] = useState(new Date().toISOString().slice(0, 10));
   const [journalType, setJournalType] = useState<"manual" | "adjustment">("manual");
   const [description, setDescription] = useState("");
-  const [lines, setLines] = useState<JELine[]>([
-    { line_number: 1, account_id: "", debit: "", credit: "", memo: "", subledger_type: "", subledger_id: "" },
-    { line_number: 2, account_id: "", debit: "", credit: "", memo: "", subledger_type: "", subledger_id: "" },
-  ]);
+  const [lines, setLines] = useState<JELine[]>([emptyLine(1), emptyLine(2)]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Ask #17 — track whether anything in this modal has been edited so we
+  // can prompt before discarding work. A single boolean covers the modal
+  // — once any field has been touched, every close path (overlay click,
+  // Cancel, Escape, browser back) goes through the confirm guard.
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=500")
@@ -336,17 +370,90 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   }, [lines]);
 
   function updateLine(idx: number, patch: Partial<JELine>) {
+    setDirty(true);
     setLines((prev) => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
   }
+
+  // Ask #16 — auto-mirror the memo lines. Whichever field the operator
+  // edits first, the OTHER mirrors it until both fields have received user
+  // input. After both are touched the link is permanently broken for that
+  // line (per-line state, so subsequent lines mirror independently).
+  function onMemoChange(idx: number, which: "memo" | "memo_line_2", value: string) {
+    setDirty(true);
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l;
+        const next: JELine = { ...l, [which]: value, [`${which}_touched`]: true } as JELine;
+        // If the OTHER field has not yet been touched, mirror this edit.
+        if (which === "memo" && !l.memo_line_2_touched) {
+          next.memo_line_2 = value;
+        } else if (which === "memo_line_2" && !l.memo_touched) {
+          next.memo = value;
+        }
+        return next;
+      }),
+    );
+  }
+
   function addLine() {
-    setLines((prev) => [...prev, { line_number: prev.length + 1, account_id: "", debit: "", credit: "", memo: "", subledger_type: "", subledger_id: "" }]);
+    setDirty(true);
+    setLines((prev) => [...prev, emptyLine(prev.length + 1)]);
   }
   function removeLine(idx: number) {
     if (lines.length <= 2) return;
+    setDirty(true);
     setLines((prev) => prev.filter((_, i) => i !== idx).map((l, i) => ({ ...l, line_number: i + 1 })));
   }
 
+  // Single source-of-truth close path. Honours the unsaved-changes guard
+  // unless the caller passes force=true (used after a successful post).
+  function requestClose(force = false) {
+    if (!force && dirty) {
+      const ok = window.confirm("You have unsaved changes. Discard?");
+      if (!ok) return;
+    }
+    onClose();
+  }
+
+  // Ask #17 — Escape key closes the modal but routes through the same
+  // dirty-check confirm prompt.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        requestClose();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // requestClose closes over `dirty`; re-bind when dirty flips so the
+    // handler sees the latest value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty]);
+
+  // Browser-level warning if the user reloads/navigates away with unsaved
+  // edits. Standards-compliant beforeunload prompt — no library needed.
+  useEffect(() => {
+    function beforeUnload(e: BeforeUnloadEvent) {
+      if (!dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [dirty]);
+
   async function submit() {
+    // Ask #17 — out-of-balance confirm. The server-side validator still
+    // rejects the post; we surface the explicit failure instead of a
+    // silently-disabled button so the user sees the exact reason.
+    if (totals.diff !== 0 || totals.d === 0) {
+      const diffStr = totals.diff.toFixed(2);
+      const proceed = window.confirm(
+        `Journal entry is out of balance by $${diffStr}. Posting will fail server-side validation. Continue anyway?`,
+      );
+      if (!proceed) return;
+    }
     setSubmitting(true);
     setErr(null);
     try {
@@ -361,6 +468,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
           debit: l.debit || "0",
           credit: l.credit || "0",
           memo: l.memo || null,
+          memo_line_2: l.memo_line_2 || null,
           subledger_type: l.subledger_type || null,
           subledger_id: l.subledger_id || null,
         })),
@@ -374,6 +482,8 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         const e = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
         throw new Error(e);
       }
+      // Successful post — bypass the dirty guard on close.
+      setDirty(false);
       onPosted();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -382,53 +492,61 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     }
   }
 
-  const balanceOK = totals.diff === 0 && totals.d > 0;
-
   return (
     <div
-      onClick={onClose}
+      onClick={() => requestClose()}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 820, maxWidth: 1000, maxHeight: "90vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>Post manual journal entry</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 12, marginBottom: 16 }}>
           <Field label="Basis">
-            <select value={basis} onChange={(e) => setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH")} style={inputStyle as React.CSSProperties}>
+            <select value={basis} onChange={(e) => { setDirty(true); setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH"); }} style={inputStyle as React.CSSProperties}>
               <option value="ACCRUAL">ACCRUAL</option>
               <option value="CASH">CASH</option>
               <option value="BOTH">BOTH (sibling pair)</option>
             </select>
           </Field>
           <Field label="Journal type">
-            <select value={journalType} onChange={(e) => setJournalType(e.target.value as "manual" | "adjustment")} style={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}>
+            <select value={journalType} onChange={(e) => { setDirty(true); setJournalType(e.target.value as "manual" | "adjustment"); }} style={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}>
               <option value="manual">MANUAL</option>
               <option value="adjustment">ADJUSTMENT</option>
             </select>
           </Field>
           <Field label="Posting date">
-            <input type="date" value={postingDate} onChange={(e) => setPostingDate(e.target.value)} style={inputStyle} />
+            <input type="date" value={postingDate} onChange={(e) => { setDirty(true); setPostingDate(e.target.value); }} style={inputStyle} />
           </Field>
           <Field label="Description">
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} style={inputStyle} placeholder="e.g. Adjusting entry for accrued rent" />
+            <input type="text" value={description} onChange={(e) => { setDirty(true); setDescription(e.target.value); }} style={inputStyle} placeholder="e.g. Adjusting entry for accrued rent" />
           </Field>
         </div>
 
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: 40 }} />
+              <col style={{ width: 340 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 140 }} />
+              <col />
+              <col style={{ width: 96 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 44 }} />
+            </colgroup>
             <thead>
               <tr>
-                <th style={{ ...th, width: 50 }}>#</th>
+                <th style={th}>#</th>
                 <th style={th}>Account</th>
-                <th style={{ ...th, width: 120 }}>Debit</th>
-                <th style={{ ...th, width: 120 }}>Credit</th>
+                <th style={{ ...th, textAlign: "right" }}>Debit</th>
+                <th style={{ ...th, textAlign: "right" }}>Credit</th>
                 <th style={th}>Memo</th>
-                <th style={{ ...th, width: 100 }}>Sub type</th>
-                <th style={{ ...th, width: 180 }}>Sub id</th>
-                <th style={{ ...th, width: 50 }}></th>
+                <th style={th}>Sub type</th>
+                <th style={th}>Sub id</th>
+                <th style={th}></th>
               </tr>
             </thead>
             <tbody>
@@ -443,13 +561,42 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    <input type="text" value={l.debit} onChange={(e) => updateLine(idx, { debit: e.target.value, credit: e.target.value ? "" : l.credit })} placeholder="0.00" style={inputStyle} />
+                    <input
+                      type="text"
+                      value={l.debit}
+                      onChange={(e) => updateLine(idx, { debit: e.target.value, credit: e.target.value ? "" : l.credit })}
+                      placeholder="0.00"
+                      style={moneyInputStyle}
+                    />
                   </td>
                   <td style={td}>
-                    <input type="text" value={l.credit} onChange={(e) => updateLine(idx, { credit: e.target.value, debit: e.target.value ? "" : l.debit })} placeholder="0.00" style={inputStyle} />
+                    <input
+                      type="text"
+                      value={l.credit}
+                      onChange={(e) => updateLine(idx, { credit: e.target.value, debit: e.target.value ? "" : l.debit })}
+                      placeholder="0.00"
+                      style={moneyInputStyle}
+                    />
                   </td>
                   <td style={td}>
-                    <input type="text" value={l.memo} onChange={(e) => updateLine(idx, { memo: e.target.value })} style={inputStyle} />
+                    {/* Two stacked memo inputs — keep the column the same
+                        visual width as a single Memo column. */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <input
+                        type="text"
+                        value={l.memo}
+                        placeholder="Memo line 1"
+                        onChange={(e) => onMemoChange(idx, "memo", e.target.value)}
+                        style={inputStyle}
+                      />
+                      <input
+                        type="text"
+                        value={l.memo_line_2}
+                        placeholder="Memo line 2"
+                        onChange={(e) => onMemoChange(idx, "memo_line_2", e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
                   </td>
                   <td style={td}>
                     <select value={l.subledger_type} onChange={(e) => updateLine(idx, { subledger_type: e.target.value })} style={inputStyle as React.CSSProperties}>
@@ -460,7 +607,13 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     </select>
                   </td>
                   <td style={td}>
-                    <input type="text" value={l.subledger_id} onChange={(e) => updateLine(idx, { subledger_id: e.target.value })} placeholder="uuid" style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }} />
+                    <input
+                      type="text"
+                      value={l.subledger_id}
+                      onChange={(e) => updateLine(idx, { subledger_id: e.target.value })}
+                      placeholder="uuid"
+                      style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
+                    />
                   </td>
                   <td style={td}>
                     {lines.length > 2 && <button onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}
@@ -473,8 +626,8 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                 <td style={td} colSpan={2}>
                   <button onClick={addLine} style={btnSecondary}>+ Add line</button>
                 </td>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.d.toFixed(2)}</td>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.c.toFixed(2)}</td>
+                <td style={{ ...td, fontVariantNumeric: "tabular-nums", fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.d.toFixed(2)}</td>
+                <td style={{ ...td, fontVariantNumeric: "tabular-nums", fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.c.toFixed(2)}</td>
                 <td style={td} colSpan={4}>
                   {totals.diff === 0 ? (
                     <span style={{ color: C.success, fontWeight: 600 }}>● Balanced</span>
@@ -494,8 +647,13 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         )}
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !balanceOK || !description.trim()}>
+          <button onClick={() => requestClose()} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button
+            onClick={() => void submit()}
+            style={btnPrimary}
+            disabled={submitting || !description.trim()}
+            title={totals.diff !== 0 ? "Out of balance — server will reject. Click to confirm." : undefined}
+          >
             {submitting ? "Posting…" : "Post"}
           </button>
         </div>
@@ -781,7 +939,12 @@ function JEDetailModal({
                         <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
                           {parseFloat(l.credit || "0") > 0 ? parseFloat(l.credit).toFixed(2) : ""}
                         </td>
-                        <td style={{ ...td, fontSize: 12, color: C.textSub }}>{l.memo || ""}</td>
+                        <td style={{ ...td, fontSize: 12, color: C.textSub }}>
+                          {l.memo || ""}
+                          {l.memo_line_2 && l.memo_line_2 !== l.memo ? (
+                            <div style={{ color: C.textMuted, fontSize: 11 }}>{l.memo_line_2}</div>
+                          ) : null}
+                        </td>
                         <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
                           {l.subledger_type
                             ? <>{l.subledger_type}{l.subledger_id ? ` / ${l.subledger_id.slice(0, 8)}…` : ""}</>
