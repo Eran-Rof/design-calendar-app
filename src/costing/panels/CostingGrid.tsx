@@ -62,7 +62,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
   { key: "sell_price",     label: "Sell",     width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
-  { key: "priced_date",    label: "Priced",   width: 100 },
+  { key: "priced_date",    label: "Priced",   width: 140 },
   { key: "ly_unit_cost",   label: "LY Cost",  width: 80,  align: "right", numeric: true },
   { key: "ly_qty",         label: "LY Sold",  width: 80,  align: "right", numeric: true },
   { key: "ly_margin_pct",  label: "LY Mgn %", width: 80,  align: "right", numeric: true },
