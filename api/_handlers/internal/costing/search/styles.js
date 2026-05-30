@@ -1,6 +1,12 @@
 // api/internal/costing/search/styles
-// GET ?q=<text>&entity_id=<uuid>  → up to 50 style_master rows
-// ILIKE on style_code, description, style_name.
+// GET ?q=<text>&entity_id=<uuid>&limit=<int>
+//
+// When `limit` is "all" OR larger than 1000, paginate through
+// style_master in 1000-row chunks (PostgREST silently caps each
+// request at 1000 — see project_postgrest_1000_row_cap memory). The
+// picker preload calls with limit="all" to get every active style;
+// type-ahead callers pass a small numeric limit (default 50) and skip
+// pagination.
 //
 // entity_id filter is OPT-IN (only applied when explicitly passed). The
 // picker doesn't send it because most costing operators source styles
@@ -11,7 +17,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
 
-export const config = { maxDuration: 10 };
+export const config = { maxDuration: 20 };
+
+const POSTGREST_PAGE = 1000;     // PostgREST hard cap per request
+const HARD_CEILING   = 50000;    // absolute safety cap on `limit=all`
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -30,30 +39,39 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const q = (url.searchParams.get("q") || "").trim();
-  // Only filter by entity when the caller explicitly passes ?entity_id=
-  // — the picker doesn't send one because pickers operate cross-entity
-  // (Xoro nightly sync populates style_master per-entity; sparse entities
-  // would otherwise see an empty dropdown).
   const entityId = url.searchParams.get("entity_id");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1000);
+  const limitParam = (url.searchParams.get("limit") || "50").trim().toLowerCase();
+  const isAll = limitParam === "all";
+  const limitNum = isAll ? HARD_CEILING : Math.min(parseInt(limitParam, 10) || 50, HARD_CEILING);
 
-  let query = admin.from("style_master")
-    // base_fabric was renamed to base_fabric_legacy in PR #596
-    // (20260630020000_style_master_base_fabric_fk.sql); aliased back to
-    // `base_fabric` here so existing callers (StylePickerCell + the grid's
-    // onStylePick auto-fill into line.fabric_code) keep working without
-    // a wider refactor.
-    .select("id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric:base_fabric_legacy, lifecycle_status")
-    .is("deleted_at", null)
-    .limit(limit);
-  if (entityId) query = query.eq("entity_id", entityId);
-  if (q) {
-    const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
-    query = query.or(`style_code.ilike.${like},description.ilike.${like},style_name.ilike.${like}`);
+  const cols = "id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric:base_fabric_legacy, lifecycle_status";
+  const buildQuery = (from, to) => {
+    let qy = admin.from("style_master")
+      .select(cols)
+      .is("deleted_at", null)
+      .range(from, to)
+      .order("style_code", { ascending: true });
+    if (entityId) qy = qy.eq("entity_id", entityId);
+    if (q) {
+      const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
+      qy = qy.or(`style_code.ilike.${like},description.ilike.${like},style_name.ilike.${like}`);
+    }
+    return qy;
+  };
+
+  // Paginate through 1000-row windows until we hit `limit` or no more rows.
+  const rows = [];
+  let offset = 0;
+  while (offset < limitNum) {
+    const pageSize = Math.min(POSTGREST_PAGE, limitNum - offset);
+    const to = offset + pageSize - 1;
+    const { data, error } = await buildQuery(offset, to);
+    if (error) return res.status(500).json({ error: error.message });
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < pageSize) break; // exhausted
+    offset += batch.length;
   }
-  query = query.order("style_code", { ascending: true });
 
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json({ rows: data || [] });
+  return res.status(200).json({ rows });
 }

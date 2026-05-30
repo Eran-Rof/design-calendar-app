@@ -612,7 +612,9 @@ export const useCostingStore = create<State>((set, get) => ({
 
   async loadStylesForPicker() {
     try {
-      const rows = await api.searchStyles("", { limit: 500 });
+      // limit=all → handler paginates through 1000-row chunks server-side
+      // (PostgREST silent 1000 cap) up to a 50000 hard ceiling.
+      const rows = await api.searchStyles("", { limit: "all" });
       set({ stylesForPicker: rows });
     } catch (e) {
       set({ error: `loadStylesForPicker: ${(e as Error).message}` });
