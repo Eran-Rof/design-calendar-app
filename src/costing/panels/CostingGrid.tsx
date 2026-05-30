@@ -18,6 +18,7 @@ import MasterSelectCell from "./MasterSelectCell";
 import ColorPickerCell from "./ColorPickerCell";
 import { fetchStyleSeedSku } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
+import { appConfirm } from "../../utils/theme";
 import type { CostingLine } from "../types";
 import type { StyleHit } from "../services/costingApi";
 
@@ -82,7 +83,14 @@ export default function CostingGrid() {
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
+  const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);
   const loadMasters = useCostingStore((s) => s.loadMasters);
+
+  // "$ Qts" button: select the line AND open the per-project panel.
+  const openQuotesFor = (lineId: string) => {
+    setSelectedLine(lineId);
+    setQuotesPanelOpen(true);
+  };
 
   // Load fit/closure/waist/comment masters on mount so the cell dropdowns
   // have their options populated. Settings view also calls this, but mounting
@@ -221,6 +229,8 @@ export default function CostingGrid() {
           return (
             <div
               key={line.id}
+              // Row click only highlights — does NOT open the vendor panel.
+              // The "$ Qts" button in actions column is the explicit panel trigger.
               onClick={() => setSelectedLine(line.id)}
               onDragOver={onDragOver}
               onDrop={onDrop(line.id)}
@@ -230,7 +240,7 @@ export default function CostingGrid() {
                 display: "flex", minWidth: TOTAL_WIDTH,
                 borderTop: "1px solid #334155",
                 background: isFocused ? "#172554" : "transparent",
-                cursor: "pointer",
+                cursor: "default",
                 transition: "background 0.12s",
               }}
             >
@@ -240,9 +250,11 @@ export default function CostingGrid() {
                   padding: "0 4px",
                   fontSize: 12, color: "#E2E8F0",
                   textAlign: c.align || "left",
-                  borderRight: "1px solid #1E293B",
+                  borderRight: "1px solid #475569",
+                  borderBottom: "1px solid #475569",
                   display: "flex", alignItems: "center",
                   minHeight: 32,
+                  overflow: "hidden", // keep date picker + long text inside
                 };
 
                 // Drag handle
@@ -323,7 +335,7 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => setSelectedLine(line.id)}
+                        onClick={() => openQuotesFor(line.id)}
                         title={`Open vendor quotes${quoteCount ? ` (${quoteCount})` : ""}`}
                         style={{
                           background: isFocused ? "#3B82F6" : "transparent",
@@ -333,7 +345,11 @@ export default function CostingGrid() {
                         }}
                       >$ Qts{quoteCount ? ` (${quoteCount})` : ""}</button>
                       <button
-                        onClick={() => deleteLine(line.id)}
+                        onClick={() => appConfirm(
+                          `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor quotes + compliance rows.`,
+                          "Delete",
+                          () => deleteLine(line.id),
+                        )}
                         title="Delete row"
                         style={{
                           background: "transparent", color: "#F87171",
