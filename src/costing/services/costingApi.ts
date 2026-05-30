@@ -268,6 +268,51 @@ export async function searchScales(signal?: AbortSignal): Promise<ScaleHit[]> {
   return out.rows || [];
 }
 
+export interface CustomerHit {
+  id: string;
+  entity_id: string | null;
+  code: string | null;
+  customer_type: string | null;
+  default_currency: string | null;
+  status: string | null;
+  billing_address: { name?: string; company?: string; [k: string]: unknown } | null;
+  payment_terms: string | null;
+}
+
+/** Helper to extract a readable display name from a customer hit (name → company → code). */
+export function customerDisplayName(c: CustomerHit | null | undefined): string {
+  if (!c) return "";
+  const billing = c.billing_address;
+  const name = typeof billing?.name === "string" ? billing.name : undefined;
+  const company = typeof billing?.company === "string" ? billing.company : undefined;
+  return name || company || c.code || c.id;
+}
+
+export async function searchCustomers(q: string, signal?: AbortSignal): Promise<CustomerHit[]> {
+  const sp = new URLSearchParams();
+  if (q) sp.set("q", q);
+  const res = await fetch(`/api/internal/costing/search/customers?${sp.toString()}`, { signal });
+  const out = await json<{ rows: CustomerHit[] }>(res);
+  return out.rows || [];
+}
+
+export interface SalesRepHit {
+  id: string;
+  entity_id: string | null;
+  display_name: string | null;
+  email: string | null;
+  default_commission_pct: number | null;
+  is_active: boolean | null;
+}
+
+export async function searchSalesReps(q: string, signal?: AbortSignal): Promise<SalesRepHit[]> {
+  const sp = new URLSearchParams();
+  if (q) sp.set("q", q);
+  const res = await fetch(`/api/internal/costing/search/sales-reps?${sp.toString()}`, { signal });
+  const out = await json<{ rows: SalesRepHit[] }>(res);
+  return out.rows || [];
+}
+
 export async function searchColors(
   q: string,
   opts?: { styleCode?: string | null; signal?: AbortSignal },

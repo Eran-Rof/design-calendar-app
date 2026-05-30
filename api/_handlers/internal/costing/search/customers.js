@@ -34,7 +34,14 @@ export default async function handler(req, res) {
   if (entityId) query = query.eq("entity_id", entityId);
   if (q) {
     const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
-    query = query.ilike("code", like);
+    // ILIKE on code OR the jsonb path billing_address->>'name'/'company' so
+    // operators can type either the customer code (RCB) or part of the
+    // display name (Macy's). PostgREST's .or() takes a comma-separated
+    // string of column filters; billing_address->>name is the jsonb arrow
+    // operator producing text for ILIKE.
+    query = query.or(
+      `code.ilike.${like},billing_address->>name.ilike.${like},billing_address->>company.ilike.${like}`,
+    );
   }
   query = query.order("code", { ascending: true });
 

@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SQL = readFileSync(
-  join(__dirname, "../../../supabase/migrations/20260622000000_t4_chunk1_personalization_schema.sql"),
+  join(__dirname, "../../../supabase/migrations/20260622000050_t4_chunk1_personalization_schema.sql"),
   "utf8",
 );
 

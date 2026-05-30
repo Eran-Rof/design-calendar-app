@@ -11,6 +11,9 @@ import CostingGrid from "../panels/CostingGrid";
 import VendorQuotePanel from "../panels/VendorQuotePanel";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
 import CompliancePanel from "../panels/CompliancePanel";
+import CustomerPickerCell from "../panels/CustomerPickerCell";
+import SalesRepPickerCell from "../panels/SalesRepPickerCell";
+import { customerDisplayName } from "../services/costingApi";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
@@ -230,10 +233,22 @@ export default function ProjectEditView() {
           })()}
         </Field>
         <Field label="Customer">
-          <input value={form.customer_id || ""} onChange={(e) => setField("customer_id", e.target.value || null)} style={inp} placeholder="autocomplete coming" />
+          <CustomerPickerCell
+            // Use the joined customer record's display name (name → company → code)
+            // rather than the raw UUID so the operator sees something readable.
+            value={customerDisplayName(project?.customer as never) || null}
+            onPick={(c) => setField("customer_id", c.id)}
+            onClear={() => setField("customer_id", null)}
+            inputStyle={inp}
+          />
         </Field>
         <Field label="Sales rep">
-          <input value={form.sales_rep_id || ""} onChange={(e) => setField("sales_rep_id", e.target.value || null)} style={inp} placeholder="autocomplete coming" />
+          <SalesRepPickerCell
+            value={project?.sales_rep?.display_name || null}
+            onPick={(r) => setField("sales_rep_id", r.id)}
+            onClear={() => setField("sales_rep_id", null)}
+            inputStyle={inp}
+          />
         </Field>
         <div />
 
