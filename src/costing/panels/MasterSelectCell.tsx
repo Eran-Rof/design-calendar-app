@@ -41,7 +41,11 @@ export default function MasterSelectCell({ kind, value, onChange, cellStyle }: P
       value={value || ""}
       onChange={(e) => onSelect(e.target.value)}
       style={{
-        width: "100%", padding: "4px 4px", fontSize: 12,
+        // 4px 6px matches the default numeric/text input padding so the
+        // text inside this select aligns with the header label and other
+        // cell contents (header padding 8px 10px, cell padding 0 4px,
+        // inner padding 4px 6px → 10px from cell edge).
+        width: "100%", padding: "4px 6px", fontSize: 12,
         background: "transparent", border: "1px solid transparent",
         color: "#E2E8F0", outline: "none",
         colorScheme: "dark",
