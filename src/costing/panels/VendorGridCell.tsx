@@ -10,13 +10,20 @@
 
 import React from "react";
 import { useCostingStore } from "../store/costingStore";
+import type { CostingLineVendor } from "../types";
 
 interface Props {
   lineId: string;
 }
 
+// Stable empty-array reference for the Zustand selector — returning
+// a fresh `[]` literal on each render triggers an infinite re-render
+// loop (Zustand uses === to detect change; new array ref every render
+// → render → new ref → render → React error #185).
+const EMPTY: CostingLineVendor[] = [];
+
 export default function VendorGridCell({ lineId }: Props) {
-  const quotes = useCostingStore((s) => s.vendorQuotes[lineId] || []);
+  const quotes = useCostingStore((s) => s.vendorQuotes[lineId] || EMPTY);
   const selectQuote = useCostingStore((s) => s.selectQuote);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
   const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);

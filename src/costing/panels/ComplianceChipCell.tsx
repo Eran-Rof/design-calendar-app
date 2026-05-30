@@ -14,9 +14,14 @@ interface Props {
   lineId: string;
 }
 
+// Stable empty-array reference for the Zustand selector — fresh `[]`
+// literal on each render triggers React error #185 (Zustand sees a
+// new ref → re-render → new ref → infinite loop).
+const EMPTY: CostingLineCompliance[] = [];
+
 export default function ComplianceChipCell({ lineId }: Props) {
   const master         = useCostingStore((s) => s.masters.compliance);
-  const compliance     = useCostingStore((s) => s.compliance[lineId] || []);
+  const compliance     = useCostingStore((s) => s.compliance[lineId] || EMPTY);
   const addCompliance  = useCostingStore((s) => s.addCompliance);
   const deleteCompliance = useCostingStore((s) => s.deleteCompliance);
   const addMaster      = useCostingStore((s) => s.addMaster);
