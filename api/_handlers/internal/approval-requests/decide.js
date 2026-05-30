@@ -11,6 +11,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { decide as decideLib, ApprovalsError } from "../../../_lib/approvals/index.js";
 import { postInvoice as postApInvoice } from "../ap-invoices/post.js";
+import { postInvoice as postArInvoice } from "../ar-invoices/post.js";
 
 export const config = { maxDuration: 30 };
 
@@ -89,6 +90,53 @@ export default async function handler(req, res, params) {
               fromApprovalHook: true,
             });
             postedHook = result.body || { status: result.status, error: result.error };
+          }
+        }
+        // P4-7: AR-side hook mirrors the AP pattern. Recognized request kinds
+        // for ar_invoices: 'ar_invoice' (threshold gate, P4-4) and
+        // 'customer_credit_extension' (credit-limit breach gate, P4-7). Both
+        // re-enter postArInvoice with fromApprovalHook=true (which skips ALL
+        // approval gates) so the post proceeds atomically.
+        else if (
+          reqRow &&
+          (reqRow.kind === "ar_invoice" || reqRow.kind === "customer_credit_extension") &&
+          reqRow.context_table === "ar_invoices"
+        ) {
+          // Only re-run if there isn't ANOTHER pending request still open for
+          // this invoice (covers the case where both ar_invoice AND credit
+          // gates were tripped — the second one is created only after the first
+          // clears in the current code path, but defend against the future case).
+          const { data: stillPending } = await admin
+            .from("approval_requests")
+            .select("id")
+            .eq("context_table", "ar_invoices")
+            .eq("context_id", reqRow.context_id)
+            .eq("status", "pending")
+            .neq("id", id)
+            .limit(1);
+          if (stillPending && stillPending.length > 0) {
+            postedHook = { skipped: "another approval still pending" };
+          } else {
+            const { data: invoice } = await admin
+              .from("ar_invoices")
+              .select("*")
+              .eq("id", reqRow.context_id)
+              .maybeSingle();
+            if (invoice && invoice.gl_status === "pending_approval") {
+              const { data: customer } = await admin
+                .from("customers")
+                .select("id, customer_code, name, created_at")
+                .eq("id", invoice.customer_id)
+                .maybeSingle();
+              const result = await postArInvoice(admin, {
+                invoice,
+                customer,
+                customer_new: false,
+                created_by_user_id: v.data.actor_user_id,
+                fromApprovalHook: true,
+              });
+              postedHook = result.body || { status: result.status, error: result.error };
+            }
           }
         }
       } catch (hookErr) {

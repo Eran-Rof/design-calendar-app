@@ -464,3 +464,46 @@ Historical receipts are NOT included in this chunk — historical invoices land 
 
 The bypass is structurally locked to the `*_historical` journal_types — operator UI cannot set `journal_type` directly. The hard-lock on the entity (`posting_locked_through=2024-07-31`) ensures even backfill calls can't push into the pre-Xoro era.
 
+## Customer credit limit + approval gate (P4-7)
+
+Each customer carries a `credit_limit_cents` (canonical) and `credit_limit_currency` (default `USD`). Operator sets these via **Customer Master → edit → Credit limit**. A value of **0 or blank** means *no limit* — the gate never fires.
+
+When posting an AR invoice, the post handler runs **two** approval checks in sequence:
+
+1. **Threshold gate** (kind `ar_invoice`) — fires when an `approval_rules` row with `kind='ar_invoice'` matches the invoice total. Standard M27 rule.
+2. **Credit-limit gate** (kind `customer_credit_extension`) — runs *after* the threshold gate clears. Computes the customer's current open AR balance (sum of `total - paid` across `sent` + `partial_paid` + `posted_historical` invoices, excluding the in-flight invoice itself) and checks whether posting this invoice would push the projected balance over `credit_limit_cents`. If breach AND an active rule exists with `kind='customer_credit_extension'`, the invoice flips to `pending_approval` and the request is logged in the M27 panel.
+
+The credit-extension request payload carries the full breakdown so the approver sees the math:
+
+```json
+{
+  "customer_id": "…",
+  "customer_name": "Burlington",
+  "invoice_number": "AR-2026-00042",
+  "invoice_total_cents": 30000,
+  "credit_limit_cents": 100000,
+  "current_open_cents": 80000,
+  "projected_balance_cents": 110000,
+  "breach_amount_cents": 10000
+}
+```
+
+On approval, the `decide` hook re-runs `postArInvoice` with `fromApprovalHook=true` (skips all gates) so the post proceeds atomically. On rejection, the invoice stays at `pending_approval`; operator either lowers the invoice total, raises the customer's limit, or cancels the draft.
+
+### Opting in
+
+The gate is opt-in: it only fires for customers whose `credit_limit_cents > 0` AND an active `approval_rules` row exists with `kind='customer_credit_extension'`. Seed the rule in **Tangerine → Approvals → Rules → New**:
+
+```
+kind          = customer_credit_extension
+match         = {}         (matches every breach; tighten later if needed)
+steps         = [{ step_order: 1, role_required: "admin", mode: "any" }]
+is_active     = true
+```
+
+Until that rule exists, the credit-check helper still runs (and the result is logged on the post response as `credit_check`), but no request is created — the post proceeds.
+
+### Sanity check
+
+Set `credit_limit_cents=100000` (= $1,000) on a test customer, create an AR invoice for $1,500, click Post. Expected: HTTP 202, `requires_approval: true`, `approval_request_id` returned, invoice `gl_status='pending_approval'`. Approve via the Approvals panel → re-post fires automatically → `gl_status='sent'` + `accrual_je_id` populated.
+

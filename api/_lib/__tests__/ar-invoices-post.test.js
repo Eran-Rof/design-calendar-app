@@ -22,11 +22,19 @@ vi.mock("../../_lib/accounting/posting/index.js", () => ({
   postEvent: vi.fn(),
   PostingError: class extends Error {},
 }));
+// P4-7 credit-limit gate: post.js now calls checkCreditLimit on every post.
+// Default it to no-breach so the P4-4 posting tests below exercise the
+// normal (non-gated) path. The breach path is covered in
+// customer-credit-check.test.js.
+vi.mock("../../_lib/customers/creditCheck.js", () => ({
+  checkCreditLimit: vi.fn(),
+}));
 
 import { postInvoice } from "../../_handlers/internal/ar-invoices/post.js";
 import { requestIfRequired } from "../../_lib/approvals/index.js";
 import { enqueue as enqueueNotification } from "../../_lib/notifications/index.js";
 import { postEvent } from "../../_lib/accounting/posting/index.js";
+import { checkCreditLimit } from "../../_lib/customers/creditCheck.js";
 
 const ENTITY   = "00000000-0000-0000-0000-000000000001";
 const INVOICE  = "00000000-0000-0000-0000-000000000002";
@@ -131,6 +139,9 @@ function makeSupabase({
 describe("postInvoice (P4-4 AR)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: customer has no credit limit / no breach, so the P4-7 gate
+    // is a no-op and these P4-4 posting tests exercise the normal path.
+    checkCreditLimit.mockResolvedValue({ would_breach: false });
   });
 
   it("returns 202 + requires_approval=true when approvals gate fires", async () => {

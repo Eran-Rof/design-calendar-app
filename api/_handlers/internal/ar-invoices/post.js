@@ -24,6 +24,7 @@ import { createClient } from "@supabase/supabase-js";
 import { requestIfRequired, ApprovalsError } from "../../../_lib/approvals/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
+import { checkCreditLimit } from "../../../_lib/customers/creditCheck.js";
 
 export const config = { maxDuration: 30 };
 
@@ -311,6 +312,81 @@ export async function postInvoice(admin, opts) {
           approval_request_id: check.request_id,
         },
       };
+    }
+
+    // 3b. Customer credit-limit gate (P4-7). Computes the customer's open AR
+    // balance (excluding this in-flight invoice) and checks whether posting
+    // this invoice would push the projected balance past credit_limit_cents.
+    // No-op when the customer has credit_limit_cents IS NULL or 0 (= no limit).
+    let creditCheck;
+    try {
+      creditCheck = await checkCreditLimit(admin, {
+        customer_id: invoice.customer_id,
+        exclude_invoice_id: invoice.id,
+        proposed_amount_cents: Number(invoice.total_amount_cents) || 0,
+      });
+    } catch (e) {
+      return { status: 500, error: `Credit check failed: ${e instanceof Error ? e.message : String(e)}` };
+    }
+
+    if (creditCheck.would_breach) {
+      let creditApproval;
+      try {
+        creditApproval = await requestIfRequired(admin, {
+          kind: "customer_credit_extension",
+          entity_id: invoice.entity_id,
+          context_table: "ar_invoices",
+          context_id: invoice.id,
+          amount_cents: creditCheck.breach_amount_cents,
+          source_kind: "customer_credit_extension",
+          payload: {
+            customer_id: invoice.customer_id,
+            customer_name: customer?.name || null,
+            invoice_number: invoice.invoice_number,
+            invoice_total_cents: invoice.total_amount_cents,
+            credit_limit_cents: creditCheck.credit_limit_cents,
+            current_open_cents: creditCheck.current_open_cents,
+            projected_balance_cents: creditCheck.projected_balance_cents,
+            breach_amount_cents: creditCheck.breach_amount_cents,
+          },
+          created_by_user_id,
+        });
+      } catch (e) {
+        if (e instanceof ApprovalsError) {
+          return { status: 500, error: `Credit approval gate failed: ${e.message}` };
+        }
+        return { status: 500, error: e instanceof Error ? e.message : String(e) };
+      }
+
+      if (creditApproval.required) {
+        await admin
+          .from("ar_invoices")
+          .update({ gl_status: "pending_approval" })
+          .eq("id", invoice.id);
+
+        try {
+          await enqueueNotification(admin, {
+            entity_id: invoice.entity_id,
+            kind: "customer_credit_extension_requested",
+            severity: "warn",
+            subject: `Credit-limit breach: ${customer?.name || invoice.customer_id}`,
+            body: `Posting AR invoice ${invoice.invoice_number} (${formatCents(invoice.total_amount_cents)}) would push ${customer?.name || customer?.customer_code || invoice.customer_id}'s open balance to ${formatCents(creditCheck.projected_balance_cents)}, exceeding the credit limit of ${formatCents(creditCheck.credit_limit_cents)} by ${formatCents(creditCheck.breach_amount_cents)}.`,
+            context_table: "ar_invoices",
+            context_id: invoice.id,
+            recipient_roles: ["admin"],
+            created_by_user_id,
+          });
+        } catch { /* non-fatal */ }
+
+        return {
+          status: 202,
+          body: {
+            requires_approval: true,
+            approval_request_id: creditApproval.request_id,
+            credit_check: creditCheck,
+          },
+        };
+      }
     }
   }
 
