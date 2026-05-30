@@ -367,6 +367,35 @@ export const useCostingStore = create<State>((set, get) => ({
           }),
         },
       }));
+      // Surface the cost-write outcome so the operator gets explicit feedback
+      // instead of a silent "did it work?" — matches the toast pattern in
+      // ColorPickerCell + VendorPickerCell add-flows.
+      const picked = (get().vendorQuotes[lineId] || []).find((q) => q.id === quoteId);
+      const vendorLabel = picked?.vendor?.legal_name || picked?.vendor?.code || "vendor";
+      if (result.cost_write_error) {
+        get().setNotice(
+          `Awarded ${vendorLabel}, but the cost-write to ip_item_avg_cost failed: ${result.cost_write_error}. Re-select the quote to retry.`,
+          "error",
+        );
+      } else if (result.cost_write_reason === "no_skus_for_style") {
+        get().setNotice(
+          `Awarded ${vendorLabel}. Skipped cost-write — no SKUs under this style in ip_item_master yet (cost will land once Xoro seeds the master).`,
+          "info",
+        );
+      } else if (result.cost_write_reason === "no_style_code") {
+        get().setNotice(`Awarded ${vendorLabel}. Skipped cost-write — line has no style code.`, "info");
+      } else if (result.cost_write_reason === "non_usd_currency") {
+        get().setNotice(`Awarded ${vendorLabel}. Skipped cost-write — quote is in a non-USD currency.`, "info");
+      } else if (result.cost_write_count > 0) {
+        const missing = result.cost_write_missing_count;
+        const tail = missing > 0 ? ` (${missing} SKU${missing === 1 ? "" : "s"} skipped — not yet in cost master)` : "";
+        get().setNotice(
+          `Awarded ${vendorLabel} — wrote cost to ${result.cost_write_count} SKU${result.cost_write_count === 1 ? "" : "s"}${tail}.`,
+          "info",
+        );
+      } else {
+        get().setNotice(`Awarded ${vendorLabel}.`, "info");
+      }
     } catch (e) {
       set({ error: (e as Error).message });
     }

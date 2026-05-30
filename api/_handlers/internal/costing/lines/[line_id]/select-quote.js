@@ -86,6 +86,7 @@ export default async function handler(req, res) {
   let costWriteCount = 0;
   let costWriteReason = null;
   let costWriteError = null;
+  let costWriteMissingCount = 0;
 
   try {
     const { data: lineForStyle, error: lineLookupErr } = await admin.from("costing_lines")
@@ -145,6 +146,7 @@ export default async function handler(req, res) {
           costWriteCount = upsertRows.length;
         }
         if (missingSkus.length > 0) {
+          costWriteMissingCount = missingSkus.length;
           // Surface missing SKUs but don't fail — those rows can be seeded
           // when Xoro nightly populates avg_cost, then re-selecting the quote
           // will stamp the standard_unit_price.
@@ -188,13 +190,19 @@ export default async function handler(req, res) {
     .eq("id", lineId).select("*").maybeSingle();
   if (lineErr) return res.status(500).json({ error: lineErr.message });
 
-  const response = { line, selected_quote_id: quote_id, cost_write_count: costWriteCount };
+  const response = {
+    line,
+    selected_quote_id: quote_id,
+    cost_write_count: costWriteCount,
+    cost_write_missing_count: costWriteMissingCount,
+  };
   if (costWriteReason) response.cost_write_reason = costWriteReason;
   if (costWriteError) response.cost_write_error = costWriteError;
 
-  // If the cost-write failed outright, return 500 (per spec) but include the
-  // line/selected_quote_id so the client knows the promotion succeeded.
-  if (costWriteError) return res.status(500).json(response);
-
+  // The quote promotion + back-pointer stamp BOTH succeeded by the time we
+  // get here. Return 200 even when the cost-write threw, with cost_write_error
+  // in the body — so the UI can update its "awarded" state and surface a
+  // partial-success toast. The previous 500 caused the client to roll back
+  // the awarded state visually even though the DB was correctly updated.
   return res.status(200).json(response);
 }
