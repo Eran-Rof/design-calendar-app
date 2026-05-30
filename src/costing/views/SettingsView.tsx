@@ -14,6 +14,7 @@ const SECTIONS: { kind: MasterKind; title: string; description: string; placehol
   { kind: "closure", title: "Bottom Closure", description: "Closure options (Jogger, Open Bottom, Drawstring, …).", placeholder: "e.g. Jogger" },
   { kind: "waist",   title: "Waist Type", description: "Waist construction (E-Waist, Fixed, Drawstring, …).", placeholder: "e.g. E-Waist" },
   { kind: "comment", title: "Comment Templates", description: "Reusable comment snippets the operator can insert into a line.", placeholder: 'e.g. "Please make E/W"' },
+  { kind: "fabric",  title: "Fabric",  description: "Fabric codes managed by costing. Tangerine's fabric_codes will be merged in later — entries here show up in the grid alongside Tangerine's master.", placeholder: 'e.g. "16X16+70D 97%COTTON 3%SPANDEX"' },
 ];
 
 export default function SettingsView() {
