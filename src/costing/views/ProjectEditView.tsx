@@ -127,6 +127,19 @@ export default function ProjectEditView() {
     setForm((f) => ({ ...f, [k]: v }));
   };
 
+  // Vendor quotes panel toggle from the project toolbar.
+  const quotesPanelOpen = useCostingStore((s) => s.quotesPanelOpen);
+  const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);
+  const totalQuotes = Object.values(vendorQuotes).reduce((s, arr) => s + arr.length, 0);
+
+  // Auto-open the panel when arriving via the project-list "Quotes" button
+  // (which passes &openQuotes=1 in the URL).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("openQuotes") === "1") setQuotesPanelOpen(true);
+  }, [setQuotesPanelOpen]);
+
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -141,6 +154,17 @@ export default function ProjectEditView() {
           }}>
             {saving ? "Saving…" : dirty ? "Unsaved" : "✓ Saved"}
           </span>
+          <button
+            onClick={() => setQuotesPanelOpen(!quotesPanelOpen)}
+            style={{
+              background: quotesPanelOpen ? "#3B82F6" : "transparent",
+              color: quotesPanelOpen ? "#fff" : "#60A5FA",
+              border: "1px solid #3B82F6", borderRadius: 4,
+              padding: "6px 14px", cursor: "pointer",
+              fontSize: 13, fontWeight: 600,
+            }}
+            title="Open/close vendor quotes for this project"
+          >Vendor Quotes{totalQuotes ? ` (${totalQuotes})` : ""}</button>
           <ExportButton
             rows={exportRows as unknown as Record<string, unknown>[]}
             columns={COSTING_EXPORT_COLUMNS as unknown as never}

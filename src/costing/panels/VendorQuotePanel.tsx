@@ -45,7 +45,30 @@ export default function VendorQuotePanel() {
     }
   }, [selectedLineId, vendorQuotes, loadQuotes]);
 
-  if (!selectedLineId || !line) return null;
+  // Panel renders when quotesPanelOpen is true (driven by explicit toolbar
+  // + per-row buttons). When open with no selected line, prompt operator
+  // to pick one from the grid.
+  const quotesPanelOpen = useCostingStore((s) => s.quotesPanelOpen);
+  const setQuotesPanelOpen = useCostingStore((s) => s.setQuotesPanelOpen);
+  if (!quotesPanelOpen) return null;
+  if (!selectedLineId || !line) {
+    return (
+      <div style={{
+        position: "fixed", top: 0, right: 0, bottom: 0, width: 420,
+        background: "#0F172A", borderLeft: "1px solid #334155",
+        zIndex: 50, padding: 20, color: "#E2E8F0",
+        boxShadow: "-4px 0 16px rgba(0,0,0,0.4)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>Vendor Quotes</h3>
+          <button onClick={() => setQuotesPanelOpen(false)} style={{ marginLeft: "auto", background: "transparent", color: "#94A3B8", border: "none", fontSize: 18, cursor: "pointer" }} title="Close">×</button>
+        </div>
+        <div style={{ color: "#94A3B8", fontSize: 12, padding: "16px 8px", lineHeight: 1.5 }}>
+          Pick a line in the grid (or click its <strong style={{ color: "#60A5FA" }}>$ Qts</strong> button) to view + edit its vendor quotes here.
+        </div>
+      </div>
+    );
+  }
 
   const setNotice = useCostingStore.getState().setNotice;
   const onAdd = async () => {
