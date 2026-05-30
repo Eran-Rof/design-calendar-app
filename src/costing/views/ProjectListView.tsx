@@ -4,10 +4,11 @@
 // Buttons: New project, Open (row), Delete (row).
 // ExportButton mounted per project rule (xlsx-only).
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { fmtDateDisplay, statusLabel, statusColor, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
+import { Modal } from "../../components/Modal";
 import ExportButton from "../../tanda/exports/ExportButton";
 import type { CostingProject } from "../types";
 
@@ -20,16 +21,27 @@ export default function ProjectListView() {
   const del      = useCostingStore((s) => s.deleteProject);
   const setNotice = useCostingStore((s) => s.setNotice);
 
+  // New-project modal state (replaces native window.prompt).
+  const [newModalOpen, setNewModalOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+
   useEffect(() => { list(); }, [list]);
 
-  const onNew = async () => {
-    const name = window.prompt("Costing project name:");
-    if (!name || !name.trim()) return;
+  const onNew = () => { setNewName(""); setNewModalOpen(true); };
+
+  const submitNew = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
     try {
-      const p = await create({ project_name: name.trim() });
+      const p = await create({ project_name: name });
+      setNewModalOpen(false);
       navigate("edit", p.id);
     } catch (e) {
       setNotice(`Could not create project: ${(e as Error).message}`);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -124,6 +136,51 @@ export default function ProjectListView() {
           </tbody>
         </table>
       </div>
+
+      {newModalOpen && (
+        <Modal title="New costing project" onClose={() => setNewModalOpen(false)}>
+          <div style={{ padding: "18px 32px 26px" }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#4A5568", marginBottom: 6, letterSpacing: ".04em", textTransform: "uppercase" }}>
+              Project name
+            </label>
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) submitNew(); }}
+              placeholder='e.g. "BOYS 7/1 DDP QTN"'
+              autoFocus
+              style={{
+                width: "100%", padding: "10px 12px", fontSize: 14,
+                border: "1px solid #CBD5E0", borderRadius: 8, outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+              <button
+                onClick={() => setNewModalOpen(false)}
+                disabled={creating}
+                style={{
+                  background: "transparent", color: "#4A5568",
+                  border: "1px solid #CBD5E0", padding: "8px 18px",
+                  borderRadius: 8, cursor: creating ? "not-allowed" : "pointer",
+                  fontSize: 13, fontWeight: 500,
+                }}
+              >Cancel</button>
+              <button
+                onClick={submitNew}
+                disabled={!newName.trim() || creating}
+                style={{
+                  background: "#10B981", color: "#fff",
+                  border: "none", padding: "8px 18px",
+                  borderRadius: 8, cursor: (!newName.trim() || creating) ? "not-allowed" : "pointer",
+                  fontSize: 13, fontWeight: 600,
+                  opacity: (!newName.trim() || creating) ? 0.55 : 1,
+                }}
+              >{creating ? "Creating…" : "Create"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
