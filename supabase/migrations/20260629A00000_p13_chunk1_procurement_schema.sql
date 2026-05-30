@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS tanda_po_receipts (
   id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_id                uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
                               REFERENCES entities(id) ON DELETE RESTRICT,
-  tanda_po_id              uuid NOT NULL REFERENCES tanda_pos(id) ON DELETE RESTRICT,
+  tanda_po_id              uuid NOT NULL REFERENCES tanda_pos(uuid_id) ON DELETE RESTRICT,
   receipt_date             date NOT NULL,
   received_by_employee_id  uuid REFERENCES employees(id) ON DELETE SET NULL,
   status                   text NOT NULL DEFAULT 'draft'
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS import_documentation (
   id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_id                uuid NOT NULL DEFAULT coalesce(current_entity_id(), rof_entity_id())
                               REFERENCES entities(id) ON DELETE RESTRICT,
-  tanda_po_id              uuid NOT NULL REFERENCES tanda_pos(id) ON DELETE CASCADE,
+  tanda_po_id              uuid NOT NULL REFERENCES tanda_pos(uuid_id) ON DELETE CASCADE,
   document_type            text NOT NULL,
   document_url             text,
   hs_code                  text,
