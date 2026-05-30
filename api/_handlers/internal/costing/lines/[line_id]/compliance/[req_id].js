@@ -4,7 +4,7 @@
 // DELETE — remove compliance row
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateInternalCaller } from "../../../../../../../_lib/auth.js";
+import { authenticateInternalCaller } from "../../../../../../_lib/auth.js";
 
 export const config = { maxDuration: 10 };
 
