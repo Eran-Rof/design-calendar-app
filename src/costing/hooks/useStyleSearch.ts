@@ -19,11 +19,9 @@ export function useStyleSearch() {
     if (timer.current) clearTimeout(timer.current);
     if (ctrl.current) ctrl.current.abort();
     const trimmed = (q || "").trim();
-    if (trimmed.length === 0) {
-      setRows([]);
-      setLoading(false);
-      return;
-    }
+    // Fire unconditionally — handler returns the first 25 active styles
+    // when q is empty so the picker can show options on focus before the
+    // operator types anything.
     setLoading(true);
     timer.current = setTimeout(async () => {
       const ac = new AbortController();

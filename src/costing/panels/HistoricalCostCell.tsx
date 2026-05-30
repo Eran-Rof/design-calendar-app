@@ -10,7 +10,9 @@
 // understands WHY there's no data (no style, no vendor, no matching POs).
 
 import React, { useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { fmtDateDisplay } from "../helpers";
+import { usePopoverAnchor } from "../hooks/usePopoverAnchor";
 
 interface Props {
   lineId: string;
@@ -45,11 +47,16 @@ export default function HistoricalCostCell({ lineId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 460, align: "right" });
 
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDocClick);
@@ -92,6 +99,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
       <button
         type="button"
+        ref={anchorRef}
         onClick={() => setOpen((v) => !v)}
         title="View tanda_pos history for this style + vendor"
         style={{
@@ -102,13 +110,14 @@ export default function HistoricalCostCell({ lineId }: Props) {
           cursor: "pointer",
         }}
       >📋 PO Hist</button>
-      {open && (
+      {open && pos && ReactDOM.createPortal(
         <div
+          ref={popRef}
           style={{
-            position: "absolute", top: "calc(100% + 4px)", right: 0,
-            zIndex: 60, minWidth: 460, maxHeight: 360, overflowY: "auto",
+            position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+            zIndex: 9999, maxHeight: 360, overflowY: "auto",
             background: "#1E293B", border: "1px solid #475569",
-            borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+            borderRadius: 8, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
           }}
         >
           <div style={{
@@ -172,7 +181,8 @@ export default function HistoricalCostCell({ lineId }: Props) {
               </tbody>
             </table>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -9,8 +9,10 @@
 // saves to extras + selects it.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { searchColors } from "../services/costingApi";
 import { useCostingStore } from "../store/costingStore";
+import { usePopoverAnchor } from "../hooks/usePopoverAnchor";
 
 interface Props {
   value: string | null;
@@ -29,6 +31,8 @@ export default function ColorPickerCell({ value, onChange, styleCode }: Props) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 220 });
 
   const addExtraColor = useCostingStore((s) => s.addExtraColor);
   const setNotice     = useCostingStore((s) => s.setNotice);
@@ -36,7 +40,10 @@ export default function ColorPickerCell({ value, onChange, styleCode }: Props) {
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDocClick);
@@ -99,6 +106,7 @@ export default function ColorPickerCell({ value, onChange, styleCode }: Props) {
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
       <button
         type="button"
+        ref={anchorRef}
         onClick={() => setOpen((v) => !v)}
         title={value ? `Color: ${value}` : "Click to pick a color"}
         style={{
@@ -120,13 +128,14 @@ export default function ColorPickerCell({ value, onChange, styleCode }: Props) {
         </span>
         <span style={{ color: "#64748B", fontSize: 9 }}>▾</span>
       </button>
-      {open && (
+      {open && pos && ReactDOM.createPortal(
         <div
+          ref={popRef}
           style={{
-            position: "absolute", top: "calc(100% + 4px)", left: 0,
-            zIndex: 60, minWidth: 220, maxHeight: 320, overflowY: "auto",
+            position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+            zIndex: 9999, maxHeight: 320, overflowY: "auto",
             background: "#1E293B", border: "1px solid #475569",
-            borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+            borderRadius: 8, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
           }}
         >
           <div style={{
@@ -202,7 +211,8 @@ export default function ColorPickerCell({ value, onChange, styleCode }: Props) {
               {busy ? "Saving…" : <>+ Add new color: <strong>{queryTrim}</strong></>}
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

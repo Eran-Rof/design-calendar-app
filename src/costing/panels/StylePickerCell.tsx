@@ -59,7 +59,7 @@ export default function StylePickerCell({ value, onPick, onChange, placeholder, 
     };
   }, [open]);
 
-  const popup = open && pos && (rows.length > 0 || loading) ? ReactDOM.createPortal(
+  const popup = open && pos ? ReactDOM.createPortal(
     <div
       ref={popRef}
       style={{
@@ -98,8 +98,10 @@ export default function StylePickerCell({ value, onPick, onChange, placeholder, 
           </div>
         </button>
       ))}
-      {!loading && rows.length === 0 && text && (
-        <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>No matches.</div>
+      {!loading && rows.length === 0 && (
+        <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>
+          {text ? `No styles match "${text}".` : "No styles in this entity yet."}
+        </div>
       )}
     </div>,
     document.body,
@@ -118,7 +120,9 @@ export default function StylePickerCell({ value, onPick, onChange, placeholder, 
           search(v);
           setOpen(true);
         }}
-        onFocus={() => { if (text) { search(text); setOpen(true); } }}
+        // Open + fire search on focus so the operator sees the full style
+        // list immediately (handler returns 25 active styles on empty q).
+        onFocus={() => { search(text); setOpen(true); }}
         style={{
           width: "100%", padding: "4px 6px", fontSize: 12,
           border: "1px solid transparent", background: "transparent",
