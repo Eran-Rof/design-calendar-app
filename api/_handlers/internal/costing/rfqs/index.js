@@ -78,8 +78,10 @@ export default async function handler(req, res) {
 
   // 2. Pull invitations + vendor info per rfq (single batched query).
   const [{ data: invitations }, { data: items }, { data: projects }] = await Promise.all([
+    // vendors has both `name` (Phase 0 NOT NULL) and `legal_name` (post-P1,
+    // mostly NULL on backfill) — include both, fallback in the dedup pass.
     admin.from("rfq_invitations")
-      .select("rfq_id, vendor_id, status, vendors(id, code, legal_name)")
+      .select("rfq_id, vendor_id, status, vendors(id, code, name, legal_name)")
       .in("rfq_id", rfqIds),
     admin.from("rfq_line_items")
       .select("rfq_id, description")
@@ -113,7 +115,7 @@ export default async function handler(req, res) {
     const invs = invByRfq.get(r.id) || [];
     const firstInv = invs[0];
     const vendor = firstInv?.vendors || null;
-    const vendorName = vendor?.legal_name || vendor?.code || null;
+    const vendorName = vendor?.legal_name || vendor?.name || vendor?.code || null;
     const project = r.source_costing_project_id ? projectById.get(r.source_costing_project_id) : null;
     const customer = project?.customer || null;
     const customerName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof customer.billing_address.name === "string")
