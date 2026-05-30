@@ -115,7 +115,9 @@ export default function ProjectListView() {
                   key={p.id}
                   onClick={() => onOpen(p.id)}
                   style={{ borderTop: "1px solid #334155", cursor: "pointer" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+                  // #334155 matches the grid row hover (PR #570) — #1E293B
+                  // was too close to the table bg so the hover was invisible.
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "#334155"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   title="Click to edit"
                 >
