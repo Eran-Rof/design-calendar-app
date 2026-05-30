@@ -39,9 +39,11 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE ip_item_avg_cost
-  ADD CONSTRAINT ip_item_avg_cost_avg_cost_nonneg
-    CHECK (avg_cost IS NULL OR avg_cost >= 0);
+DO $$ BEGIN
+  ALTER TABLE ip_item_avg_cost
+    ADD CONSTRAINT ip_item_avg_cost_avg_cost_nonneg
+      CHECK (avg_cost IS NULL OR avg_cost >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS ip_item_avg_cost_brand_idx
   ON ip_item_avg_cost (brand_name)
