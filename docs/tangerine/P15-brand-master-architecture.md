@@ -58,10 +58,11 @@ Inventory on-hand + average cost are keyed by **`(item_id, partition_id)`**, NOT
 
 | brand | wholesale-side channels | ecom-side channels (DTC + marketplaces*) |
 |-------|--------------------------|------------------------------------------|
-| ROF, Departed, Fort Knox, Blue Rise, PLM, Axe Crown | `{BRAND}-WS` partition | `{BRAND}-EC` partition (separate stock, same styles) |
+| ROF, Departed, Fort Knox, Blue Rise, Axe Crown | `{BRAND}-WS` partition | `{BRAND}-EC` partition (separate stock, same styles) |
 | Psycho Tuna | `PT` partition | `PT` partition (**same pool**) |
+| MPL Epic, MPL Sun & Stone | `{BRAND}-WS` partition | **none — wholesale-only** (no ecom, no marketplace) |
 
-`*` **Open item (C1 pre-flight):** do Amazon FBA / Walmart / Faire draw from the brand's Ecom partition, or do they need their own partitions (FBA physically holds separate stock at Amazon)? The mapping table makes this a data decision, not a schema change — default proposal: **FBA = own `{BRAND}-FBA` partition per stocked brand; Walmart/Faire = brand Ecom partition.** To confirm.
+`*` **Marketplace inventory (CEO-confirmed):** Amazon FBA / Walmart / Faire currently draw from the brand's **Ecom** partition. FBA gets its own `{BRAND}-FBA` partition **later** via a map edit (no schema change) once it physically holds separate stock. The two MPL (Macy's private-label) brands are **wholesale-only** — they have no ecom/marketplace channels at all (seeded in C1b, `20260710010000`).
 
 "Same styles kept as separate inventory" is naturally expressed: one `item_id` (style/SKU) with multiple `(item_id, partition_id)` rows.
 
