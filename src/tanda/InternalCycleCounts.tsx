@@ -15,6 +15,7 @@
 // Dark theme matching other Internal*.tsx panels.
 
 import { useEffect, useState, useMemo } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -414,7 +415,7 @@ function DetailModal({
   }
 
   async function cancelCount() {
-    if (!confirm("Cancel this cycle count? Counted lines will be discarded.")) return;
+    if (!(await confirmDialog("Cancel this cycle count? Counted lines will be discarded."))) return;
     try {
       const r = await fetch(`/api/internal/inventory-cycle-counts/${cycleCountId}`, {
         method: "PATCH",
@@ -429,7 +430,7 @@ function DetailModal({
   }
 
   async function finalize() {
-    if (!confirm("Finalize? This generates variance adjustment drafts and marks the count completed.")) return;
+    if (!(await confirmDialog("Finalize? This generates variance adjustment drafts and marks the count completed."))) return;
     try {
       const r = await fetch(`/api/internal/inventory-cycle-counts/${cycleCountId}/finalize`, {
         method: "POST",
@@ -438,14 +439,15 @@ function DetailModal({
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const j = await r.json();
-      alert(
+      notify(
         `Finalized.\n\n` +
         `Adjustments created: ${j.adjustments_created}\n` +
         `Lines with variance: ${j.lines_with_variance}\n` +
         `Skipped (zero variance): ${j.lines_skipped_zero}\n` +
         `Skipped (not counted): ${j.lines_skipped_not_counted}\n` +
         `Threshold breaches: ${j.threshold_breaches?.length ?? 0}\n\n` +
-        `Adjustments are DRAFTS — review and post via the Adjustments panel.`
+        `Adjustments are DRAFTS — review and post via the Adjustments panel.`,
+        "success"
       );
       onClose();
     } catch (e) {

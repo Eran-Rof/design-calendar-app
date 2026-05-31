@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
+import { confirmDialog } from "../shared/ui/warn";
 
 type SalesRep = {
   id: string;
@@ -490,7 +491,7 @@ function RepDetailModal({ id, customers, employees, onClose }: {
 
   async function softDelete() {
     if (!data || !data.is_active) return;
-    if (!confirm(`Soft-delete (deactivate) sales rep "${data.display_name}"?`)) return;
+    if (!(await confirmDialog(`Soft-delete (deactivate) sales rep "${data.display_name}"?`))) return;
     setSaving(true);
     setErr(null);
     try {
@@ -628,7 +629,7 @@ function TierEditor({ repId, tiers, reload }: {
   }
 
   async function removeTier(tierId: string) {
-    if (!confirm("Remove this tier?")) return;
+    if (!(await confirmDialog("Remove this tier?"))) return;
     setBusy(true);
     setErr(null);
     try {
@@ -764,7 +765,7 @@ function AssignmentEditor({ repId, assignments, customers, reload }: {
   }
 
   async function removeAssignment(assignmentId: string) {
-    if (!confirm("Remove this assignment?")) return;
+    if (!(await confirmDialog("Remove this assignment?"))) return;
     setBusy(true);
     setErr(null);
     try {

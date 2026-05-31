@@ -22,6 +22,7 @@
 //   The status select stays a native <select> (3 fixed options).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -194,13 +195,13 @@ export default function InternalVendorMaster() {
   );
 
   async function softDelete(id: string) {
-    if (!confirm("Inactivate this vendor?")) return;
+    if (!(await confirmDialog("Inactivate this vendor?"))) return;
     try {
       const r = await fetch(`/api/internal/vendor-master/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Inactivate failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Inactivate failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

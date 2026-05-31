@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -202,7 +203,7 @@ function ReviewModal({ vendorId, onClose, onAction }: { vendorId: string; onClos
     if (!action) return;
     const body: Record<string, unknown> = { action, reviewer_name: reviewer || "Internal" };
     if (action === "reject") {
-      if (!reason.trim()) { alert("Rejection reason required."); return; }
+      if (!reason.trim()) { notify("Rejection reason required.", "error"); return; }
       body.rejection_reason = reason;
       body.failed_steps = [...failedSteps];
     }
@@ -210,7 +211,7 @@ function ReviewModal({ vendorId, onClose, onAction }: { vendorId: string; onClos
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     onAction();
   }
 

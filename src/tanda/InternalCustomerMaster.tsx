@@ -23,6 +23,7 @@
 //                         native <select> remains the right choice there.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -206,13 +207,13 @@ export default function InternalCustomerMaster() {
   );
 
   async function softDelete(c: Customer) {
-    if (!confirm(`Deactivate this customer?\n\n${c.name}\n\nThis soft-deletes the row. An admin can restore via SQL.`)) return;
+    if (!(await confirmDialog(`Deactivate this customer?\n\n${c.name}\n\nThis soft-deletes the row. An admin can restore via SQL.`))) return;
     try {
       const r = await fetch(`/api/internal/customer-master/${c.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

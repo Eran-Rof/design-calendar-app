@@ -17,6 +17,7 @@
 //                            threshold this primitive targets).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the employee detail modal.
@@ -137,7 +138,7 @@ export default function InternalEmployees() {
   useEffect(() => { void load(); }, [q, includeInactive]);
 
   async function deactivate(id: string) {
-    if (!confirm("Mark this employee inactive? (Soft delete; recoverable via toggle.)")) return;
+    if (!(await confirmDialog("Mark this employee inactive? (Soft delete; recoverable via toggle.)"))) return;
     const r = await fetch(`/api/internal/employees/${id}`, { method: "DELETE" });
     if (!r.ok && r.status !== 204) {
       setErr((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);

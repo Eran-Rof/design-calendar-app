@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { notify } from "../shared/ui/warn";
 import InternalEntityBranding from "./InternalEntityBranding";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -213,7 +214,7 @@ function AddEntityModal({ parent, onClose, onSaved }: { parent: string | null; o
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!name.trim()) { alert("Name required"); return; }
+    if (!name.trim()) { notify("Name required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/entities", {
@@ -222,7 +223,7 @@ function AddEntityModal({ parent, onClose, onSaved }: { parent: string | null; o
       });
       if (!r.ok) throw new Error(await r.text());
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

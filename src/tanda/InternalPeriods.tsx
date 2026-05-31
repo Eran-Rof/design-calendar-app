@@ -13,6 +13,7 @@
 //   closed     → open       (full reopen)
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 // Cross-cutter T11-3 — audit-trail drop-in for the period detail/preflight modal.
 import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
@@ -105,12 +106,12 @@ export default function InternalPeriods() {
   const [preflight, setPreflight] = useState<{ period: Period; data: PreflightResponse | null; loading: boolean; err: string | null } | null>(null);
 
   async function softClose(p: Period) {
-    if (!confirm(`Soft-close FY${p.fiscal_year} period ${p.period_number} (${MONTH_LABELS[p.period_number - 1]})? Pre-flight checks run automatically.`)) return;
+    if (!(await confirmDialog(`Soft-close FY${p.fiscal_year} period ${p.period_number} (${MONTH_LABELS[p.period_number - 1]})? Pre-flight checks run automatically.`))) return;
     await postClose(p, "soft_close");
   }
 
   async function hardClose(p: Period) {
-    if (!confirm(`HARD-close FY${p.fiscal_year} period ${p.period_number}? Blocks all posting until reopened.`)) return;
+    if (!(await confirmDialog(`HARD-close FY${p.fiscal_year} period ${p.period_number}? Blocks all posting until reopened.`))) return;
     await postClose(p, "closed");
   }
 
@@ -124,18 +125,18 @@ export default function InternalPeriods() {
       const data = await r.json();
       if (!r.ok) {
         if (data.blocking_failures) {
-          alert(`Close blocked by pre-flight checks:\n\n${data.blocking_failures.map((f: PreflightRow) => `• ${f.check_name}: ${f.detail}`).join("\n")}`);
+          notify(`Close blocked by pre-flight checks:\n\n${data.blocking_failures.map((f: PreflightRow) => `• ${f.check_name}: ${f.detail}`).join("\n")}`, "info");
         } else {
-          alert(`Close failed: ${data.error || `HTTP ${r.status}`}`);
+          notify(`Close failed: ${data.error || `HTTP ${r.status}`}`, "error");
         }
         return;
       }
       if (data.requires_approval) {
-        alert(`Close requires approval — request ${data.approval_request_id}. Visit Approvals Inbox to approve.`);
+        notify(`Close requires approval — request ${data.approval_request_id}. Visit Approvals Inbox to approve.`, "info");
       }
       await load();
     } catch (e: unknown) {
-      alert(`Close failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Close failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -152,12 +153,12 @@ export default function InternalPeriods() {
       });
       const data = await r.json();
       if (!r.ok) {
-        alert(`Reopen failed: ${data.error || `HTTP ${r.status}`}`);
+        notify(`Reopen failed: ${data.error || `HTTP ${r.status}`}`, "error");
         return;
       }
       await load();
     } catch (e: unknown) {
-      alert(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

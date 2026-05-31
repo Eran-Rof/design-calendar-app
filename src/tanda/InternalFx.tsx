@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -45,11 +46,11 @@ export default function InternalFx() {
   useEffect(() => { void load(); }, []);
 
   async function syncNow() {
-    if (!confirm("Fetch fresh FX rates now?")) return;
+    if (!(await confirmDialog("Fetch fresh FX rates now?"))) return;
     const r = await fetch("/api/cron/fx-rate-sync", { method: "POST" });
-    if (!r.ok && r.status !== 207) { alert(await r.text()); return; }
+    if (!r.ok && r.status !== 207) { notify(await r.text(), "error"); return; }
     const d = await r.json();
-    alert(`Inserted ${d.inserted} rates. Errors: ${d.errors.length}`);
+    notify(`Inserted ${d.inserted} rates. Errors: ${d.errors.length}`, "success");
     await load();
   }
 

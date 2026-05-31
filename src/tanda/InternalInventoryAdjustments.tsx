@@ -8,6 +8,7 @@
 // the other Internal* panels.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -179,18 +180,18 @@ export default function InternalInventoryAdjustments() {
   }
 
   async function handleDelete(row: Adjustment) {
-    if (!window.confirm(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`)) return;
+    if (!(await confirmDialog(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`))) return;
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}`, { method: "DELETE" });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
-      alert(`Delete failed: ${e.error || r.status}`);
+      notify(`Delete failed: ${e.error || r.status}`, "error");
       return;
     }
     void load();
   }
 
   async function handlePost(row: Adjustment) {
-    if (!window.confirm(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`)) return;
+    if (!(await confirmDialog(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`))) return;
     const actor_user_id = getCachedAuthUserId();
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}/post`, {
       method: "POST",
@@ -199,13 +200,13 @@ export default function InternalInventoryAdjustments() {
     });
     const out = await r.json().catch(() => ({}));
     if (!r.ok && r.status !== 202) {
-      alert(`Post failed: ${out.error || r.status}`);
+      notify(`Post failed: ${out.error || r.status}`, "error");
       return;
     }
     if (out.requires_approval) {
-      alert(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`);
+      notify(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`, "info");
     } else {
-      alert(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`);
+      notify(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`, "success");
     }
     void load();
   }

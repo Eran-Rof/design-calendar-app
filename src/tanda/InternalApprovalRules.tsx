@@ -6,6 +6,7 @@
 // for the 3 MVP rule shapes is a future polish).
 
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -90,7 +91,7 @@ export default function InternalApprovalRules() {
   }
 
   async function deleteRule(id: string) {
-    if (!confirm("Delete this rule? Existing requests are unaffected; only future matches stop.")) return;
+    if (!(await confirmDialog("Delete this rule? Existing requests are unaffected; only future matches stop."))) return;
     const r = await fetch(`/api/internal/approval-rules/${id}`, { method: "DELETE" });
     if (!r.ok && r.status !== 204) {
       setErr((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);

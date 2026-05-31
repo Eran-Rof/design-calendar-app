@@ -48,6 +48,7 @@
 //         stored value remains the single-letter code (M/B/C/G/W/U).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
@@ -258,13 +259,13 @@ export default function InternalStyleMaster() {
   useEffect(() => { void loadDimValues(); }, [loadDimValues]);
 
   async function softDelete(id: string) {
-    if (!confirm("Soft-delete this style? Can be restored by an admin SQL update.")) return;
+    if (!(await confirmDialog("Soft-delete this style? Can be restored by an admin SQL update."))) return;
     try {
       const r = await fetch(`/api/internal/style-master/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -866,13 +867,13 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
   }
 
   async function removeLink(id: string) {
-    if (!confirm("Remove this fabric from the style?")) return;
+    if (!(await confirmDialog("Remove this fabric from the style?"))) return;
     try {
       const r = await fetch(`/api/internal/style-fabric-codes/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await loadLinks();
     } catch (e: unknown) {
-      alert(`Remove failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Remove failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

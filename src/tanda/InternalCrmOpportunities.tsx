@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
+import { confirmDialog } from "../shared/ui/warn";
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
 
@@ -549,7 +550,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
 
   async function deleteOpp() {
     if (!data) return;
-    if (!confirm(`Delete opportunity ${data.opportunity_number}? Activities and tasks will be unlinked but preserved for audit.`)) return;
+    if (!(await confirmDialog(`Delete opportunity ${data.opportunity_number}? Activities and tasks will be unlinked but preserved for audit.`))) return;
     setSaving(true);
     setErr(null);
     try {

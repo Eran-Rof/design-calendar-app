@@ -6,6 +6,7 @@
 // code, account_type, normal_balance are locked post-creation by the handler.
 
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
@@ -144,18 +145,18 @@ export default function InternalCOA() {
   useEffect(() => { void load(); }, [qDebounced, typeFilter, includeInactive]);
 
   async function del(a: Account) {
-    if (!confirm(`Delete account ${a.code} (${a.name})?\nWill fail if any journal entry references it — use status=inactive instead in that case.`)) return;
+    if (!(await confirmDialog(`Delete account ${a.code} (${a.name})?\nWill fail if any journal entry references it — use status=inactive instead in that case.`))) return;
     try {
       const r = await fetch(`/api/internal/gl-accounts/${a.id}`, { method: "DELETE" });
       if (!r.ok) {
         const msg = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
-        if (r.status === 409) alert(`${msg}`);
+        if (r.status === 409) notify(`${msg}`, "error");
         else throw new Error(msg);
         return;
       }
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

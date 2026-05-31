@@ -14,6 +14,7 @@
 // can rename them to src/tangerine/*Panel.tsx for clarity but it's cosmetic.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { WarnHost, notify, confirmDialog } from "./shared/ui/warn";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
 import InternalPimProductCatalog  from "./tanda/InternalPimProductCatalog";
@@ -400,12 +401,12 @@ export default function Tangerine() {
       window.location.reload();
     } catch (err) {
       console.error("[Tangerine] sign-in failed:", err);
-      alert("Sign-in failed. See console for details.");
+      notify("Sign-in failed. See console for details.", "error");
     }
   }
 
-  function handleSignOut() {
-    if (!confirm("Sign out of Tangerine?")) return;
+  async function handleSignOut() {
+    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "🚪", confirmText: "Sign out" }))) return;
     clearMsTokens();
     // P14 JWT phase — drop the cached per-user token so a signed-out browser
     // can't keep presenting it. (It also expires server-side after 12h.)
@@ -427,6 +428,7 @@ export default function Tangerine() {
 
   return (
     <div style={{ background: C.bg, color: C.text, minHeight: "100vh" }}>
+      <WarnHost />
       <TopNav
         activeModule={activeModule}
         onSelectModule={setActiveModule}

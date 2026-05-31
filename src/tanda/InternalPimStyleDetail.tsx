@@ -19,6 +19,7 @@
 // Spec: docs/tangerine/P8-data-crm-architecture.md §5 + §6.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
 type Style = {
@@ -932,7 +933,7 @@ function ImagesTab({
   }
 
   async function deleteImage(id: string) {
-    if (!confirm("Delete this image? It will be removed from the style; storage cleanup is async.")) return;
+    if (!(await confirmDialog("Delete this image? It will be removed from the style; storage cleanup is async."))) return;
     try {
       const r = await fetch(`/api/internal/pim/images/${id}`, {
         method: "DELETE",
@@ -945,7 +946,7 @@ function ImagesTab({
       await onReload();
       setOpenImage(null);
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -1143,7 +1144,7 @@ function ImageDetailModal({
   async function withSave(label: string, fn: () => Promise<void>) {
     setSaving(label);
     try { await fn(); }
-    catch (e: unknown) { alert(`${label} failed: ${e instanceof Error ? e.message : String(e)}`); }
+    catch (e: unknown) { notify(`${label} failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
     finally { setSaving(null); }
   }
 

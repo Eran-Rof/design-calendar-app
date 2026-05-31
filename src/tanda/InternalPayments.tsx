@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -62,12 +63,12 @@ export default function InternalPayments() {
   useEffect(() => { void load(); }, [entityId, status]);
 
   async function transition(id: string, action: "processing" | "completed" | "failed" | "cancelled") {
-    if (!confirm(`Mark payment ${action}?`)) return;
+    if (!(await confirmDialog(`Mark payment ${action}?`))) return;
     const r = await fetch(`/api/internal/payments/${id}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -176,7 +177,7 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
   }, []);
 
   async function save() {
-    if (!vendorId || !amount) { alert("Vendor and amount are required."); return; }
+    if (!vendorId || !amount) { notify("Vendor and amount are required.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/payments", {
@@ -190,7 +191,7 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

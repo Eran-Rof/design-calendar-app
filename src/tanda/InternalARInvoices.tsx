@@ -6,6 +6,7 @@
 // flat-amount lines. Post / Void actions wired to dedicated handlers.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -254,18 +255,18 @@ export default function InternalARInvoices() {
   }, [customers]);
 
   async function doPost(inv: ARInvoice) {
-    if (!confirm(`Post invoice ${inv.invoice_number}? This creates the accrual JE and consumes FIFO inventory for any inventory lines.`)) return;
+    if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This creates the accrual JE and consumes FIFO inventory for any inventory lines.`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ar-invoices/${inv.id}/post`, { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok && r.status !== 202) throw new Error(j.error || `HTTP ${r.status}`);
       if (j.requires_approval) {
-        alert(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`);
+        notify(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`, "info");
       }
       await load();
     } catch (e: unknown) {
-      alert(`Post failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Post failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -284,7 +285,7 @@ export default function InternalARInvoices() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         if (j.has_payments) {
-          alert(`Cannot void: invoice has ${fmtCents(j.paid_amount_cents)} in receipt applications. Void the receipts first.`);
+          notify(`Cannot void: invoice has ${fmtCents(j.paid_amount_cents)} in receipt applications. Void the receipts first.`, "error");
         } else {
           throw new Error(j.error || `HTTP ${r.status}`);
         }
@@ -292,14 +293,14 @@ export default function InternalARInvoices() {
       }
       await load();
     } catch (e: unknown) {
-      alert(`Void failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
   }
 
   async function doDelete(inv: ARInvoice) {
-    if (!confirm(`Delete draft invoice ${inv.invoice_number}? This is irreversible.`)) return;
+    if (!(await confirmDialog(`Delete draft invoice ${inv.invoice_number}? This is irreversible.`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ar-invoices/${inv.id}`, { method: "DELETE" });
@@ -309,7 +310,7 @@ export default function InternalARInvoices() {
       }
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
