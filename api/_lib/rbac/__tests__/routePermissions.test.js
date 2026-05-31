@@ -1,0 +1,51 @@
+// @vitest-environment node
+import { describe, it, expect } from "vitest";
+import { routePermissionFor, MODULE_ACTIONS } from "../routePermissions.js";
+
+describe("routePermissionFor", () => {
+  it("maps GET on an internal resource to read", () => {
+    expect(routePermissionFor("/api/internal/ar-invoices/abc", "GET")).toEqual({ module: "ar_invoices", action: "read" });
+    expect(routePermissionFor("/api/internal/coa", "GET")).toEqual({ module: "coa", action: "read" });
+  });
+
+  it("maps create/update writes", () => {
+    expect(routePermissionFor("/api/internal/style-master", "POST")).toEqual({ module: "style_master", action: "write" });
+    expect(routePermissionFor("/api/internal/vendors/v1", "PUT")).toEqual({ module: "vendor_master", action: "write" });
+  });
+
+  it("detects post + void subpaths", () => {
+    expect(routePermissionFor("/api/internal/ar-invoices/abc/post", "POST")).toEqual({ module: "ar_invoices", action: "post" });
+    expect(routePermissionFor("/api/internal/ar-invoices/abc/void", "POST")).toEqual({ module: "ar_invoices", action: "void" });
+    expect(routePermissionFor("/api/internal/ap-invoices/abc/pay", "POST")).toEqual({ module: "ap_invoices", action: "post" });
+  });
+
+  it("routes JE post/void to je_post, drafts to je_entry", () => {
+    expect(routePermissionFor("/api/internal/journal-entries", "GET")).toEqual({ module: "je_entry", action: "read" });
+    expect(routePermissionFor("/api/internal/journal-entries", "POST")).toEqual({ module: "je_entry", action: "write" });
+    expect(routePermissionFor("/api/internal/journal-entries/x/post", "POST")).toEqual({ module: "je_post", action: "post" });
+  });
+
+  it("clamps actions a module does not expose (read-only modules never emit write)", () => {
+    expect(routePermissionFor("/api/internal/analytics/x", "GET")).toEqual({ module: "analytics", action: "read" });
+    expect(routePermissionFor("/api/internal/analytics/x", "POST")).toBeNull();  // analytics read/export only
+    expect(routePermissionFor("/api/internal/recon/run-ar", "POST")).toBeNull(); // parallel_run read/export only
+    expect(routePermissionFor("/api/internal/shopify/x", "POST")).toBeNull();    // shopify read/export only
+  });
+
+  it("skips non-internal, cron, vendor, and uncatalogued paths", () => {
+    expect(routePermissionFor("/api/vendor/rfqs", "GET")).toBeNull();
+    expect(routePermissionFor("/api/cron/xoro-mirror-nightly", "GET")).toBeNull();
+    expect(routePermissionFor("/api/internal/some-future-module/x", "GET")).toBeNull();
+    expect(routePermissionFor("", "GET")).toBeNull();
+    expect(routePermissionFor(null, "GET")).toBeNull();
+  });
+
+  it("only ever emits (module, action) pairs the module actually exposes", () => {
+    for (const path of ["/api/internal/coa/x", "/api/internal/ap-payments/x/pay", "/api/internal/inventory-adjustments/x"]) {
+      for (const method of ["GET", "POST", "PUT", "DELETE"]) {
+        const r = routePermissionFor(path, method);
+        if (r) expect(MODULE_ACTIONS[r.module]).toContain(r.action);
+      }
+    }
+  });
+});
