@@ -8,7 +8,7 @@
 // billing_address.name → billing_address.company → code.
 
 import React, { useEffect, useRef, useState } from "react";
-import { searchCustomers, customerDisplayName, type CustomerHit } from "../services/costingApi";
+import { searchCustomers, customerDisplayName, stripExcelPrefix, type CustomerHit } from "../services/costingApi";
 
 interface Props {
   /** Display label for the currently-selected customer (name + code), or null. */
@@ -109,7 +109,7 @@ export default function CustomerPickerCell({ value, onPick, onClear, placeholder
               >
                 <div style={{ fontWeight: 600 }}>{display}</div>
                 <div style={{ fontSize: 11, color: "#94A3B8" }}>
-                  {c.code ? c.code : ""}
+                  {c.code ? stripExcelPrefix(c.code) : ""}
                   {c.customer_type ? ` · ${c.customer_type}` : ""}
                   {c.default_currency ? ` · ${c.default_currency}` : ""}
                 </div>

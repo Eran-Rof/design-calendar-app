@@ -10,6 +10,7 @@ import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates
 import { appConfirm, TH } from "../../utils/theme";
 import { Modal } from "../../components/Modal";
 import ExportButton from "../../tanda/exports/ExportButton";
+import { stripExcelPrefix } from "../services/costingApi";
 import type { CostingProject } from "../types";
 
 export default function ProjectListView() {
@@ -71,7 +72,7 @@ export default function ProjectListView() {
     project_name: p.project_name,
     brand: p.brand || "",
     gender_code: p.gender_code || "",
-    customer_code: p.customer?.code || "",
+    customer_code: stripExcelPrefix(p.customer?.code) || "",
     sales_rep: p.sales_rep?.display_name || "",
     status: statusLabel(p.status),
     request_date: p.request_date ? fmtDateDisplay(p.request_date) : "",
@@ -127,7 +128,7 @@ export default function ProjectListView() {
                   <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{p.project_name}</span></Td>
                   <Td>{p.brand || "—"}</Td>
                   <Td>{p.gender_code || "—"}</Td>
-                  <Td>{p.customer?.code || "—"}</Td>
+                  <Td>{stripExcelPrefix(p.customer?.code) || "—"}</Td>
                   <Td>{p.sales_rep?.display_name || "—"}</Td>
                   <Td>
                     <span style={{ background: sc.bg, color: sc.fg, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
