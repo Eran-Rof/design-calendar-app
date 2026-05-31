@@ -66,6 +66,8 @@ export interface UseTablePrefs {
   visibleColumns: Set<string>;
   /** Toggle one column's visibility. Optimistic; persisted debounced. */
   toggleColumn: (columnKey: string) => void;
+  /** Set every column visible (true) or hidden (false). Optimistic + debounced. */
+  setAllVisible: (visible: boolean) => void;
   /** Restore the default visibility set (clears the hidden array for this table). */
   resetToDefault: () => void;
   /** True until the first GET /preferences settles. */
@@ -251,9 +253,24 @@ export function useTablePrefs(
     schedulePersist(tableKey);
   }, [tableKey, defaultHidden]);
 
+  const setAllVisible = useCallback((visible: boolean): void => {
+    // visible=true → hidden is empty (every column shows).
+    // visible=false → hidden contains every column key (every column hides).
+    if (visible) {
+      cache.hiddenByTable.set(tableKey, new Set());
+    } else {
+      const all = new Set<string>();
+      for (const c of allColumns) all.add(c.key);
+      cache.hiddenByTable.set(tableKey, all);
+    }
+    notify();
+    schedulePersist(tableKey);
+  }, [tableKey, allColumns]);
+
   return {
     visibleColumns,
     toggleColumn,
+    setAllVisible,
     resetToDefault,
     isLoading: cache.isLoading,
     error: cache.error,
@@ -305,6 +322,9 @@ export interface TablePrefsButtonProps {
   visibleColumns: Set<string>;
   onToggle: (columnKey: string) => void;
   onReset: () => void;
+  /** Optional bulk toggle. When provided the popover renders a "Select all"
+   *  checkbox at the top (tri-state: all visible, none visible, or partial). */
+  onSetAll?: (visible: boolean) => void;
   /** Optional CSS class for the trigger button (not the popover). */
   className?: string;
   /** Optional inline style override for the trigger button. */
@@ -324,6 +344,7 @@ export const TablePrefsButton: React.FC<TablePrefsButtonProps> = ({
   visibleColumns,
   onToggle,
   onReset,
+  onSetAll,
   className,
   style,
   ariaLabel = "Show/hide columns",
@@ -378,6 +399,30 @@ export const TablePrefsButton: React.FC<TablePrefsButtonProps> = ({
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Show columns
           </div>
+          {onSetAll && (() => {
+            const visibleCount = columns.reduce((n, c) => n + (visibleColumns.has(c.key) ? 1 : 0), 0);
+            const allVisible = visibleCount === columns.length;
+            const noneVisible = visibleCount === 0;
+            return (
+              <label
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "4px 6px", borderRadius: 4, cursor: "pointer",
+                  fontSize: 12, color: C.text, fontWeight: 600,
+                  borderBottom: `1px solid ${C.cardBdr}`, marginBottom: 4, paddingBottom: 6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={allVisible}
+                  ref={(el) => { if (el) el.indeterminate = !allVisible && !noneVisible; }}
+                  onChange={(e) => onSetAll(e.target.checked)}
+                  aria-label="Toggle all columns"
+                />
+                Select all
+              </label>
+            );
+          })()}
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
             {columns.map((c) => {
               const checked = visibleColumns.has(c.key);
