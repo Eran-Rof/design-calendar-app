@@ -66,6 +66,8 @@ export default function GS1NavBar() {
       <span style={{ fontWeight: 700, fontSize: 15, marginRight: 20 }}>
         GS1 Prepack Labels
       </span>
+      {/* Favorites — first action icon (consistent across all apps). */}
+      <FavoritesMenu />
       <div style={{ display: "flex", gap: 2 }}>
         {TABS.map(tab => (
           <button
@@ -114,7 +116,6 @@ export default function GS1NavBar() {
           }}>{unread > 9 ? "9+" : unread}</span>
         )}
       </button>
-      <FavoritesMenu />
     </div>
   );
 }

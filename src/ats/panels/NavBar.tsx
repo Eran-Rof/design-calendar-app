@@ -882,6 +882,8 @@ export const NavBar: React.FC<NavBarProps> = ({
       </span>
     </div>
     <div style={S.navRight}>
+      {/* Favorites — first action icon (consistent across all apps). */}
+      <FavoritesMenu />
       {mergeHistory?.length > 0 && (
         <button
           style={{ ...S.navBtn, background: "#7C3AED", border: "1px solid #5B21B6", color: "#fff", fontWeight: 600 }}
@@ -1071,7 +1073,6 @@ export const NavBar: React.FC<NavBarProps> = ({
           }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
         )}
       </button>
-      <FavoritesMenu />
       <button style={{ ...S.navBtn, cursor: "pointer" }} onClick={onNavigateHome}>← PLM Home</button>
     </div>
 

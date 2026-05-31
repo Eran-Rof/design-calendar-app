@@ -1465,6 +1465,8 @@ export default function TechPackApp() {
           <span style={S.navSub}>Product Specs & BOM</span>
         </div>
         <div style={S.navRight}>
+          {/* Favorites — first action icon (consistent across all apps). */}
+          <FavoritesMenu />
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
           <button style={view === "list" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All Packs</button>
           <button style={view === "libraries" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("libraries"); }}>Libraries</button>
@@ -1488,7 +1490,6 @@ export default function TechPackApp() {
               }}>{unreadTechpackNotifs > 9 ? "9+" : unreadTechpackNotifs}</span>
             )}
           </button>
-          <FavoritesMenu />
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
             {user.avatar ? (
               <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />

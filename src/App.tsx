@@ -675,6 +675,8 @@ function App() {
             alignItems: "center",
           }}
         >
+          {/* Favorites — first action icon (consistent across all apps). */}
+          <FavoritesMenu />
           {/* Undo button — always visible, disabled when nothing to undo */}
           <button
             onClick={useAppStore.getState().handleUndo}
@@ -718,7 +720,6 @@ function App() {
             onTasks={() => setShowTaskManager(true)}
             onGenders={() => setShowGenders(true)}
           />
-          <FavoritesMenu />
           <div
             style={{
               width: 1,
