@@ -11,6 +11,7 @@
 // type without a multipart parser. 25MB cap enforced in the handler.
 
 import { useEffect, useRef, useState } from "react";
+import { confirmDialog } from "../ui/warn";
 
 type DocVersion = {
   id: string;
@@ -124,7 +125,7 @@ export default function DocumentAttachmentList({
   }
 
   async function archive(docId: string) {
-    if (!confirm("Archive this document? (soft delete; recoverable)")) return;
+    if (!(await confirmDialog("Archive this document? (soft delete; recoverable)"))) return;
     const r = await fetch(`/api/internal/documents/${docId}/archive`, { method: "POST" });
     if (!r.ok) { setErr((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return; }
     void load();

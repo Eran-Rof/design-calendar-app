@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 interface Card {
   id: string;
@@ -35,6 +36,7 @@ export default function InternalVirtualCards() {
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("active");
   const [issueOpen, setIssueOpen] = useState(false);
+  const [docsCard, setDocsCard] = useState<Card | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -132,7 +134,8 @@ export default function InternalVirtualCards() {
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "uppercase" }}>{c.provider}</div>
               <div><StatusChip status={c.status} /></div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(c.issued_at).toLocaleDateString()}</div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">📎 Docs</button>
                 {c.status === "active" && <button onClick={() => void cancel(c)} style={{ ...btnMini, color: C.danger }}>Cancel</button>}
               </div>
             </div>
@@ -141,6 +144,31 @@ export default function InternalVirtualCards() {
       )}
 
       {issueOpen && <IssueModal onClose={() => setIssueOpen(false)} onIssued={() => { setIssueOpen(false); void load(); }} />}
+
+      {docsCard && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          onClick={() => setDocsCard(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: 560, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", color: C.text }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>
+                Documents — card •••• {docsCard.card_number_last4}
+                <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{docsCard.vendor?.name || docsCard.vendor_id}</span>
+              </h3>
+              <button onClick={() => setDocsCard(null)} style={{ ...btnMini }}>Close</button>
+            </div>
+            <DocumentAttachmentList
+              contextTable="virtual_cards"
+              contextId={docsCard.id}
+              kinds={["supporting_doc", "authorization", "receipt", "other"]}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

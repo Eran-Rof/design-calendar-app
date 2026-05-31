@@ -52,7 +52,26 @@ export default async function handler(req, res, params) {
       .order("line_number", { ascending: true });
     if (lErr) return res.status(500).json({ error: lErr.message });
 
-    return res.status(200).json({ ...je, lines: lines || [] });
+    // Resolve who posted / created this JE to a display name (v_audit_user_resolved
+    // maps auth.users → employees.display_name, email fallback). Best-effort.
+    let posted_by_name = null;
+    let created_by_name = null;
+    const userIds = [je.posted_by_user_id, je.created_by_user_id].filter(Boolean);
+    if (userIds.length > 0) {
+      try {
+        const { data: users } = await admin
+          .from("v_audit_user_resolved")
+          .select("user_id, display_name, email")
+          .in("user_id", Array.from(new Set(userIds)));
+        const nameById = Object.fromEntries(
+          (users || []).map((u) => [u.user_id, u.display_name || u.email || null]),
+        );
+        posted_by_name = je.posted_by_user_id ? (nameById[je.posted_by_user_id] || null) : null;
+        created_by_name = je.created_by_user_id ? (nameById[je.created_by_user_id] || null) : null;
+      } catch { /* non-fatal — omit names */ }
+    }
+
+    return res.status(200).json({ ...je, lines: lines || [], posted_by_name, created_by_name });
   }
 
   if (req.method === "PATCH" || req.method === "DELETE") {
