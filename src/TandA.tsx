@@ -270,8 +270,9 @@ function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => vo
   useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); }, []);
 
   const active = VENDOR_MENU.some((m) => m.view === view);
-  const current = VENDOR_MENU.find((m) => m.view === view);
-  const label = current ? `${current.emoji} ${current.label}` : "🏢 Vendors";
+  // Header stays the section name (like the other nav sections); the active
+  // style — not a morphing label — signals you're inside a Vendors view.
+  const label = "🏢 Vendors";
 
   return (
     <div
