@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -156,7 +157,7 @@ function CreateWorkspaceModal({ entityId, onClose, onCreated }: { entityId: stri
   }, []);
 
   async function save() {
-    if (!vendorId || !name.trim()) { alert("Vendor and name are required."); return; }
+    if (!vendorId || !name.trim()) { notify("Vendor and name are required.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/workspaces", {
@@ -165,7 +166,7 @@ function CreateWorkspaceModal({ entityId, onClose, onCreated }: { entityId: stri
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 
@@ -212,9 +213,9 @@ function WorkspaceDetail({ workspace, onBack }: { workspace: Workspace; onBack: 
   useEffect(() => { void load(); }, [workspace.id]);
 
   async function removePin(id: string) {
-    if (!confirm("Remove pin?")) return;
+    if (!(await confirmDialog("Remove pin?"))) return;
     const r = await fetch(`/api/internal/workspaces/${workspace.id}/pins/${id}`, { method: "DELETE" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -223,14 +224,14 @@ function WorkspaceDetail({ workspace, onBack }: { workspace: Workspace; onBack: 
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
   async function archive() {
-    if (!confirm(`Archive workspace "${workspace.name}"?`)) return;
+    if (!(await confirmDialog(`Archive workspace "${workspace.name}"?`))) return;
     const r = await fetch(`/api/internal/workspaces/${workspace.id}/archive`, { method: "PUT" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     onBack();
   }
 
@@ -319,7 +320,7 @@ function PinModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onCl
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!entityId.trim()) { alert("entity_id is required"); return; }
+    if (!entityId.trim()) { notify("entity_id is required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch(`/api/internal/workspaces/${workspaceId}/pins`, {
@@ -328,7 +329,7 @@ function PinModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onCl
       });
       if (!r.ok) throw new Error(await r.text());
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 
@@ -363,7 +364,7 @@ function TaskModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onC
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!title.trim()) { alert("Title is required"); return; }
+    if (!title.trim()) { notify("Title is required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch(`/api/internal/workspaces/${workspaceId}/tasks`, {
@@ -372,7 +373,7 @@ function TaskModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onC
       });
       if (!r.ok) throw new Error(await r.text());
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

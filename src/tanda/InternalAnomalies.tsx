@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -60,7 +61,7 @@ export default function InternalAnomalies() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, reviewed_by: reviewer || "Internal", note: note || undefined }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 

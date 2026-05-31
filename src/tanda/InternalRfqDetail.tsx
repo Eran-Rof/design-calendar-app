@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Quote {
   id: string;
@@ -53,19 +54,19 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
 
   async function publish() {
     const r = await fetch(`/api/internal/rfqs/${rfqId}/publish`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load(); onChanged();
   }
   async function closeRfq() {
-    if (!confirm("Close this RFQ? No more quotes can be submitted.")) return;
+    if (!(await confirmDialog("Close this RFQ? No more quotes can be submitted."))) return;
     const r = await fetch(`/api/internal/rfqs/${rfqId}/close`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load(); onChanged();
   }
   async function award(vendorId: string, vendorName: string) {
-    if (!confirm(`Award this RFQ to ${vendorName}? All other quotes will be rejected.`)) return;
+    if (!(await confirmDialog(`Award this RFQ to ${vendorName}? All other quotes will be rejected.`))) return;
     const r = await fetch(`/api/internal/rfqs/${rfqId}/award/${vendorId}`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load(); onChanged();
   }
 

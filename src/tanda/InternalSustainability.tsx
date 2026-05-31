@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -58,10 +59,10 @@ export default function InternalSustainability() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: action, notes, reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const result = await r.json();
     if (action === "approved" && result?.esg) {
-      alert(`Approved. ESG overall score: ${Math.round(result.esg.overall || 0)}`);
+      notify(`Approved. ESG overall score: ${Math.round(result.esg.overall || 0)}`, "success");
     }
     setSelected(null);
     await load();

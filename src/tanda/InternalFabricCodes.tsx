@@ -5,6 +5,7 @@
 // 409-on-reference guard. Wraps /api/internal/fabric-codes and /:id.
 
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -99,13 +100,13 @@ export default function InternalFabricCodes() {
   useEffect(() => { void loadVendors(); }, []);
 
   async function hardDelete(id: string, code: string) {
-    if (!confirm(`Permanently delete fabric ${code}? This fails if any style uses it (deactivate instead).`)) return;
+    if (!(await confirmDialog(`Permanently delete fabric ${code}? This fails if any style uses it (deactivate instead).`))) return;
     try {
       const r = await fetch(`/api/internal/fabric-codes/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

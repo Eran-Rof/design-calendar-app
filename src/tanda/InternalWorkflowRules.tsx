@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -62,14 +63,14 @@ export default function InternalWorkflowRules() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: !r.is_active }),
     });
-    if (!res.ok) { alert(await res.text()); return; }
+    if (!res.ok) { notify(await res.text(), "error"); return; }
     await load();
   }
 
   async function remove(r: Rule) {
-    if (!confirm(`Disable rule "${r.name}"?`)) return;
+    if (!(await confirmDialog(`Disable rule "${r.name}"?`))) return;
     const res = await fetch(`/api/internal/workflow-rules/${r.id}`, { method: "DELETE" });
-    if (!res.ok) { alert(await res.text()); return; }
+    if (!res.ok) { notify(await res.text(), "error"); return; }
     await load();
   }
 
@@ -157,8 +158,8 @@ function RuleEditor({ rule, entityId, onClose, onSaved }: { rule: Rule | null; e
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!name.trim()) { alert("Name is required."); return; }
-    if (actions.length === 0) { alert("At least one action is required."); return; }
+    if (!name.trim()) { notify("Name is required.", "error"); return; }
+    if (actions.length === 0) { notify("At least one action is required.", "error"); return; }
     const parsedActions = actions.map((a) => {
       try {
         const p = a.params ? JSON.parse(a.params) : {};
@@ -186,7 +187,7 @@ function RuleEditor({ rule, entityId, onClose, onSaved }: { rule: Rule | null; e
       if (!res.ok) throw new Error(await res.text());
       onSaved();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
     } finally { setSaving(false); }
   }
 

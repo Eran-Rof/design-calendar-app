@@ -13,6 +13,7 @@
 //      pre-flight (P6-6 extension) passes the bank_recon_complete check.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -133,7 +134,7 @@ export default function InternalBankReconReport() {
     const raw = editing[run.bank_account_id];
     if (raw == null || raw === "") return;
     const dollars = parseFloat(raw);
-    if (!Number.isFinite(dollars)) { alert("Invalid amount"); return; }
+    if (!Number.isFinite(dollars)) { notify("Invalid amount", "error"); return; }
     const cents = Math.round(dollars * 100);
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}`, {
@@ -141,44 +142,44 @@ export default function InternalBankReconReport() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bank_statement_balance_cents: cents }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Save failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Save failed: ${e.error}`, "error"); return; }
       setEditing((p) => { const c = { ...p }; delete c[run.bank_account_id]; return c; });
       await loadRuns();
-    } catch (e: unknown) { alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Save failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   async function recompute(run: ReconRun) {
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}/compute`, { method: "POST" });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Compute failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Compute failed: ${e.error}`, "error"); return; }
       await loadRuns();
-    } catch (e: unknown) { alert(`Compute failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Compute failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   async function markReconciled(run: ReconRun) {
-    if (!confirm("Mark this bank account reconciled for this period? Requires diff = $0.00.")) return;
+    if (!(await confirmDialog("Mark this bank account reconciled for this period? Requires diff = $0.00."))) return;
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "reconciled" }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Reconcile failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Reconcile failed: ${e.error}`, "error"); return; }
       await loadRuns();
-    } catch (e: unknown) { alert(`Reconcile failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Reconcile failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   async function reopenRun(run: ReconRun) {
-    if (!confirm("Reopen this reconciliation? Status goes back to in_progress.")) return;
+    if (!(await confirmDialog("Reopen this reconciliation? Status goes back to in_progress."))) return;
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "in_progress" }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Reopen failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Reopen failed: ${e.error}`, "error"); return; }
       await loadRuns();
-    } catch (e: unknown) { alert(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   const reconciledCount = useMemo(() => runs.filter((r) => r.status === "reconciled").length, [runs]);

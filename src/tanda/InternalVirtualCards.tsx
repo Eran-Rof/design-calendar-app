@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Card {
   id: string;
@@ -60,9 +61,9 @@ export default function InternalVirtualCards() {
   useEffect(() => { void load(); }, [entityId, statusFilter]);
 
   async function cancel(c: Card) {
-    if (!confirm(`Cancel the card ending in ${c.card_number_last4}? It can no longer be charged.`)) return;
+    if (!(await confirmDialog(`Cancel the card ending in ${c.card_number_last4}? It can no longer be charged.`))) return;
     const r = await fetch(`/api/internal/virtual-cards/${c.id}/cancel`, { method: "PUT" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -151,7 +152,7 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
   const [result, setResult] = useState<{ reveal_url: string; card: { card_number_last4: string; credit_limit: number } } | null>(null);
 
   async function issue() {
-    if (!invoiceId.trim()) { alert("Invoice ID required"); return; }
+    if (!invoiceId.trim()) { notify("Invoice ID required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/payments/virtual-card", {
@@ -160,7 +161,7 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
       });
       if (!r.ok) throw new Error(await r.text());
       setResult(await r.json());
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

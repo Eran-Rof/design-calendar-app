@@ -20,6 +20,7 @@
 //     can grow past 7 postable bank entries).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -247,18 +248,18 @@ export default function InternalAPInvoices() {
   }, [vendors]);
 
   async function doPost(inv: APInvoice) {
-    if (!confirm(`Post invoice ${inv.invoice_number}? This will create the accrual JE.`)) return;
+    if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This will create the accrual JE.`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ap-invoices/${inv.id}/post`, { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok && r.status !== 202) throw new Error(j.error || `HTTP ${r.status}`);
       if (j.requires_approval) {
-        alert(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`);
+        notify(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`, "info");
       }
       await load();
     } catch (e: unknown) {
-      alert(`Post failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Post failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -278,7 +279,7 @@ export default function InternalAPInvoices() {
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Void failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -694,7 +695,7 @@ function APInvoiceModal({
           updates.default_gl_ap_account_id ? "AP" : null,
           updates.default_gl_expense_account_id ? "expense" : null,
         ].filter(Boolean).join(" + ");
-        if (confirm(`Set the chosen ${which} account${which.includes("+") ? "s" : ""} as the default for this vendor on future invoices?`)) {
+        if (await confirmDialog(`Set the chosen ${which} account${which.includes("+") ? "s" : ""} as the default for this vendor on future invoices?`)) {
           try {
             await fetch(`/api/internal/vendor-master/${vendorId}`, {
               method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates),

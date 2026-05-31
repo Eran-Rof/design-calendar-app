@@ -19,6 +19,7 @@
 //      check — P6-6).
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
@@ -336,7 +337,7 @@ function AutoPostRulesModal({ account, onClose, onSaved }: { account: BankAccoun
     } catch (e: unknown) { setRunResult(`Error: ${e instanceof Error ? e.message : String(e)}`); }
   }
   async function runNow() {
-    if (!confirm(`Run auto-post on ${account.name} now? This will POST journal entries for any matching unmatched transactions. Make sure to dry-run first.`)) return;
+    if (!(await confirmDialog(`Run auto-post on ${account.name} now? This will POST journal entries for any matching unmatched transactions. Make sure to dry-run first.`))) return;
     setRunResult("Running…");
     try {
       const r = await fetch(`/api/cron/bank-auto-post-fees?bank_account_id=${account.id}`, { method: "POST" });
@@ -484,20 +485,20 @@ function TransactionsTab() {
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        alert(`Match failed: ${e.error || `HTTP ${r.status}`}`);
+        notify(`Match failed: ${e.error || `HTTP ${r.status}`}`, "error");
         return;
       }
       setMatchModal(null);
       await load();
-    } catch (e: unknown) { alert(`Match failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Match failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
   async function unmatch(txn: BankTxn) {
-    if (!confirm("Unmatch this transaction? The JE stays posted; only the bank ↔ JE link is severed.")) return;
+    if (!(await confirmDialog("Unmatch this transaction? The JE stays posted; only the bank ↔ JE link is severed."))) return;
     try {
       const r = await fetch(`/api/internal/bank-transactions/${txn.id}/unmatch`, { method: "POST" });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Unmatch failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Unmatch failed: ${e.error}`, "error"); return; }
       await load();
-    } catch (e: unknown) { alert(`Unmatch failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Unmatch failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
   async function ignore(txn: BankTxn) {
     const reason = prompt("Reason for ignoring (e.g. duplicate Plaid pull, test transaction):");
@@ -508,9 +509,9 @@ function TransactionsTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Ignore failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Ignore failed: ${e.error}`, "error"); return; }
       await load();
-    } catch (e: unknown) { alert(`Ignore failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Ignore failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   const counts = useMemo(() => {

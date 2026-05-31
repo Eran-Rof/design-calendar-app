@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Inquiry {
   id: string;
@@ -42,15 +43,15 @@ export default function InternalMarketplaceInquiries() {
   useEffect(() => { void load(); }, []);
 
   async function convert(inquiry: Inquiry) {
-    if (!confirm(`Convert inquiry on "${inquiry.listing?.title}" to a draft RFQ?`)) return;
+    if (!(await confirmDialog(`Convert inquiry on "${inquiry.listing?.title}" to a draft RFQ?`))) return;
     const reviewer = prompt("Your name (for audit, becomes RFQ creator):") || "Internal";
     const r = await fetch("/api/internal/marketplace/convert-to-rfq", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inquiry_id: inquiry.id, created_by: reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const d = await r.json() as { rfq: { id: string } };
-    alert(`Draft RFQ created: ${d.rfq.id}`);
+    notify(`Draft RFQ created: ${d.rfq.id}`, "success");
     await load();
   }
 

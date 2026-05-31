@@ -24,6 +24,7 @@
 // way to drill into per-domain status without leaving the panel.
 
 import { useEffect, useMemo, useState } from "react";
+import { confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
@@ -530,7 +531,7 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [err, setErr] = useState<string | null>(null);
 
   async function run() {
-    if (!confirm(`Re-run the Xoro mirror for ${mirrorDate}? This will overwrite source='xoro_mirror' rows for that date. Manual entries stay untouched.`)) return;
+    if (!(await confirmDialog(`Re-run the Xoro mirror for ${mirrorDate}? This will overwrite source='xoro_mirror' rows for that date. Manual entries stay untouched.`))) return;
     setBusy(true); setErr(null); setResult("Running… (this can take a few minutes)");
     try {
       const r = await fetch(`/api/cron/xoro-mirror-nightly?mirror_date=${encodeURIComponent(mirrorDate)}&manual_trigger=true`, { method: "POST" });

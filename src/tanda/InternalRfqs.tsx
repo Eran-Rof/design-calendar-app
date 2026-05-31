@@ -3,6 +3,7 @@ import InternalRfqDetail from "./InternalRfqDetail";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { notify } from "../shared/ui/warn";
 
 interface Rfq {
   id: string;
@@ -148,10 +149,10 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   }, []);
 
   async function submit() {
-    if (!title.trim() || !entityId) { alert("Title and entity are required."); return; }
+    if (!title.trim() || !entityId) { notify("Title and entity are required.", "error"); return; }
     const validLines = lineItems.filter((l) => l.description.trim()).map((l) => ({ description: l.description.trim(), quantity: Number(l.quantity) || 1, unit_of_measure: l.unit_of_measure.trim() || null }));
-    if (validLines.length === 0) { alert("At least one line item is required."); return; }
-    if (selectedVendorIds.size === 0) { alert("Select at least one vendor to invite."); return; }
+    if (validLines.length === 0) { notify("At least one line item is required.", "error"); return; }
+    if (selectedVendorIds.size === 0) { notify("Select at least one vendor to invite.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/rfqs", {
@@ -172,7 +173,7 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

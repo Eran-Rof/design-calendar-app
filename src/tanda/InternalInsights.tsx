@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -84,14 +85,14 @@ export default function InternalInsights() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
   async function regenerate() {
-    if (!confirm("Run the insights generator for this entity now?")) return;
+    if (!(await confirmDialog("Run the insights generator for this entity now?"))) return;
     const r = await fetch("/api/cron/insights-weekly", { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
