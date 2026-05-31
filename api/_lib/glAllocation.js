@@ -100,3 +100,33 @@ export async function expandJeLines(admin, lines) {
   }
   return out.map((l, i) => ({ ...l, line_number: i + 1 }));
 }
+
+/**
+ * M50 C-2 — AP-invoice expense allocation (operator decision: AP invoices split
+ * by GL allocation, AR does NOT). Operates on the apInvoiceReceived rule-line
+ * shape ({ amount: decimal-string, expense_account_id, memo, inventory_item_id? })
+ * BEFORE the rule builds the JE: each EXPENSE line whose account is a brand-rollup
+ * is replaced by one line per brand on the brand-child expense account, split by
+ * the allocation % and footing EXACTLY to the original amount. The rule then sums
+ * the debit lines into the single CR AP line, so the bill stays balanced.
+ *
+ * Inventory lines (inventory_item_id set) are NEVER split — inventory capitalizes
+ * to the inventory asset account, not a P&L expense. NO-OP unless
+ * BRAND_SCOPE_MODE=enforce. Brand identity is carried by the child account
+ * (gl_accounts.brand_id), so the rule's line shape is unchanged downstream.
+ */
+export async function expandApExpenseLines(admin, ruleLines) {
+  if (brandScopeMode() !== "enforce" || !Array.isArray(ruleLines)) return ruleLines;
+  const out = [];
+  for (const ln of ruleLines) {
+    if (ln.inventory_item_id || !ln.expense_account_id) { out.push(ln); continue; }
+    const rule = await resolveAccountAllocation(admin, ln.expense_account_id);
+    if (!rule) { out.push(ln); continue; }
+    const cents = Math.round(Number(ln.amount || 0) * 100);
+    const parts = splitLineByAllocation(cents, rule.allocations, rule.childByBrand);
+    for (const p of parts) {
+      out.push({ ...ln, expense_account_id: p.account_id, amount: (p.amount_cents / 100).toFixed(2) });
+    }
+  }
+  return out;
+}

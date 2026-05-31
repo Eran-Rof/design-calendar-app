@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
-import { splitLineByAllocation, expandJeLines } from "../glAllocation.js";
+import { splitLineByAllocation, expandJeLines, expandApExpenseLines } from "../glAllocation.js";
 
 const B1 = "b1", B2 = "b2", B3 = "b3";
 const childByBrand = { b1: "c1", b2: "c2", b3: "c3" };
@@ -81,5 +81,38 @@ describe("expandJeLines", () => {
     const deb = out.reduce((s, l) => s + Number(l.debit), 0);
     const cred = out.reduce((s, l) => s + Number(l.credit), 0);
     expect(deb).toBeCloseTo(cred, 2);
+  });
+});
+
+describe("expandApExpenseLines — AP invoice expense split (M50 C-2)", () => {
+  afterEach(() => { delete process.env.BRAND_SCOPE_MODE; });
+
+  it("is a NO-OP when not enforcing", async () => {
+    delete process.env.BRAND_SCOPE_MODE;
+    const lines = [{ amount: "100.00", expense_account_id: "a-roll", memo: "cartons" }];
+    expect(await expandApExpenseLines(mockAdmin(), lines)).toBe(lines);
+  });
+
+  it("splits a rollup expense line into per-brand child lines that foot exactly", async () => {
+    process.env.BRAND_SCOPE_MODE = "enforce";
+    const lines = [{ amount: "100.00", expense_account_id: "a-roll", memo: "cartons" }];
+    const out = await expandApExpenseLines(mockAdmin(), lines);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ amount: "60.00", expense_account_id: "c1", memo: "cartons" });
+    expect(out[1]).toMatchObject({ amount: "40.00", expense_account_id: "c2", memo: "cartons" });
+    const total = out.reduce((s, l) => s + Number(l.amount), 0);
+    expect(total).toBeCloseTo(100, 2);
+  });
+
+  it("passes through plain expense accounts and inventory lines unchanged", async () => {
+    process.env.BRAND_SCOPE_MODE = "enforce";
+    const lines = [
+      { amount: "50.00", expense_account_id: "a-plain", memo: "fee" },
+      { amount: "200.00", inventory_item_id: "item-1", inventory_account_id: "a-roll", expense_account_id: null },
+    ];
+    const out = await expandApExpenseLines(mockAdmin(), lines);
+    expect(out).toHaveLength(2); // neither split: plain account + inventory line (never split)
+    expect(out[0]).toMatchObject({ expense_account_id: "a-plain", amount: "50.00" });
+    expect(out[1]).toMatchObject({ inventory_item_id: "item-1", inventory_account_id: "a-roll" });
   });
 });
