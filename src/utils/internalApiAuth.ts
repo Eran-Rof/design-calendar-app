@@ -39,6 +39,20 @@ function readEntitySessionId(): string | null {
   } catch { return null; }
 }
 
+// P14-4 — the cached auth.users.id (set by the MS-OAuth provision bridge).
+// MUST stay in lockstep with NEW_KEY/LEGACY_KEY in src/utils/tangerineAuthUser.ts.
+// Injected so the per-user endpoints (e.g. users-access/me, which drives menu
+// hiding) can identify the caller without a Supabase JWT. This is UX-only —
+// the server still enforces every action via rbacEnforce.
+function readAuthUserId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem("tangerine.auth_user_id")
+      || window.localStorage.getItem("tangerine.notifications.user_id");
+    return v && v.trim().length > 0 ? v.trim() : null;
+  } catch { return null; }
+}
+
 let installed = false;
 
 export function installInternalApiAuth(): void {
@@ -72,6 +86,10 @@ export function installInternalApiAuth(): void {
       const entityId = readEntitySessionId();
       if (entityId && !headers.has("X-Entity-ID") && !headers.has("x-entity-id")) {
         headers.set("X-Entity-ID", entityId);
+      }
+      const authUserId = readAuthUserId();
+      if (authUserId && !headers.has("X-Auth-User-Id") && !headers.has("x-auth-user-id")) {
+        headers.set("X-Auth-User-Id", authUserId);
       }
       return original(input, { ...(init || {}), headers });
     }
