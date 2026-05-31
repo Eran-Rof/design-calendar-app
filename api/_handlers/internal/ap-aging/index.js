@@ -12,6 +12,7 @@
 // Mirrors the P4-6 ar-aging handler.
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope, activeBrandId, collapseAgingByBucket } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 30 };
 
@@ -104,9 +105,11 @@ export default async function handler(req, res) {
   try {
     let rows;
     if (v.data.mode === "as_of") {
+      // P15 C3b — brand filtered server-side via p_brand_id (null = all brands).
       const { data, error } = await admin.rpc("ap_aging_as_of", {
         p_entity_id: entityId,
         p_as_of_date: v.data.as_of,
+        p_brand_id: activeBrandId(req),
       });
       if (error) return res.status(500).json({ error: error.message });
       rows = data || [];
@@ -119,9 +122,11 @@ export default async function handler(req, res) {
         .select("*")
         .eq("entity_id", entityId);
       if (v.data.vendor_id) q = q.eq("vendor_id", v.data.vendor_id);
+      // P15 C3b — gated brand filter; collapse brand-split rows per (vendor, bucket).
+      q = applyBrandScope(q, req);
       const { data, error } = await q;
       if (error) return res.status(500).json({ error: error.message });
-      rows = data || [];
+      rows = collapseAgingByBucket(data || [], "vendor_id");
     }
 
     rows.sort((a, b) => Number(b.total_outstanding_cents || b.outstanding_cents || 0) -
