@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -76,14 +77,14 @@ export default function InternalDiscountOffers() {
   useEffect(() => { void load(); }, [entityId, status]);
 
   async function runJob() {
-    if (!confirm("Run the discount offer generator now for this entity?")) return;
+    if (!(await confirmDialog("Run the discount offer generator now for this entity?"))) return;
     const r = await fetch("/api/internal/discount-offers/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ entity_id: entityId }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const d = await r.json() as { created: Offer[]; skipped: { invoice_id: string; reason: string }[] };
-    alert(`Created ${d.created.length} offers. Skipped ${d.skipped.length}.`);
+    notify(`Created ${d.created.length} offers. Skipped ${d.skipped.length}.`, "success");
     await load();
   }
 

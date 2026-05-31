@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
+import { confirmDialog } from "../shared/ui/warn";
 
 type Status = "open" | "in_progress" | "done" | "cancelled";
 type Priority = "low" | "normal" | "high" | "urgent";
@@ -522,7 +523,7 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
 
   async function del() {
     if (!data) return;
-    if (!confirm(`Delete task "${data.title}"?`)) return;
+    if (!(await confirmDialog(`Delete task "${data.title}"?`))) return;
     setSaving(true);
     setErr(null);
     try {

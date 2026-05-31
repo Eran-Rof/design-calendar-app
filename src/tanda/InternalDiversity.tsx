@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -47,7 +48,7 @@ export default function InternalDiversity() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 

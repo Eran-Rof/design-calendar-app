@@ -11,6 +11,7 @@
 // 2_10_NET30) — operators add edge-case terms here (NET75, special discounts).
 
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -103,21 +104,21 @@ export default function InternalPaymentTerms() {
   useEffect(() => { void load(); }, [includeInactive]);
 
   async function del(pt: PaymentTerm) {
-    if (!confirm(`Delete payment term ${pt.code} (${pt.name})?\nWill fail if any vendor / customer / invoice still references it — toggle is_active=false in that case.`)) return;
+    if (!(await confirmDialog(`Delete payment term ${pt.code} (${pt.name})?\nWill fail if any vendor / customer / invoice still references it — toggle is_active=false in that case.`))) return;
     try {
       const r = await fetch(`/api/internal/payment-terms/${pt.id}`, { method: "DELETE" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         if (r.status === 409 && j.references) {
           const d = j.references;
-          alert(`Cannot delete — still referenced by:\n  ${d.vendors} vendor(s)\n  ${d.customers} customer(s)\n  ${d.invoices} invoice(s)\n\nReassign those rows first, or toggle is_active=false instead.`);
+          notify(`Cannot delete — still referenced by:\n  ${d.vendors} vendor(s)\n  ${d.customers} customer(s)\n  ${d.invoices} invoice(s)\n\nReassign those rows first, or toggle is_active=false instead.`, "error");
           return;
         }
         throw new Error(j.error || `HTTP ${r.status}`);
       }
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

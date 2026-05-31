@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Program {
   id: string;
@@ -82,11 +83,11 @@ export default function InternalScf() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approved_amount: Number(approved) }),
       });
-      if (!resp.ok) { alert(await resp.text()); return; }
+      if (!resp.ok) { notify(await resp.text(), "error"); return; }
     } else {
-      if (!confirm("Confirm disbursement has been made?")) return;
+      if (!(await confirmDialog("Confirm disbursement has been made?"))) return;
       const resp = await fetch(`/api/internal/scf/requests/${r.id}/fund`, { method: "PUT" });
-      if (!resp.ok) { alert(await resp.text()); return; }
+      if (!resp.ok) { notify(await resp.text(), "error"); return; }
     }
     await load();
   }
@@ -97,7 +98,7 @@ export default function InternalScf() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: next }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -220,7 +221,7 @@ function ProgramModal({ entityId, onClose, onCreated }: { entityId: string; onCl
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!name.trim() || !funder.trim() || !maxFacility) { alert("Name, funder, and facility amount required"); return; }
+    if (!name.trim() || !funder.trim() || !maxFacility) { notify("Name, funder, and facility amount required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/scf-programs", {
@@ -229,7 +230,7 @@ function ProgramModal({ entityId, onClose, onCreated }: { entityId: string; onCl
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

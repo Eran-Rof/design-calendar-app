@@ -47,6 +47,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Theme — match the Shadow Mirror / Bank Reconciliation palette.
@@ -257,8 +258,8 @@ export default function InternalMarketplaceStatus() {
   );
 
   async function runManual(feed: FeedDef) {
-    if (!isAdmin) { alert("Sign in via MS to run jobs manually."); return; }
-    if (!confirm(`${feed.manualLabel}?\n\nPOST ${feed.manualUrl}`)) return;
+    if (!isAdmin) { notify("Sign in via MS to run jobs manually.", "info"); return; }
+    if (!(await confirmDialog(`${feed.manualLabel}?\n\nPOST ${feed.manualUrl}`))) return;
     setManualBusy(feed.manualUrl);
     setManualResult(null);
     try {

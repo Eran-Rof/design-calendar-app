@@ -7,6 +7,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
@@ -176,7 +177,7 @@ export default function InternalJournalEntry() {
 
   async function reverse(je: JE) {
     if (je.status !== "posted") {
-      alert(`Cannot reverse JE in status '${je.status}'.`);
+      notify(`Cannot reverse JE in status '${je.status}'.`, "error");
       return;
     }
     const reason = prompt(`Reverse JE "${je.description}"? Optionally enter a different posting_date (YYYY-MM-DD), or leave blank for today:`, "");
@@ -194,7 +195,7 @@ export default function InternalJournalEntry() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Reverse failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Reverse failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -420,9 +421,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
 
   // Single source-of-truth close path. Honours the unsaved-changes guard
   // unless the caller passes force=true (used after a successful post).
-  function requestClose(force = false) {
+  async function requestClose(force = false) {
     if (!force && dirty) {
-      const ok = window.confirm("You have unsaved changes. Discard?");
+      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444" });
       if (!ok) return;
     }
     onClose();
@@ -462,8 +463,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     // silently-disabled button so the user sees the exact reason.
     if (totals.diff !== 0 || totals.d === 0) {
       const diffStr = totals.diff.toFixed(2);
-      const proceed = window.confirm(
+      const proceed = await confirmDialog(
         `Journal entry is out of balance by $${diffStr}. Posting will fail server-side validation. Continue anyway?`,
+        { title: "Out of balance", icon: "⚠️", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
       );
       if (!proceed) return;
     }

@@ -16,6 +16,7 @@
 // All money handled in BigInt cents.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -801,7 +802,7 @@ function DetailReceiptModal({
 
   async function postReceipt() {
     if (!receipt) return;
-    if (!confirm("Post this receipt? This emits the accrual + cash JEs and is not easily reversible.")) return;
+    if (!(await confirmDialog("Post this receipt? This emits the accrual + cash JEs and is not easily reversible."))) return;
     setBusy(true);
     setErr(null);
     try {
@@ -818,7 +819,7 @@ function DetailReceiptModal({
 
   async function voidReceipt() {
     if (!receipt) return;
-    if (!confirm("Void this receipt? Both JEs (if posted) will be reversed and the applications back out of invoice paid totals.")) return;
+    if (!(await confirmDialog("Void this receipt? Both JEs (if posted) will be reversed and the applications back out of invoice paid totals."))) return;
     setBusy(true);
     setErr(null);
     try {
@@ -838,7 +839,7 @@ function DetailReceiptModal({
   }
 
   async function unapply(appId: string) {
-    if (!confirm("Unapply this application?")) return;
+    if (!(await confirmDialog("Unapply this application?"))) return;
     setBusy(true);
     setErr(null);
     try {

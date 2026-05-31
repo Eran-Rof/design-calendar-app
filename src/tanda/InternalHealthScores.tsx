@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { notify } from "../shared/ui/warn";
 
 interface Row {
   vendor_id: string;
@@ -66,8 +67,8 @@ export default function InternalHealthScores() {
         source: "manual.health_scores",
       }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
-    alert("Flag raised.");
+    if (!r.ok) { notify(await r.text(), "error"); return; }
+    notify("Flag raised.", "success");
   }
 
   if (loading) return <div style={{ color: C.textMuted }}>Loading…</div>;

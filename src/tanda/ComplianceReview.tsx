@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS, supabaseClient } from "../utils/supabase";
 import { S } from "../utils/styles";
@@ -114,9 +115,9 @@ export default function ComplianceReview() {
   }), [docs]);
 
   async function openFile(path: string, filename: string | null) {
-    if (!supabaseClient) { alert("Supabase client unavailable"); return; }
+    if (!supabaseClient) { notify("Supabase client unavailable", "error"); return; }
     const { data, error } = await supabaseClient.storage.from("vendor-docs").createSignedUrl(path, 300);
-    if (error) { alert("Open failed: " + error.message); return; }
+    if (error) { notify("Open failed: " + error.message, "error"); return; }
     void showFileViewer({ signedUrl: data.signedUrl, filename: filename || path.split("/").pop() || "document" });
   }
 

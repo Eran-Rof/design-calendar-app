@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
+import { notify } from "../shared/ui/warn";
 
 type Accrual = {
   id: string;
@@ -314,11 +315,11 @@ export default function InternalCommissionAccruals() {
             style={btnPrimary}
             onClick={() => {
               if (!bulkAllSameRep) {
-                alert("Bulk pay requires all selected rows to belong to the same sales rep.");
+                notify("Bulk pay requires all selected rows to belong to the same sales rep.", "error");
                 return;
               }
               if (!bulkAllAccrued) {
-                alert("Bulk pay only works on rows in status=accrued.");
+                notify("Bulk pay only works on rows in status=accrued.", "error");
                 return;
               }
               setBulkPayOpen(true);
