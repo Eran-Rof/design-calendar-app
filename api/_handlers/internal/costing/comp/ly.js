@@ -32,6 +32,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { fetchOpenSoComp } from "./_open-so-helper.js";
+import { todayIsoUTC } from "./_today.js";
 
 export const config = { maxDuration: 30 };
 
@@ -152,16 +154,22 @@ export default async function handler(req, res) {
 
   // 2. Bulk-fetch sales rows for those skus in the window. Pull both unit
   //    and pack rows so we can detect "all-PPK" styles AFTER aggregation.
-  //    Optional vendor_id filter narrows to lines purchased through one
-  //    vendor (when the operator wants comp for a specific factory).
-  let salesQuery = admin
+  //    NOTE: vendor_id filter is accepted for API parity with the caller but
+  //    intentionally NOT applied here — ip_sales_history_wholesale has no
+  //    vendor_id column (the operator's selected vendor lives in `vendors`,
+  //    the portal AR/AP table, which is unrelated to ip_vendor_master that
+  //    ip_item_master FKs to). Comp is by style + color; vendor scoping
+  //    would require a vendors->ip_vendor_master crosswalk that doesn't
+  //    exist yet. Silently ignored so the handler doesn't 500 the moment
+  //    the operator picks a winning quote.
+  void vendorIdFilter;
+  const salesQuery = admin
     .from("ip_sales_history_wholesale")
     .select("sku_id, qty, qty_grain, qty_units, net_amount, unit_cost_at_sale, margin_amount, margin_pct")
     .in("sku_id", allSkuIds)
     .gte("txn_date", from)
     .lte("txn_date", to)
     .range(0, 99999);
-  if (vendorIdFilter) salesQuery = salesQuery.eq("vendor_id", vendorIdFilter);
   const { data: salesRows, error: salesErr } = await salesQuery;
   if (salesErr) return res.status(500).json({ error: salesErr.message });
 
@@ -202,6 +210,35 @@ export default async function handler(req, res) {
     if (net != null && net > 0) {
       slot.netSum += net;
       if (marginPct != null) slot.marginPctNum += net * marginPct;
+    }
+  }
+
+  // 4. Forward-looking SO addition. When `to >= today` the window
+  //    overlaps the future — fold ip_open_sales_orders into the same
+  //    per-style aggregates so the operator sees projected sales (with
+  //    cost estimated via ip_item_avg_cost). Mirrors the ATS sales-
+  //    comps SO margin pattern (src/ats/salesCompsSoMargin.ts).
+  if (to >= todayIsoUTC()) {
+    try {
+      const soBySku = await fetchOpenSoComp(admin, allSkuIds, from, to);
+      for (const [skuId, soSlot] of soBySku.entries()) {
+        const sc = skuIdToStyle.get(skuId);
+        if (!sc) continue;
+        const slot = agg.get(sc);
+        if (!slot) continue;
+        slot.sawAnyRow = true;
+        slot.sawUnitRow = true; // open SOs are unit-grain by source
+        slot.qty += soSlot.qty;
+        slot.txnCount += soSlot.txnCount;
+        slot.costSum += soSlot.costSum;
+        slot.netSum += soSlot.netSum;
+        slot.marginPctNum += soSlot.marginPctNum;
+        slot.marginSum += soSlot.netSum - soSlot.costSum;
+      }
+    } catch (e) {
+      // Non-fatal — historical aggregates still return cleanly.
+      // eslint-disable-next-line no-console
+      console.warn(`[costing/comp/ly] open-SO fold failed: ${e.message}`);
     }
   }
 
