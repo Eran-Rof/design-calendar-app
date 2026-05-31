@@ -155,7 +155,7 @@ export default function RfqListView() {
                       {r.status}
                     </span>
                   </Td>
-                  <Td>{r.delivery_required_by ? fmtDateDisplay(r.delivery_required_by) : "—"}</Td>
+                  <Td>{(r.due_date || r.delivery_required_by) ? fmtDateDisplay((r.due_date || r.delivery_required_by) as string) : "—"}</Td>
                   <Td>{r.created_at ? fmtDateDisplay(r.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
                     <button

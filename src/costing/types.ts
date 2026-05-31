@@ -205,8 +205,17 @@ export interface RfqListRow {
   description: string | null;
   category: string | null;
   status: RfqStatus;
+  /** Legacy Tangerine field — costing UI no longer renders, but stays in
+   *  the type so other procurement readers can still consume it. */
   submission_deadline: string | null;
+  /** Legacy Tangerine field — see submission_deadline note. */
   delivery_required_by: string | null;
+  /** Snapshot of costing_projects.request_date. Null on legacy RFQs. */
+  request_date: string | null;
+  /** Snapshot of costing_projects.due_date. Null on legacy RFQs. */
+  due_date: string | null;
+  /** Snapshot of costing_projects.projected_delivery_date. Null on legacy RFQs. */
+  projected_delivery_date: string | null;
   estimated_quantity: number | null;
   estimated_budget: number | null;
   currency: string;
@@ -279,6 +288,9 @@ export interface RfqPatch {
   status?: RfqStatus;
   submission_deadline?: string | null;
   delivery_required_by?: string | null;
+  request_date?: string | null;
+  due_date?: string | null;
+  projected_delivery_date?: string | null;
   estimated_quantity?: number | null;
   estimated_budget?: number | null;
   currency?: string;
