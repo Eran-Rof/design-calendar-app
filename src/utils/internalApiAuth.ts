@@ -53,6 +53,17 @@ function readAuthUserId(): string | null {
   } catch { return null; }
 }
 
+// P14 JWT phase — the per-user access token minted by the provision bridge
+// (only present once SUPABASE_JWT_SECRET is set server-side). MUST stay in
+// lockstep with JWT_KEY in src/utils/tangerineAuthUser.ts.
+function readAuthJwt(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem("tangerine.auth_jwt");
+    return v && v.trim().length > 0 ? v.trim() : null;
+  } catch { return null; }
+}
+
 let installed = false;
 
 export function installInternalApiAuth(): void {
@@ -80,8 +91,18 @@ export function installInternalApiAuth(): void {
     }
     if (url && INTERNAL_PATH_RE.test(url)) {
       const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-      if (TOKEN && !headers.has("Authorization") && !headers.has("authorization")) {
-        headers.set("Authorization", `Bearer ${TOKEN}`);
+      // P14 JWT phase — Authorization: Bearer carries the PER-USER token when we
+      // have one (so authenticateCaller resolves the real user + RBAC enforces).
+      // The static deploy token moves to X-Internal-Token, where
+      // authenticateInternalCaller still accepts it. Backward compatible: with
+      // no user JWT, Bearer falls back to the static token exactly as before.
+      const userJwt = readAuthJwt();
+      if (!headers.has("Authorization") && !headers.has("authorization")) {
+        if (userJwt) headers.set("Authorization", `Bearer ${userJwt}`);
+        else if (TOKEN) headers.set("Authorization", `Bearer ${TOKEN}`);
+      }
+      if (TOKEN && !headers.has("X-Internal-Token") && !headers.has("x-internal-token")) {
+        headers.set("X-Internal-Token", TOKEN);
       }
       const entityId = readEntitySessionId();
       if (entityId && !headers.has("X-Entity-ID") && !headers.has("x-entity-id")) {

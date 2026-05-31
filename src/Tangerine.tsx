@@ -81,7 +81,7 @@ import InternalSalesReps               from "./tanda/InternalSalesReps";
 import InternalCommissionAccruals      from "./tanda/InternalCommissionAccruals";
 import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
-import { setCachedAuthUserId, setCachedAuthUserEmail } from "./utils/tangerineAuthUser";
+import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -361,6 +361,12 @@ export default function Tangerine() {
             const provisioned = await pr.json();
             if (!cancelled && provisioned?.auth_user_id) {
               setCachedAuthUserId(provisioned.auth_user_id);
+              // P14 JWT phase — cache the per-user access token (present only
+              // when SUPABASE_JWT_SECRET is set server-side). internalApiAuth
+              // attaches it as Authorization: Bearer on every /api/internal
+              // call, giving the server a verifiable per-user identity. When
+              // absent (secret unset) we fall back to the cached-id stopgap.
+              setCachedAuthJwt(provisioned.access_token ?? null);
             }
           } else {
             const detail = await pr.text().catch(() => "");
@@ -391,6 +397,9 @@ export default function Tangerine() {
   function handleSignOut() {
     if (!confirm("Sign out of Tangerine?")) return;
     clearMsTokens();
+    // P14 JWT phase — drop the cached per-user token so a signed-out browser
+    // can't keep presenting it. (It also expires server-side after 12h.)
+    setCachedAuthJwt(null);
     window.location.reload();
   }
 

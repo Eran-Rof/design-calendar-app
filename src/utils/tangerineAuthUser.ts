@@ -23,6 +23,10 @@
 const NEW_KEY        = "tangerine.auth_user_id";
 const LEGACY_KEY     = "tangerine.notifications.user_id";
 const EMAIL_KEY      = "tangerine.auth_user_email";
+// P14 JWT phase — the per-user Supabase-compatible access token minted by
+// /api/internal/auth/provision (only present when SUPABASE_JWT_SECRET is set
+// server-side). Attached as Authorization: Bearer by internalApiAuth.ts.
+const JWT_KEY        = "tangerine.auth_jwt";
 
 export function getCachedAuthUserId(): string {
   try {
@@ -46,6 +50,22 @@ export function setCachedAuthUserId(uid: string): void {
       localStorage.removeItem(NEW_KEY);
       localStorage.removeItem(LEGACY_KEY);
     }
+  } catch (_) { /* SSR / private mode */ }
+}
+
+export function getCachedAuthJwt(): string {
+  try {
+    const v = localStorage.getItem(JWT_KEY);
+    if (v && v.trim()) return v.trim();
+  } catch (_) { /* SSR / private mode */ }
+  return "";
+}
+
+export function setCachedAuthJwt(token: string | null | undefined): void {
+  try {
+    const trimmed = (token || "").trim();
+    if (trimmed) localStorage.setItem(JWT_KEY, trimmed);
+    else         localStorage.removeItem(JWT_KEY);
   } catch (_) { /* SSR / private mode */ }
 }
 

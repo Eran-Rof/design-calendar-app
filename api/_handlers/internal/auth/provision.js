@@ -25,6 +25,7 @@
 // every login is safe.
 
 import { createClient } from "@supabase/supabase-js";
+import { signAppJwt } from "../../../_lib/auth/appJwt.js";
 
 export const config = { maxDuration: 15 };
 
@@ -184,11 +185,21 @@ export default async function handler(req, res) {
     if (empUpdErr) console.warn("[auth/provision] employees link failed:", empUpdErr.message);
   }
 
+  // 6. P14 JWT phase — mint a per-user access token so the browser can prove
+  // WHO it is on every /api/internal call (enabling real RBAC enforcement +
+  // per-user personalization). No-op until SUPABASE_JWT_SECRET is set on the
+  // server: signAppJwt returns null, the client gets no token, and everything
+  // behaves exactly as the cached-auth_user_id stopgap does today.
+  const minted = signAppJwt(auth_user_id, { email });
+
   return res.status(200).json({
     auth_user_id,
     email,
     entity_id,
     role: "admin",
     is_new_user,
+    // Present only when JWT minting is enabled server-side.
+    access_token: minted?.access_token ?? null,
+    expires_in: minted?.expires_in ?? null,
   });
 }
