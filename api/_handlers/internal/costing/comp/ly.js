@@ -154,16 +154,22 @@ export default async function handler(req, res) {
 
   // 2. Bulk-fetch sales rows for those skus in the window. Pull both unit
   //    and pack rows so we can detect "all-PPK" styles AFTER aggregation.
-  //    Optional vendor_id filter narrows to lines purchased through one
-  //    vendor (when the operator wants comp for a specific factory).
-  let salesQuery = admin
+  //    NOTE: vendor_id filter is accepted for API parity with the caller but
+  //    intentionally NOT applied here — ip_sales_history_wholesale has no
+  //    vendor_id column (the operator's selected vendor lives in `vendors`,
+  //    the portal AR/AP table, which is unrelated to ip_vendor_master that
+  //    ip_item_master FKs to). Comp is by style + color; vendor scoping
+  //    would require a vendors->ip_vendor_master crosswalk that doesn't
+  //    exist yet. Silently ignored so the handler doesn't 500 the moment
+  //    the operator picks a winning quote.
+  void vendorIdFilter;
+  const salesQuery = admin
     .from("ip_sales_history_wholesale")
     .select("sku_id, qty, qty_grain, qty_units, net_amount, unit_cost_at_sale, margin_amount, margin_pct")
     .in("sku_id", allSkuIds)
     .gte("txn_date", from)
     .lte("txn_date", to)
     .range(0, 99999);
-  if (vendorIdFilter) salesQuery = salesQuery.eq("vendor_id", vendorIdFilter);
   const { data: salesRows, error: salesErr } = await salesQuery;
   if (salesErr) return res.status(500).json({ error: salesErr.message });
 
