@@ -247,8 +247,8 @@ export default function RfqEditView() {
                     <Th width={80}>Waist</Th>
                     <Th align="right" width={80}>Qty</Th>
                     <Th width={50}>UOM</Th>
-                    <Th align="right" width={90}>Target $</Th>
-                    <Th>Specifications</Th>
+                    <Th align="right" width={90}>Target Prc</Th>
+                    <Th>Comments</Th>
                   </tr>
                 </thead>
                 <tbody>
