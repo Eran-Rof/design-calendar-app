@@ -242,6 +242,7 @@ export interface RfqInvitation {
   vendors?: {
     id: string;
     code: string | null;
+    name: string | null;
     legal_name: string | null;
     country: string | null;
     default_currency: string | null;

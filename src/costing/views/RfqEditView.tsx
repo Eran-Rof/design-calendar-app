@@ -179,7 +179,7 @@ export default function RfqEditView() {
             background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
             fontSize: 12,
           }}>
-            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || "—"} />
+            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || "—"} />
             <ContextField label="Customer" value={customerName || "—"} />
             <ContextField label="Source project" value={project?.project_name || "—"} />
             <ContextField label="Lines" value={String(items.length)} />

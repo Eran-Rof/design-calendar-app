@@ -317,13 +317,16 @@ export interface CustomerHit {
   payment_terms: string | null;
 }
 
-/** Helper to extract a readable display name from a customer hit (name → company → code). */
+/** Helper to extract a readable display name from a customer hit (name → company → code).
+ *  The legacy Xoro export tags every code with an "EXCEL:" prefix (e.g. EXCEL:ROSSPROCUREMENT);
+ *  strip it for display so the picker shows clean names. */
 export function customerDisplayName(c: CustomerHit | null | undefined): string {
   if (!c) return "";
   const billing = c.billing_address;
   const name = typeof billing?.name === "string" ? billing.name : undefined;
   const company = typeof billing?.company === "string" ? billing.company : undefined;
-  return name || company || c.code || c.id;
+  const raw = name || company || c.code || c.id;
+  return typeof raw === "string" ? raw.replace(/^EXCEL:/i, "") : raw;
 }
 
 export async function searchCustomers(q: string, signal?: AbortSignal): Promise<CustomerHit[]> {
