@@ -1,0 +1,88 @@
+// api/_lib/brandContext.js
+//
+// P15 Brand Master — Chunk 2: brand/channel request context.
+//
+// The client's <BrandSwitcher>/<ChannelSwitcher> write a per-tab selection and
+// the fetch interceptor attaches it as `X-Brand-ID` / `X-Channel-ID` on every
+// /api/internal call (mirrors X-Entity-ID). This module reads + validates that
+// context and provides a silent-log observer for the dispatcher.
+//
+// SILENT-LOG (chunk 2): nothing filters yet. `brandObserve` only console.logs
+// that a request carried a brand/channel selection — telemetry for which report
+// routes are being viewed under a brand filter, so chunk 3 knows what to wire.
+// Gated on BRAND_SCOPE_MODE (default off = total no-op). The active WHERE
+// brand_id = $1 filtering arrives in chunk 3, per-report.
+//
+// Header-format validation only (no DB round-trip) — a bad/absent header means
+// "All brands" (no filter), which is always the safe default.
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readHeader(req, names) {
+  const h = (req && req.headers) || {};
+  for (const n of names) {
+    const v = h[n] ?? h[n.toLowerCase()];
+    if (v != null) {
+      const s = String(v).trim();
+      if (s.length > 0) return s;
+    }
+  }
+  return null;
+}
+
+/** Raw X-Brand-ID header (trimmed) or null. */
+export function readBrandHeader(req) {
+  return readHeader(req, ["x-brand-id", "X-Brand-ID", "x-tangerine-brand-id"]);
+}
+
+/** Raw X-Channel-ID header (trimmed) or null. */
+export function readChannelHeader(req) {
+  return readHeader(req, ["x-channel-id", "X-Channel-ID", "x-tangerine-channel-id"]);
+}
+
+/**
+ * Resolve the brand context for a request.
+ * @returns {{ brand_id: string|null, source: 'header'|'all' }}
+ *   brand_id = a valid uuid the caller selected, or null = "All brands".
+ *   A malformed header is treated as "all" (safe default, never an error).
+ */
+export function resolveBrandContext(req) {
+  const raw = readBrandHeader(req);
+  if (raw && UUID_RE.test(raw)) return { brand_id: raw, source: "header" };
+  return { brand_id: null, source: "all" };
+}
+
+/** Same shape for the channel axis. */
+export function resolveChannelContext(req) {
+  const raw = readChannelHeader(req);
+  if (raw && UUID_RE.test(raw)) return { channel_id: raw, source: "header" };
+  return { channel_id: null, source: "all" };
+}
+
+/** "off" (default) | "log" | "enforce". enforce is reserved for chunk 3+. */
+export function brandScopeMode() {
+  const m = String(process.env.BRAND_SCOPE_MODE || "off").toLowerCase();
+  return m === "log" || m === "enforce" ? m : "off";
+}
+
+/**
+ * Dispatcher hook — SILENT-LOG observability. No-op unless BRAND_SCOPE_MODE is
+ * set AND the request actually carries a brand/channel selection. Never throws,
+ * never blocks, never alters the response.
+ */
+export function brandObserve(req, pathname, method) {
+  try {
+    if (brandScopeMode() === "off") return;
+    const b = resolveBrandContext(req);
+    const c = resolveChannelContext(req);
+    if (!b.brand_id && !c.channel_id) return; // "All" on both → nothing to note
+    // eslint-disable-next-line no-console
+    console.log(
+      `[brand-scope log-only] ${String(method || "GET").toUpperCase()} ${pathname} ` +
+      `brand=${b.brand_id || "all"} channel=${c.channel_id || "all"} (not filtered — chunk 2)`,
+    );
+  } catch {
+    /* observability must never affect the request */
+  }
+}
