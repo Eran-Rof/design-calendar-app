@@ -75,6 +75,10 @@ const SEGMENT_MODULE = {
  */
 export function routePermissionFor(pathname, method) {
   if (typeof pathname !== "string" || !pathname.startsWith("/api/internal/")) return null;
+  // Self-read of one's OWN effective permissions (P14-4 menu hide). Must NOT be
+  // gated on users_access — a viewer has to read their own perms to hide their
+  // own menus. (It's a UX-only surface; the server still enforces every action.)
+  if (/^\/api\/internal\/users-access\/me\/?$/.test(pathname)) return null;
   const seg = pathname.slice("/api/internal/".length).split("/")[0];
   let module = SEGMENT_MODULE[seg];
   if (!module) return null;

@@ -67,6 +67,9 @@ import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 import InternalAuditLog                from "./tanda/InternalAuditLog";
 // P14-3b — RBAC User Access admin panel (🔐 Admin nav group).
 import InternalUserAccess              from "./tanda/InternalUserAccess";
+// P14-4 — client menu hide driven by the caller's effective permissions.
+import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
+import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -601,6 +604,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
   const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
   // hoveredKey: per-dropdown highlighted item, drives the row background.
   const [hoveredKey, setHoveredKey] = useState<ModuleKey | null>(null);
+  // P14-4 — hide nav items the caller lacks :read on. Inert (shows all) unless
+  // RBAC_MODE=enforce on the server; see useEffectivePermissions.
+  const { can } = useEffectivePermissions();
 
   // Hover-menu close debouncing. The absolute-positioned dropdown sits 4px
   // below the button — when the mouse traverses that gap on its way into
@@ -698,7 +704,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
 
       <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20 }}>
         {GROUP_ORDER.map((group) => {
-          const modules = MODULES.filter((m) => m.group === group);
+          const modules = MODULES.filter(
+            (m) => m.group === group && can(rbacModuleForTangerine(m.key), "read"),
+          );
           if (modules.length === 0) return null;
           const containsActive = modules.some((m) => m.key === activeModule);
           const isOpen = openGroup === group;
@@ -926,18 +934,21 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
 // Home landing — shown when no module is active. Module cards + apps shortcut.
 // ─────────────────────────────────────────────────────────────────────────────
 function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => void }) {
-  const masterModules = MODULES.filter((m) => m.group === "Master Data");
-  const acctModules = MODULES.filter((m) => m.group === "Accounting");
-  const crmModules = MODULES.filter((m) => m.group === "CRM");
-  const reportsModules = MODULES.filter((m) => m.group === "Reports");
-  const approvalsModules = MODULES.filter((m) => m.group === "Approvals");
-  const notifModules = MODULES.filter((m) => m.group === "Notifications");
-  const hrModules = MODULES.filter((m) => m.group === "HR");
-  const inventoryModules = MODULES.filter((m) => m.group === "Inventory");
-  const opsModules = MODULES.filter((m) => m.group === "Operations");
-  const csModules = MODULES.filter((m) => m.group === "Customer Service");
-  const marketplacesModules = MODULES.filter((m) => m.group === "Marketplaces");
-  const mirrorModules = MODULES.filter((m) => m.group === "Shadow Mirror");
+  // P14-4 — hide cards the caller lacks :read on. Inert unless RBAC_MODE=enforce.
+  const { can } = useEffectivePermissions();
+  const visibleModules = MODULES.filter((m) => can(rbacModuleForTangerine(m.key), "read"));
+  const masterModules = visibleModules.filter((m) => m.group === "Master Data");
+  const acctModules = visibleModules.filter((m) => m.group === "Accounting");
+  const crmModules = visibleModules.filter((m) => m.group === "CRM");
+  const reportsModules = visibleModules.filter((m) => m.group === "Reports");
+  const approvalsModules = visibleModules.filter((m) => m.group === "Approvals");
+  const notifModules = visibleModules.filter((m) => m.group === "Notifications");
+  const hrModules = visibleModules.filter((m) => m.group === "HR");
+  const inventoryModules = visibleModules.filter((m) => m.group === "Inventory");
+  const opsModules = visibleModules.filter((m) => m.group === "Operations");
+  const csModules = visibleModules.filter((m) => m.group === "Customer Service");
+  const marketplacesModules = visibleModules.filter((m) => m.group === "Marketplaces");
+  const mirrorModules = visibleModules.filter((m) => m.group === "Shadow Mirror");
 
   return (
     <div>

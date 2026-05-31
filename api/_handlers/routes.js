@@ -499,6 +499,9 @@ import h528 from "./internal/entities/[id]/coa-copy.js";
 //   h530 = PUT/DELETE /api/internal/users-access/override (per-cell grant/revoke)
 import h529 from "./internal/users-access/index.js";
 import h530 from "./internal/users-access/override.js";
+// P14-4 — caller's own effective permissions (ungated self-read for menu hide).
+//   h531 = GET /api/internal/users-access/me
+import h531 from "./internal/users-access/me.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -1203,6 +1206,7 @@ export const ROUTES = [
   { pattern: "/api/internal/fba/sync-settlements",                     handler: h462 },
   { pattern: "/api/cron/fba-settlements-weekly",                       handler: h463 },
   // P14-3b — RBAC admin surface. Override (more specific) before the matrix.
+  { pattern: "/api/internal/users-access/me",                          handler: h531 },
   { pattern: "/api/internal/users-access/override",                    handler: h530 },
   { pattern: "/api/internal/users-access",                             handler: h529 },
 ];

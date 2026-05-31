@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import SharedToast from "./shared/ui/Toast";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
+// P14-4 — client menu hide driven by the caller's effective permissions.
+import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
+import { rbacModuleForVendorView } from "./lib/rbacModuleMap";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
 import { useEmailOps } from "./tanda/hooks/useEmailOps";
 import { useTeamsOps } from "./tanda/hooks/useTeamsOps";
@@ -181,9 +184,18 @@ const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
 const VENDOR_MENU: MenuItem[] = VENDOR_MENU_GROUPS.flatMap((g) => g.items);
 
 function VendorsFlyout({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
-  const currentGroup = VENDOR_MENU_GROUPS.find((g) => g.items.some((i) => i.view === view))?.group;
-  const [hovered, setHovered] = useState<string | null>(currentGroup || VENDOR_MENU_GROUPS[0].group);
-  const active = VENDOR_MENU_GROUPS.find((g) => g.group === hovered) || VENDOR_MENU_GROUPS[0];
+  // P14-4 — hide menu items the caller lacks :read on (drop empty groups).
+  // Inert (shows all) unless RBAC_MODE=enforce on the server.
+  const { can } = useEffectivePermissions();
+  const groups = VENDOR_MENU_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((i) => can(rbacModuleForVendorView(i.view), "read")) }))
+    .filter((g) => g.items.length > 0);
+
+  const currentGroup = groups.find((g) => g.items.some((i) => i.view === view))?.group;
+  const [hovered, setHovered] = useState<string | null>(currentGroup || groups[0]?.group || null);
+  const active = groups.find((g) => g.group === hovered) || groups[0];
+
+  if (!active) return null;
 
   return (
     <div
@@ -195,7 +207,7 @@ function VendorsFlyout({ view, onSelect }: { view: View; onSelect: (v: View) => 
       }}
     >
       <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
-        {VENDOR_MENU_GROUPS.map((g) => {
+        {groups.map((g) => {
           const isActive = g.group === hovered;
           const hasSelected = g.items.some((i) => i.view === view);
           return (

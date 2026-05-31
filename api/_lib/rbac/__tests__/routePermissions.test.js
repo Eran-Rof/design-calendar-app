@@ -52,6 +52,14 @@ describe("routePermissionFor", () => {
     expect(routePermissionFor(null, "GET")).toBeNull();
   });
 
+  it("exempts the self-read /users-access/me endpoint (P14-4 menu hide)", () => {
+    // A viewer must read their OWN perms to hide their own menus, so /me is
+    // never gated on users_access. The admin matrix route still is.
+    expect(routePermissionFor("/api/internal/users-access/me", "GET")).toBeNull();
+    expect(routePermissionFor("/api/internal/users-access/me/", "GET")).toBeNull();
+    expect(routePermissionFor("/api/internal/users-access", "GET")).toEqual({ module: "users_access", action: "read" });
+  });
+
   it("only ever emits (module, action) pairs the module actually exposes", () => {
     for (const path of ["/api/internal/coa/x", "/api/internal/ap-payments/x/pay", "/api/internal/inventory-adjustments/x"]) {
       for (const method of ["GET", "POST", "PUT", "DELETE"]) {
