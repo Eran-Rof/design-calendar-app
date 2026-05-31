@@ -27,6 +27,6 @@ WHERE bcp.brand_id = b.id
 DELETE FROM inventory_partition
 WHERE code IN ('MPLEPIC-EC', 'MPLSUNSTONE-EC');
 
--- (The WHOLESALE → MPLEPIC-WS / MPLSUNSTONE-WS mappings + the -WS pools remain.)
+-- (Each MPL brand's wholesale channel mapping + its wholesale pool stay intact.)
 
 NOTIFY pgrst, 'reload schema';
