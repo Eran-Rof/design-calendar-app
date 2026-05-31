@@ -12,6 +12,15 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
+// The panel routes its confirm/alert through the canonical warn surface
+// (src/shared/ui/warn). In isolation there's no <WarnHost> to drive the modal,
+// so stub confirmDialog to auto-confirm and notify to a noop.
+vi.mock("../../shared/ui/warn", () => ({
+  notify: vi.fn(),
+  confirmDialog: vi.fn(() => Promise.resolve(true)),
+  WarnHost: () => null,
+}));
+
 import InternalMarketplaceStatus, {
   CHANNEL_LABEL,
   CHANNEL_EMOJI,
