@@ -62,6 +62,7 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 | ➕ **JWT identity bridge** (MS-OAuth → verifiable per-user token) | ✅ (live; `TANGERINE_JWT_SECRET` set) | #648 #652 |
 | ➕ **P15 Brand Master** (brand + channel axes, inventory partitions) | 🟡 C1 data + C2 switchers + C3a list filtering + C3b AR/AP aging brand-aware (gated) done; remaining: C4 Income-Statement filtering, stock-pool separation | #650–#664 |
 | ➕ **M50 GL Brand Allocation** (per-brand P&L accounts + %-allocation engine) | 🟡 arch signed off + **chunk A schema** (brand_account_allocations + gl_accounts brand_id/rollup + deferred 100% trigger) done. Remaining: B COA UI, C posting-engine split + override→update-rule, D Income-Statement + hide-account-# toggle. Allocation = JE+AP only (AR uses invoice brand). | #665 #666 |
+| ➕ **M51 Payroll Integration (Paycor)** | ⬜ arch (`payroll-paycor-integration-architecture.md`); **integrate, don't build** — Paycor = system-of-record (calc/withholding/e-filing/deposits/W-2); Tangerine posts the run to GL (dual-basis, `source='paycor'`) + reconciles bank draw + optional M50 labor allocation. ~2 chunks. Blocked on Paycor GL-export-vs-API access + pay-code→GL mapping. | #667 |
 
 ---
 
