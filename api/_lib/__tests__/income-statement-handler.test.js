@@ -2,7 +2,7 @@
 // Pure-JS — exercises validateQuery + isISODate without DB.
 
 import { describe, it, expect } from "vitest";
-import { validateQuery, isISODate } from "../../_handlers/internal/income-statement/index.js";
+import { validateQuery, isISODate, enrichWithBrandMeta } from "../../_handlers/internal/income-statement/index.js";
 
 function P(o) {
   const sp = new URLSearchParams();
@@ -129,5 +129,64 @@ describe("validateQuery", () => {
     const v = validateQuery(P({ basis: "ACCRUAL", from: "2026-01-01", to: "2026-06-30" }));
     expect(v.error).toBeUndefined();
     expect(Object.keys(v.data).sort()).toEqual(["basis", "from", "to"]);
+  });
+});
+
+// M50 D — brand-metadata enrichment for grouping + per-brand filter.
+// gl_accounts: 6000 is a brand-rollup parent; 6000-PT / 6000-WS are its children
+// (brands PT / WS); 7000 is a plain account with no brand.
+function brandMockAdmin() {
+  const accts = [
+    { id: "a6000",  code: "6000",    brand_id: null, brand_rollup: true,  parent_account_id: null },
+    { id: "a6000pt", code: "6000-PT", brand_id: "bPT", brand_rollup: false, parent_account_id: "a6000" },
+    { id: "a6000ws", code: "6000-WS", brand_id: "bWS", brand_rollup: false, parent_account_id: "a6000" },
+    { id: "a7000",  code: "7000",    brand_id: null, brand_rollup: false, parent_account_id: null },
+  ];
+  const brands = [
+    { id: "bPT", code: "PT", name: "ProTour", sort_order: 1, is_default: true },
+    { id: "bWS", code: "WS", name: "Wholesale", sort_order: 2, is_default: false },
+  ];
+  return {
+    from(table) {
+      const q = {
+        _t: table,
+        select() { return q; },
+        eq() { return q; },
+        order() { return q; },
+        then(resolve) {
+          if (q._t === "gl_accounts") return resolve({ data: accts });
+          if (q._t === "brand_master") return resolve({ data: brands });
+          return resolve({ data: [] });
+        },
+      };
+      return q;
+    },
+  };
+}
+
+describe("enrichWithBrandMeta (M50 D)", () => {
+  const rpcRows = [
+    { code: "6000",    name: "Marketing",      account_type: "expense", amount_cents: 0 },
+    { code: "6000-PT", name: "Marketing — ProTour",   account_type: "expense", amount_cents: 6000 },
+    { code: "6000-WS", name: "Marketing — Wholesale", account_type: "expense", amount_cents: 4000 },
+    { code: "7000",    name: "Office",         account_type: "expense", amount_cents: 1200 },
+  ];
+
+  it("tags brand-child rows with brand_id/name + parent_code, and flags the rollup parent", async () => {
+    const { rows, brands } = await enrichWithBrandMeta(brandMockAdmin(), "ent1", rpcRows);
+    const byCode = Object.fromEntries(rows.map((r) => [r.code, r]));
+    expect(byCode["6000"]).toMatchObject({ brand_rollup: true, is_brand_child: false, brand_id: null });
+    expect(byCode["6000-PT"]).toMatchObject({ is_brand_child: true, brand_id: "bPT", brand_name: "ProTour", parent_code: "6000" });
+    expect(byCode["6000-WS"]).toMatchObject({ is_brand_child: true, brand_id: "bWS", brand_name: "Wholesale", parent_code: "6000" });
+    expect(byCode["7000"]).toMatchObject({ brand_rollup: false, is_brand_child: false, brand_id: null, parent_code: null });
+    expect(brands).toHaveLength(2);
+    expect(brands[0]).toMatchObject({ id: "bPT", name: "ProTour", is_default: true });
+  });
+
+  it("passes rows through unchanged shape when no gl_accounts match (empty brands)", async () => {
+    const empty = { from: () => ({ select() { return this; }, eq() { return this; }, order() { return this; }, then(r) { return r({ data: [] }); } }) };
+    const { rows, brands } = await enrichWithBrandMeta(empty, "ent1", rpcRows);
+    expect(rows).toBe(rpcRows); // identical reference — true no-op
+    expect(brands).toEqual([]);
   });
 });
