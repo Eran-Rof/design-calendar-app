@@ -31,6 +31,7 @@ export default function CompliancePanel() {
   const addCompliance    = useCostingStore((s) => s.addCompliance);
   const updateCompliance = useCostingStore((s) => s.updateCompliance);
   const deleteCompliance = useCostingStore((s) => s.deleteCompliance);
+  const setSelectedLine  = useCostingStore((s) => s.setSelectedLine);
 
   const [newCode, setNewCode] = useState("");
   const [seeding, setSeeding] = useState(false);
@@ -67,6 +68,9 @@ export default function CompliancePanel() {
     if (next === "approved") patch.completed_at = new Date().toISOString();
     if (next === "required" || next === "na") patch.completed_at = null;
     updateCompliance(selectedLineId, row.id, patch);
+    // Auto-close the panel after a status pick — operator ask. They can
+    // re-open by clicking the row again. X button (header) also closes.
+    setSelectedLine(null);
   };
 
   const lineLabel = line.style_code || line.style_name || "(unnamed line)";
@@ -80,7 +84,7 @@ export default function CompliancePanel() {
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
           Compliance · {lineLabel}
         </h3>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {rows.length === 0 && (
             <button
               onClick={onSeedDefaults}
@@ -90,6 +94,16 @@ export default function CompliancePanel() {
               {seeding ? "Seeding…" : "+ Seed CPSIA / PROP65 / FLAMMABILITY / FIBER / COO"}
             </button>
           )}
+          <button
+            onClick={() => setSelectedLine(null)}
+            title="Close panel"
+            style={{
+              background: "transparent", color: "#94A3B8",
+              border: "1px solid #334155", borderRadius: 4,
+              width: 24, height: 24, padding: 0, cursor: "pointer",
+              fontSize: 14, lineHeight: "20px", fontWeight: 700,
+            }}
+          >×</button>
         </div>
       </div>
 
