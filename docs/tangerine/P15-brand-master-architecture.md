@@ -35,10 +35,12 @@ Transactional rows carry `brand_id` (+ `channel_id` where a channel applies). A 
 | `FORTKNOX` | Fort Knox | |
 | `BLUERISE` | Blue Rise | |
 | `AXECROWN` | Axe Crown | (two words) |
+| `MPLEPIC` | MPL Epic | Macy's private-label brand |
+| `MPLSUNSTONE` | MPL Sun & Stone | Macy's private-label brand |
 
-> **CEO 2026-05-31:** PLM (Private Label Macy's) is **not** a brand — dropped. **Six** brands total. Marketplace channels (FBA/Walmart/Faire) currently draw from each brand's **Ecom** pool; FBA gets its own pool later via a map edit (no schema change). PT shares one pool across all channels (no separate Ecom).
+> **CEO 2026-05-31:** PLM (Private Label Macy's) is **not** a brand — dropped. **Eight** brands total (added MPL Epic + MPL Sun & Stone, the Macy's private-label brands). Marketplace channels (FBA/Walmart/Faire) currently draw from each brand's **Ecom** pool; FBA gets its own pool later via a map edit (no schema change). PT shares one pool across all channels (no separate Ecom).
 
-All six share ROF's COA. They are **not** sub-entities (no separate tax IDs / fiscal years / COAs).
+All eight share ROF's COA. They are **not** sub-entities (no separate tax IDs / fiscal years / COAs).
 
 ### 1.2 Channels (seeded global, entity-agnostic)
 

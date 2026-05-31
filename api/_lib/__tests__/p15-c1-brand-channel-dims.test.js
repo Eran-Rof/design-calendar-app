@@ -34,13 +34,15 @@ describe("P15-C1 — brand/channel/partition dimensions", () => {
     expect(SQL).toMatch(/partition_id uuid NOT NULL REFERENCES inventory_partition\(id\)/);
   });
 
-  it("seeds exactly the 6 CEO-confirmed brands (PLM removed, Axe Crown present)", () => {
-    for (const code of ["'ROF'", "'PT'", "'DEPARTED'", "'FORTKNOX'", "'BLUERISE'", "'AXECROWN'"]) {
+  it("seeds the 8 CEO-confirmed brands (PLM removed; Axe Crown + 2 MPL brands present)", () => {
+    for (const code of ["'ROF'", "'PT'", "'DEPARTED'", "'FORTKNOX'", "'BLUERISE'", "'AXECROWN'", "'MPLEPIC'", "'MPLSUNSTONE'"]) {
       expect(SQL).toMatch(new RegExp(`\\(rof_entity_id\\(\\), ${code},`));
     }
     expect(SQL).toMatch(/'Axe Crown'/);
-    expect(SQL).not.toMatch(/'PLM'/);          // PLM dropped per CEO
-    expect(SQL).toMatch(/'ROF', 'Ring of Fire', true/); // ROF is the default
+    expect(SQL).toMatch(/'MPL Epic'/);
+    expect(SQL).toMatch(/'MPL Sun & Stone'/);
+    expect(SQL).not.toMatch(/'PLM'/);                   // PLM dropped per CEO
+    expect(SQL).toMatch(/'ROF', +'Ring of Fire', +true/); // ROF is the default
   });
 
   it("seeds the 5 channels", () => {
