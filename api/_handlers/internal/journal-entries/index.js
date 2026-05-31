@@ -14,6 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope } from "../../../_lib/brandContext.js";
+import { expandJeLines } from "../../../_lib/glAllocation.js";
 import {
   extractActorFromRequest,
   setAuditSessionVars,
@@ -142,6 +143,11 @@ export default async function handler(req, res) {
       );
     }
 
+    // M50 C — split any brand-rollup account line into its brand-child accounts
+    // by the allocation %. No-op unless BRAND_SCOPE_MODE=enforce. Stays balanced
+    // (each split foots to the original) so the RPC posts unchanged.
+    const postLines = await expandJeLines(admin, v.data.lines);
+
     // Build the payload(s) — BOTH expands to two RPC calls; single-basis is one.
     const bases = v.data.basis === "BOTH" ? ["ACCRUAL", "CASH"] : [v.data.basis];
     const journalType = v.data.journal_type || "manual";
@@ -158,7 +164,7 @@ export default async function handler(req, res) {
       description,
       sibling_je_id: null,
       created_by_user_id: null,
-      lines: v.data.lines,
+      lines: postLines,
     });
 
     const jeIds = [];
