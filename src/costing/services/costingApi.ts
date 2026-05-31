@@ -371,6 +371,53 @@ export async function addVendor(name: string, opts?: { code?: string; country?: 
   }));
 }
 
+// ── Freeform color/vendor masters (auto-pruned against canonical sources) ──
+//
+// Returns the operator-managed extras lists (server already drops anything
+// that has since appeared in ip_item_master.color / ip_vendor_master /
+// vendors). Backed by h527.
+
+export type FreeformKind = "colors" | "vendors";
+
+export interface FreeformMasters {
+  colors: string[];
+  vendors: string[];
+}
+
+export async function getFreeformMasters(): Promise<FreeformMasters> {
+  return json<FreeformMasters>(await fetch(`/api/internal/costing/masters/freeform`));
+}
+
+export async function addFreeformMaster(kind: FreeformKind, name: string): Promise<string[]> {
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, name }),
+    }),
+  );
+  return r.list;
+}
+
+export async function renameFreeformMaster(kind: FreeformKind, oldName: string, newName: string): Promise<string[]> {
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, oldName, newName }),
+    }),
+  );
+  return r.list;
+}
+
+export async function deleteFreeformMaster(kind: FreeformKind, name: string): Promise<string[]> {
+  const sp = new URLSearchParams({ kind, name });
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform?${sp.toString()}`, { method: "DELETE" }),
+  );
+  return r.list;
+}
+
 // ── Style → SKU / target-cost seed helper ───────────────────────────────────
 //
 // Given a style code, returns a representative SKU + its avg cost (from
