@@ -53,7 +53,12 @@ const SEGMENT_MODULE = {
   "workflow-rules": "workflows", "workflow-executions": "workflows",
   "approval-requests": "workflows", "approval-rules": "workflows",
   "notifications": "notifications",
-  "users": "users_access",
+  // RBAC admin surface (matrix + role/override writes). NOTE: the bare "users"
+  // segment is the PERSONALIZATION surface (/users/me/preferences, favorites,
+  // entity-switch) — every signed-in user manages their OWN prefs, so it is
+  // intentionally UNMAPPED (not gated). Only the distinct "users-access" admin
+  // route requires the users_access permission.
+  "users-access": "users_access",
   "audit": "audit_log",
   "analytics": "analytics", "insights": "analytics", "scorecards": "analytics",
   "compliance": "compliance", "sustainability": "compliance",

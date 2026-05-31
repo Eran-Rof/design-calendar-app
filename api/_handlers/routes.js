@@ -494,6 +494,12 @@ import h474 from "../cron/faire-returns-weekly.js";
 //   h475 on rebase — h475 is costing/projects on main).
 import h528 from "./internal/entities/[id]/coa-copy.js";
 
+// P14-3b — RBAC admin surface (matrix + role assignment + per-cell override).
+//   h529 = GET/PUT /api/internal/users-access          (matrix + set role)
+//   h530 = PUT/DELETE /api/internal/users-access/override (per-cell grant/revoke)
+import h529 from "./internal/users-access/index.js";
+import h530 from "./internal/users-access/override.js";
+
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
 //   h486 = GET /api/internal/audit/log         (full filtered ledger for admin panel)
@@ -1196,6 +1202,9 @@ export const ROUTES = [
   // P12a-4 — Amazon FBA settlement reconciliation (weekly).
   { pattern: "/api/internal/fba/sync-settlements",                     handler: h462 },
   { pattern: "/api/cron/fba-settlements-weekly",                       handler: h463 },
+  // P14-3b — RBAC admin surface. Override (more specific) before the matrix.
+  { pattern: "/api/internal/users-access/override",                    handler: h530 },
+  { pattern: "/api/internal/users-access",                             handler: h529 },
 ];
 
 export function compileRoutes(routes) {
