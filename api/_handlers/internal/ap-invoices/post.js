@@ -24,6 +24,7 @@ import { createClient } from "@supabase/supabase-js";
 import { requestIfRequired, ApprovalsError } from "../../../_lib/approvals/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
+import { expandApExpenseLines } from "../../../_lib/glAllocation.js";
 
 export const config = { maxDuration: 30 };
 
@@ -104,13 +105,19 @@ async function buildPostingEventData(admin, entityId, invoice, lines) {
     };
   });
 
+  // M50 C-2: split expense lines targeting a brand-rollup account into per-brand
+  // child lines (gated on BRAND_SCOPE_MODE=enforce; no-op otherwise). Inventory
+  // lines pass through untouched. The rule re-sums the debits into the CR AP
+  // line, so the bill stays balanced.
+  const expandedLines = await expandApExpenseLines(admin, ruleLines);
+
   return {
     invoice_id: invoice.id,
     vendor_id: invoice.vendor_id,
     invoice_number: invoice.invoice_number,
     invoice_date: invoice.posting_date,
     ap_account_id: apAccountId,
-    lines: ruleLines,
+    lines: expandedLines,
   };
 }
 
