@@ -1,11 +1,12 @@
 -- Fix: income_statement() threw "division by zero" on every run.
 --
 -- The original (P5-3) guarded the basis parameter with a SQL CASE whose ELSE
--- branch was `(1/0)::text`, intended to "fail loudly" only when p_basis was
--- neither ACCRUAL nor CASH. But `1/0` is a *constant* subexpression, and
--- PostgreSQL folds constant subexpressions during planning — so the division
--- was evaluated (and raised "division by zero") regardless of the basis value,
--- breaking the Income Statement panel for valid ACCRUAL/CASH requests too.
+-- branch divided one by zero as a constant, intended to "fail loudly" only when
+-- p_basis was neither ACCRUAL nor CASH. But that divisor is a *constant*
+-- subexpression, and PostgreSQL folds constant subexpressions during planning —
+-- so the division was evaluated (and raised "division by zero") regardless of
+-- the basis value, breaking the Income Statement panel for valid ACCRUAL/CASH
+-- requests too.
 --
 -- Rewrite as a plpgsql function that validates p_basis with an explicit
 -- RAISE EXCEPTION (the loud-failure intent, without the constant-folding
@@ -65,4 +66,4 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 COMMENT ON FUNCTION income_statement(uuid, text, date, date) IS
-  'Tangerine P5-3 / M6 — parameterized Income Statement. Returns per-account net amounts for posted JEs within [p_from_date, p_to_date]. STABLE. p_basis must be ACCRUAL or CASH (RAISEs invalid_parameter_value otherwise). Rewritten from SQL→plpgsql to remove a constant (1/0) basis-guard that PostgreSQL folded at plan time and threw division-by-zero on every call. Arch §5.2.';
+  'Tangerine P5-3 / M6 — parameterized Income Statement. Returns per-account net amounts for posted JEs within [p_from_date, p_to_date]. STABLE. p_basis must be ACCRUAL or CASH (RAISEs invalid_parameter_value otherwise). Rewritten from SQL→plpgsql to remove a constant divide-by-zero basis-guard that PostgreSQL folded at plan time and threw division-by-zero on every call. Arch §5.2.';
