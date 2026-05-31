@@ -69,8 +69,19 @@ BEGIN
       'ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS brand_id uuid REFERENCES brand_master(id) ON DELETE RESTRICT', t);
     EXECUTE format(
       'ALTER TABLE public.%I ALTER COLUMN brand_id SET DEFAULT rof_default_brand_id()', t);
-    EXECUTE format(
-      'UPDATE public.%I SET brand_id = rof_default_brand_id() WHERE brand_id IS NULL', t);
+    -- Backfill existing NULL rows to the ROF default brand. Some tables guard
+    -- historical rows with an immutability trigger (e.g. journal_entries /
+    -- journal_entry_lines for posted JEs raise P0001 on any UPDATE). Brand on
+    -- those legacy rows isn't needed — M50 allocation is forward-only and gated,
+    -- and reporting keys off the child account's brand_id, not the line's. So a
+    -- blocked backfill is skipped (column + default + index still apply, so NEW
+    -- inserts auto-tag correctly).
+    BEGIN
+      EXECUTE format(
+        'UPDATE public.%I SET brand_id = rof_default_brand_id() WHERE brand_id IS NULL', t);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'P15 brand_id: backfill skipped for % (%); column + default still applied', t, SQLERRM;
+    END;
     EXECUTE format(
       'CREATE INDEX IF NOT EXISTS %I ON public.%I (brand_id)', 'idx_' || t || '_brand', t);
   END LOOP;

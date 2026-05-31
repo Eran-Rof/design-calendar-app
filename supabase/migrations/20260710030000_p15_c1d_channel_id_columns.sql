@@ -61,8 +61,15 @@ BEGIN
       'ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS channel_id uuid REFERENCES channel_master(id) ON DELETE RESTRICT', t);
     EXECUTE format(
       'ALTER TABLE public.%I ALTER COLUMN channel_id SET DEFAULT channel_id_by_code(%L)', t, code);
-    EXECUTE format(
-      'UPDATE public.%I SET channel_id = channel_id_by_code(%L) WHERE channel_id IS NULL', t, code);
+    -- Backfill NULL rows; skip gracefully if a table guards historical rows with
+    -- an immutability trigger (e.g. posted ar_invoice_lines). Column + default +
+    -- index still apply so NEW inserts auto-tag.
+    BEGIN
+      EXECUTE format(
+        'UPDATE public.%I SET channel_id = channel_id_by_code(%L) WHERE channel_id IS NULL', t, code);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'P15 channel_id: backfill skipped for % (%); column + default still applied', t, SQLERRM;
+    END;
     EXECUTE format(
       'CREATE INDEX IF NOT EXISTS %I ON public.%I (channel_id)', 'idx_' || t || '_channel', t);
   END LOOP;
