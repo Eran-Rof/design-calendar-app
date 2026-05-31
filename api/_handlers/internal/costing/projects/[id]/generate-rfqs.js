@@ -205,10 +205,12 @@ export default async function handler(req, res) {
       ].filter(Boolean);
       const descriptionMain = ln.description || ln.style_name || "(no description)";
       const description = parts.length > 0 ? `${parts.join(" · ")} — ${descriptionMain}` : descriptionMain;
+      // Target cost is its own column (target_price) now; don't duplicate it
+      // in the comments text. Keep comment + remarks merged here since both
+      // are freeform notes from the costing line.
       const specsParts = [
         ln.comment ? `Comment: ${ln.comment}` : null,
         ln.remarks ? `Remarks: ${ln.remarks}` : null,
-        typeof ln.target_cost === "number" ? `Target cost: $${ln.target_cost.toFixed(2)}` : null,
       ].filter(Boolean);
       return {
         rfq_id: rfq.id,
