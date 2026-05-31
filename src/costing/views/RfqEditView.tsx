@@ -130,9 +130,14 @@ export default function RfqEditView() {
 
   const project = detail?.source_project;
   const customer = project?.customer;
-  const customerName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof (customer.billing_address as Record<string, unknown>).name === "string")
+  const rawCustomerName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof (customer.billing_address as Record<string, unknown>).name === "string")
     ? (customer.billing_address as Record<string, string>).name
     : customer?.code || null;
+  // Strip the legacy Xoro "EXCEL:" prefix so the header strip chip matches
+  // the customer picker (PR #640) and ProjectListView (PR #640). Same
+  // pattern as stripExcelPrefix from src/costing/services/costingApi.ts;
+  // inlined here to avoid widening the import in this small fix.
+  const customerName = rawCustomerName ? rawCustomerName.replace(/^EXCEL:/i, "") : null;
   const invitations = detail?.invitations || [];
   const items = detail?.line_items || [];
 
