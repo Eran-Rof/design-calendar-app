@@ -49,8 +49,11 @@ describe("P15-C1e — ip_item_avg_cost brand mapping", () => {
     expect(SQL).toMatch(/SET brand_id = rof_default_brand_id\(\)/);
   });
 
-  it("keeps brand_name (no DROP) + does not add partition_id here", () => {
+  it("keeps brand_name (no DROP) + does not add a partition_id COLUMN here", () => {
     expect(SQL).not.toMatch(/DROP COLUMN brand_name/);
-    expect(SQL).not.toMatch(/partition_id/);
+    // No partition_id COLUMN is added (avg cost is per-(sku,brand)). The
+    // brand_channel_partition seed for PL/ROHM legitimately references
+    // partition_id, so we only forbid an ADD COLUMN of it.
+    expect(SQL).not.toMatch(/ADD COLUMN[^;]*partition_id/);
   });
 });
