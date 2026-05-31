@@ -90,3 +90,22 @@ Each chunk = one PR, gated/inert where it changes posting behavior (no live doub
 2. **Existing balances** on a newly-split account: leave historical postings on the parent (consolidated) and only split NEW postings going forward? (Proposed — no retro-split of posted history.)
 3. **AR/AP interplay:** revenue/COGS on AR invoices already carry `brand_id` (single brand per invoice line). Do invoice-driven P&L postings use the **invoice's brand directly** (bypassing the account allocation), and the allocation rule applies only to **manually-posted / shared** entries (rent, G&A)? (Proposed — invoice brand wins when known; allocation rule is the fallback for shared costs.)
 4. **Account code collisions:** `{code}-{BRAND}` must be unique — confirm the brand-code suffix set (ROF/PT/DEPARTED/FORTKNOX/BLUERISE/AXECROWN/MPLEPIC/MPLSUNSTONE/PL/ROHM) is fine in account numbers.
+
+---
+
+## 10. Resolved (CEO sign-off 2026-05-31) — these supersede the §9 proposals
+
+1. **Penny-rounding → largest-share brand.** ✅ Confirmed.
+2. **No retro-split of posted history.** ✅ Only new postings split; old balances stay on the consolidated parent.
+3. **Allocation applies to manual JE + AP-invoice expense postings — NOT AR.** Revenue/COGS on **AR** invoices use the **invoice's own brand directly** (no allocation). **AP invoices**: the user selects **one expense account** (or it **auto-populates per vendor**), and the app fans the expense out across brands per that account's allocation rule, **with inline override**. Manual JEs behave the same.
+4. **Long brand codes are fine** in account numbers (`6000-MPLSUNSTONE`).
+
+### Override → update-the-rule prompt (chunk C)
+When a user edits the allocation split **inside an AP invoice or JE body**, show a warning + **"Apply this as the new allocation rule for future postings? (Yes / No)"**. **Yes** → update the account's `brand_account_allocations` to the new distribution (audited); **No** → the override applies to this entry only. Same flow for AP invoices and JEs.
+
+### Workflow goal
+**The user picks one expense account; the app does the rest** — auto-populates the per-vendor default account, applies the allocation rule, splits the posting, and lets them override + optionally promote the override to the standing rule.
+
+## 11. Reporting display option (CEO 2026-05-31)
+
+P&L **and** Balance Sheet reports get a **"hide account numbers" toggle** — render account labels without the leading code (e.g. "Marketing" instead of "6000 — Marketing"; subtotal "Marketing Total"). Per-user preference (persisted via the table-prefs convention). Implemented with the IS rendering in chunk D + the BS report panel.
