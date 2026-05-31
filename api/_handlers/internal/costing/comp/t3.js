@@ -23,6 +23,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { fetchOpenSoComp } from "./_open-so-helper.js";
+import { todayIsoUTC } from "./_today.js";
 
 export const config = { maxDuration: 30 };
 
@@ -114,15 +116,19 @@ export default async function handler(req, res) {
     return res.status(200).json(out);
   }
 
-  // 2. Bulk-fetch sales rows for those skus in the window (optional vendor filter).
-  let salesQuery = admin
+  // 2. Bulk-fetch sales rows for those skus in the window.
+  //    vendor_id filter accepted for API parity but NOT applied —
+  //    ip_sales_history_wholesale has no vendor_id column, and the operator's
+  //    selected vendor lives in `vendors` (portal table) with no crosswalk to
+  //    ip_vendor_master. See ly.js for the full rationale.
+  void vendorIdFilter;
+  const salesQuery = admin
     .from("ip_sales_history_wholesale")
     .select("sku_id, qty, qty_grain, qty_units, net_amount, unit_cost_at_sale, margin_amount, margin_pct")
     .in("sku_id", allSkuIds)
     .gte("txn_date", from)
     .lte("txn_date", to)
     .range(0, 99999);
-  if (vendorIdFilter) salesQuery = salesQuery.eq("vendor_id", vendorIdFilter);
   const { data: salesRows, error: salesErr } = await salesQuery;
   if (salesErr) return res.status(500).json({ error: salesErr.message });
 
@@ -161,6 +167,32 @@ export default async function handler(req, res) {
     if (net != null && net > 0) {
       slot.netSum += net;
       if (marginPct != null) slot.marginPctNum += net * marginPct;
+    }
+  }
+
+  // Forward-looking SO addition (same logic as /comp/ly). When the
+  // selected period extends to/past today, fold open SOs into the
+  // per-style aggregates so the operator sees projected sales.
+  if (to >= todayIsoUTC()) {
+    try {
+      const soBySku = await fetchOpenSoComp(admin, allSkuIds, from, to);
+      for (const [skuId, soSlot] of soBySku.entries()) {
+        const sc = skuIdToStyle.get(skuId);
+        if (!sc) continue;
+        const slot = agg.get(sc);
+        if (!slot) continue;
+        slot.sawAnyRow = true;
+        slot.sawUnitRow = true;
+        slot.qty += soSlot.qty;
+        slot.txnCount += soSlot.txnCount;
+        slot.costSum += soSlot.costSum;
+        slot.netSum += soSlot.netSum;
+        slot.marginPctNum += soSlot.marginPctNum;
+        slot.marginSum += soSlot.netSum - soSlot.costSum;
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(`[costing/comp/t3] open-SO fold failed: ${e.message}`);
     }
   }
 
