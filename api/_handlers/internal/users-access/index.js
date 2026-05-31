@@ -71,9 +71,10 @@ export default async function handler(req, res) {
   if (!entityId) return res.status(404).json({ error: "Entity not found" });
 
   if (req.method === "GET") {
-    const [mods, roles, eur, eusers, overrides, eff, emails] = await Promise.all([
+    const [mods, roles, rolePerms, eur, eusers, overrides, eff, emails] = await Promise.all([
       admin.from("module_keys").select("key,display_name,group_name,sort_order,available_actions").order("sort_order"),
       admin.from("roles").select("id,name,description,is_seed").order("name"),
+      admin.from("role_permissions").select("role_id,module_key,action").eq("allowed", true),
       admin.from("entity_user_roles").select("user_id,role_id").eq("entity_id", entityId),
       admin.from("entity_users").select("auth_id,role").eq("entity_id", entityId),
       admin.from("entity_user_role_overrides").select("user_id,module_key,action,allowed,reason").eq("entity_id", entityId),
@@ -81,7 +82,7 @@ export default async function handler(req, res) {
       loadEmailMap(admin),
     ]);
 
-    const firstErr = [mods, roles, eur, eusers, overrides, eff].find((r) => r.error);
+    const firstErr = [mods, roles, rolePerms, eur, eusers, overrides, eff].find((r) => r.error);
     if (firstErr) return res.status(500).json({ error: firstErr.error.message });
 
     const roleById = new Map((roles.data || []).map((r) => [r.id, r]));
@@ -117,10 +118,19 @@ export default async function handler(req, res) {
       };
     }).sort((a, b) => (a.email || "").localeCompare(b.email || ""));
 
+    // role_permissions grouped by role → lets the UI distinguish a role-default
+    // cell from an explicit per-user override (and clear an override by toggling
+    // a cell back to its role default).
+    const roleGrants = {};
+    for (const rp of rolePerms.data || []) {
+      (roleGrants[rp.role_id] ||= []).push(`${rp.module_key}:${rp.action}`);
+    }
+
     return res.status(200).json({
       entity_id: entityId,
       modules: mods.data || [],
       roles: roles.data || [],
+      role_grants: roleGrants,
       users,
     });
   }

@@ -65,6 +65,8 @@ import InternalShopifyRefunds         from "./tanda/InternalShopifyRefunds";
 import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit nav group).
 import InternalAuditLog                from "./tanda/InternalAuditLog";
+// P14-3b — RBAC User Access admin panel (🔐 Admin nav group).
+import InternalUserAccess              from "./tanda/InternalUserAccess";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -153,9 +155,11 @@ type ModuleKey =
   | "audit_log"
   | "sales_reps"
   | "commission_accruals"
-  | "commission_payouts";
+  | "commission_payouts"
+  // P14-3b — RBAC User Access admin panel (🔐 Admin).
+  | "user_access";
 
-type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit";
+type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -169,7 +173,7 @@ type ModuleDef = {
 // "invoice posts → check pipeline → log activity" so it follows Accounting and
 // precedes the cross-functional Reports group.
 const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Marketplaces", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations", "Audit",
+  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Marketplaces", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations", "Audit", "Admin",
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
@@ -260,6 +264,8 @@ const MODULES: ModuleDef[] = [
   { key: "marketplace_status",  label: "Marketplace Status",emoji: "🛒", group: "Marketplaces" },
   // Cross-cutter T11-3 — Universal audit log admin panel (operator-facing row_changes browser).
   { key: "audit_log",           label: "Audit Log",         emoji: "🕒", group: "Audit" },
+  // P14-3b — RBAC User Access (role matrix + per-cell overrides).
+  { key: "user_access",         label: "User Access",       emoji: "🔐", group: "Admin" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -465,6 +471,8 @@ export default function Tangerine() {
         {activeModule === "sales_reps"            && <InternalSalesReps />}
         {activeModule === "commission_accruals"   && <InternalCommissionAccruals />}
         {activeModule === "commission_payouts"    && <InternalCommissionPayouts />}
+        {/* P14-3b — RBAC User Access admin panel */}
+        {activeModule === "user_access"            && <InternalUserAccess />}
       </main>
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
