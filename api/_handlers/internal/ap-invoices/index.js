@@ -28,6 +28,7 @@
 // Tangerine P3 Chunk 2 (M3 Accounts Payable admin UI + handlers).
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -114,6 +115,9 @@ export default async function handler(req, res) {
       .order("posting_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
+
+    // P15 C3 — brand scoping (no-op unless BRAND_SCOPE_MODE=enforce + a brand selected).
+    query = applyBrandScope(query, req);
 
     if (status) {
       query = query.eq("gl_status", status);

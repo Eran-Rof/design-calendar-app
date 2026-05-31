@@ -4,7 +4,15 @@ import {
   readBrandHeader, readChannelHeader,
   resolveBrandContext, resolveChannelContext,
   brandScopeMode, brandObserve,
+  applyBrandScope, applyChannelScope,
 } from "../brandContext.js";
+
+// Minimal supabase-query stub: records .eq() calls.
+function fakeQuery() {
+  const calls = [];
+  const q = { calls, eq(col, val) { calls.push([col, val]); return q; } };
+  return q;
+}
 
 const UUID = "11111111-1111-1111-1111-111111111111";
 
@@ -59,5 +67,48 @@ describe("brandObserve — silent, never throws", () => {
   it("never throws on a malformed request", () => {
     process.env.BRAND_SCOPE_MODE = "log";
     expect(() => brandObserve(null, undefined, undefined)).not.toThrow();
+  });
+});
+
+describe("applyBrandScope / applyChannelScope — gated active filtering", () => {
+  afterEach(() => { delete process.env.BRAND_SCOPE_MODE; });
+  const reqWith = { headers: { "x-brand-id": UUID, "x-channel-id": UUID } };
+
+  it("is a NO-OP when mode is off (default) — query untouched", () => {
+    delete process.env.BRAND_SCOPE_MODE;
+    const q = fakeQuery();
+    expect(applyBrandScope(q, reqWith)).toBe(q);
+    expect(applyChannelScope(q, reqWith)).toBe(q);
+    expect(q.calls).toEqual([]);
+  });
+
+  it("is a NO-OP in log mode (only enforce filters)", () => {
+    process.env.BRAND_SCOPE_MODE = "log";
+    const q = fakeQuery();
+    applyBrandScope(q, reqWith);
+    expect(q.calls).toEqual([]);
+  });
+
+  it("adds .eq(brand_id) / .eq(channel_id) when enforcing + selected", () => {
+    process.env.BRAND_SCOPE_MODE = "enforce";
+    const q = fakeQuery();
+    applyBrandScope(q, reqWith);
+    applyChannelScope(q, reqWith);
+    expect(q.calls).toEqual([["brand_id", UUID], ["channel_id", UUID]]);
+  });
+
+  it("does NOT filter when enforcing but 'All' is selected (no header)", () => {
+    process.env.BRAND_SCOPE_MODE = "enforce";
+    const q = fakeQuery();
+    applyBrandScope(q, { headers: {} });
+    applyChannelScope(q, { headers: {} });
+    expect(q.calls).toEqual([]);
+  });
+
+  it("honours a custom column name", () => {
+    process.env.BRAND_SCOPE_MODE = "enforce";
+    const q = fakeQuery();
+    applyBrandScope(q, reqWith, "b_id");
+    expect(q.calls).toEqual([["b_id", UUID]]);
   });
 });

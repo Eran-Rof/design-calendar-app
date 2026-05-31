@@ -29,6 +29,7 @@
 // Tangerine P4 Chunk 4 (M4 Accounts Receivable admin UI + handlers).
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope, applyChannelScope } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -113,6 +114,11 @@ export default async function handler(req, res) {
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
+
+    // P15 C3 — brand/channel scoping. No-op unless BRAND_SCOPE_MODE=enforce AND
+    // a specific brand/channel is selected (else returns the query unchanged).
+    query = applyBrandScope(query, req);
+    query = applyChannelScope(query, req);
 
     if (status) {
       query = query.eq("gl_status", status);
