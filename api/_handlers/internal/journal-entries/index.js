@@ -13,6 +13,7 @@
 // Tangerine P1 Chunk 8c. Wraps Chunk 3's posting service from the accountant UI.
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope } from "../../../_lib/brandContext.js";
 import {
   extractActorFromRequest,
   setAuditSessionVars,
@@ -81,6 +82,9 @@ export default async function handler(req, res) {
       .order("posting_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
+
+    // P15 C3 — brand scoping (no-op unless BRAND_SCOPE_MODE=enforce + a brand selected).
+    query = applyBrandScope(query, req);
 
     if (!includeDrafts) query = query.eq("status", "posted");
     if (periodId)       query = query.eq("period_id", periodId);

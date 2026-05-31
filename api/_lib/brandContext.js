@@ -86,3 +86,28 @@ export function brandObserve(req, pathname, method) {
     /* observability must never affect the request */
   }
 }
+
+// ─── Chunk 3: ACTIVE filtering (gated on BRAND_SCOPE_MODE=enforce) ────────────
+//
+// applyBrandScope / applyChannelScope take a supabase-js query builder and add
+// `.eq(col, id)` when (a) BRAND_SCOPE_MODE === "enforce" AND (b) the request
+// carries a specific brand/channel selection. Otherwise the query is returned
+// UNCHANGED — so with the mode off (default) or "All" selected, behavior is
+// identical to today. This is the single place reports opt into brand scoping:
+//   let q = admin.from("ar_invoices").select(...).eq("entity_id", e);
+//   q = applyBrandScope(q, req);
+//   q = applyChannelScope(q, req);
+
+/** Add a brand_id filter when enforcing + a brand is selected. Else unchanged. */
+export function applyBrandScope(query, req, col = "brand_id") {
+  if (brandScopeMode() !== "enforce") return query;
+  const { brand_id } = resolveBrandContext(req);
+  return brand_id ? query.eq(col, brand_id) : query;
+}
+
+/** Add a channel_id filter when enforcing + a channel is selected. Else unchanged. */
+export function applyChannelScope(query, req, col = "channel_id") {
+  if (brandScopeMode() !== "enforce") return query;
+  const { channel_id } = resolveChannelContext(req);
+  return channel_id ? query.eq(col, channel_id) : query;
+}

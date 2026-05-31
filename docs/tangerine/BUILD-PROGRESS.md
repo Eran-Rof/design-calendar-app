@@ -60,7 +60,7 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 |---|---|---|
 | ➕ **P14 RBAC** (per-module × per-action permissions, `RBAC_MODE` off→log→enforce) | ✅ | #630 #632 #634 #645 #646 #647 |
 | ➕ **JWT identity bridge** (MS-OAuth → verifiable per-user token) | ✅ (live; `TANGERINE_JWT_SECRET` set) | #648 #652 |
-| ➕ **P15 Brand Master** (brand + channel axes, inventory partitions) | 🟡 data foundation + switchers done (C1–C2); report filtering (C3/C4) + stock-pool separation pending | #650–#660 |
+| ➕ **P15 Brand Master** (brand + channel axes, inventory partitions) | 🟡 C1 data + C2 switchers + **C3a list filtering** (`applyBrandScope`, gated on `BRAND_SCOPE_MODE=enforce`) done; remaining: C3b aging/statement-view filtering, C4 required-tagging, stock-pool separation | #650–#662 |
 
 ---
 
