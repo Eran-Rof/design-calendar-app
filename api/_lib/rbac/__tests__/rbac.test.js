@@ -19,7 +19,14 @@ vi.mock("@supabase/supabase-js", () => ({
   },
 }));
 
-import { rbacMode, isAllowed, loadEffectivePermissions, rbacObserve } from "../index.js";
+import { rbacMode, isAllowed, loadEffectivePermissions, rbacObserve, rbacEnforce } from "../index.js";
+
+function fakeRes() {
+  const r = { statusCode: null, body: null, headersSent: false };
+  r.status = (c) => { r.statusCode = c; return r; };
+  r.json = (b) => { r.body = b; r.headersSent = true; return r; };
+  return r;
+}
 
 describe("rbac core", () => {
   beforeEach(() => {
@@ -90,5 +97,63 @@ describe("rbac core", () => {
     // throwing deps must be swallowed
     authResult = null;
     await expect(rbacObserve({ headers: {} }, "/api/internal/coa", "POST")).resolves.toBeUndefined();
+  });
+});
+
+describe("rbacEnforce (chunk 3 reject path)", () => {
+  beforeEach(() => {
+    effRows = [];
+    authResult = { ok: true, status: 200, error: null, authId: "user-1" };
+    entityResult = { entity_id: "ent-1", source: "default", header_value: null, row_count: 1 };
+    process.env.SUPABASE_URL = "https://x.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "svc";
+    process.env.RBAC_MODE = "enforce";
+    vi.restoreAllMocks();
+  });
+  afterEach(() => { delete process.env.RBAC_MODE; });
+
+  // Signature: rbacEnforce(req, res, pathname, method)
+  const REQ = { headers: { authorization: "Bearer j" } };
+
+  it("returns false (allows) when RBAC_MODE is not enforce", async () => {
+    process.env.RBAC_MODE = "log";
+    const res = fakeRes();
+    expect(await rbacEnforce(REQ, res, "/api/internal/coa", "POST")).toBe(false);
+    expect(res.statusCode).toBeNull();
+  });
+
+  it("rejects with 403 permission_denied when an authenticated caller lacks the permission", async () => {
+    effRows = [{ module_key: "coa", action: "read" }]; // no write
+    const res = fakeRes();
+    const rejected = await rbacEnforce(REQ, res, "/api/internal/coa", "POST");
+    expect(rejected).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ error: "permission_denied", module: "coa", action: "write" });
+  });
+
+  it("allows (false) when the caller HAS the permission", async () => {
+    effRows = [{ module_key: "coa", action: "write" }];
+    const res = fakeRes();
+    expect(await rbacEnforce(REQ, res, "/api/internal/coa", "POST")).toBe(false);
+    expect(res.statusCode).toBeNull();
+  });
+
+  it("does NOT block the anon-key surface (no bearer → pass)", async () => {
+    authResult = { ok: false, status: 401, error: "no jwt", authId: null };
+    const res = fakeRes();
+    expect(await rbacEnforce({ headers: {} }, res, "/api/internal/coa", "POST")).toBe(false);
+    expect(res.statusCode).toBeNull();
+  });
+
+  it("does not gate unmapped routes (vendor/cron/public)", async () => {
+    const res = fakeRes();
+    expect(await rbacEnforce(REQ, res, "/api/cron/x", "GET")).toBe(false);
+  });
+
+  it("passes (never blocks) on degenerate auth — the try/catch also fails open", async () => {
+    authResult = null; // authenticateCaller returns a falsy result
+    const res = fakeRes();
+    expect(await rbacEnforce({ headers: {} }, res, "/api/internal/coa", "POST")).toBe(false);
+    expect(res.statusCode).toBeNull();
   });
 });

@@ -92,3 +92,48 @@ export async function rbacObserve(req, pathname, method) {
     // Observability must never affect a real request. Swallow everything.
   }
 }
+
+/**
+ * Dispatcher gate — chunk 3 REJECT path. Only active when RBAC_MODE=enforce.
+ * Returns true when the request was REJECTED (a 403 has been sent on `res` and
+ * the dispatcher must stop); false to allow the request through.
+ *
+ * Safety rails:
+ *  - Only rejects an AUTHENTICATED caller who is missing the permission. A
+ *    request with no Supabase bearer (the legacy anon-key surface that hasn't
+ *    adopted the MS-auth session yet) passes through unchanged — enforcement
+ *    is incrementally adoptable, not a hard cutover.
+ *  - No entity context → pass (don't block non-entity-scoped routes here).
+ *  - FAILS OPEN: any internal error logs + allows. An RBAC bug must never lock
+ *    the operator out of their own ERP.
+ */
+export async function rbacEnforce(req, res, pathname, method) {
+  try {
+    if (rbacMode() !== "enforce") return false;
+    const required = routePermissionFor(pathname, method);
+    if (!required) return false;
+    const sb = getAdmin();
+    if (!sb) return false;
+    const auth = await authenticateCaller(req, sb);
+    if (!auth || !auth.ok || !auth.authId) return false; // unauthenticated → anon model
+    const ent = await resolveCallerEntity(req, sb, auth.authId);
+    if (!ent || !ent.entity_id) return false;            // no entity context → pass
+    const perms = await loadEffectivePermissions(sb, auth.authId, ent.entity_id);
+    if (isAllowed(perms, required.module, required.action)) return false;
+    // Denied.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[RBAC enforce] DENY ${method} ${pathname} — user=${auth.authId} ` +
+      `entity=${ent.entity_id} needs ${required.module}:${required.action}`,
+    );
+    if (res && !res.headersSent) {
+      res.status(403).json({ error: "permission_denied", module: required.module, action: required.action });
+    }
+    return true;
+  } catch (e) {
+    // FAIL OPEN — never lock the operator out because of an RBAC bug.
+    // eslint-disable-next-line no-console
+    console.error("[RBAC enforce] error (failing open):", e?.message || e);
+    return false;
+  }
+}
