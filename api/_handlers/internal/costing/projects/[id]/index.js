@@ -49,6 +49,21 @@ export default async function handler(req, res) {
     ]);
     if (!proj.data) return res.status(404).json({ error: "Project not found" });
 
+    // Enrich the joined customer with ip_customer_master.name (Xoro friendly
+    // name keyed by customer_code = customers.code). Mirrors how ATS resolves
+    // customer names. 100% coverage of EXCEL:* codes today.
+    if (proj.data.customer?.code) {
+      try {
+        const { data: ipcm } = await admin.from("ip_customer_master")
+          .select("name")
+          .eq("customer_code", proj.data.customer.code)
+          .maybeSingle();
+        if (ipcm?.name) proj.data.customer.display_name = ipcm.name;
+      } catch (e) {
+        console.warn("[costing/projects/:id] ip_customer_master enrichment failed:", e.message);
+      }
+    }
+
     const lineIds = (lines.data || []).map((l) => l.id);
     let vendorQuotesByLineId = {};
     let complianceByLineId = {};
