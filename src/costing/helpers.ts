@@ -62,3 +62,57 @@ export function navigate(view: CostingViewName, id?: string | null) {
   // Trigger a custom event so the app re-renders without a full reload.
   window.dispatchEvent(new CustomEvent("costing:navigate"));
 }
+
+// ── Date defaults for new costing projects ────────────────────────────────
+// Operator ask: when creating a project, prefill the three header dates.
+//   request_date  = today
+//   due_date      = +5 business days from request_date (skip Sat/Sun)
+//   projected_delivery_date = +120 calendar days from due_date, snapped
+//                              DOWN to the 1st of that month
+// All dates are ISO YYYY-MM-DD in local time. We work in UTC internally
+// to avoid the off-by-one that hits when local time crosses midnight.
+
+export function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function parseIso(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function toIso(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function addBusinessDays(iso: string, n: number): string {
+  const d = parseIso(iso);
+  let left = n;
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const dow = d.getUTCDay(); // 0 Sun .. 6 Sat
+    if (dow !== 0 && dow !== 6) left -= 1;
+  }
+  return toIso(d);
+}
+
+export function addCalendarDays(iso: string, n: number): string {
+  const d = parseIso(iso);
+  d.setUTCDate(d.getUTCDate() + n);
+  return toIso(d);
+}
+
+export function snapToMonthStart(iso: string): string {
+  const d = parseIso(iso);
+  d.setUTCDate(1);
+  return toIso(d);
+}
+
+/** Build the three default project dates per the operator's rule. */
+export function defaultProjectDates(today: string = todayIso()) {
+  const request_date = today;
+  const due_date = addBusinessDays(request_date, 5);
+  const projected_delivery_date = snapToMonthStart(addCalendarDays(due_date, 120));
+  return { request_date, due_date, projected_delivery_date };
+}

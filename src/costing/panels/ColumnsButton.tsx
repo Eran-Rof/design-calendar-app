@@ -7,12 +7,15 @@ import { useEffect, useRef, useState } from "react";
 export interface ColumnDescriptor { key: string; label: string }
 
 export default function ColumnsButton({
-  columns, hidden, onToggle, onReset,
+  columns, hidden, onToggle, onReset, onSetAll,
 }: {
   columns: ColumnDescriptor[];
   hidden: Set<string>;
   onToggle: (key: string) => void;
   onReset: () => void;
+  /** Bulk toggle. true = show every column (hidden=empty); false = hide every
+   *  column (hidden=all keys). When omitted the Select-all checkbox is hidden. */
+  onSetAll?: (visible: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -74,6 +77,30 @@ export default function ColumnsButton({
               }}
             />
           </div>
+          {onSetAll && (() => {
+            const visibleCount = columns.reduce((n, c) => n + (hidden.has(c.key) ? 0 : 1), 0);
+            const allVisible = visibleCount === columns.length;
+            const noneVisible = visibleCount === 0;
+            return (
+              <label
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 12px", borderBottom: "1px solid #334155",
+                  color: "#E2E8F0", fontSize: 12, fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={allVisible}
+                  ref={(el) => { if (el) el.indeterminate = !allVisible && !noneVisible; }}
+                  onChange={(e) => onSetAll(e.target.checked)}
+                  style={{ accentColor: "#60A5FA" }}
+                />
+                <span style={{ flex: 1 }}>Select all</span>
+              </label>
+            );
+          })()}
           <div style={{ padding: "6px 0" }}>
             {filtered.length === 0 && (
               <div style={{ padding: 12, fontSize: 12, color: "#64748B", textAlign: "center" }}>No matches.</div>

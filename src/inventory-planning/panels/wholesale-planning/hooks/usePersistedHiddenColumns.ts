@@ -24,6 +24,8 @@ export interface HiddenColumnsApi {
   toggleColumn: (key: string) => void;
   /** Clear all hidden columns + remove the localStorage entry. */
   resetColumns: () => void;
+  /** Bulk set the hidden set — used by "select all" / "hide all" in pickers. */
+  setHiddenColumns: (keys: Iterable<string>) => void;
 }
 
 /**
@@ -32,10 +34,10 @@ export interface HiddenColumnsApi {
  * backwards compat with existing wholesale planning callers.
  */
 export function usePersistedHiddenColumns(storageKey: string = DEFAULT_STORAGE_KEY): HiddenColumnsApi {
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => loadHiddenColumns(storageKey));
+  const [hiddenColumns, _setHiddenColumns] = useState<Set<string>>(() => loadHiddenColumns(storageKey));
 
   const toggleColumn = (key: string) => {
-    setHiddenColumns((prev) => {
+    _setHiddenColumns((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -47,9 +49,18 @@ export function usePersistedHiddenColumns(storageKey: string = DEFAULT_STORAGE_K
   };
 
   const resetColumns = () => {
-    setHiddenColumns(new Set());
+    _setHiddenColumns(new Set());
     try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
   };
 
-  return { hiddenColumns, toggleColumn, resetColumns };
+  const setHiddenColumns = (keys: Iterable<string>) => {
+    const next = new Set(keys);
+    _setHiddenColumns(next);
+    try {
+      if (next.size === 0) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
+    } catch { /* ignore */ }
+  };
+
+  return { hiddenColumns, toggleColumn, resetColumns, setHiddenColumns };
 }
