@@ -14,6 +14,7 @@
 
 import { ROUTES, compileRoutes } from "./_handlers/routes.js";
 import { demoEarlyExit, demoStubKind } from "./_lib/demoGuard.js";
+import { rbacObserve } from "./_lib/rbac/index.js";
 
 // Bumped from 60s → 300s. Several inner handlers (parse-excel,
 // xoro-proxy, ats-supply-sync, tanda-pos-sync, xoro-sales-sync,
@@ -51,6 +52,12 @@ export default async function handler(req, res) {
       params[route.params[i]] = decodeURIComponent(match[i + 1]);
     }
     req.query = { ...(req.query || {}), ...params };
+
+    // P14 RBAC — log-only permission observation (chunk 2). No-op unless
+    // RBAC_MODE is set; resolves the caller + required permission and logs a
+    // would-deny. Internally fully wrapped — never throws, never blocks, never
+    // touches the response. .catch is belt-and-suspenders insurance.
+    await rbacObserve(req, pathname, req.method).catch(() => {});
 
     try {
       return await route.handler(req, res);
