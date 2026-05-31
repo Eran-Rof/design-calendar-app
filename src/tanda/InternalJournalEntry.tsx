@@ -119,6 +119,9 @@ const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borde
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  // border-box so width:100% + padding doesn't overflow the grid cell and
+  // bleed into the neighbouring field (was the posting-date ↔ description overlap).
+  boxSizing: "border-box",
   colorScheme: "dark",
 };
 const th: React.CSSProperties = {
@@ -359,6 +362,8 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   const [postingDate, setPostingDate] = useState(new Date().toISOString().slice(0, 10));
   const [journalType, setJournalType] = useState<"manual" | "adjustment">("manual");
   const [description, setDescription] = useState("");
+  // T11 D3 — a reason is REQUIRED to post; the server rejects without it.
+  const [reason, setReason] = useState("");
   const [lines, setLines] = useState<JELine[]>([emptyLine(1), emptyLine(2)]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -389,23 +394,16 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     setLines((prev) => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
   }
 
-  // Ask #16 — auto-mirror the memo lines. Whichever field the operator
-  // edits first, the OTHER mirrors it until both fields have received user
-  // input. After both are touched the link is permanently broken for that
-  // line (per-line state, so subsequent lines mirror independently).
-  function onMemoChange(idx: number, which: "memo" | "memo_line_2", value: string) {
+  // One memo per line, auto-copied to every account on the JE: editing a memo
+  // fills all lines the user hasn't individually overridden; once a line's memo
+  // is edited directly it's "touched" and no longer auto-overwritten.
+  function onMemoChange(idx: number, value: string) {
     setDirty(true);
     setLines((prev) =>
       prev.map((l, i) => {
-        if (i !== idx) return l;
-        const next: JELine = { ...l, [which]: value, [`${which}_touched`]: true } as JELine;
-        // If the OTHER field has not yet been touched, mirror this edit.
-        if (which === "memo" && !l.memo_line_2_touched) {
-          next.memo_line_2 = value;
-        } else if (which === "memo_line_2" && !l.memo_touched) {
-          next.memo = value;
-        }
-        return next;
+        if (i === idx) return { ...l, memo: value, memo_touched: true };
+        if (!l.memo_touched) return { ...l, memo: value }; // auto-copy to untouched lines
+        return l;
       }),
     );
   }
@@ -469,6 +467,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       );
       if (!proceed) return;
     }
+    if (!reason.trim()) { setErr("A reason is required to post (T11 D3) — fill in the Reason field."); return; }
     setSubmitting(true);
     setErr(null);
     try {
@@ -477,13 +476,14 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         posting_date: postingDate,
         description: description.trim(),
         journal_type: journalType,
+        reason: reason.trim(),
         lines: lines.map((l) => ({
           line_number: l.line_number,
           account_id: l.account_id,
           debit: l.debit || "0",
           credit: l.credit || "0",
           memo: l.memo || null,
-          memo_line_2: l.memo_line_2 || null,
+          memo_line_2: null, // single memo per line now (see onMemoChange)
           subledger_type: l.subledger_type || null,
           subledger_id: l.subledger_id || null,
         })),
@@ -518,7 +518,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>Post manual journal entry</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 16, marginBottom: 12 }}>
           <Field label="Basis">
             <select value={basis} onChange={(e) => { setDirty(true); setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH"); }} style={inputStyle as React.CSSProperties}>
               <option value="ACCRUAL">ACCRUAL</option>
@@ -537,6 +537,19 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
           </Field>
           <Field label="Description">
             <input type="text" value={description} onChange={(e) => { setDirty(true); setDescription(e.target.value); }} style={inputStyle} placeholder="e.g. Adjusting entry for accrued rent" />
+          </Field>
+        </div>
+
+        {/* T11 D3 — reason is required to post; surfaced as its own field so the
+            "reason required" error never blocks a user with nowhere to enter it. */}
+        <div style={{ marginBottom: 16 }}>
+          <Field label="Reason (required to post)">
+            <input
+              type="text" value={reason}
+              onChange={(e) => { setDirty(true); setReason(e.target.value); }}
+              style={inputStyle}
+              placeholder="Why this entry is being posted (stored on the audit trail)"
+            />
           </Field>
         </div>
 
@@ -559,8 +572,8 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                 <th style={{ ...th, textAlign: "right" }}>Debit</th>
                 <th style={{ ...th, textAlign: "right" }}>Credit</th>
                 <th style={th}>Memo</th>
-                <th style={th}>Sub type</th>
-                <th style={th}>Sub id</th>
+                <th style={th} title="Optional subledger link for control accounts (e.g. customer for AR, vendor for AP). Leave blank for ordinary GL lines.">Sub type</th>
+                <th style={th} title="The specific subledger record id that pairs with Sub type. Leave blank when Sub type is blank.">Sub id</th>
                 <th style={th}></th>
               </tr>
             </thead>
@@ -594,24 +607,15 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    {/* Two stacked memo inputs — keep the column the same
-                        visual width as a single Memo column. */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <input
-                        type="text"
-                        value={l.memo}
-                        placeholder="Memo line 1"
-                        onChange={(e) => onMemoChange(idx, "memo", e.target.value)}
-                        style={inputStyle}
-                      />
-                      <input
-                        type="text"
-                        value={l.memo_line_2}
-                        placeholder="Memo line 2"
-                        onChange={(e) => onMemoChange(idx, "memo_line_2", e.target.value)}
-                        style={inputStyle}
-                      />
-                    </div>
+                    {/* One memo per line; copies to every line until a line is
+                        edited directly (then that line keeps its own). */}
+                    <input
+                      type="text"
+                      value={l.memo}
+                      placeholder={idx === 0 ? "Memo (copies to all lines)" : "Memo (override)"}
+                      onChange={(e) => onMemoChange(idx, e.target.value)}
+                      style={inputStyle}
+                    />
                   </td>
                   <td style={td}>
                     <select value={l.subledger_type} onChange={(e) => updateLine(idx, { subledger_type: e.target.value })} style={inputStyle as React.CSSProperties}>
@@ -653,6 +657,13 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12, lineHeight: 1.5 }}>
+          <strong>Memo</strong> auto-copies to every line; edit a line's memo to override just that line.
+          {" "}<strong>Sub type / Sub id</strong> optionally link a line to a subledger record (e.g. a
+          customer for an AR control account, a vendor for AP) — leave both blank for ordinary GL lines.
+          They don't affect the debit/credit amounts.
         </div>
 
         {err && (
