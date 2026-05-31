@@ -16,12 +16,23 @@
 // Path prefixed with _ so Vercel does not treat it as a function.
 
 import { timingSafeEqual } from "node:crypto";
+import { verifyAppJwt } from "./auth/appJwt.js";
 
 export async function authenticateCaller(req, admin) {
   const header = req.headers?.authorization || "";
   const jwt = header.startsWith("Bearer ") ? header.slice(7).trim() : null;
   if (!jwt) {
     return { ok: false, status: 401, error: "Missing bearer token", authId: null };
+  }
+  // P14 JWT phase — internal-staff tokens are HS256-signed by us (the MS-OAuth
+  // provision bridge). Verify those LOCALLY first: a self-consistent signature
+  // check with SUPABASE_JWT_SECRET, no GoTrue round-trip, immune to the
+  // legacy-vs-asymmetric signing-key question. Falls through to GoTrue for real
+  // Supabase sessions (e.g. vendor users). No-op when the secret is unset
+  // (verifyAppJwt returns null) → behaves exactly as before.
+  const local = verifyAppJwt(jwt);
+  if (local?.sub) {
+    return { ok: true, status: 200, error: null, authId: local.sub };
   }
   let authId = null;
   try {
@@ -91,27 +102,30 @@ export function authenticateInternalCaller(req) {
     }
     return { ok: true, status: 200, error: null, mode: "open" };
   }
+  // Accept the static token from EITHER the Authorization: Bearer header OR
+  // X-Internal-Token. P14 JWT phase: once per-user tokens ship, the Bearer
+  // header carries the USER's JWT (not this static token), so the frontend
+  // sends the static token via X-Internal-Token instead. We therefore check
+  // BOTH candidates and pass if EITHER matches — a present-but-non-matching
+  // Bearer (a user JWT) no longer locks out the static gate. Backward
+  // compatible: when Bearer still carries the static token, it matches.
   const header = req.headers?.authorization || "";
   const xToken = req.headers?.["x-internal-token"];
-  let presented = null;
-  if (typeof header === "string" && header.startsWith("Bearer ")) {
-    presented = header.slice(7).trim();
-  } else if (typeof xToken === "string" && xToken.length > 0) {
-    presented = xToken.trim();
-  }
-  if (!presented) {
+  const candidates = [];
+  if (typeof header === "string" && header.startsWith("Bearer ")) candidates.push(header.slice(7).trim());
+  if (typeof xToken === "string" && xToken.length > 0) candidates.push(xToken.trim());
+  if (candidates.length === 0) {
     return { ok: false, status: 401, error: "Missing internal token", mode: "denied" };
   }
-  // Constant-time-ish compare. Node has crypto.timingSafeEqual but
-  // length-mismatched buffers throw; pad short presented to match.
-  if (presented.length !== expected.length) {
-    return { ok: false, status: 401, error: "Invalid internal token", mode: "denied" };
-  }
-  let ok = 0;
-  for (let i = 0; i < expected.length; i++) {
-    ok |= expected.charCodeAt(i) ^ presented.charCodeAt(i);
-  }
-  if (ok !== 0) {
+  const matches = (presented) => {
+    // Length-equality first (timingSafeEqual throws on mismatched buffers); the
+    // length of a shared deploy token is not a useful secret to an attacker.
+    if (presented.length !== expected.length) return false;
+    let ok = 0;
+    for (let i = 0; i < expected.length; i++) ok |= expected.charCodeAt(i) ^ presented.charCodeAt(i);
+    return ok === 0;
+  };
+  if (!candidates.some(matches)) {
     return { ok: false, status: 401, error: "Invalid internal token", mode: "denied" };
   }
   return { ok: true, status: 200, error: null, mode: "token" };
