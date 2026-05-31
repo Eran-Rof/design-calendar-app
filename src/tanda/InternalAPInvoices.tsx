@@ -523,6 +523,8 @@ function APInvoiceModal({
   const [description, setDescription] = useState(invoice?.description || "");
   const [apAccountId, setApAccountId] = useState(invoice?.ap_account_id || "");
   const [expenseAccountId, setExpenseAccountId] = useState(invoice?.expense_account_id || "");
+  // The selected vendor's current defaults (for auto-fill + the write-back prompt).
+  const [vendorDefaults, setVendorDefaults] = useState<{ ap: string | null; expense: string | null }>({ ap: null, expense: null });
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -539,6 +541,26 @@ function APInvoiceModal({
       .then((arr: Account[]) => setAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
       .catch(() => {});
   }, []);
+
+  // On vendor select, load that vendor's default AP + expense accounts and
+  // auto-fill the header accounts. New invoice → adopt the vendor's defaults;
+  // editing → only fill blanks (don't clobber the invoice's saved coding).
+  useEffect(() => {
+    if (!vendorId) { setVendorDefaults({ ap: null, expense: null }); return; }
+    let cancel = false;
+    fetch(`/api/internal/vendor-master/${vendorId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => {
+        if (cancel || !v) return;
+        const dAp = v.default_gl_ap_account_id || null;
+        const dEx = v.default_gl_expense_account_id || null;
+        setVendorDefaults({ ap: dAp, expense: dEx });
+        setApAccountId((prev) => (isNew ? (dAp || "") : (prev || dAp || "")));
+        setExpenseAccountId((prev) => (isNew ? (dEx || "") : (prev || dEx || "")));
+      })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [vendorId]);
 
   // Lazy-load existing lines when editing.
   useEffect(() => {
@@ -660,6 +682,26 @@ function APInvoiceModal({
         });
       }
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+
+      // Offer to write back the chosen accounts as this vendor's defaults when
+      // they differ from what's on file (the "set as default for this vendor?"
+      // prompt). Best-effort; never blocks the saved invoice.
+      const updates: Record<string, string> = {};
+      if (apAccountId && apAccountId !== vendorDefaults.ap) updates.default_gl_ap_account_id = apAccountId;
+      if (expenseAccountId && expenseAccountId !== vendorDefaults.expense) updates.default_gl_expense_account_id = expenseAccountId;
+      if (vendorId && Object.keys(updates).length > 0) {
+        const which = [
+          updates.default_gl_ap_account_id ? "AP" : null,
+          updates.default_gl_expense_account_id ? "expense" : null,
+        ].filter(Boolean).join(" + ");
+        if (confirm(`Set the chosen ${which} account${which.includes("+") ? "s" : ""} as the default for this vendor on future invoices?`)) {
+          try {
+            await fetch(`/api/internal/vendor-master/${vendorId}`, {
+              method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates),
+            });
+          } catch { /* non-fatal — the invoice already saved */ }
+        }
+      }
       onSaved();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
