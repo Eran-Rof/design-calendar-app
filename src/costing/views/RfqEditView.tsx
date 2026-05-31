@@ -221,11 +221,18 @@ export default function RfqEditView() {
             </Field>
             <div />
 
-            <Field label="Submission deadline">
-              <input type="datetime-local" value={(form.submission_deadline || "").slice(0, 16)} onChange={(e) => setField("submission_deadline", e.target.value ? new Date(e.target.value).toISOString() : null)} style={dateInp} />
+            {/* Three date fields mirror the costing project header (request,
+                due, projected delivery). Replaces the legacy submission_deadline
+                + delivery_required_by inputs — those columns still exist on the
+                row for other procurement readers, just not surfaced here. */}
+            <Field label="Request date">
+              <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={dateInp} />
             </Field>
-            <Field label="Delivery required by">
-              <input type="date" value={form.delivery_required_by || ""} onChange={(e) => setField("delivery_required_by", e.target.value || null)} style={dateInp} />
+            <Field label="Due date">
+              <input type="date" value={form.due_date || ""} onChange={(e) => setField("due_date", e.target.value || null)} style={dateInp} />
+            </Field>
+            <Field label="Projected delivery date">
+              <input type="date" value={form.projected_delivery_date || ""} onChange={(e) => setField("projected_delivery_date", e.target.value || null)} style={dateInp} />
             </Field>
             <Field label="Estimated qty">
               <input type="number" value={form.estimated_quantity ?? ""} onChange={(e) => setField("estimated_quantity", e.target.value === "" ? null : Number(e.target.value))} style={inp} />
@@ -301,6 +308,9 @@ function seedForm(r: RfqListRow): RfqPatch {
     status: r.status,
     submission_deadline: r.submission_deadline,
     delivery_required_by: r.delivery_required_by,
+    request_date: r.request_date,
+    due_date: r.due_date,
+    projected_delivery_date: r.projected_delivery_date,
     estimated_quantity: r.estimated_quantity,
     estimated_budget: r.estimated_budget,
     currency: r.currency,

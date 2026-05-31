@@ -54,6 +54,7 @@ export default async function handler(req, res) {
   // null until the migration runs.
   const baseCols = "id, entity_id, title, description, category, status, submission_deadline, delivery_required_by, estimated_quantity, estimated_budget, currency, created_at, updated_at";
   const colsWithSource = `${baseCols}, source_costing_project_id`;
+  const colsWithSourceAndDates = `${colsWithSource}, request_date, due_date, projected_delivery_date`;
   const runQuery = (cols) => {
     let q1 = admin.from("rfqs")
       .select(cols)
@@ -64,12 +65,19 @@ export default async function handler(req, res) {
     return q1;
   };
 
-  let { data: rfqs, error: rfqsErr } = await runQuery(colsWithSource);
+  // Fallback ladder: with-dates → with-source-only → bare. Each step strips
+  // the columns the previous step failed on so pre-migration deploys still
+  // return a usable list.
+  let { data: rfqs, error: rfqsErr } = await runQuery(colsWithSourceAndDates);
+  if (rfqsErr && /column .* does not exist/i.test(rfqsErr.message || "") && /(request_date|due_date|projected_delivery_date)/.test(rfqsErr.message || "")) {
+    ({ data: rfqs, error: rfqsErr } = await runQuery(colsWithSource));
+    if (rfqs) rfqs = rfqs.map((r) => ({ ...r, request_date: null, due_date: null, projected_delivery_date: null }));
+  }
   if (rfqsErr && /source_costing_project_id/.test(rfqsErr.message || "")) {
     // eslint-disable-next-line no-console
     console.warn("[costing/rfqs] source_costing_project_id missing — falling back to base columns. Run migration 20260623000001_rfqs_source_costing_project.sql to enable the customer/project join.");
     ({ data: rfqs, error: rfqsErr } = await runQuery(baseCols));
-    if (rfqs) rfqs = rfqs.map((r) => ({ ...r, source_costing_project_id: null }));
+    if (rfqs) rfqs = rfqs.map((r) => ({ ...r, source_costing_project_id: null, request_date: null, due_date: null, projected_delivery_date: null }));
   }
   if (rfqsErr) return res.status(500).json({ error: rfqsErr.message });
   if (!rfqs || rfqs.length === 0) return res.status(200).json({ rows: [] });

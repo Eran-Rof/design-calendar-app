@@ -68,7 +68,7 @@ export default async function handler(req, res) {
   // `currency` column — RFQs default to USD on the insert below. If a
   // multi-currency costing project lands later, add the column then.
   const { data: project, error: projectErr } = await admin.from("costing_projects")
-    .select("id, project_name, brand, due_date")
+    .select("id, project_name, brand, request_date, due_date, projected_delivery_date")
     .eq("id", projectId).maybeSingle();
   if (projectErr) return res.status(500).json({ error: projectErr.message });
   if (!project) return res.status(404).json({ error: "Project not found" });
@@ -149,11 +149,22 @@ export default async function handler(req, res) {
       description: `RFQ generated from costing project "${project.project_name}" (${vendorLines.length} line${vendorLines.length === 1 ? "" : "s"}).`,
       category: project.brand || null,
       status: "draft",
+      // delivery_required_by is the legacy Tangerine field — we still
+      // populate it so other procurement readers keep working, but the
+      // costing UI now renders the three project-aligned dates below.
       delivery_required_by: project.due_date || null,
       estimated_quantity: Math.round(totalQty) || null,
       estimated_budget: Number.isFinite(totalBudget) && totalBudget > 0 ? totalBudget : null,
       currency: "USD",
       created_by: "costing_module",
+    };
+    // Three project-aligned date snapshots. Tried separately so a missing
+    // migration doesn't blow up the whole insert — fallback below strips
+    // them if "column does not exist".
+    const projectDates = {
+      request_date:            project.request_date || null,
+      due_date:                project.due_date || null,
+      projected_delivery_date: project.projected_delivery_date || null,
     };
     // Include source_costing_project_id when the migration has run; retry
     // without it on "column does not exist" so the RFQ still gets created
@@ -163,8 +174,17 @@ export default async function handler(req, res) {
     let rfqErr;
     ({ data: rfq, error: rfqErr } = await admin.from("rfqs").insert({
       ...baseInsert,
+      ...projectDates,
       source_costing_project_id: project.id,
     }).select("id").maybeSingle());
+    // Fallback ladder for pre-migration deploys: strip the new date columns
+    // first, then strip source_costing_project_id, then bare baseInsert.
+    if (rfqErr && /column .* does not exist/i.test(rfqErr.message || "")) {
+      ({ data: rfq, error: rfqErr } = await admin.from("rfqs").insert({
+        ...baseInsert,
+        source_costing_project_id: project.id,
+      }).select("id").maybeSingle());
+    }
     if (rfqErr && /source_costing_project_id/.test(rfqErr.message || "")) {
       ({ data: rfq, error: rfqErr } = await admin.from("rfqs").insert(baseInsert).select("id").maybeSingle());
     }
