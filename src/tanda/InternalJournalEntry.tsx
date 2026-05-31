@@ -7,6 +7,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -90,6 +91,8 @@ type JE = {
   reversed_by_je_id: string | null;
   source?: string | null;
   created_at: string;
+  posted_by_name?: string | null;
+  created_by_name?: string | null;
 };
 
 type Account = {
@@ -366,6 +369,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   // T11 D3 — a reason is REQUIRED to post; the server rejects without it.
   const [reason, setReason] = useState("");
   const [lines, setLines] = useState<JELine[]>([emptyLine(1), emptyLine(2)]);
+  // Documents staged during entry — uploaded after the JE posts (a brand-new
+  // entry has no id yet, so DocumentAttachmentList can't attach in place).
+  const [stagedDocs, setStagedDocs] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Ask #17 — track whether anything in this modal has been edited so we
@@ -498,6 +504,20 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       if (!r.ok) {
         const e = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
         throw new Error(e);
+      }
+      // Upload any documents staged during entry to the freshly-posted JE.
+      // For a BOTH-basis post we attach to the ACCRUAL entry (the primary book).
+      if (stagedDocs.length > 0) {
+        const posted = ((await r.json().catch(() => ({}))).posted || []) as Array<{ basis: string; je_id: string }>;
+        const target = posted.find((p) => p.basis === "ACCRUAL")?.je_id || posted[0]?.je_id;
+        if (target) {
+          try {
+            await uploadStagedDocs("journal_entries", target, stagedDocs);
+          } catch (upErr) {
+            // JE is already posted — surface the doc failure but don't lose the post.
+            notify(`Journal entry posted, but a document upload failed: ${upErr instanceof Error ? upErr.message : String(upErr)}`, "error");
+          }
+        }
       }
       // Successful post — bypass the dirty guard on close.
       setDirty(false);
@@ -666,6 +686,43 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
           {" "}<strong>Sub type / Sub id</strong> optionally link a line to a subledger record (e.g. a
           customer for an AR control account, a vendor for AP) — leave both blank for ordinary GL lines.
           They don't affect the debit/credit amounts.
+        </div>
+
+        {/* Stage supporting documents during entry — uploaded after the JE
+            posts (a new entry has no id to attach to yet). */}
+        <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stagedDocs.length ? 8 : 0 }}>
+            <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              📎 Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
+            </span>
+            <label style={{ ...btnSecondary, cursor: "pointer", display: "inline-block" }}>
+              + Add files
+              <input
+                type="file"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files || []);
+                  if (picked.length) { setDirty(true); setStagedDocs((prev) => [...prev, ...picked]); }
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+          {stagedDocs.map((f, i) => (
+            <div key={`${f.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.textSub, paddingTop: 4 }}>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <button
+                onClick={() => setStagedDocs((prev) => prev.filter((_, j) => j !== i))}
+                style={{ background: "transparent", color: C.danger, border: "none", cursor: "pointer", fontSize: 12 }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {stagedDocs.length === 0 && (
+            <span style={{ fontSize: 11, color: C.textMuted }}> — attach receipts, approvals, or backup; uploaded when you post.</span>
+          )}
         </div>
 
         {err && (
@@ -913,7 +970,13 @@ function JEDetailModal({
               />
               <DetailRow
                 label="Posted at"
-                value={data.posted_at ? new Date(data.posted_at).toLocaleString() : "—"}
+                value={data.posted_at
+                  ? `${new Date(data.posted_at).toLocaleString()}${data.posted_by_name ? ` by ${data.posted_by_name}` : ""}`
+                  : "—"}
+              />
+              <DetailRow
+                label="Created"
+                value={`${new Date(data.created_at).toLocaleString()}${data.created_by_name ? ` by ${data.created_by_name}` : ""}`}
               />
               <DetailRow
                 label="Sibling JE"
