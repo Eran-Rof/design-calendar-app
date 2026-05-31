@@ -111,3 +111,37 @@ export function applyChannelScope(query, req, col = "channel_id") {
   const { channel_id } = resolveChannelContext(req);
   return channel_id ? query.eq(col, channel_id) : query;
 }
+
+/**
+ * The brand_id to filter aggregate reports (RPCs) by — or null when scoping is
+ * off / log / "All brands". Pass straight to an RPC param (p_brand_id) whose
+ * function treats NULL as "all brands".
+ */
+export function activeBrandId(req) {
+  if (brandScopeMode() !== "enforce") return null;
+  return resolveBrandContext(req).brand_id; // uuid or null
+}
+
+/**
+ * Collapse brand-split aging rows back to one row per (party, age_bucket),
+ * summing the money + count. Needed because the brand-aware aging VIEW now
+ * groups by brand too; this restores the original per-party output for "All"
+ * (and is a harmless pass-through when already filtered to one brand).
+ * @param {Array} rows  view rows incl. brand_id
+ * @param {string} partyCol  "customer_id" (AR) or "vendor_id" (AP)
+ */
+export function collapseAgingByBucket(rows, partyCol) {
+  const out = new Map();
+  for (const r of rows || []) {
+    const key = `${r[partyCol]}|${r.age_bucket}`;
+    let agg = out.get(key);
+    if (!agg) {
+      agg = { ...r, outstanding_cents: 0, invoice_count: 0 };
+      delete agg.brand_id;
+      out.set(key, agg);
+    }
+    agg.outstanding_cents += Number(r.outstanding_cents || 0);
+    agg.invoice_count += Number(r.invoice_count || 0);
+  }
+  return [...out.values()];
+}

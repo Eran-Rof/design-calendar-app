@@ -5,6 +5,7 @@ import {
   resolveBrandContext, resolveChannelContext,
   brandScopeMode, brandObserve,
   applyBrandScope, applyChannelScope,
+  activeBrandId, collapseAgingByBucket,
 } from "../brandContext.js";
 
 // Minimal supabase-query stub: records .eq() calls.
@@ -110,5 +111,45 @@ describe("applyBrandScope / applyChannelScope — gated active filtering", () =>
     const q = fakeQuery();
     applyBrandScope(q, reqWith, "b_id");
     expect(q.calls).toEqual([["b_id", UUID]]);
+  });
+});
+
+describe("activeBrandId (RPC param)", () => {
+  afterEach(() => { delete process.env.BRAND_SCOPE_MODE; });
+  const UID2 = "11111111-1111-1111-1111-111111111111";
+  it("null off/log; the uuid when enforce+selected; null on All", () => {
+    delete process.env.BRAND_SCOPE_MODE;
+    expect(activeBrandId({ headers: { "x-brand-id": UID2 } })).toBeNull();
+    process.env.BRAND_SCOPE_MODE = "log";
+    expect(activeBrandId({ headers: { "x-brand-id": UID2 } })).toBeNull();
+    process.env.BRAND_SCOPE_MODE = "enforce";
+    expect(activeBrandId({ headers: { "x-brand-id": UID2 } })).toBe(UID2);
+    expect(activeBrandId({ headers: {} })).toBeNull(); // All
+  });
+});
+
+describe("collapseAgingByBucket", () => {
+  it("sums brand-split rows back to one row per (party, bucket)", () => {
+    const rows = [
+      { customer_id: "c1", age_bucket: "current", outstanding_cents: 100, invoice_count: 1, brand_id: "b1" },
+      { customer_id: "c1", age_bucket: "current", outstanding_cents: 50,  invoice_count: 2, brand_id: "b2" },
+      { customer_id: "c1", age_bucket: "1-30",    outstanding_cents: 30,  invoice_count: 1, brand_id: "b1" },
+      { customer_id: "c2", age_bucket: "current", outstanding_cents: 10,  invoice_count: 1, brand_id: "b1" },
+    ];
+    const out = collapseAgingByBucket(rows, "customer_id");
+    expect(out).toHaveLength(3);
+    const c1cur = out.find((r) => r.customer_id === "c1" && r.age_bucket === "current");
+    expect(c1cur.outstanding_cents).toBe(150);
+    expect(c1cur.invoice_count).toBe(3);
+    expect(c1cur.brand_id).toBeUndefined(); // brand collapsed out
+  });
+  it("is a clean pass-through (single row) when already brand-filtered", () => {
+    const rows = [{ vendor_id: "v1", age_bucket: "current", outstanding_cents: 99, invoice_count: 4, brand_id: "b1" }];
+    const out = collapseAgingByBucket(rows, "vendor_id");
+    expect(out).toEqual([{ vendor_id: "v1", age_bucket: "current", outstanding_cents: 99, invoice_count: 4 }]);
+  });
+  it("handles empty/nullish", () => {
+    expect(collapseAgingByBucket(null, "customer_id")).toEqual([]);
+    expect(collapseAgingByBucket([], "customer_id")).toEqual([]);
   });
 });

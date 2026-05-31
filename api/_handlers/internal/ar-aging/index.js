@@ -15,6 +15,7 @@
 // Tangerine P4-6.
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope, activeBrandId, collapseAgingByBucket } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 30 };
 
@@ -107,9 +108,11 @@ export default async function handler(req, res) {
   try {
     let rows;
     if (v.data.mode === "as_of") {
+      // P15 C3b — brand filtered server-side via p_brand_id (null = all brands).
       const { data, error } = await admin.rpc("ar_aging_as_of", {
         p_entity_id: entityId,
         p_as_of_date: v.data.as_of,
+        p_brand_id: activeBrandId(req),
       });
       if (error) return res.status(500).json({ error: error.message });
       rows = data || [];
@@ -122,9 +125,12 @@ export default async function handler(req, res) {
         .select("*")
         .eq("entity_id", entityId);
       if (v.data.customer_id) q = q.eq("customer_id", v.data.customer_id);
+      // P15 C3b — gated brand filter; then collapse the brand-split view rows
+      // back to one row per (customer, bucket) (no-op shape change for "All").
+      q = applyBrandScope(q, req);
       const { data, error } = await q;
       if (error) return res.status(500).json({ error: error.message });
-      rows = data || [];
+      rows = collapseAgingByBucket(data || [], "customer_id");
     }
 
     // Sort by total_open_cents DESC (biggest exposure on top); apply limit.
