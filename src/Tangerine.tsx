@@ -74,6 +74,7 @@ import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
 import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
 import EntitySwitcher from "./components/EntitySwitcher";
+import BrandChannelSwitcher from "./components/BrandChannelSwitcher";
 // Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
@@ -488,6 +489,9 @@ export default function Tangerine() {
       </main>
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
+      {/* P15 Brand Master C2 — global brand/channel pickers (fixed top-right).
+          Inert until BRAND_SCOPE_MODE turns on per-report filtering (chunk 3). */}
+      <BrandChannelSwitcher />
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
           from any module; invisible until the hotkey fires. */}
       <GlobalSearchPaletteAuto />

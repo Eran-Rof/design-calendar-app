@@ -32,9 +32,14 @@ const INTERNAL_PATH_RE = /^\/api\/internal\//;
 const ENTITY_SESSION_KEY = "x-tangerine-entity-id";
 
 function readEntitySessionId(): string | null {
+  return readSessionKey(ENTITY_SESSION_KEY);
+}
+
+// Generic per-tab sessionStorage reader (P15 brand/channel + entity).
+function readSessionKey(key: string): string | null {
   if (typeof window === "undefined") return null;
   try {
-    const v = window.sessionStorage.getItem(ENTITY_SESSION_KEY);
+    const v = window.sessionStorage.getItem(key);
     return v && v.trim().length > 0 ? v.trim() : null;
   } catch { return null; }
 }
@@ -111,6 +116,16 @@ export function installInternalApiAuth(): void {
       const authUserId = readAuthUserId();
       if (authUserId && !headers.has("X-Auth-User-Id") && !headers.has("x-auth-user-id")) {
         headers.set("X-Auth-User-Id", authUserId);
+      }
+      // P15 Brand Master C2 — per-tab brand/channel selection (the global
+      // switchers). "All" = key absent = no header = no filter.
+      const brandId = readSessionKey("x-tangerine-brand-id");
+      if (brandId && !headers.has("X-Brand-ID") && !headers.has("x-brand-id")) {
+        headers.set("X-Brand-ID", brandId);
+      }
+      const channelId = readSessionKey("x-tangerine-channel-id");
+      if (channelId && !headers.has("X-Channel-ID") && !headers.has("x-channel-id")) {
+        headers.set("X-Channel-ID", channelId);
       }
       return original(input, { ...(init || {}), headers });
     }
