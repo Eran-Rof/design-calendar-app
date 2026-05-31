@@ -823,6 +823,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
         </div>
       </button>
 
+      {/* Favorites — first action icon (consistent across all apps). */}
+      <FavoritesMenu />
+
       <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20, alignItems: "center" }}>
         {NAV_SECTIONS.map((sec) => {
           // Sub-groups of this section that have at least one permitted module.
@@ -973,8 +976,6 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
         </button>
         {appsOpen && <AppsLauncher onClose={onCloseApps} />}
       </div>
-
-      <FavoritesMenu />
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
         {userEmail && (
