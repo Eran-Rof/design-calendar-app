@@ -9,15 +9,31 @@ const SECRET = "test-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaa";
 const UID = "11111111-1111-1111-1111-111111111111";
 
 describe("appJwt — disabled (no secret)", () => {
-  beforeEach(() => { delete process.env.SUPABASE_JWT_SECRET; });
+  beforeEach(() => { delete process.env.TANGERINE_JWT_SECRET; delete process.env.SUPABASE_JWT_SECRET; });
   it("isAppJwtEnabled is false", () => expect(isAppJwtEnabled()).toBe(false));
   it("signAppJwt returns null", () => expect(signAppJwt(UID, { email: "a@b.com" })).toBeNull());
   it("verifyAppJwt returns null", () => expect(verifyAppJwt("anything")).toBeNull());
 });
 
+describe("appJwt — env var names", () => {
+  afterEach(() => { delete process.env.TANGERINE_JWT_SECRET; delete process.env.SUPABASE_JWT_SECRET; });
+  it("TANGERINE_JWT_SECRET enables minting (canonical name)", () => {
+    delete process.env.SUPABASE_JWT_SECRET;
+    process.env.TANGERINE_JWT_SECRET = SECRET;
+    expect(isAppJwtEnabled()).toBe(true);
+    const { access_token } = signAppJwt(UID, {});
+    expect(verifyAppJwt(access_token)?.sub).toBe(UID);
+  });
+  it("legacy SUPABASE_JWT_SECRET still works (back-compat)", () => {
+    delete process.env.TANGERINE_JWT_SECRET;
+    process.env.SUPABASE_JWT_SECRET = SECRET;
+    expect(isAppJwtEnabled()).toBe(true);
+  });
+});
+
 describe("appJwt — enabled", () => {
-  beforeEach(() => { process.env.SUPABASE_JWT_SECRET = SECRET; });
-  afterEach(() => { delete process.env.SUPABASE_JWT_SECRET; });
+  beforeEach(() => { process.env.TANGERINE_JWT_SECRET = SECRET; });
+  afterEach(() => { delete process.env.TANGERINE_JWT_SECRET; });
 
   it("round-trips sub + email", () => {
     const minted = signAppJwt(UID, { email: "ceo@rof.com" });
@@ -39,7 +55,7 @@ describe("appJwt — enabled", () => {
 
   it("rejects a token signed with a different secret", () => {
     const { access_token } = signAppJwt(UID, {});
-    process.env.SUPABASE_JWT_SECRET = "a-totally-different-secret-value-zzzzz";
+    process.env.TANGERINE_JWT_SECRET = "a-totally-different-secret-value-zzzzz";
     expect(verifyAppJwt(access_token)).toBeNull();
   });
 
