@@ -576,7 +576,12 @@ export default function CostingGrid() {
                   const stored = isLy ? line.ly_margin_pct : line.t3_margin_pct;
                   const cost = isLy ? line.ly_unit_cost : line.t3_unit_cost;
                   const price = isLy ? line.ly_unit_price : line.t3_unit_price;
-                  let pct = stored;
+                  // Server stamps weighted_margin_pct as a fraction (0.20 = 20%
+                  // — matches ip_sales_history_wholesale.margin_pct semantics);
+                  // the auto-compute fallback below produces a percentage. Scale
+                  // the stored value by 100 so both branches feed the same unit
+                  // into fmtPct.
+                  let pct = stored != null ? stored * 100 : null;
                   if (pct == null && cost != null && price != null && price > 0) {
                     pct = ((price - cost) / price) * 100;
                   }
