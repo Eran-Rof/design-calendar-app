@@ -480,6 +480,11 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
           </button>
         </div>
 
+        {/* M50 — brand allocation (P&L accounts only; needs a saved account). */}
+        {mode === "edit" && account && ["revenue", "expense", "contra_revenue"].includes(form.account_type) && (
+          <BrandAllocationEditor accountId={account.id} />
+        )}
+
         {/* Cross-cutter T11-3 — audit trail timeline */}
         {mode === "edit" && account && (
           <RowHistory source_table="gl_accounts" source_id={account.id} />
@@ -494,6 +499,125 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
+    </div>
+  );
+}
+
+// M50 chunk B-UI — per-account brand allocation editor (P&L accounts).
+// Pick the brand(s) this account serves; >1 opens a % split (must total 100,
+// even-split helper, one default). Save → PUT …/brand-allocation, which (server
+// side) replaces the rule + generates/retires `{code}-{BRAND}` child accounts.
+function BrandAllocationEditor({ accountId }: { accountId: string }) {
+  const [brands, setBrands] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [sel, setSel] = useState<Record<string, number>>({}); // brand_id → pct (selected only)
+  const [def, setDef] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      setLoading(true); setErr(null); setMsg(null);
+      try {
+        const [br, al] = await Promise.all([
+          fetch("/api/internal/brands").then((r) => r.json()),
+          fetch(`/api/internal/gl-accounts/${accountId}/brand-allocation`).then((r) => r.json()),
+        ]);
+        if (cancel) return;
+        setBrands(Array.isArray(br.brands) ? br.brands : []);
+        const cur: Record<string, number> = {}; let d: string | null = null;
+        for (const a of (al.allocations || [])) { cur[a.brand_id] = Number(a.pct); if (a.is_default) d = a.brand_id; }
+        setSel(cur); setDef(d);
+      } catch (e) { if (!cancel) setErr((e as Error).message); }
+      finally { if (!cancel) setLoading(false); }
+    })();
+    return () => { cancel = true; };
+  }, [accountId]);
+
+  const ids = Object.keys(sel);
+  const total = ids.reduce((s, id) => s + (Number(sel[id]) || 0), 0);
+  const totalOk = Math.abs(total - 100) <= 0.01;
+
+  function toggle(id: string) {
+    setSel((prev) => {
+      const n = { ...prev };
+      if (id in n) { delete n[id]; if (def === id) setDef(null); }
+      else n[id] = 0;
+      return n;
+    });
+    setMsg(null);
+  }
+  function splitEven() {
+    const k = Object.keys(sel); if (!k.length) return;
+    const each = Math.floor((100 / k.length) * 100) / 100;
+    const n: Record<string, number> = {};
+    k.forEach((id, i) => { n[id] = i === k.length - 1 ? Math.round((100 - each * (k.length - 1)) * 100) / 100 : each; });
+    setSel(n);
+  }
+  async function save() {
+    setSaving(true); setErr(null); setMsg(null);
+    try {
+      const allocations = Object.entries(sel).map(([brand_id, pct]) => ({ brand_id, pct: Number(pct), is_default: brand_id === def }));
+      const r = await fetch(`/api/internal/gl-accounts/${accountId}/brand-allocation`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ allocations }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setMsg(allocations.length > 1
+        ? `Saved — ${allocations.length} brand sub-accounts generated/updated.`
+        : "Saved — single-brand account (no split).");
+    } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
+  }
+
+  if (loading) return <div style={{ color: C.textMuted, fontSize: 12, marginTop: 14 }}>Loading brand allocation…</div>;
+
+  return (
+    <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>🏷️ Brand Allocation</div>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
+        Pick the brand(s) this account serves. More than one opens a % split (must total 100%); a posting auto-splits into the brand sub-accounts.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {brands.map((b) => {
+          const on = b.id in sel;
+          return (
+            <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, color: on ? C.text : C.textSub }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(b.id)} />
+                <span style={{ fontFamily: "monospace", color: C.textMuted }}>{b.code}</span> {b.name}
+              </label>
+              {on && (
+                <>
+                  <input
+                    type="number" min={0} max={100} step="0.01" value={sel[b.id]}
+                    onChange={(e) => setSel((p) => ({ ...p, [b.id]: Number(e.target.value) }))}
+                    style={{ ...inputStyle, width: 80, textAlign: "right" } as React.CSSProperties}
+                  />
+                  <span style={{ color: C.textMuted }}>%</span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.textSub }} title="Default brand for this account">
+                    <input type="radio" name="brand-default" checked={def === b.id} onChange={() => setDef(b.id)} /> default
+                  </label>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {ids.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+          <button onClick={splitEven} style={btnSecondary} type="button">Split evenly</button>
+          <span style={{ fontSize: 13, fontWeight: 600, color: totalOk ? C.success : C.danger }}>
+            Total: {total.toFixed(2)}% {totalOk ? "✓" : "— must equal 100%"}
+          </span>
+          <button onClick={() => void save()} disabled={saving || !totalOk} style={{ ...btnPrimary, marginLeft: "auto", opacity: saving || !totalOk ? 0.5 : 1 }} type="button">
+            {saving ? "Saving…" : "Save allocation"}
+          </button>
+        </div>
+      )}
+      {ids.length === 0 && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>No brands selected — this account is not brand-split.</div>}
+      {msg && <div style={{ background: "#064e3b", color: "#d1fae5", padding: "6px 10px", borderRadius: 6, marginTop: 8, fontSize: 12 }}>{msg}</div>}
+      {err && <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 6, marginTop: 8, fontSize: 12 }}>{err}</div>}
     </div>
   );
 }
