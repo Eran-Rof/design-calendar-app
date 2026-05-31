@@ -367,7 +367,11 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   const [journalType, setJournalType] = useState<"manual" | "adjustment">("manual");
   const [description, setDescription] = useState("");
   // T11 D3 — a reason is REQUIRED to post; the server rejects without it.
+  // It auto-mirrors the Description until the operator edits it directly, so a
+  // single field covers the common case (and the Post button — disabled until
+  // Description is filled — never trips the "reason required" guard).
   const [reason, setReason] = useState("");
+  const [reasonTouched, setReasonTouched] = useState(false);
   const [lines, setLines] = useState<JELine[]>([emptyLine(1), emptyLine(2)]);
   // Documents staged during entry — uploaded after the JE posts (a brand-new
   // entry has no id yet, so DocumentAttachmentList can't attach in place).
@@ -558,7 +562,18 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
             <input type="date" value={postingDate} onChange={(e) => { setDirty(true); setPostingDate(e.target.value); }} style={inputStyle} />
           </Field>
           <Field label="Description">
-            <input type="text" value={description} onChange={(e) => { setDirty(true); setDescription(e.target.value); }} style={inputStyle} placeholder="e.g. Adjusting entry for accrued rent" />
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => {
+                setDirty(true);
+                setDescription(e.target.value);
+                // Auto-mirror into Reason until the operator edits Reason directly.
+                if (!reasonTouched) setReason(e.target.value);
+              }}
+              style={inputStyle}
+              placeholder="e.g. Adjusting entry for accrued rent"
+            />
           </Field>
         </div>
 
@@ -568,9 +583,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
           <Field label="Reason (required to post)">
             <input
               type="text" value={reason}
-              onChange={(e) => { setDirty(true); setReason(e.target.value); }}
+              onChange={(e) => { setDirty(true); setReasonTouched(true); setReason(e.target.value); }}
               style={inputStyle}
-              placeholder="Why this entry is being posted (stored on the audit trail)"
+              placeholder="Defaults to the description; edit to override"
             />
           </Field>
         </div>
