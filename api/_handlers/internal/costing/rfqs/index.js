@@ -118,9 +118,13 @@ export default async function handler(req, res) {
     const vendorName = vendor?.legal_name || vendor?.name || vendor?.code || null;
     const project = r.source_costing_project_id ? projectById.get(r.source_costing_project_id) : null;
     const customer = project?.customer || null;
-    const customerName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof customer.billing_address.name === "string")
+    const rawCustomerName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof customer.billing_address.name === "string")
       ? customer.billing_address.name
       : customer?.code || null;
+    // Strip legacy Xoro "EXCEL:" prefix so the list view + downstream
+    // consumers get the clean name. Mirrors stripExcelPrefix on the
+    // client (PR #640).
+    const customerName = rawCustomerName ? rawCustomerName.replace(/^EXCEL:/i, "") : null;
     const lineItems = itemsByRfq.get(r.id) || [];
     return {
       ...r,
