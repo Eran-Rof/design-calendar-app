@@ -22,21 +22,23 @@ The older shared "deploy token" still rides along on a separate header (`X-Inter
 
 The bridge is a **no-op until you set one environment variable**. Build, deploy, and nothing changes — provisioning simply doesn't mint a token and the browser falls back to the old cached-id behavior. To activate:
 
-1. In the **Supabase dashboard → Project Settings → API → JWT Settings**, copy the **JWT Secret**.
+1. Generate a strong random secret. This is an **independent app secret — NOT** your Supabase JWT secret (we sign *and* verify these tokens ourselves; Supabase is never involved in verifying them, so its own keys are irrelevant). Any high-entropy string works, e.g. `node -e "console.log(require('crypto').randomBytes(64).toString('base64url'))"`.
 2. In **Vercel → the project → Settings → Environment Variables**, add:
-   - **Name:** `SUPABASE_JWT_SECRET`
-   - **Value:** *(the JWT secret from step 1)*
-   - Scope: Production (and Preview if you test there).
+   - **Key:** `TANGERINE_JWT_SECRET`
+   - **Value:** *(the random string from step 1)*
+   - **Environments:** Production (and Preview if you test there).
 3. Redeploy. From then on, every Microsoft sign-in mints a verifiable per-user token.
 
-> Order of operations for RBAC go-live: **(a)** set `SUPABASE_JWT_SECRET` (this chapter) → **(b)** configure roles in 🔐 User Access → **(c)** `RBAC_MODE=log` and watch telemetry → **(d)** `RBAC_MODE=enforce`. Steps (a) and (b)/(c)/(d) are independent; (a) is what makes (d) actually bite.
+> **Why not the Supabase secret?** Projects on Supabase's newer **asymmetric JWT signing keys** no longer expose a usable shared HS256 secret — and we don't need one, because our token is verified locally by our own code with `TANGERINE_JWT_SECRET`. (The code also still reads a legacy `SUPABASE_JWT_SECRET` if one was set earlier, so nothing breaks.)
+
+> Order of operations for RBAC go-live: **(a)** set `TANGERINE_JWT_SECRET` (this chapter) → **(b)** configure roles in 🔐 User Access → **(c)** `RBAC_MODE=log` and watch telemetry → **(d)** `RBAC_MODE=enforce`. Steps (a) and (b)/(c)/(d) are independent; (a) is what makes (d) actually bite.
 
 ## Security model
 
-- The token is signed with the project's **JWT secret** — the same secret Supabase itself uses — so it's a first-class Supabase token (it would also satisfy database row-level security if we adopt per-user RLS later).
+- The token is HMAC-signed with `TANGERINE_JWT_SECRET`, an independent server secret. We sign it (provision) and verify it (`authenticateCaller`) ourselves, locally — so it's self-contained and immune to how Supabase signs its own tokens. (When we later adopt per-user database RLS, we'll move to real Supabase sessions for that path; this bridge stays the API-layer identity.)
 - It's only ever minted **after** the server re-validates your Microsoft token against Microsoft Graph. The browser can't talk the server into minting a token for someone else.
 - The server **verifies the signature locally** on every request — a tampered or expired token is rejected. There's no way to hand-edit "who you are" into the token.
-- The secret lives only in the server environment (never shipped to the browser). Rotating it in Supabase + Vercel invalidates outstanding tokens; everyone simply re-mints on next sign-in.
+- The secret lives only in the server environment (never shipped to the browser). Rotating it in Vercel invalidates outstanding tokens; everyone simply re-mints on next sign-in.
 
 ## What's NOT in scope yet
 
@@ -44,7 +46,7 @@ This bridge makes the **API layer** identity-aware. Making the **database itself
 
 ## Code map
 
-- Token mint/verify: `api/_lib/auth/appJwt.js` (HMAC-SHA256; gated on `SUPABASE_JWT_SECRET`)
+- Token mint/verify: `api/_lib/auth/appJwt.js` (HMAC-SHA256; gated on `TANGERINE_JWT_SECRET`, legacy `SUPABASE_JWT_SECRET` still accepted)
 - Minted in: `api/_handlers/internal/auth/provision.js`
 - Verified in: `api/_lib/auth.js` (`authenticateCaller` — local verify first, GoTrue fallback for vendor sessions)
 - Browser plumbing: `src/utils/tangerineAuthUser.ts` (cache) + `src/utils/internalApiAuth.ts` (header injection) + `src/Tangerine.tsx` (provision wiring)

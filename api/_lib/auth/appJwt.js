@@ -28,8 +28,16 @@ const ALG = "HS256";
 const DEFAULT_TTL_SEC = 12 * 60 * 60; // 12h — re-minted on every MS sign-in.
 
 function secret() {
-  // The project JWT secret. Server-only (never VITE_-prefixed).
-  return process.env.SUPABASE_JWT_SECRET || "";
+  // The app's per-user-token signing secret. Server-only (never VITE_-prefixed).
+  //
+  // This is an INDEPENDENT app secret, NOT Supabase's JWT secret: we both sign
+  // (provision) and verify (authenticateCaller) these tokens locally with this
+  // value — Supabase is never asked to verify them. Any strong, private,
+  // consistent string works. (Projects on Supabase's new asymmetric JWT signing
+  // keys no longer expose a usable shared HS256 secret, which is exactly why we
+  // sign our own.) `TANGERINE_JWT_SECRET` is the canonical name; we still accept
+  // the original `SUPABASE_JWT_SECRET` so an already-set value keeps working.
+  return process.env.TANGERINE_JWT_SECRET || process.env.SUPABASE_JWT_SECRET || "";
 }
 
 /** Is per-user JWT minting/verification configured? */
