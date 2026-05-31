@@ -13,7 +13,7 @@
 // now (they're reusable; importing across folders is fine). A future cleanup
 // can rename them to src/tangerine/*Panel.tsx for clarity but it's cosmetic.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
 import InternalPimProductCatalog  from "./tanda/InternalPimProductCatalog";
@@ -176,8 +176,16 @@ type ModuleDef = {
 // P8-3: CRM positioned between Accounting and Reports — operator workflow is
 // "invoice posts → check pipeline → log activity" so it follows Accounting and
 // precedes the cross-functional Reports group.
-const GROUP_ORDER: GroupKey[] = [
-  "Master Data", "Accounting", "CRM", "Reports", "Inventory", "Customer Service", "Shopify", "Marketplaces", "Shadow Mirror", "Approvals", "Notifications", "HR", "Operations", "Audit", "Admin",
+// Top nav is grouped into FIVE section dropdowns; each section nests the
+// existing groups as labelled sub-sections inside its dropdown. Keeps the bar
+// short while preserving the group taxonomy. Every GroupKey must appear in
+// exactly one section (else its modules vanish from the nav).
+const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
+  { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
+  { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
+  { section: "Operations",  emoji: "⚙️", groups: ["Inventory", "Operations", "Shadow Mirror"] },
+  { section: "Sales & CRM", emoji: "🛍️", groups: ["Shopify", "Marketplaces", "CRM", "Customer Service"] },
+  { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
@@ -186,7 +194,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "CRM":              "🤝",
   "Reports":          "📊",
   "Inventory":        "📦",
-  "Customer Service": "🤝",
+  "Customer Service": "🎧",
   "Shopify":          "🛍️",
   "Marketplaces":     "🛒",
   "Shadow Mirror":    "🔁",
@@ -195,6 +203,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "HR":               "👥",
   "Operations":       "⚙️",
   "Audit":            "🕒",
+  "Admin":            "🔧",
 };
 
 const MODULES: ModuleDef[] = [
@@ -597,6 +606,93 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Menu-item finder — type-ahead jump to any panel, sits in the nav bar next to
+// the section dropdowns. Filters the permission-checked panel list by label;
+// Enter selects the top hit, ↑/↓ navigate, Esc clears.
+// ─────────────────────────────────────────────────────────────────────────────
+interface SearchItem { key: ModuleKey; label: string; emoji: string; section: string; }
+
+function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: ModuleKey) => void }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  const results = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return [];
+    return items
+      .filter((it) => it.label.toLowerCase().includes(term) || it.section.toLowerCase().includes(term))
+      .slice(0, 12);
+  }, [q, items]);
+
+  function choose(k: ModuleKey) { onSelect(k); setQ(""); setOpen(false); setHi(0); }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { setQ(""); setOpen(false); return; }
+    if (!results.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); const r = results[hi] || results[0]; if (r) choose(r.key); }
+  }
+
+  return (
+    <div ref={ref} style={{ position: "relative", marginLeft: 12 }}>
+      <input
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
+        onFocus={() => { if (q.trim()) setOpen(true); }}
+        onKeyDown={onKeyDown}
+        placeholder="🔍 Find a panel…"
+        aria-label="Find a panel"
+        style={{
+          background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
+          borderRadius: 6, padding: "6px 10px", fontSize: 13, width: 200, outline: "none",
+        }}
+      />
+      {open && results.length > 0 && (
+        <div
+          role="listbox"
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", right: 0, minWidth: 280,
+            background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)", padding: 6, zIndex: 70,
+            display: "flex", flexDirection: "column", gap: 2, maxHeight: 360, overflowY: "auto",
+          }}
+        >
+          {results.map((r, i) => (
+            <button
+              key={r.key}
+              type="button"
+              role="option"
+              aria-selected={i === hi}
+              onMouseEnter={() => setHi(i)}
+              onClick={() => choose(r.key)}
+              style={{
+                background: i === hi ? "rgba(59, 130, 246, 0.14)" : "transparent",
+                border: 0, color: i === hi ? C.text : C.textSub, padding: "8px 10px",
+                borderRadius: 4, fontSize: 13, cursor: "pointer", textAlign: "left",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              <span style={{ width: 18, display: "inline-block" }}>{r.emoji}</span>
+              <span style={{ flex: 1 }}>{r.label}</span>
+              <span style={{ fontSize: 10, color: C.textMuted }}>{r.section}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Top nav
 // ─────────────────────────────────────────────────────────────────────────────
 interface TopNavProps {
@@ -614,7 +710,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
   // Group-dropdown nav: hover the group → opens its menu; mouse leaves the
   // group container (button + dropdown) → closes immediately. openGroup is
   // also driven by click (keyboard / accessibility fallback) and Esc.
-  const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null); // open SECTION name
+  // Which sub-group's items show in the open section's flyout pane.
+  const [hoverSub, setHoverSub] = useState<GroupKey | null>(null);
   // hoveredKey: per-dropdown highlighted item, drives the row background.
   const [hoveredKey, setHoveredKey] = useState<ModuleKey | null>(null);
   // P14-4 — hide nav items the caller lacks :read on. Inert (shows all) unless
@@ -663,6 +761,16 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
     setHoveredKey(null);
     onSelectModule(m);
   }
+
+  // Flat, permission-filtered list of every panel for the menu-item finder,
+  // each tagged with its section label for context in the results.
+  const searchItems = useMemo<SearchItem[]>(() => {
+    const sectionOf = (g: GroupKey): string =>
+      NAV_SECTIONS.find((s) => s.groups.includes(g))?.section ?? "";
+    return MODULES
+      .filter((m) => can(rbacModuleForTangerine(m.key), "read"))
+      .map((m) => ({ key: m.key, label: m.label, emoji: m.emoji, section: sectionOf(m.group) }));
+  }, [can]);
 
   return (
     <header
@@ -715,41 +823,49 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
         </div>
       </button>
 
-      <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20 }}>
-        {GROUP_ORDER.map((group) => {
-          const modules = MODULES.filter(
-            (m) => m.group === group && can(rbacModuleForTangerine(m.key), "read"),
-          );
-          if (modules.length === 0) return null;
-          const containsActive = modules.some((m) => m.key === activeModule);
-          const isOpen = openGroup === group;
+      <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20, alignItems: "center" }}>
+        {NAV_SECTIONS.map((sec) => {
+          // Sub-groups of this section that have at least one permitted module.
+          const subGroups = sec.groups
+            .map((g) => ({
+              group: g,
+              modules: MODULES.filter((m) => m.group === g && can(rbacModuleForTangerine(m.key), "read")),
+            }))
+            .filter((sg) => sg.modules.length > 0);
+          if (subGroups.length === 0) return null;
+
+          const containsActive = subGroups.some((sg) => sg.modules.some((m) => m.key === activeModule));
+          const isOpen = openGroup === sec.section;
+          const multi = subGroups.length > 1;
+          // Sub-group whose items fill the flyout pane: hovered (if in this
+          // section) → the one holding the active module → first.
+          const shown =
+            subGroups.find((sg) => sg.group === hoverSub) ||
+            subGroups.find((sg) => sg.modules.some((m) => m.key === activeModule)) ||
+            subGroups[0];
+
           return (
             <div
-              key={group}
+              key={sec.section}
               style={{ position: "relative" }}
-              onMouseEnter={() => { cancelClose(); setOpenGroup(group); }}
+              onMouseEnter={() => { cancelClose(); setOpenGroup(sec.section); setHoverSub(shown.group); }}
               onMouseLeave={() => scheduleClose()}
             >
               <button
                 type="button"
-                onClick={() => setOpenGroup(isOpen ? null : group)}
+                onClick={() => { setOpenGroup(isOpen ? null : sec.section); setHoverSub(shown.group); }}
                 style={{
                   background: containsActive || isOpen ? C.card : "transparent",
                   border: `1px solid ${containsActive || isOpen ? C.cardBdr : "transparent"}`,
                   color: containsActive || isOpen ? C.text : C.textSub,
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
+                  padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
                 }}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
               >
-                <span>{GROUP_ICON[group]}</span>
-                <span>{group}</span>
+                <span>{sec.emoji}</span>
+                <span>{sec.section}</span>
                 <span style={{ fontSize: 10 }}>{isOpen ? "▴" : "▾"}</span>
               </button>
               {isOpen && (
@@ -758,68 +874,78 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                   onMouseEnter={() => cancelClose()}
                   onMouseLeave={() => scheduleClose()}
                   style={{
-                    position: "absolute",
-                    // Flush against the button bottom (no visual gap) so the
-                    // mouse can traverse from button into dropdown without
-                    // leaving the parent's bounding box.
-                    top: "100%",
-                    left: 0,
-                    minWidth: 240,
-                    background: C.card,
-                    border: `1px solid ${C.cardBdr}`,
-                    borderRadius: 8,
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                    padding: 6,
-                    zIndex: 60,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
+                    position: "absolute", top: "100%", left: 0,
+                    background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.4)", padding: 6, zIndex: 60,
+                    display: "flex", gap: 4,
                   }}
                 >
-                  {modules.map((m) => {
-                    const active = activeModule === m.key;
-                    const hovered = hoveredKey === m.key;
-                    return (
-                      <button
-                        key={m.key}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => handleSelect(m.key)}
-                        onMouseEnter={() => setHoveredKey(m.key)}
-                        onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
-                        style={{
-                          // Faded hover: translucent blue overlay, keeps text
-                          // at default color (no pop). Active uses a slightly
-                          // darker base so the "current panel" cue is still
-                          // distinct from "what I'm about to click."
-                          background: hovered
-                            ? "rgba(59, 130, 246, 0.14)"
-                            : active
-                              ? "#0b1220"
-                              : "transparent",
-                          border: 0,
-                          color: hovered || active ? C.text : C.textSub,
-                          padding: "8px 10px",
-                          borderRadius: 4,
-                          fontSize: 13,
-                          cursor: "pointer",
-                          textAlign: "left",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          transition: "background 80ms ease, color 80ms ease",
-                        }}
-                      >
-                        <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
-                        <span>{m.label}</span>
-                      </button>
-                    );
-                  })}
+                  {/* Left rail: sub-group picker (only when >1 sub-group). */}
+                  {multi && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 168, borderRight: `1px solid ${C.cardBdr}`, paddingRight: 6 }}>
+                      {subGroups.map((sg) => {
+                        const isShown = sg.group === shown.group;
+                        const hasActive = sg.modules.some((m) => m.key === activeModule);
+                        return (
+                          <button
+                            key={sg.group}
+                            type="button"
+                            onMouseEnter={() => setHoverSub(sg.group)}
+                            onFocus={() => setHoverSub(sg.group)}
+                            style={{
+                              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                              background: isShown ? "#0b1220" : "transparent", border: 0,
+                              color: hasActive ? "#60A5FA" : isShown ? C.text : C.textSub,
+                              padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
+                              textAlign: "left", fontWeight: hasActive ? 700 : 500,
+                            }}
+                          >
+                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ width: 18, display: "inline-block" }}>{GROUP_ICON[sg.group]}</span>
+                              {sg.group}
+                            </span>
+                            <span style={{ fontSize: 10, opacity: 0.6 }}>▸</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Right pane: the shown sub-group's modules. */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 224 }}>
+                    {shown.modules.map((m) => {
+                      const active = activeModule === m.key;
+                      const hovered = hoveredKey === m.key;
+                      return (
+                        <button
+                          key={m.key}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => handleSelect(m.key)}
+                          onMouseEnter={() => setHoveredKey(m.key)}
+                          onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
+                          style={{
+                            background: hovered ? "rgba(59, 130, 246, 0.14)" : active ? "#0b1220" : "transparent",
+                            border: 0, color: hovered || active ? C.text : C.textSub,
+                            padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
+                            textAlign: "left", display: "flex", alignItems: "center", gap: 8,
+                            transition: "background 80ms ease, color 80ms ease",
+                          }}
+                        >
+                          <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
+                          <span>{m.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
           );
         })}
+
+        {/* Menu-item finder — type-ahead jump to any panel, separate from the
+            section dropdowns. Respects the same permission filter. */}
+        <MenuSearch items={searchItems} onSelect={handleSelect} />
       </nav>
 
       <div style={{ position: "relative" }}>
