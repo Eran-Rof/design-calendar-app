@@ -232,6 +232,18 @@ export interface RfqLineItem {
   quantity: number;
   unit_of_measure: string | null;
   specifications: string | null;
+  /** Mirror of costing_lines.fabric_code at generate-rfqs time. NULL on legacy rows. */
+  fabric_code: string | null;
+  /** Mirror of costing_lines.fit. NULL on legacy rows. */
+  fit: string | null;
+  /** Mirror of costing_lines.bottom_closure. NULL on legacy rows. */
+  bottom_closure: string | null;
+  /** Mirror of costing_lines.size_scale_label (denormalized snapshot). NULL on legacy rows. */
+  size_scale_label: string | null;
+  /** Mirror of costing_lines.waist_type. NULL on legacy rows. */
+  waist_type: string | null;
+  /** Per-unit cost target the vendor is asked to quote against (= costing_lines.target_cost). */
+  target_price: number | null;
   created_at: string;
 }
 
@@ -242,6 +254,7 @@ export interface RfqInvitation {
   vendors?: {
     id: string;
     code: string | null;
+    name: string | null;
     legal_name: string | null;
     country: string | null;
     default_currency: string | null;

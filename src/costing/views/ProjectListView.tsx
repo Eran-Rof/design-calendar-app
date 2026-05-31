@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { fmtDateDisplay, statusLabel, statusColor, navigate } from "../helpers";
+import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates } from "../helpers";
 import { appConfirm, TH } from "../../utils/theme";
 import { Modal } from "../../components/Modal";
 import ExportButton from "../../tanda/exports/ExportButton";
@@ -42,7 +42,10 @@ export default function ProjectListView() {
     if (!name) return;
     setCreating(true);
     try {
-      const p = await create({ project_name: name });
+      // Prefill the three header dates so the operator doesn't start with
+      // empty fields: request=today, due=+5 business days, delivery=+120d
+      // snapped to the 1st of that month.
+      const p = await create({ project_name: name, ...defaultProjectDates() });
       setNewModalOpen(false);
       navigate("edit", p.id);
     } catch (e) {

@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     const [{ data: rfq, error: rfqErr }, { data: items }, { data: invitations }] = await Promise.all([
       admin.from("rfqs").select("*").eq("id", id).maybeSingle(),
       admin.from("rfq_line_items").select("*").eq("rfq_id", id).order("line_index", { ascending: true }),
-      admin.from("rfq_invitations").select("id, vendor_id, status, vendors(id, code, legal_name, country, default_currency)").eq("rfq_id", id),
+      admin.from("rfq_invitations").select("id, vendor_id, status, vendors(id, code, name, legal_name, country, default_currency)").eq("rfq_id", id),
     ]);
     if (rfqErr) return res.status(500).json({ error: rfqErr.message });
     if (!rfq) return res.status(404).json({ error: "RFQ not found" });

@@ -124,7 +124,7 @@ export default function CostingGrid() {
   // <ColumnsButton/> in the grid toolbar. visibleColumns derives from
   // COLUMNS minus the hidden set; visibleWidth keeps header/body/footer
   // minWidth in lockstep so nothing drifts when columns toggle.
-  const { hiddenColumns, toggleColumn, resetColumns } = usePersistedHiddenColumns("costing_grid_hidden_columns");
+  const { hiddenColumns, toggleColumn, resetColumns, setHiddenColumns } = usePersistedHiddenColumns("costing_grid_hidden_columns");
   const visibleColumns = COLUMNS.filter((c) => !hiddenColumns.has(c.key));
   const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
   const toggleableColumns = COLUMNS.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
@@ -380,6 +380,7 @@ export default function CostingGrid() {
             hidden={hiddenColumns}
             onToggle={toggleColumn}
             onReset={resetColumns}
+            onSetAll={(visible) => setHiddenColumns(visible ? [] : toggleableColumns.map((c) => c.key))}
           />
         </div>
       </div>

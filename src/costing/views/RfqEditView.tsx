@@ -24,6 +24,7 @@ const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "closed", "awarded"];
 const UNDO_LIMIT = 4;
 
 const fmtQty = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function RfqEditView() {
   const id = getEditId();
@@ -179,7 +180,7 @@ export default function RfqEditView() {
             background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
             fontSize: 12,
           }}>
-            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || "—"} />
+            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || "—"} />
             <ContextField label="Customer" value={customerName || "—"} />
             <ContextField label="Source project" value={project?.project_name || "—"} />
             <ContextField label="Lines" value={String(items.length)} />
@@ -237,23 +238,35 @@ export default function RfqEditView() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead style={{ background: "#0F172A" }}>
                   <tr>
-                    <Th width={50}>#</Th>
+                    <Th width={40}>#</Th>
                     <Th>Description</Th>
-                    <Th align="right" width={90}>Qty</Th>
-                    <Th width={70}>UOM</Th>
+                    <Th width={90}>Fabric</Th>
+                    <Th width={70}>Fit</Th>
+                    <Th width={80}>Closure</Th>
+                    <Th width={70}>Scale</Th>
+                    <Th width={80}>Waist</Th>
+                    <Th align="right" width={80}>Qty</Th>
+                    <Th width={50}>UOM</Th>
+                    <Th align="right" width={90}>Target $</Th>
                     <Th>Specifications</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.length === 0 && (
-                    <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#64748B" }}>No line items.</td></tr>
+                    <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#64748B" }}>No line items.</td></tr>
                   )}
                   {items.map((it: RfqLineItem) => (
                     <tr key={it.id} style={{ borderTop: "1px solid #334155" }}>
                       <Td>{it.line_index}</Td>
                       <Td>{it.description}</Td>
+                      <Td>{it.fabric_code || "—"}</Td>
+                      <Td>{it.fit || "—"}</Td>
+                      <Td>{it.bottom_closure || "—"}</Td>
+                      <Td>{it.size_scale_label || "—"}</Td>
+                      <Td>{it.waist_type || "—"}</Td>
                       <Td align="right">{fmtQty.format(it.quantity)}</Td>
                       <Td>{it.unit_of_measure || "—"}</Td>
+                      <Td align="right">{typeof it.target_price === "number" ? fmtMoney.format(it.target_price) : "—"}</Td>
                       <Td><span style={{ color: "#94A3B8" }}>{it.specifications || "—"}</span></Td>
                     </tr>
                   ))}
