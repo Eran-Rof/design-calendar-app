@@ -315,6 +315,9 @@ export interface CustomerHit {
   status: string | null;
   billing_address: { name?: string; company?: string; [k: string]: unknown } | null;
   payment_terms: string | null;
+  /** Friendly display name resolved server-side from ip_customer_master.name
+   *  (Xoro-synced, keyed by customer_code). Always preferred when present. */
+  display_name?: string | null;
 }
 
 /** Strip the legacy Xoro "EXCEL:" tag that prefixes every customer code on
@@ -324,10 +327,14 @@ export function stripExcelPrefix<T extends string | null | undefined>(s: T): T {
   return s.replace(/^EXCEL:/i, "") as T;
 }
 
-/** Helper to extract a readable display name from a customer hit (name → company → code).
- *  Always passes through stripExcelPrefix so the picker shows clean names. */
+/** Helper to extract a readable display name from a customer hit.
+ *  Preference order: ip_customer_master.name (display_name) → billing_address.name →
+ *  billing_address.company → stripped customers.code → id. */
 export function customerDisplayName(c: CustomerHit | null | undefined): string {
   if (!c) return "";
+  if (typeof c.display_name === "string" && c.display_name.trim().length > 0) {
+    return c.display_name;
+  }
   const billing = c.billing_address;
   const name = typeof billing?.name === "string" ? billing.name : undefined;
   const company = typeof billing?.company === "string" ? billing.company : undefined;

@@ -50,6 +50,32 @@ export default async function handler(req, res) {
 
     const { data, error } = await q.order("created_at", { ascending: false }).range(0, 999);
     if (error) return res.status(500).json({ error: error.message });
+
+    // Enrich each project's joined customer with ip_customer_master.name so
+    // the projects-list customer column shows the friendly name. Bulk lookup
+    // by customer_code; 100% coverage of EXCEL:* codes today.
+    const codes = Array.from(new Set(
+      (data || []).map((p) => p.customer?.code).filter((c) => typeof c === "string" && c.length > 0),
+    ));
+    if (codes.length > 0) {
+      try {
+        const { data: ipcm } = await admin.from("ip_customer_master")
+          .select("customer_code, name")
+          .in("customer_code", codes);
+        const nameByCode = new Map();
+        for (const r of ipcm || []) {
+          if (r.customer_code && r.name) nameByCode.set(r.customer_code, r.name);
+        }
+        for (const p of data || []) {
+          if (p.customer?.code) {
+            const friendly = nameByCode.get(p.customer.code);
+            if (friendly) p.customer.display_name = friendly;
+          }
+        }
+      } catch (e) {
+        console.warn("[costing/projects] ip_customer_master enrichment failed:", e.message);
+      }
+    }
     return res.status(200).json(data || []);
   }
 

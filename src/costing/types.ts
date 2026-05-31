@@ -44,7 +44,7 @@ export interface CostingProject {
   updated_at: string;
   created_by_user_id: string | null;
   // join hints
-  customer?: { id: string; code: string | null; billing_address: Record<string, unknown> | null } | null;
+  customer?: { id: string; code: string | null; billing_address: Record<string, unknown> | null; display_name?: string | null } | null;
   sales_rep?: { id: string; display_name: string } | null;
 }
 
@@ -268,7 +268,7 @@ export interface RfqDetail {
   source_project: {
     id: string;
     project_name: string;
-    customer: { id: string; code: string | null; billing_address: Record<string, unknown> | null } | null;
+    customer: { id: string; code: string | null; billing_address: Record<string, unknown> | null; display_name?: string | null } | null;
   } | null;
 }
 

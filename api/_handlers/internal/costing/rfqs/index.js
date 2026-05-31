@@ -110,6 +110,26 @@ export default async function handler(req, res) {
   const projectById = new Map();
   for (const p of projects || []) projectById.set(p.id, p);
 
+  // Resolve Xoro-friendly customer names from ip_customer_master, keyed by
+  // customer_code = customers.code. Same source ATS uses
+  // (src/ats/exportSalesFetch.ts). 100% coverage of EXCEL:* codes today.
+  const custCodes = Array.from(new Set(
+    (projects || []).map((p) => p.customer?.code).filter((c) => typeof c === "string" && c.length > 0),
+  ));
+  const friendlyByCode = new Map();
+  if (custCodes.length > 0) {
+    try {
+      const { data: ipcm } = await admin.from("ip_customer_master")
+        .select("customer_code, name")
+        .in("customer_code", custCodes);
+      for (const r of ipcm || []) {
+        if (r.customer_code && r.name) friendlyByCode.set(r.customer_code, r.name);
+      }
+    } catch (e) {
+      console.warn("[costing/rfqs] ip_customer_master enrichment failed:", e.message);
+    }
+  }
+
   // 3. Denormalize + search-filter in-memory.
   const rows = rfqs.map((r) => {
     const invs = invByRfq.get(r.id) || [];
@@ -118,12 +138,14 @@ export default async function handler(req, res) {
     const vendorName = vendor?.legal_name || vendor?.name || vendor?.code || null;
     const project = r.source_costing_project_id ? projectById.get(r.source_costing_project_id) : null;
     const customer = project?.customer || null;
-    const rawCustomerName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof customer.billing_address.name === "string")
+    // Preference: ip_customer_master.name → billing_address.name → stripped code.
+    const friendly = customer?.code ? friendlyByCode.get(customer.code) : null;
+    const billingName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof customer.billing_address.name === "string")
       ? customer.billing_address.name
-      : customer?.code || null;
-    // Strip legacy Xoro "EXCEL:" prefix so the list view + downstream
-    // consumers get the clean name. Mirrors stripExcelPrefix on the
-    // client (PR #640).
+      : null;
+    const rawCustomerName = friendly || billingName || customer?.code || null;
+    // Strip legacy Xoro "EXCEL:" prefix as a final guard (in case
+    // ip_customer_master is missing a row for some new code).
     const customerName = rawCustomerName ? rawCustomerName.replace(/^EXCEL:/i, "") : null;
     const lineItems = itemsByRfq.get(r.id) || [];
     return {
