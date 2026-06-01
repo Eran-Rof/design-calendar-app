@@ -5,10 +5,13 @@
 //
 // Reads /api/internal/income-statement?basis=ACCRUAL|CASH&from=YYYY-MM-DD&to=YYYY-MM-DD.
 //
-// Layout (3 sections per arch §5.3):
-//   1. Revenue        — account_type IN ('revenue','contra_revenue')        → NET REVENUE
-//   2. COGS           — account_type='expense' AND code LIKE '5%'           → COGS
-//   3. Operating Exp. — account_type='expense' AND NOT code LIKE '5%'       → OPEX
+// Layout:
+//   1. Revenue        — account_type='revenue'                              → REVENUE
+//   2. Dilution       — contra_revenue, account_subtype='dilution'          → DILUTION  (deduction)
+//   3. Returns & Disc — other contra_revenue                                → (deduction)
+//      → NET REVENUE = Revenue − Dilution − Returns
+//   4. COGS           — account_type='expense' AND code LIKE '5%'           → COGS
+//   5. Operating Exp. — account_type='expense' AND NOT code LIKE '5%'       → OPEX
 //
 // Subtotals:
 //   Net Revenue
@@ -103,9 +106,14 @@ function rowAmount(r: ISRow): number {
   return Number(r.amount_cents || 0);
 }
 
-function classifyRow(r: ISRow): "revenue" | "contra_revenue" | "cogs" | "opex" | "other" {
+function classifyRow(r: ISRow): "revenue" | "dilution" | "contra_revenue" | "cogs" | "opex" | "other" {
   if (r.account_type === "revenue") return "revenue";
-  if (r.account_type === "contra_revenue") return "contra_revenue";
+  if (r.account_type === "contra_revenue") {
+    // Dilution accounts are contra_revenue tagged account_subtype='dilution';
+    // they get their own P&L line between Revenue and Net Revenue. Other
+    // contra_revenue (returns/discounts) stays in the contra bucket.
+    return String(r.account_subtype || "").toLowerCase() === "dilution" ? "dilution" : "contra_revenue";
+  }
   if (r.account_type === "expense") {
     const code = String(r.code || "");
     if (code.startsWith("5")) return "cogs";
@@ -274,6 +282,8 @@ export default function InternalIncomeStatement() {
   const [from, setFrom] = useState<string>(fyStartISO());
   const [to, setTo] = useState<string>(todayISO());
   const [openRev, setOpenRev] = useState(true);
+  const [openDilution, setOpenDilution] = useState(true);
+  const [openReturns, setOpenReturns] = useState(true);
   const [openCogs, setOpenCogs] = useState(true);
   const [openOpex, setOpenOpex] = useState(true);
 
@@ -308,28 +318,32 @@ export default function InternalIncomeStatement() {
     ? rows
     : rows.filter((r) => r.brand_id === brandFilter || (!r.brand_id && !r.brand_rollup));
 
-  // Partition rows into 4 buckets.
-  const revenueRows = visibleRows.filter((r) => classifyRow(r) === "revenue");
-  const contraRows  = visibleRows.filter((r) => classifyRow(r) === "contra_revenue");
-  const cogsRows    = visibleRows.filter((r) => classifyRow(r) === "cogs");
-  const opexRows    = visibleRows.filter((r) => classifyRow(r) === "opex");
+  // Partition rows into buckets. Dilution (contra_revenue subtype='dilution')
+  // gets its own line between Revenue and Net Revenue; other contra_revenue
+  // (returns/discounts) keeps its own "Returns & Discounts" section.
+  const revenueRows  = visibleRows.filter((r) => classifyRow(r) === "revenue");
+  const dilutionRows = visibleRows.filter((r) => classifyRow(r) === "dilution");
+  const contraRows   = visibleRows.filter((r) => classifyRow(r) === "contra_revenue");
+  const cogsRows     = visibleRows.filter((r) => classifyRow(r) === "cogs");
+  const opexRows     = visibleRows.filter((r) => classifyRow(r) === "opex");
 
   const grossRevenue = revenueRows.reduce((s, r) => s + rowAmount(r), 0);
+  const dilutionTotal = dilutionRows.reduce((s, r) => s + rowAmount(r), 0);
   const contraTotal  = contraRows.reduce((s, r) => s + rowAmount(r), 0);
-  const netRevenue   = grossRevenue - contraTotal;
+  const netRevenue   = grossRevenue - dilutionTotal - contraTotal;
   const cogs         = cogsRows.reduce((s, r) => s + rowAmount(r), 0);
   const opex         = opexRows.reduce((s, r) => s + rowAmount(r), 0);
   const grossMargin  = netRevenue - cogs;
   const operatingIncome = grossMargin - opex;
   const netIncome    = operatingIncome; // M22 will add depreciation later
 
-  // Revenue section combines revenue + contra_revenue rows for display, but the
-  // section total is NET REVENUE (revenue minus contra).
   const toItems = (rs: ISRow[]): DisplayItem[] =>
     grouping ? buildDisplayItems(rs) : rs.map((row) => ({ kind: "row", row }));
-  const revenueItems = toItems([...revenueRows, ...contraRows]);
-  const cogsItems    = toItems(cogsRows);
-  const opexItems    = toItems(opexRows);
+  const revenueItems  = toItems(revenueRows);
+  const dilutionItems = toItems(dilutionRows);
+  const returnsItems  = toItems(contraRows);
+  const cogsItems     = toItems(cogsRows);
+  const opexItems     = toItems(opexRows);
 
   return (
     <div style={{ color: C.text }}>
@@ -415,8 +429,12 @@ export default function InternalIncomeStatement() {
                 amount_cents: r ? rowAmount(r) : (amt ?? 0),
               });
             for (const r of revenueRows) push("Revenue", "row", r);
-            for (const r of contraRows) push("Revenue", "row", r);
-            push("Revenue", "subtotal", null, "NET REVENUE", netRevenue);
+            push("Revenue", "subtotal", null, "REVENUE", grossRevenue);
+            for (const r of dilutionRows) push("Dilution", "row", r);
+            if (dilutionRows.length) push("Dilution", "subtotal", null, "DILUTION", dilutionTotal);
+            for (const r of contraRows) push("Returns & Discounts", "row", r);
+            if (contraRows.length) push("Returns & Discounts", "subtotal", null, "RETURNS & DISCOUNTS", contraTotal);
+            push("Net Revenue", "subtotal", null, "NET REVENUE", netRevenue);
             for (const r of cogsRows) push("Cost of Goods Sold", "row", r);
             push("Cost of Goods Sold", "subtotal", null, "COGS", cogs);
             push("Gross Margin", "subtotal", null, "Gross Margin", grossMargin);
@@ -452,12 +470,41 @@ export default function InternalIncomeStatement() {
           <Section
             title="Revenue"
             items={revenueItems}
-            total={netRevenue}
-            totalLabel="NET REVENUE"
+            total={grossRevenue}
+            totalLabel="REVENUE"
             open={openRev}
             onToggle={() => setOpenRev((v) => !v)}
             hideAccountNum={hideAccountNum}
           />
+          {dilutionRows.length > 0 && (
+            <Section
+              title="Dilution"
+              items={dilutionItems}
+              total={dilutionTotal}
+              totalLabel="DILUTION"
+              totalColor={C.warn}
+              open={openDilution}
+              onToggle={() => setOpenDilution((v) => !v)}
+              hideAccountNum={hideAccountNum}
+            />
+          )}
+          {contraRows.length > 0 && (
+            <Section
+              title="Returns & Discounts"
+              items={returnsItems}
+              total={contraTotal}
+              totalLabel="RETURNS & DISCOUNTS"
+              totalColor={C.warn}
+              open={openReturns}
+              onToggle={() => setOpenReturns((v) => !v)}
+              hideAccountNum={hideAccountNum}
+            />
+          )}
+          {/* Net Revenue bar = Revenue − Dilution − Returns. */}
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, fontSize: 14 }}>
+            <span>NET REVENUE</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", color: netRevenue >= 0 ? C.text : C.danger }}>{fmtCents(netRevenue)}</span>
+          </div>
           <Section
             title="Cost of Goods Sold"
             items={cogsItems}
@@ -482,8 +529,24 @@ export default function InternalIncomeStatement() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <tbody>
                 <tr>
-                  <td style={{ ...td, border: "none", color: C.textSub }}>Net Revenue</td>
-                  <td style={{ ...tdNum, border: "none" }}>{fmtCents(netRevenue)}</td>
+                  <td style={{ ...td, border: "none", color: C.textSub }}>Revenue</td>
+                  <td style={{ ...tdNum, border: "none" }}>{fmtCents(grossRevenue)}</td>
+                </tr>
+                {dilutionTotal !== 0 && (
+                  <tr>
+                    <td style={{ ...td, border: "none", color: C.textSub }}>− Dilution</td>
+                    <td style={{ ...tdNum, border: "none" }}>{fmtCents(dilutionTotal)}</td>
+                  </tr>
+                )}
+                {contraTotal !== 0 && (
+                  <tr>
+                    <td style={{ ...td, border: "none", color: C.textSub }}>− Returns &amp; Discounts</td>
+                    <td style={{ ...tdNum, border: "none" }}>{fmtCents(contraTotal)}</td>
+                  </tr>
+                )}
+                <tr>
+                  <td style={{ ...td, borderTop: `1px solid ${C.cardBdr}`, borderBottom: "none", fontWeight: 700 }}>Net Revenue</td>
+                  <td style={{ ...tdNum, borderTop: `1px solid ${C.cardBdr}`, border: "none", fontWeight: 700 }}>{fmtCents(netRevenue)}</td>
                 </tr>
                 <tr>
                   <td style={{ ...td, border: "none", color: C.textSub }}>− Cost of Goods Sold</td>
