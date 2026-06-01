@@ -26,6 +26,9 @@ type StyleListRow = {
   style_code: string;
   style_name: string | null;
   description: string | null;
+  group_name?: string | null;
+  category_name?: string | null;
+  sub_category_name?: string | null;
 };
 
 type MatrixSku = {
@@ -170,7 +173,13 @@ export default function InternalInventoryMatrix() {
       styles.map((s) => {
         const name = s.style_name || s.description || "";
         const label = name ? `${s.style_code} — ${name}` : s.style_code;
-        return { value: s.id, label, searchHaystack: `${s.style_code} ${name}` };
+        // Search across code + name + description + group/category/sub so a
+        // style is reachable by any of them (not just code/name).
+        const searchHaystack = [
+          s.style_code, s.style_name, s.description,
+          s.group_name, s.category_name, s.sub_category_name,
+        ].filter(Boolean).join(" ");
+        return { value: s.id, label, searchHaystack };
       }),
     [styles],
   );
