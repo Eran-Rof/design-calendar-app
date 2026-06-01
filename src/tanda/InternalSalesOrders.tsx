@@ -19,6 +19,8 @@ const C = {
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
+// Item 7 — ~8-char numeric box with no browser spinner arrows (type=text + inputMode=decimal).
+const numInputStyle: React.CSSProperties = { ...inputStyle, width: "8ch", textAlign: "right" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
 const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borderColor: "#7f1d1d", padding: "2px 8px" };
@@ -28,11 +30,11 @@ type SO = {
   brand_id: string | null; channel_id: string | null; order_date: string; requested_ship_date: string | null;
   cancel_date: string | null; status: string; payment_terms_id: string | null; ar_account_id: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
+  factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
 };
-type SOLine = { key: number; inventory_item_id: string; description: string; qty_ordered: string; unit_price_dollars: string; revenue_account_id: string };
-type Customer = { id: string; name: string; customer_code?: string };
+type SOLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string };
+type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
-type Account = { id: string; code: string; name: string; is_postable: boolean; status: string };
 type Lookup = { id: string; code?: string; name: string };
 type ShipTo = { id: string; name: string; code?: string | null };
 
@@ -43,6 +45,12 @@ function fmtCents(c: number | string | null | undefined): string {
 const STATUS_COLORS: Record<string, string> = {
   draft: C.textMuted, confirmed: C.primary, allocated: "#8B5CF6", fulfilling: C.warn,
   shipped: "#06B6D4", invoiced: C.success, closed: C.textSub, cancelled: C.danger,
+};
+// Item 3 — Factor/Ins approval states.
+const FACTOR_STATUSES = ["not_submitted", "pending", "approved", "partial", "declined", "not_required"];
+const FACTOR_COLORS: Record<string, string> = {
+  not_submitted: C.textMuted, pending: C.warn, approved: C.success, partial: "#8B5CF6",
+  declined: C.danger, not_required: C.textSub,
 };
 
 export default function InternalSalesOrders() {
@@ -101,11 +109,11 @@ export default function InternalSalesOrders() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>SO #</th><th style={th}>Customer</th><th style={th}>Order date</th>
-            <th style={th}>Req. ship</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Total</th>
+            <th style={th}>Start Ship</th><th style={th}>Status</th><th style={th}>Factor</th><th style={{ ...th, textAlign: "right" }}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={7}>Loading…</td></tr>}
+            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>No sales orders.</td></tr>}
             {rows.map((so) => (
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
@@ -113,6 +121,9 @@ export default function InternalSalesOrders() {
                 <td style={td}>{so.order_date}</td>
                 <td style={td}>{so.requested_ship_date || "—"}</td>
                 <td style={td}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
+                <td style={td}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
+                  ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: FACTOR_COLORS[so.factor_approval_status] || C.text, border: `1px solid ${FACTOR_COLORS[so.factor_approval_status] || C.cardBdr}` }}>{so.factor_approval_status}</span>
+                  : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(so.total_cents)}</td>
               </tr>
             ))}
@@ -145,11 +156,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [cancelDate, setCancelDate] = useState(so?.cancel_date || "");
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
   const [notes, setNotes] = useState(so?.notes || "");
-  const [lines, setLines] = useState<SOLine[]>([{ key: 1, inventory_item_id: "", description: "", qty_ordered: "", unit_price_dollars: "", revenue_account_id: "" }]);
+  const [lines, setLines] = useState<SOLine[]>([{ key: 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]);
   const [stagedDocs, setStagedDocs] = useState<File[]>([]);
+  // Item 3 — Factor / credit-insurance approval (manual entry; Rosenthal API auto-fill reserved).
+  const [factorStatus, setFactorStatus] = useState(so?.factor_approval_status || "not_submitted");
+  const [factorReference, setFactorReference] = useState(so?.factor_reference || "");
+  const [factorApprovedDollars, setFactorApprovedDollars] = useState(
+    so?.factor_approved_cents != null && so.factor_approved_cents !== "" ? (Number(so.factor_approved_cents) / 100).toFixed(2) : "");
 
   const [items, setItems] = useState<Item[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [brands, setBrands] = useState<Lookup[]>([]);
   const [channels, setChannels] = useState<Lookup[]>([]);
   const [paymentTerms, setPaymentTerms] = useState<Lookup[]>([]);
@@ -159,7 +174,6 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
   useEffect(() => {
     fetch("/api/internal/items?limit=500").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
-    fetch("/api/internal/gl-accounts?limit=1000").then((r) => r.json()).then((a: Account[]) => setAccounts(Array.isArray(a) ? a.filter((x) => x.status === "active") : [])).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
     fetch("/api/internal/channels").then((r) => r.json()).then((d) => setChannels(Array.isArray(d.channels) ? d.channels : [])).catch(() => {});
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});
@@ -170,10 +184,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     if (isNew || !so) return;
     fetch(`/api/internal/sales-orders/${so.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full?.lines) return;
-      setLines(full.lines.map((l: { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_price_cents: number; revenue_account_id: string | null }, i: number) => ({
-        key: i + 1, inventory_item_id: l.inventory_item_id || "", description: l.description || "",
+      setLines(full.lines.map((l: { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number }, i: number) => ({
+        key: i + 1, inventory_item_id: l.inventory_item_id || "",
         qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: l.unit_price_cents != null ? (l.unit_price_cents / 100).toFixed(2) : "",
-        revenue_account_id: l.revenue_account_id || "",
       })));
     }).catch(() => {});
   }, [isNew, so]);
@@ -186,9 +199,34 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return () => { cancel = true; };
   }, [customerId]);
 
+  // Item 5 — prefill brand/channel from the customer's defaults (NEW SO only, and
+  // only when the picker is still empty so an explicit choice isn't clobbered).
+  function pickCustomer(v: string) {
+    setCustomerId(v);
+    setShipToLocationId("");
+    if (!isNew) return;
+    const c = customers.find((x) => x.id === v);
+    if (!c) return;
+    if (c.default_brand_id) setBrandId((cur) => cur || c.default_brand_id || "");
+    if (c.default_channel_id) setChannelId((cur) => cur || c.default_channel_id || "");
+  }
+
   function updateLine(idx: number, patch: Partial<SOLine>) { setLines((p) => p.map((l, i) => i === idx ? { ...l, ...patch } : l)); }
-  function addLine() { setLines((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, inventory_item_id: "", description: "", qty_ordered: "", unit_price_dollars: "", revenue_account_id: "" }]); }
+  function addLine() { setLines((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]); }
   function removeLine(idx: number) { setLines((p) => p.filter((_, i) => i !== idx)); }
+
+  // Item 11 — auto-append a fresh row once the LAST row is complete (Style + qty>0)
+  // and there isn't already a trailing empty row. Avoids infinite growth.
+  useEffect(() => {
+    if (!editable) return;
+    setLines((p) => {
+      const last = p[p.length - 1];
+      if (last && last.inventory_item_id && Number(last.qty_ordered) > 0) {
+        return [...p, { key: (last.key ?? 0) + 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }];
+      }
+      return p;
+    });
+  }, [lines, editable]);
 
   const totalCents = useMemo(() => lines.reduce((s, l) => {
     const qty = Number(l.qty_ordered) || 0; const unit = Math.round((Number(l.unit_price_dollars) || 0) * 100);
@@ -199,11 +237,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return lines
       .filter((l) => Number(l.qty_ordered) > 0)
       .map((l) => ({
+        // Item 9 — no per-line revenue_account_id; the server stamps it from the
+        // customer's default_revenue_account_id (entity default as fallback).
         inventory_item_id: l.inventory_item_id || null,
-        description: l.description.trim() || null,
         qty_ordered: Number(l.qty_ordered),
         unit_price_cents: Math.round((Number(l.unit_price_dollars) || 0) * 100),
-        revenue_account_id: l.revenue_account_id || null,
       }));
   }
 
@@ -218,6 +256,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
         payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: apiLines(),
+        // Item 3 — factor / credit-insurance approval (manual).
+        factor_approval_status: factorStatus,
+        factor_reference: factorReference.trim() || null,
+        factor_approved_cents: factorApprovedDollars.trim() === "" ? null : Math.round((Number(factorApprovedDollars) || 0) * 100),
       };
 
       let soId = so?.id || null;
@@ -260,8 +302,6 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
-  const acctOpts = [{ value: "", label: "(header default)" }, ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))];
-
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
@@ -269,7 +309,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
-            <SearchableSelect value={customerId || null} onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
+            <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
               options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
               placeholder="(pick customer…)" disabled={!editable} />
           </Field>
@@ -283,7 +323,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-          <Field label="Requested ship"><input type="date" value={reqShip} onChange={(e) => setReqShip(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+          <Field label="Start Ship"><input type="date" value={reqShip} onChange={(e) => setReqShip(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           <Field label="Payment terms">
             <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
@@ -302,6 +342,20 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </Field>
         </div>
 
+        {/* Item 3 — Factor / credit-insurance approval (Rosenthal & Rosenthal). Manual entry now. */}
+        <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Factor / Ins Approval</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Status">
+              <SearchableSelect value={factorStatus || null} onChange={(v) => setFactorStatus(v || "not_submitted")}
+                options={FACTOR_STATUSES.map((s) => ({ value: s, label: s }))} placeholder="not_submitted" disabled={!editable} />
+            </Field>
+            <Field label="Factor ref #"><input type="text" value={factorReference} onChange={(e) => setFactorReference(e.target.value)} disabled={!editable} style={inputStyle} placeholder="approval / ref number" /></Field>
+            <Field label="Approved $"><input type="text" inputMode="decimal" value={factorApprovedDollars} onChange={(e) => setFactorApprovedDollars(e.target.value)} disabled={!editable} style={inputStyle} placeholder="0.00" /></Field>
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>Manual entry for now — this will auto-fill from the Rosenthal &amp; Rosenthal Factor API in a future release.</div>
+        </div>
+
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
 
         <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -310,28 +364,26 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         </div>
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 240 }} /><col style={{ width: 80 }} /><col style={{ width: 110 }} /><col style={{ width: 240 }} /><col style={{ width: 36 }} /></colgroup>
+            <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /><col style={{ width: 36 }} /></colgroup>
             <thead><tr>
-              <th style={th}>#</th><th style={th}>Description</th><th style={th}>Item (optional)</th><th style={th}>Qty</th><th style={th}>Unit $</th><th style={th}>Revenue / offset acct</th><th style={th}></th>
+              <th style={th}>#</th><th style={th}>Style</th><th style={th}>Qty</th><th style={th}>Unit $</th><th style={th}></th>
             </tr></thead>
             <tbody>
               {lines.map((l, idx) => (
                 <tr key={l.key}>
                   <td style={td}>{idx + 1}</td>
-                  <td style={td}><input type="text" value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} disabled={!editable} style={inputStyle} /></td>
                   <td style={td}>
                     <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateLine(idx, { inventory_item_id: v })}
                       options={[{ value: "", label: "(none)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
-                      placeholder="(none)" disabled={!editable} />
+                      placeholder="(pick style…)" disabled={!editable} />
                   </td>
-                  <td style={td}><input type="number" min="0" step="0.0001" value={l.qty_ordered} onChange={(e) => updateLine(idx, { qty_ordered: e.target.value })} disabled={!editable} style={inputStyle} /></td>
-                  <td style={td}><input type="text" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="0.00" style={inputStyle} /></td>
-                  <td style={td}><SearchableSelect value={l.revenue_account_id || null} onChange={(v) => updateLine(idx, { revenue_account_id: v })} options={acctOpts} placeholder="(header default)" disabled={!editable} /></td>
+                  <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateLine(idx, { qty_ordered: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0" style={numInputStyle} /></td>
+                  <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0.00" style={numInputStyle} /></td>
                   <td style={td}>{editable && lines.length > 1 && <button type="button" onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td style={td} colSpan={4}><span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Total</span></td><td style={{ ...td, fontWeight: 700 }} colSpan={3}>{fmtCents(totalCents)}</td></tr></tfoot>
+            <tfoot><tr><td style={td} colSpan={2}><span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Total</span></td><td style={{ ...td, fontWeight: 700 }} colSpan={3}>{fmtCents(totalCents)}</td></tr></tfoot>
           </table>
         </div>
 
