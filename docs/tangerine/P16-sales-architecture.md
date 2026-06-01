@@ -26,3 +26,6 @@ Brand/channel scoping (`applyBrandScope`), entity scoping, T11 audit (`audit_row
 
 ## Out of scope (later phases)
 SO demand → Planning is **P17** (consumes SO via ATS). EDI order intake is **P22**. B2B self-service order placement is **P18**.
+
+## Deferred / planned
+- **Rosenthal & Rosenthal Factor API integration** — auto-fill the SO Factor/Ins Approval fields (`factor_approval_status`, `factor_approved_cents`, `factor_reference`) from the factor's API instead of manual entry. **Scheduled AFTER Xoro retirement** (per operator, 2026-06-01) — defer until the Xoro nightly pipeline is decommissioned so integration effort isn't split. Schema is already in place (`factor_source` enum reserves `rosenthal_api`); only the connector + a sync job remain.

@@ -765,6 +765,29 @@ interface TopNavProps {
   onSignOut: () => void;
 }
 
+// Item 12 — is a modal/popup currently open in this tab? The Internal* panels
+// render a full-screen fixed backdrop (position:fixed; inset:0; translucent
+// dark background; high z-index). When one is open we open the next module in a
+// NEW tab so the in-progress modal isn't lost; otherwise we navigate normally
+// in the same tab. Clicks are rare, so a one-off DOM scan is fine.
+function isModalOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  const nodes = document.querySelectorAll("div");
+  for (let i = 0; i < nodes.length; i++) {
+    const s = window.getComputedStyle(nodes[i]);
+    if (
+      s.position === "fixed" &&
+      s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px" &&
+      parseInt(s.zIndex || "0", 10) >= 50
+    ) {
+      const bg = s.backgroundColor || "";
+      const transparent = bg === "" || bg === "transparent" || /,\s*0\)\s*$/.test(bg);
+      if (!transparent) return true; // a translucent full-screen backdrop = an open modal
+    }
+  }
+  return false;
+}
+
 function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, onSignOut }: TopNavProps) {
   // Group-dropdown nav: hover the group → opens its menu; mouse leaves the
   // group container (button + dropdown) → closes immediately. openGroup is
@@ -973,15 +996,11 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                     </div>
                   )}
                   {/* Right pane: the shown sub-group's modules.
-                      Item 12 — every nav item opens its module in a NEW browser
-                      tab (real <a href="?m=<key>" target="_blank">). The current
-                      tab is left untouched so an in-progress modal (the Internal*
-                      panels render full-screen fixed overlays) is never lost when
-                      the operator reaches for another module. cmd/ctrl/shift/
-                      middle-click already open a new tab natively; making the
-                      plain left-click do the same keeps the behaviour uniform.
-                      We only close the dropdown on click — we do NOT
-                      preventDefault, so the anchor navigates the new tab. */}
+                      Item 12 (tightened) — plain left-click navigates IN THIS TAB
+                      normally. BUT if a modal/popup is currently open, we open the
+                      module in a NEW tab instead, so the in-progress modal is never
+                      lost. cmd/ctrl/shift/middle-click always open a new tab
+                      natively (href is present; we don't preventDefault those). */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 224 }}>
                     {shown.modules.map((m) => {
                       const active = activeModule === m.key;
@@ -990,16 +1009,25 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                         <a
                           key={m.key}
                           href={`?m=${m.key}`}
-                          target="_blank"
                           rel="noopener"
                           role="menuitem"
-                          onClick={() => {
-                            // Open in a new tab (target=_blank handles the
-                            // navigation). Just tidy up the dropdown in THIS
-                            // tab so the operator's open modal stays put.
+                          onClick={(e) => {
+                            // Modifier / non-primary clicks → let the browser open a
+                            // new tab natively (href handles it).
+                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                              cancelClose(); setOpenGroup(null); setHoveredKey(null);
+                              return;
+                            }
+                            e.preventDefault();
                             cancelClose();
                             setOpenGroup(null);
                             setHoveredKey(null);
+                            if (isModalOpen()) {
+                              // Preserve the open modal in this tab — open elsewhere.
+                              window.open(`?m=${m.key}`, "_blank", "noopener");
+                            } else {
+                              onSelectModule(m.key); // normal same-tab navigation
+                            }
                           }}
                           onMouseEnter={() => setHoveredKey(m.key)}
                           onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
