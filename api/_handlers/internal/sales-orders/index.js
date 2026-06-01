@@ -18,6 +18,7 @@ export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = ["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"];
+const FACTOR_STATUSES = ["not_submitted", "pending", "approved", "partial", "declined", "not_required"];
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -29,14 +30,15 @@ function client() {
   return u && k ? createClient(u, k, { auth: { persistSession: false } }) : null;
 }
 async function resolveDefaultEntity(admin) {
-  const { data } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
+  const { data } = await admin.from("entities").select("id, default_revenue_account_id").eq("code", "ROF").maybeSingle();
   return data || null;
 }
 
 const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
-  "ar_account_id, revenue_account_id, notes, subtotal_cents, total_cents, created_at, updated_at";
+  "ar_account_id, revenue_account_id, notes, subtotal_cents, total_cents, " +
+  "factor_approval_status, factor_reference, factor_approved_cents, created_at, updated_at";
 
 export function validateInsert(body) {
   if (!body || typeof body !== "object") return { error: "body required" };
@@ -58,10 +60,26 @@ export function validateInsert(body) {
       qty_ordered: qty,
       unit_price_cents: unit,
       line_total_cents: Math.round(qty * unit),
-      revenue_account_id: l.revenue_account_id && UUID_RE.test(String(l.revenue_account_id)) ? l.revenue_account_id : null,
+      // Item 9 — revenue_account_id is resolved server-side from the customer
+      // (default_revenue_account_id) → entity default; NOT taken from the payload.
     });
   }
   if (normLines.length === 0) return { error: "at least one line with qty_ordered > 0 is required" };
+
+  // Item 3 — factor / credit-insurance approval (manual).
+  let factorStatus = "not_submitted";
+  if (body.factor_approval_status != null && body.factor_approval_status !== "") {
+    if (!FACTOR_STATUSES.includes(body.factor_approval_status)) {
+      return { error: `factor_approval_status must be one of ${FACTOR_STATUSES.join(", ")}` };
+    }
+    factorStatus = body.factor_approval_status;
+  }
+  let factorApprovedCents = null;
+  if (body.factor_approved_cents != null && body.factor_approved_cents !== "") {
+    const n = typeof body.factor_approved_cents === "number" ? body.factor_approved_cents : parseInt(body.factor_approved_cents, 10);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return { error: "factor_approved_cents must be a non-negative integer" };
+    factorApprovedCents = n;
+  }
 
   const nz = (k) => (body[k] && UUID_RE.test(String(body[k])) ? body[k] : null);
   return {
@@ -77,9 +95,24 @@ export function validateInsert(body) {
       ar_account_id: nz("ar_account_id"),
       revenue_account_id: nz("revenue_account_id"),
       notes: body.notes ? String(body.notes).trim() : null,
+      factor_approval_status: factorStatus,
+      factor_reference: body.factor_reference ? String(body.factor_reference).trim() : null,
+      factor_approved_cents: factorApprovedCents,
       lines: normLines,
     },
   };
+}
+
+// Item 9 — resolve the revenue account to stamp on each SO line: the customer's
+// default_revenue_account_id, else the entity default. Returns a uuid or null.
+async function resolveLineRevenueAccount(admin, customerId, entity) {
+  let acct = null;
+  if (customerId) {
+    const { data: cust } = await admin.from("customers").select("default_revenue_account_id").eq("id", customerId).maybeSingle();
+    if (cust?.default_revenue_account_id) acct = cust.default_revenue_account_id;
+  }
+  if (!acct && entity?.default_revenue_account_id) acct = entity.default_revenue_account_id;
+  return acct || null;
 }
 
 export default async function handler(req, res) {
@@ -137,12 +170,17 @@ export default async function handler(req, res) {
       ar_account_id: v.data.ar_account_id,
       revenue_account_id: v.data.revenue_account_id,
       notes: v.data.notes,
+      factor_approval_status: v.data.factor_approval_status,
+      factor_reference: v.data.factor_reference,
+      factor_approved_cents: v.data.factor_approved_cents,
       subtotal_cents: subtotal,
       total_cents: subtotal,
     }).select(SELECT_COLS).single();
     if (hErr) return res.status(500).json({ error: hErr.message });
 
-    const lineRows = v.data.lines.map((l) => ({ ...l, sales_order_id: header.id }));
+    // Item 9 — auto-route revenue per customer master (entity default fallback).
+    const lineRevenueAccountId = await resolveLineRevenueAccount(admin, v.data.customer_id, entity);
+    const lineRows = v.data.lines.map((l) => ({ ...l, revenue_account_id: lineRevenueAccountId, sales_order_id: header.id }));
     const { error: lErr } = await admin.from("sales_order_lines").insert(lineRows);
     if (lErr) return res.status(500).json({ error: `Header saved (${header.id}) but lines failed: ${lErr.message}` });
 
