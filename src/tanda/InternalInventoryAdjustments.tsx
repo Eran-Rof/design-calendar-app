@@ -303,7 +303,7 @@ export default function InternalInventoryAdjustments() {
             <tr>
               <th style={th}>When</th>
               <th style={th}>Type</th>
-              <th style={th}>Item</th>
+              <th style={th}>Style</th>
               <th style={th}>Qty</th>
               <th style={th}>Cost (cents)</th>
               <th style={th}>Counter Account</th>
@@ -487,7 +487,7 @@ function AdjustmentModal({
 
         {!isEdit && (
           <>
-            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Item</label>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Style</label>
             {selectedItem ? (
               <div style={{ marginBottom: 12 }}>
                 <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || selectedItem.id.slice(0, 8)}</span>{" "}
