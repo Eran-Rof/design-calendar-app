@@ -256,7 +256,7 @@ export default async function handler(req, res) {
   // proposed INSERT row BEFORE the conflict resolves — apparel_dims_required
   // fails immediately because the payload's is_apparel defaults to true with
   // size/inseam/length/fit NULL. The RPC does a true UPDATE FROM jsonb input,
-  // skipping the INSERT path entirely. Migration 20260708000000.
+  // skipping the INSERT path entirely. Migration 20260713050000.
   for (let i = 0; i < updateRows.length; i += CHUNK) {
     const chunk = updateRows.slice(i, i + CHUNK);
     const { data, error } = await admin.rpc(
