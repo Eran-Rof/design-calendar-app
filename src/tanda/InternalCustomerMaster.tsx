@@ -414,7 +414,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     default_currency:             customer?.default_currency             ?? "USD",
     // New customers default to tax-exempt=true (operator request).
     tax_exempt:                   mode === "add" ? true : (customer?.tax_exempt ?? false),
-    tax_exempt_certificate:       customer?.tax_exempt_certificate       ?? "",
     credit_limit:                 initCreditLimitDollars,
     credit_limit_currency:        customer?.credit_limit_currency        ?? "USD",
     status:                       customer?.status                       ?? "active",
@@ -490,7 +489,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         payment_terms_id:             form.payment_terms_id || null,
         default_currency:             form.default_currency.trim().toUpperCase() || "USD",
         tax_exempt:                   !!form.tax_exempt,
-        tax_exempt_certificate:       form.tax_exempt_certificate.trim() || null,
         credit_limit:                 dollars,
         credit_limit_cents:           creditCents,
         credit_limit_currency:        creditCents == null
@@ -621,15 +619,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               <input type="checkbox" checked={form.tax_exempt} onChange={(e) => setForm({ ...form, tax_exempt: e.target.checked })} />
               Yes (skip AR tax calc)
             </label>
-          </Field>
-          <Field label="Tax-exempt certificate">
-            <input
-              type="text"
-              value={form.tax_exempt_certificate}
-              onChange={(e) => setForm({ ...form, tax_exempt_certificate: e.target.value })}
-              style={inputStyle}
-              placeholder="Certificate # or identifier"
-            />
           </Field>
           <Field label="Default AR account">
             <SearchableSelect

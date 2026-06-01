@@ -22,7 +22,7 @@ const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
 const MUTABLE_FIELDS = new Set([
   "name", "code", "customer_type", "country", "payment_terms", "payment_terms_id",
-  "default_currency", "tax_exempt", "tax_exempt_certificate", "credit_limit",
+  "default_currency", "tax_exempt", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
   "status",
   "billing_address", "shipping_address",
@@ -36,7 +36,6 @@ const NULLABLE_TEXT_FIELDS = [
   "code", "country", "payment_terms", "payment_terms_id",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
   "parent_customer_id",
-  "tax_exempt_certificate",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ];
 
@@ -127,6 +126,10 @@ export default async function handler(req, res, params) {
 export function validatePatch(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
+  }
+  // tax_exempt_certificate is PII-workflow-only — never accepted via this endpoint.
+  if (body.tax_exempt_certificate != null && String(body.tax_exempt_certificate).trim() !== "") {
+    return { error: "tax_exempt_certificate must be set via the dedicated PII workflow, not this endpoint" };
   }
 
   const out = {};

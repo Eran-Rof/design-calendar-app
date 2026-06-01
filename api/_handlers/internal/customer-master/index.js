@@ -120,7 +120,6 @@ export default async function handler(req, res) {
       payment_terms_id: v.data.payment_terms_id || null,
       default_currency: v.data.default_currency || "USD",
       tax_exempt: v.data.tax_exempt === true,
-      tax_exempt_certificate: v.data.tax_exempt_certificate || null,
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
       credit_limit_cents: v.data.credit_limit_cents ?? null,
       credit_limit_currency: v.data.credit_limit_currency ?? null,
@@ -162,6 +161,10 @@ export function validateInsert(body) {
   }
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
+  }
+  // tax_exempt_certificate is PII-workflow-only — never accepted via this endpoint.
+  if (body.tax_exempt_certificate != null && String(body.tax_exempt_certificate).trim() !== "") {
+    return { error: "tax_exempt_certificate must be set via the dedicated PII workflow, not this endpoint" };
   }
   const out = { ...body };
   out.name = String(out.name).trim();
@@ -239,7 +242,7 @@ export function validateInsert(body) {
     if (out[k] === "" || out[k] == null) out[k] = null;
   }
   // Free-text contact fields — coerce empty string to null.
-  for (const k of ["contact_name", "contact_title", "email", "phone", "website", "wechat_id", "tax_exempt_certificate"]) {
+  for (const k of ["contact_name", "contact_title", "email", "phone", "website", "wechat_id"]) {
     if (out[k] === "") out[k] = null;
   }
   return { data: out };
