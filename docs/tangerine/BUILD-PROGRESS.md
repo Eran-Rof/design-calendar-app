@@ -8,9 +8,9 @@
 
 | Metric | Done | Total | % |
 |---|---|---|---|
-| **Phases / slots (P1–P25)** | 12 + P14-slot (RBAC) + P15-slot (Brand Master) ✅; P13 partial, P16 M10 done (M18/M24/M44 left), **P18 B2B portal MVP live** | 25 | **~61%** |
-| **Modules (M1–M49 + ➕M50)** | ~28 + ➕M50 GL Allocation; M10 SO done; M40/M41 B2B portal MVP; Customer/Vendor 360° + Employee masters extended; 4 partial | 49 (+ins) | **~57%** |
-| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15-slot insertions; P13 in flight, P16 M10 done, P18 portal live | 23 | **~62%** |
+| **Phases / slots (P1–P25)** | 12 + P14-slot (RBAC) + P15-slot (Brand Master) ✅; P13 partial, **P16 core complete (M10/M18/M44 + M11 PO + matrix)**, **P18 B2B portal MVP live** | 25 | **~64%** |
+| **Modules (M1–M49 + ➕M50)** | ~31 + ➕M50; M10 SO + M18 alloc + M44 carrier + M11 PO done; size-matrix on inventory/SO/adj; M40/M41 B2B portal; Customer/Vendor 360° + Employee masters; 3 partial | 49 (+ins) | **~61%** |
+| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15 + P16 core + P18 portal; P13 in flight | 23 | **~65%** |
 
 > Note: the **P14/P15 slots** hold operator insertions (RBAC, Brand Master), not the original roadmap scope (PLM-ext, Pricing — deferred). The brand / allocation / partition work is **built but GATED** (`BRAND_SCOPE_MODE` off) — shipped code, not yet *enforced* in prod.
 
@@ -41,7 +41,7 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 | **P13** Procurement | M11 PO origination · M38 Receiving · M26 QC · M48 Trade Compliance | 🟡 arch (#518) + UI (#548) shipped; full per-vendor cutover pending | |
 | **P14** PLM ext | M32 (Design-Calendar PLM) · M33 (Tech-Pack PLM) | ⬜ | superseded in slot by ➕RBAC insertion |
 | **P15** Pricing | M43 Pricing Engine | ⬜ | superseded in slot by ➕Brand Master insertion |
-| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 **M10 complete** (A schema #698, B entry panel #699, C SO→AR invoice #700) + large Sales/CRM/HR enhancement batch (#701–#708): factor approval, multi-store SO split, P&L Dilution line, Customer Master tabs (reps/defaults/GL/DC+stores), Customer+Vendor 360° scorecards, Employee title/dept masters + Wholesale/Closeout commission rates, favorites/modal UX. **Batch 3 (#711–#717):** country/gender/classification/factor masters, customer factoring + SO ship-gate, menu split (Sales vs Customers), name-not-email, brand on style/catalog + ATS brand backfill, fabric COO dropdown, brand-in-search, UUID-display removal, row-click sweep, auto-generated codes. **Next: M18 allocations (reuse ATS), M24, M44.** | #698–#717 |
+| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | ✅ **core complete.** M10 (#698-#700) + Sales/CRM/HR batches (#701–#717) + **M18 allocations (#725)** + **M44 carrier/ship (#726)** → full draft→confirm→allocate→ship→invoice lifecycle. M24 line-review delivered as **matrix SO entry**. **Matrix initiative (#727–#733):** Size Scale master, color/size/inseam matrix on inventory view + SO entry + adjustments, **M11 native Purchase Orders** (draft→issued→in_transit→received), shared style-matrix/auto-SKU lib + scale-ordered columns. | #698–#733 |
 | **P17** Planning | M31 Planning/Allocations (E4 ATS foundation) | ⬜ | |
 | **P18** B2B customer-facing | M40 B2B Customer Portal · M41 B2B Wholesale Website | 🟡 **portal live** — A foundation (b2b_accounts/b2b_price_list schema + portal-origin SO cols) · B passwordless buyer auth + session chokepoint (`resolveB2BSession`) · F internal admin (authorize buyers + price lists) · **C/D/E buyer pages**: Catalog + per-customer wholesale pricing, Cart→draft SO (`origin='b2b_portal'`, server-resolved prices, ship-to validated), Account invoices/AR + open balance + Reorder. **Next: M41 storefront polish, M43 Pricing Engine.** | #719–#723 |
 | **P19** Returns | M23 RMA / Returns | ⬜ | |
