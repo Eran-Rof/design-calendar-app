@@ -13,12 +13,6 @@ import { validateInsert as customerInsert } from "../../_handlers/internal/custo
 import { validatePatch  as customerPatch  } from "../../_handlers/internal/customer-master/[id].js";
 
 describe("payment-terms validateInsert", () => {
-  it("rejects missing code", () => {
-    expect(validateInsert({ name: "Net 30", due_days: 30 }).error).toMatch(/code/);
-  });
-  it("rejects empty code", () => {
-    expect(validateInsert({ code: "   ", name: "x", due_days: 0 }).error).toMatch(/code/);
-  });
   it("rejects missing name", () => {
     expect(validateInsert({ code: "NET30", due_days: 30 }).error).toMatch(/name/);
   });
@@ -37,21 +31,10 @@ describe("payment-terms validateInsert", () => {
     expect(v.data.due_days).toBe(0);
   });
 
-  it("uppercases code", () => {
+  it("does not take code from body (server-generated)", () => {
     const v = validateInsert({ code: "net30", name: "Net 30", due_days: 30 });
-    expect(v.data.code).toBe("NET30");
-  });
-  it("trims code", () => {
-    const v = validateInsert({ code: "  NET30  ", name: "Net 30", due_days: 30 });
-    expect(v.data.code).toBe("NET30");
-  });
-  it("rejects code with invalid chars", () => {
-    expect(validateInsert({ code: "NET 30!", name: "Net 30", due_days: 30 }).error).toMatch(/code/);
-  });
-  it("accepts code with underscores and digits (2_10_NET30)", () => {
-    const v = validateInsert({ code: "2_10_NET30", name: "2/10 Net 30", due_days: 30, discount_pct: 0.02, discount_days: 10 });
     expect(v.error).toBeUndefined();
-    expect(v.data.code).toBe("2_10_NET30");
+    expect(v.data.code).toBeUndefined();
   });
 
   it("rejects discount_pct >= 1", () => {
@@ -96,7 +79,6 @@ describe("payment-terms validateInsert", () => {
     const v = validateInsert({ code: "NET30", name: "Net 30", due_days: 30 });
     expect(v.error).toBeUndefined();
     expect(v.data).toEqual({
-      code: "NET30",
       name: "Net 30",
       due_days: 30,
       discount_pct: 0,

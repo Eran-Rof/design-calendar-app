@@ -49,6 +49,13 @@ const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -267,7 +274,7 @@ function PaymentTermFormModal({ mode, term, onClose, onSaved }: ModalProps) {
         url = "/api/internal/payment-terms";
         method = "POST";
         body = {
-          code:          form.code.trim().toUpperCase(),
+          // Chunk M — code is server-generated; never sent from the client.
           name:          form.name.trim(),
           due_days:      parseInt(form.due_days, 10),
           discount_pct:  form.discount_pct.trim() === "" ? 0 : parseFloat(form.discount_pct),
@@ -314,20 +321,13 @@ function PaymentTermFormModal({ mode, term, onClose, onSaved }: ModalProps) {
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Code *">
-            {mode === "add" ? (
-              <input
-                type="text"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                style={inputStyle}
-                placeholder="e.g. NET75"
-                autoFocus
-                maxLength={32}
-              />
-            ) : (
-              <input type="text" value={form.code} disabled style={{ ...inputStyle, opacity: 0.5 }} />
-            )}
+          <Field label="Code">
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (term?.code || "—")}
+            </div>
           </Field>
           <Field label="Name *">
             <input

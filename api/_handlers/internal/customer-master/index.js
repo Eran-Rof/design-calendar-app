@@ -18,9 +18,12 @@
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
 
+// Chunk M — customer codes are server-generated + read-only (operator item 14).
+const CODE_PREFIX = "CUST-";
 const CUSTOMER_TYPES = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
@@ -126,10 +129,11 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const row = {
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const buildRow = (code) => ({
       entity_id: entityId,
       name: v.data.name,
-      code: v.data.code || null,
+      code,
       customer_type: v.data.customer_type || "wholesale",
       country: v.data.country || null,
       payment_terms: v.data.payment_terms || null,
@@ -164,17 +168,16 @@ export default async function handler(req, res) {
       phone: v.data.phone || null,
       website: v.data.website || null,
       wechat_id: v.data.wechat_id || null,
-    };
+    });
 
-    const { data, error } = await admin
-      .from("customers")
-      .insert(row)
-      .select(LIST_COLUMNS)
-      .single();
+    const { data, error } = await insertWithAutoCode(
+      admin, "customers", "code", CODE_PREFIX, buildRow,
+      { entityId, select: LIST_COLUMNS },
+    );
 
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `code '${row.code}' already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique customer code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }

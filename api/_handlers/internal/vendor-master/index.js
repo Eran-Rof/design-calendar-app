@@ -14,9 +14,15 @@
 // Tangerine P1 Chunk 7b. Mirrors style-master handler shape.
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
 
+// Chunk M — vendor codes are server-generated + read-only (operator item 14).
+// vendors.code is a GLOBAL identifier (per-entity overrides live in
+// entity_vendors.vendor_code), so the sequence is counted across all vendors,
+// not scoped to an entity.
+const CODE_PREFIX = "VEND-";
 const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
 // Columns safe to return — explicitly omits tax_id, bank_account_encrypted.
@@ -77,13 +83,14 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { data, error } = await admin
-      .from("vendors")
-      .insert(v.data)
-      .select(SAFE_SELECT)
-      .single();
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const { data, error } = await insertWithAutoCode(
+      admin, "vendors", "code", CODE_PREFIX,
+      (code) => ({ ...v.data, code }),
+      { select: SAFE_SELECT },
+    );
     if (error) {
-      if (error.code === "23505") return res.status(409).json({ error: "A vendor with that name or code already exists" });
+      if (error.code === "23505") return res.status(409).json({ error: "Could not allocate a unique vendor code; please retry" });
       return res.status(500).json({ error: error.message });
     }
     return res.status(201).json(data);
