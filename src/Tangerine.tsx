@@ -28,6 +28,7 @@ import InternalJournalEntry       from "./tanda/InternalJournalEntry";
 import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
+import InternalSalesOrders        from "./tanda/InternalSalesOrders";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
@@ -122,6 +123,7 @@ type ModuleKey =
   | "ap_payments"
   | "ar_invoices"
   | "ar_receipts"
+  | "sales_orders"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -166,7 +168,7 @@ type ModuleKey =
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
   | "user_access";
 
-type GroupKey = "Master Data" | "Accounting" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "Accounting" | "Sales" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -187,7 +189,7 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
   { section: "Operations",  emoji: "⚙️", groups: ["Inventory", "Operations", "Shadow Mirror"] },
-  { section: "Sales & CRM", emoji: "🛍️", groups: ["Shopify", "Marketplaces", "CRM", "Customer Service"] },
+  { section: "Sales & CRM", emoji: "🛍️", groups: ["Sales", "Shopify", "Marketplaces", "CRM", "Customer Service"] },
   { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
 ];
 
@@ -227,6 +229,8 @@ const MODULES: ModuleDef[] = [
   // P4-5: AR Receipts (customer payments + applications). Sibling to AR
   // Invoices above (P4-4).
   { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Accounting" },
+  // P16/M10 — native Sales Order entry.
+  { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Accounting" },
   // P4-8: Historical backfill — one-shot operator tool, kept in Accounting.
@@ -497,6 +501,7 @@ export default function Tangerine() {
         {activeModule === "ap_payments"       && <InternalAPPayments />}
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
+        {activeModule === "sales_orders"      && <InternalSalesOrders />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}

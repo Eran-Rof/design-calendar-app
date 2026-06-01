@@ -521,6 +521,11 @@ import h536 from "./internal/inventory-on-hand/index.js";
 //   h538 = PATCH/DELETE /api/internal/customer-locations/:id
 import h537 from "./internal/customer-locations/index.js";
 import h538 from "./internal/customer-locations/[id].js";
+// P16/M10-B — native Sales Orders.
+//   h539 = GET/POST  /api/internal/sales-orders
+//   h540 = GET/PATCH/DELETE /api/internal/sales-orders/:id
+import h539 from "./internal/sales-orders/index.js";
+import h540 from "./internal/sales-orders/[id].js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -884,6 +889,8 @@ export const ROUTES = [
   // Customer ship-to locations — subpath /:id BEFORE bare collection.
   { pattern: "/api/internal/customer-locations/:id",          handler: h538 },
   { pattern: "/api/internal/customer-locations",              handler: h537 },
+  { pattern: "/api/internal/sales-orders/:id",                handler: h540 },
+  { pattern: "/api/internal/sales-orders",                    handler: h539 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
