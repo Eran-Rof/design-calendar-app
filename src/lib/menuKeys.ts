@@ -167,6 +167,10 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/vendor",        label: "Vendor Master",      app: "tanda", route: "/tangerine?m=vendor_master",    group: "Master Data", icon: "🏭" },
   { key: "tanda/master/customer",      label: "Customer Master",    app: "tanda", route: "/tangerine?m=customer_master",  group: "Master Data", icon: "🤝" },
   { key: "tanda/master/payment-terms", label: "Payment Terms",      app: "tanda", route: "/tangerine?m=payment_terms",    group: "Master Data", icon: "📆" },
+  { key: "tanda/master/countries",     label: "Countries",          app: "tanda", route: "/tangerine?m=countries",        group: "Master Data", icon: "🌍" },
+  { key: "tanda/master/genders",       label: "Genders",            app: "tanda", route: "/tangerine?m=genders",          group: "Master Data", icon: "⚧" },
+  { key: "tanda/master/style-classifications", label: "Group/Category/Sub", app: "tanda", route: "/tangerine?m=style_classifications", group: "Master Data", icon: "🗂️" },
+  { key: "tanda/master/factors",       label: "Factors/Insurance",  app: "tanda", route: "/tangerine?m=factors",          group: "Master Data", icon: "🏦" },
   // Accounting
   { key: "tanda/accounting/coa",        label: "Chart of Accounts", app: "tanda", route: "/tangerine?m=gl_accounts",       group: "Accounting", icon: "📒" },
   { key: "tanda/accounting/periods",    label: "Periods",           app: "tanda", route: "/tangerine?m=gl_periods",        group: "Accounting", icon: "🗓️" },
@@ -268,4 +272,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 4;
+export const MENU_KEYS_VERSION = 5;

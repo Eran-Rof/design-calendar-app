@@ -22,6 +22,10 @@ import InternalFabricCodes        from "./tanda/InternalFabricCodes";
 import InternalVendorMaster       from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
+import InternalCountries          from "./tanda/InternalCountries";
+import InternalGenders            from "./tanda/InternalGenders";
+import InternalStyleClassifications from "./tanda/InternalStyleClassifications";
+import InternalFactors            from "./tanda/InternalFactors";
 import InternalCOA                from "./tanda/InternalCOA";
 import InternalPeriods            from "./tanda/InternalPeriods";
 import InternalJournalEntry       from "./tanda/InternalJournalEntry";
@@ -87,7 +91,7 @@ import InternalSalesReps               from "./tanda/InternalSalesReps";
 import InternalCommissionAccruals      from "./tanda/InternalCommissionAccruals";
 import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
-import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthJwt } from "./utils/tangerineAuthUser";
+import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,6 +122,11 @@ type ModuleKey =
   | "vendor_master"
   | "customer_master"
   | "payment_terms"
+  // Chunk I — reference master panels.
+  | "countries"
+  | "genders"
+  | "style_classifications"
+  | "factors"
   | "gl_accounts"
   | "gl_periods"
   | "journal_entries"
@@ -172,7 +181,7 @@ type ModuleKey =
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
   | "user_access";
 
-type GroupKey = "Master Data" | "Accounting" | "Sales" | "CRM" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "Accounting" | "Sales" | "CRM" | "Customers" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -193,7 +202,11 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
   { section: "Operations",  emoji: "⚙️", groups: ["Inventory", "Operations", "Shadow Mirror"] },
-  { section: "Sales & CRM", emoji: "🛍️", groups: ["Sales", "Shopify", "Marketplaces", "CRM", "Customer Service"] },
+  // Chunk I item 8 — split the former combined "Sales & CRM" header into two
+  // distinct top-level headers: "Sales" (order entry + sales channels) and
+  // "Customers" (CRM pipeline + customer-service cases), reachable separately.
+  { section: "Sales",       emoji: "🛒", groups: ["Sales", "Shopify", "Marketplaces"] },
+  { section: "Customers",   emoji: "🤝", groups: ["Customers", "CRM", "Customer Service"] },
   { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
 ];
 
@@ -201,6 +214,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
   "Accounting":       "💼",
   "CRM":              "🤝",
+  "Customers":        "🤝",
   "Reports":          "📊",
   "Inventory":        "📦",
   "Customer Service": "🎧",
@@ -224,6 +238,11 @@ const MODULES: ModuleDef[] = [
   { key: "vendor_master",     label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
   { key: "customer_master",   label: "Customer Master",   emoji: "🤝", group: "Master Data" },
   { key: "payment_terms",     label: "Payment Terms",     emoji: "📆", group: "Master Data" },
+  // Chunk I — reference masters.
+  { key: "countries",            label: "Countries",          emoji: "🌍", group: "Master Data" },
+  { key: "genders",              label: "Genders",            emoji: "⚧", group: "Master Data" },
+  { key: "style_classifications", label: "Group/Category/Sub", emoji: "🗂️", group: "Master Data" },
+  { key: "factors",              label: "Factors/Insurance",  emoji: "🏦", group: "Master Data" },
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
   { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
@@ -377,6 +396,8 @@ export default function Tangerine() {
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  // Chunk I item 1 — display name shown in the top bar (falls back to email).
+  const [userName, setUserName] = useState<string | null>(null);
 
   // Auth gate: on mount, check for an MS token. If present + non-expired, fetch
   // the signed-in user's email from Graph (User.Read is already in MS_SCOPES).
@@ -404,9 +425,14 @@ export default function Tangerine() {
         if (cancelled) return;
         const resolvedEmail = me.mail || me.userPrincipalName || me.displayName || null;
         setUserEmail(resolvedEmail);
+        // Chunk I item 1 — prefer the human display name in the header; fall
+        // back to the email when Graph returns no displayName.
+        const resolvedName = me.displayName || resolvedEmail;
+        setUserName(resolvedName);
         // Cache the email snapshot so panels that need it for audit/notes
         // (e.g. Style Master notes log) can read it without re-querying Graph.
         setCachedAuthUserEmail(resolvedEmail);
+        setCachedAuthUserName(resolvedName);
         setAuthState("signed_in");
 
         // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision
@@ -490,6 +516,7 @@ export default function Tangerine() {
         onCloseApps={() => setAppsOpen(false)}
         onGoHome={() => goToModule(null)}
         userEmail={userEmail}
+        userName={userName}
         onSignOut={handleSignOut}
       />
 
@@ -501,6 +528,10 @@ export default function Tangerine() {
         {activeModule === "vendor_master"   && <InternalVendorMaster />}
         {activeModule === "customer_master" && <InternalCustomerMaster />}
         {activeModule === "payment_terms"   && <InternalPaymentTerms />}
+        {activeModule === "countries"            && <InternalCountries />}
+        {activeModule === "genders"              && <InternalGenders />}
+        {activeModule === "style_classifications" && <InternalStyleClassifications />}
+        {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "gl_accounts"       && <InternalCOA />}
         {activeModule === "gl_periods"        && <InternalPeriods />}
         {activeModule === "journal_entries"   && <InternalJournalEntry />}
@@ -762,6 +793,7 @@ interface TopNavProps {
   onCloseApps: () => void;
   onGoHome: () => void;
   userEmail: string | null;
+  userName: string | null;
   onSignOut: () => void;
 }
 
@@ -788,7 +820,7 @@ function isModalOpen(): boolean {
   return false;
 }
 
-function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, onSignOut }: TopNavProps) {
+function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, userName, onSignOut }: TopNavProps) {
   // Group-dropdown nav: hover the group → opens its menu; mouse leaves the
   // group container (button + dropdown) → closes immediately. openGroup is
   // also driven by click (keyboard / accessibility fallback) and Esc.
@@ -1084,11 +1116,11 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
-        {userEmail && (
+        {(userName || userEmail) && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, fontSize: 11 }}>
             <span style={{ color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Signed in</span>
-            <span style={{ color: C.text, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={userEmail}>
-              {userEmail}
+            <span style={{ color: C.text, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={userEmail || userName || ""}>
+              {userName || userEmail}
             </span>
           </div>
         )}

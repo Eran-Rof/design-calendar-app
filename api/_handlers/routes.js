@@ -312,6 +312,16 @@ import h300 from "./internal/inventory-cycle-counts/lines.js";
 import h301 from "./internal/inventory-cycle-counts/finalize.js";
 import h302 from "./internal/payment-terms/index.js";
 import h303 from "./internal/payment-terms/[id].js";
+// Chunk I — reference master panels (h549..h556). Grouped here with the
+// other Master Data handlers (payment-terms / style-master).
+import h549 from "./internal/countries/index.js";
+import h550 from "./internal/countries/[id].js";
+import h551 from "./internal/genders/index.js";
+import h552 from "./internal/genders/[id].js";
+import h553 from "./internal/style-classifications/index.js";
+import h554 from "./internal/style-classifications/[id].js";
+import h555 from "./internal/factors/index.js";
+import h556 from "./internal/factors/[id].js";
 // P4-4 — AR Invoices admin (h304..h307).
 import h304 from "./internal/ar-invoices/index.js";
 import h305 from "./internal/ar-invoices/[id].js";
@@ -959,6 +969,15 @@ export const ROUTES = [
   // Payment Terms (P3-9) — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/payment-terms/:id", handler: h303 },
   { pattern: "/api/internal/payment-terms", handler: h302 },
+  // Chunk I reference masters — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/countries/:id", handler: h550 },
+  { pattern: "/api/internal/countries", handler: h549 },
+  { pattern: "/api/internal/genders/:id", handler: h552 },
+  { pattern: "/api/internal/genders", handler: h551 },
+  { pattern: "/api/internal/style-classifications/:id", handler: h554 },
+  { pattern: "/api/internal/style-classifications", handler: h553 },
+  { pattern: "/api/internal/factors/:id", handler: h556 },
+  { pattern: "/api/internal/factors", handler: h555 },
   // Cycle Counts (P3-6) — subpaths BEFORE /:id (first-match-wins)
   { pattern: "/api/internal/inventory-cycle-counts/:id/finalize", handler: h301 },
   { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: h300 },
