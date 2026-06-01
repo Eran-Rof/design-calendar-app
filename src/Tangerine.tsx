@@ -22,6 +22,8 @@ import InternalFabricCodes        from "./tanda/InternalFabricCodes";
 import InternalVendorMaster       from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
+import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
+import InternalB2BPriceList       from "./tanda/InternalB2BPriceList";
 import InternalCountries          from "./tanda/InternalCountries";
 import InternalGenders            from "./tanda/InternalGenders";
 import InternalStyleClassifications from "./tanda/InternalStyleClassifications";
@@ -127,6 +129,9 @@ type ModuleKey =
   | "genders"
   | "style_classifications"
   | "factors"
+  // P18-F — internal B2B admin (buyers + wholesale price list).
+  | "b2b_accounts"
+  | "b2b_price_list"
   | "gl_accounts"
   | "gl_periods"
   | "journal_entries"
@@ -243,6 +248,9 @@ const MODULES: ModuleDef[] = [
   { key: "genders",              label: "Genders",            emoji: "⚧", group: "Master Data" },
   { key: "style_classifications", label: "Group/Category/Sub", emoji: "🗂️", group: "Master Data" },
   { key: "factors",              label: "Factors/Insurance",  emoji: "🏦", group: "Master Data" },
+  // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
+  { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
+  { key: "b2b_price_list", label: "B2B Price List", emoji: "🏷️", group: "Customers" },
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
   { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
@@ -532,6 +540,8 @@ export default function Tangerine() {
         {activeModule === "genders"              && <InternalGenders />}
         {activeModule === "style_classifications" && <InternalStyleClassifications />}
         {activeModule === "factors"              && <InternalFactors />}
+        {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
+        {activeModule === "b2b_price_list"       && <InternalB2BPriceList />}
         {activeModule === "gl_accounts"       && <InternalCOA />}
         {activeModule === "gl_periods"        && <InternalPeriods />}
         {activeModule === "journal_entries"   && <InternalJournalEntry />}
