@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
+import SalesOrderMatrixEntry, { type MatrixLineAdd } from "./SalesOrderMatrixEntry";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
@@ -158,6 +159,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
   const [notes, setNotes] = useState(so?.notes || "");
   const [lines, setLines] = useState<SOLine[]>([{ key: 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]);
+  const [matrixOpen, setMatrixOpen] = useState(false);
   const [stagedDocs, setStagedDocs] = useState<File[]>([]);
   // Item 3 — Factor / credit-insurance approval (manual entry; Rosenthal API auto-fill reserved).
   const [factorStatus, setFactorStatus] = useState(so?.factor_approval_status || "not_submitted");
@@ -215,6 +217,30 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   function updateLine(idx: number, patch: Partial<SOLine>) { setLines((p) => p.map((l, i) => i === idx ? { ...l, ...patch } : l)); }
   function addLine() { setLines((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]); }
   function removeLine(idx: number) { setLines((p) => p.filter((_, i) => i !== idx)); }
+
+  // MX-SO — append lines produced by the matrix size-grid sub-panel. Each add
+  // is a resolved SKU id + qty. If a line for that SKU already exists, fold the
+  // qty into it; otherwise append a new line (unit price left blank so the
+  // server stamps the per-customer revenue routing, same as manual entry).
+  function appendMatrixLines(adds: MatrixLineAdd[]) {
+    setLines((prev) => {
+      // Drop any trailing fully-empty row so the merge math is clean; the
+      // auto-append effect re-adds a fresh trailing row afterward.
+      const base = prev.filter((l) => l.inventory_item_id || l.qty_ordered || l.unit_price_dollars);
+      let nextKey = (base.reduce((m, l) => Math.max(m, l.key), 0)) + 1;
+      // Fresh objects only — never mutate the previous state's line objects.
+      const out: SOLine[] = base.map((l) => ({ ...l }));
+      for (const a of adds) {
+        const existing = out.find((l) => l.inventory_item_id === a.inventory_item_id);
+        if (existing) {
+          existing.qty_ordered = String((Number(existing.qty_ordered) || 0) + a.qty_ordered);
+        } else {
+          out.push({ key: nextKey++, inventory_item_id: a.inventory_item_id, qty_ordered: String(a.qty_ordered), unit_price_dollars: "" });
+        }
+      }
+      return out;
+    });
+  }
 
   // Item 11 — auto-append a fresh row once the LAST row is complete (Style + qty>0)
   // and there isn't already a trailing empty row. Avoids infinite growth.
@@ -452,8 +478,26 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-          {editable && <button onClick={addLine} style={btnSecondary}>+ Add line</button>}
+          {editable && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setMatrixOpen((v) => !v)} style={{ ...btnSecondary, color: matrixOpen ? C.primary : C.textSub, borderColor: matrixOpen ? C.primary : C.cardBdr }} title="Enter quantities into a color × size grid for a whole style at once">
+                ➕ Add by matrix (size grid)
+              </button>
+              <button onClick={addLine} style={btnSecondary}>+ Add line</button>
+            </div>
+          )}
         </div>
+
+        {/* MX-SO — matrix size-grid entry. Resolves each filled cell to a SKU id
+            and appends normal SO lines; submits through the existing path. */}
+        {editable && matrixOpen && (
+          <div style={{ border: `1px solid ${C.primary}`, borderRadius: 8, marginBottom: 12, background: C.card }}>
+            <SalesOrderMatrixEntry
+              onAdd={appendMatrixLines}
+              onClose={() => setMatrixOpen(false)}
+            />
+          </div>
+        )}
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /><col style={{ width: 36 }} /></colgroup>
