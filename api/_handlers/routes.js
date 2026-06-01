@@ -516,6 +516,11 @@ import h535 from "./internal/items/index.js";
 // P15 — Inventory On-Hand by Brand Pool read report.
 //   h536 = GET /api/internal/inventory-on-hand
 import h536 from "./internal/inventory-on-hand/index.js";
+// Customer ship-to locations (multi-DC / multi-store).
+//   h537 = GET/POST  /api/internal/customer-locations
+//   h538 = PATCH/DELETE /api/internal/customer-locations/:id
+import h537 from "./internal/customer-locations/index.js";
+import h538 from "./internal/customer-locations/[id].js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -876,6 +881,9 @@ export const ROUTES = [
   { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: h534 },
   { pattern: "/api/internal/items",                            handler: h535 },
   { pattern: "/api/internal/inventory-on-hand",               handler: h536 },
+  // Customer ship-to locations — subpath /:id BEFORE bare collection.
+  { pattern: "/api/internal/customer-locations/:id",          handler: h538 },
+  { pattern: "/api/internal/customer-locations",              handler: h537 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },

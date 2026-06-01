@@ -30,6 +30,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the customer detail modal.
 import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
+import CustomerLocations from "./components/CustomerLocations";
 // Wave 5 primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -719,6 +720,17 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             />
           </div>
         )}
+
+        {/* Ship-to locations — only shown for existing (saved) customers */}
+        {mode === "edit" && customer ? (
+          <div style={{ marginTop: 20 }}>
+            <CustomerLocations customerId={customer.id} />
+          </div>
+        ) : mode === "add" ? (
+          <div style={{ marginTop: 16, padding: "8px 12px", background: "#0b1220", borderRadius: 6, border: `1px solid ${C.cardBdr}`, fontSize: 12, color: C.textMuted }}>
+            Ship-to locations can be added after the customer is saved.
+          </div>
+        ) : null}
 
         {/* Cross-cutter T11-3 — audit trail timeline */}
         {mode === "edit" && customer && (

@@ -63,6 +63,7 @@ type ARInvoice = {
   id: string;
   entity_id: string;
   customer_id: string;
+  ship_to_location_id: string | null;
   invoice_number: string;
   invoice_kind: string;
   gl_status: GlStatus;
@@ -82,6 +83,8 @@ type ARInvoice = {
   source?: string | null;
   created_at: string;
 };
+
+type ShipToLocation = { id: string; name: string; code: string | null; is_default: boolean };
 
 type ARInvoiceLine = {
   id?: string;
@@ -578,6 +581,8 @@ function ARInvoiceModal({
   const editable = isNew || invoice?.gl_status === "draft" || invoice?.gl_status === "unposted";
 
   const [customerId, setCustomerId] = useState(invoice?.customer_id || "");
+  const [shipToLocationId, setShipToLocationId] = useState(invoice?.ship_to_location_id || "");
+  const [shipToLocations, setShipToLocations] = useState<ShipToLocation[]>([]);
   const [invoiceNumber, setInvoiceNumber] = useState(invoice?.invoice_number || "");
   const [kind, setKind] = useState(invoice?.invoice_kind || "customer_invoice");
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoice_date || new Date().toISOString().slice(0, 10));
@@ -609,6 +614,29 @@ function ARInvoiceModal({
       .then((arr: { id: string; code: string; name: string }[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
       .catch(() => {});
   }, []);
+
+  // Reload ship-to location options whenever the customer changes.
+  useEffect(() => {
+    if (!customerId) {
+      setShipToLocations([]);
+      setShipToLocationId("");
+      return;
+    }
+    fetch(`/api/internal/customer-locations?customer_id=${encodeURIComponent(customerId)}`)
+      .then((r) => r.json())
+      .then((arr: ShipToLocation[]) => {
+        if (Array.isArray(arr)) {
+          setShipToLocations(arr);
+          // Auto-select the default location when creating a new invoice and no
+          // location is set yet; don't override an existing selection on edit.
+          if (isNew && !shipToLocationId) {
+            const def = arr.find((l) => l.is_default);
+            if (def) setShipToLocationId(def.id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [customerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazy-load existing lines on edit.
   useEffect(() => {
@@ -715,6 +743,7 @@ function ARInvoiceModal({
 
       const body: Record<string, unknown> = {
         customer_id: customerId,
+        ship_to_location_id: shipToLocationId || null,
         invoice_number: invoiceNumber.trim() || null,
         invoice_kind: kind,
         invoice_date: invoiceDate,
@@ -799,20 +828,39 @@ function ARInvoiceModal({
               </div>
             )}
 
+            {/* Row 1: Customer + Ship-to + Invoice # */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Customer">
                 <SearchableSelect
                   value={customerId || null}
-                  onChange={(v) => setCustomerId(v)}
+                  onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
                   options={customers.map((c) => ({ value: c.id, label: c.customer_code ? `${c.customer_code} — ${c.name}` : c.name }))}
                   placeholder="(pick customer…)"
                   disabled={!editable}
+                />
+              </Field>
+              <Field label="Ship-to location">
+                <SearchableSelect
+                  value={shipToLocationId || null}
+                  onChange={(v) => setShipToLocationId(v)}
+                  options={[
+                    { value: "", label: "(none — ship to billing address)" },
+                    ...shipToLocations.map((l) => ({
+                      value: l.id,
+                      label: l.code ? `${l.code} — ${l.name}` : l.name,
+                    })),
+                  ]}
+                  placeholder={customerId ? "(none — ship to billing address)" : "(pick customer first)"}
+                  disabled={!editable || !customerId}
                 />
               </Field>
               <Field label="Invoice number">
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)}
                        placeholder="(auto-generated if blank)" disabled={!editable} style={inputStyle} />
               </Field>
+            </div>
+            {/* Row 2: Kind (standalone) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Kind">
                 <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
                   <option value="customer_invoice">customer_invoice</option>
