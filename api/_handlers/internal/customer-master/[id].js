@@ -2,11 +2,13 @@
 //
 // GET    — fetch a single customers row (full row, including
 //          tax_exempt_certificate — admin-authenticated context).
-// PATCH  — update mutable fields. Rejects tax_exempt_certificate (PII).
+// PATCH  — update mutable fields.
 //          Mutable fields: name, code, customer_type, country, payment_terms,
-//          default_currency, tax_exempt, credit_limit, status,
-//          billing_address, shipping_address, default_gl_ar_account_id,
-//          default_gl_revenue_account_id, parent_customer_id.
+//          default_currency, tax_exempt, tax_exempt_certificate, credit_limit,
+//          status, billing_address, shipping_address,
+//          default_gl_ar_account_id, default_gl_revenue_account_id,
+//          parent_customer_id, contact_name, contact_title, email, phone,
+//          website, wechat_id.
 // DELETE — soft-delete: set deleted_at = now(); 404 if already deleted.
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
@@ -20,12 +22,13 @@ const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
 const MUTABLE_FIELDS = new Set([
   "name", "code", "customer_type", "country", "payment_terms", "payment_terms_id",
-  "default_currency", "tax_exempt", "credit_limit",
+  "default_currency", "tax_exempt", "tax_exempt_certificate", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
   "status",
   "billing_address", "shipping_address",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
   "parent_customer_id",
+  "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ]);
 
 // Nullable fields whose empty-string input should be normalized to null.
@@ -33,6 +36,8 @@ const NULLABLE_TEXT_FIELDS = [
   "code", "country", "payment_terms", "payment_terms_id",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
   "parent_customer_id",
+  "tax_exempt_certificate",
+  "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ];
 
 function corsHeaders(res) {
@@ -122,10 +127,6 @@ export default async function handler(req, res, params) {
 export function validatePatch(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
-  }
-  // PII rejection.
-  if ("tax_exempt_certificate" in body) {
-    return { error: "tax_exempt_certificate must be set via the dedicated PII endpoint (not this admin route)" };
   }
 
   const out = {};

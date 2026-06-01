@@ -5,8 +5,8 @@
 // soft-delete. Wraps /api/internal/customer-master and
 // /api/internal/customer-master/:id.
 //
-// tax_exempt_certificate is NEVER touched here — it's a PII-adjacent field
-// handled by a dedicated workflow (not built).
+// tax_exempt_certificate is editable as a plain text field (certificate number).
+// The dedicated PII workflow for more sensitive cert handling is not yet built.
 //
 // Wave 5 primitive adoption (2026-05-30):
 //   • TablePrefs        — per-user column show/hide (gear button) for the
@@ -29,6 +29,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the customer detail modal.
 import RowHistory from "./components/RowHistory";
+import AddressFields, { type Address } from "./components/AddressFields";
 // Wave 5 primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -54,18 +55,33 @@ type Customer = {
   payment_terms_id: string | null;    // P3-9 structured FK
   default_currency: string;
   tax_exempt: boolean;
+  tax_exempt_certificate: string | null;
   credit_limit: number | string | null;
   credit_limit_cents: number | string | null;
   credit_limit_currency: string | null;
   status: string;
   billing_address: Record<string, unknown>;
   shipping_address: Record<string, unknown>;
+  contact_name: string | null;
+  contact_title: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  wechat_id: string | null;
   attributes: Record<string, unknown>;
   active: boolean | null;
   external_refs: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+};
+
+type GlAccount = {
+  id: string;
+  code: string;
+  name: string;
+  is_postable: boolean;
+  status: string;
 };
 
 const C = {
@@ -390,19 +406,50 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         ? String(customer.credit_limit)
         : "";
   const [form, setForm] = useState({
-    name:                  customer?.name                  ?? "",
-    code:                  customer?.code                  ?? "",
-    customer_type:         customer?.customer_type         ?? "wholesale",
-    country:               customer?.country               ?? "",
-    payment_terms_id:      customer?.payment_terms_id      ?? "",
-    default_currency:      customer?.default_currency      ?? "USD",
-    tax_exempt:            customer?.tax_exempt            ?? false,
-    credit_limit:          initCreditLimitDollars,
-    credit_limit_currency: customer?.credit_limit_currency ?? "USD",
-    status:                customer?.status                ?? "active",
+    name:                         customer?.name                         ?? "",
+    code:                         customer?.code                         ?? "",
+    customer_type:                customer?.customer_type                ?? "wholesale",
+    country:                      customer?.country                      ?? "",
+    payment_terms_id:             customer?.payment_terms_id             ?? "",
+    default_currency:             customer?.default_currency             ?? "USD",
+    // New customers default to tax-exempt=true (operator request).
+    tax_exempt:                   mode === "add" ? true : (customer?.tax_exempt ?? false),
+    tax_exempt_certificate:       customer?.tax_exempt_certificate       ?? "",
+    credit_limit:                 initCreditLimitDollars,
+    credit_limit_currency:        customer?.credit_limit_currency        ?? "USD",
+    status:                       customer?.status                       ?? "active",
+    billing_address:              (customer?.billing_address && typeof customer.billing_address === "object"
+                                    ? customer.billing_address : {}) as Address,
+    shipping_address:             (customer?.shipping_address && typeof customer.shipping_address === "object"
+                                    ? customer.shipping_address : {}) as Address,
+    default_gl_ar_account_id:     customer?.default_gl_ar_account_id     ?? "",
+    default_gl_revenue_account_id: customer?.default_gl_revenue_account_id ?? "",
+    contact_name:                 customer?.contact_name                 ?? "",
+    contact_title:                customer?.contact_title                ?? "",
+    email:                        customer?.email                        ?? "",
+    phone:                        customer?.phone                        ?? "",
+    website:                      customer?.website                      ?? "",
+    wechat_id:                    customer?.wechat_id                    ?? "",
   });
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/internal/gl-accounts?limit=1000")
+      .then((r) => r.json())
+      .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
+      .catch(() => {});
+  }, []);
+
+  // GL account picker options — postable accounts only, with "(none)" entry.
+  const glAccountOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(none)" },
+    ...glAccounts.filter((a) => a.is_postable).map((a) => ({
+      value: a.id,
+      label: `${a.code} — ${a.name}`,
+    })),
+  ], [glAccounts]);
 
   // Wave 5 — payment-terms picker is the only modal dropdown whose option
   // list comes from a DB table (payment_terms) and can grow beyond a
@@ -433,21 +480,33 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       // credit_limit_cents so the credit-gate has a single source of truth.
       const creditCents =
         dollars == null || !Number.isFinite(dollars) ? null : Math.round(dollars * 100);
+      // Parse billing/shipping address JSON blobs (textarea input).
       const body: Record<string, unknown> = {
-        name:                  form.name.trim(),
-        code:                  form.code.trim() || null,
-        customer_type:         form.customer_type,
-        country:               form.country.trim() || null,
+        name:                         form.name.trim(),
+        code:                         form.code.trim() || null,
+        customer_type:                form.customer_type,
+        country:                      form.country.trim() || null,
         // P3-9: structured FK. Legacy text column stays read-only display.
-        payment_terms_id:      form.payment_terms_id || null,
-        default_currency:      form.default_currency.trim().toUpperCase() || "USD",
-        tax_exempt:            !!form.tax_exempt,
-        credit_limit:          dollars,
-        credit_limit_cents:    creditCents,
-        credit_limit_currency: creditCents == null
+        payment_terms_id:             form.payment_terms_id || null,
+        default_currency:             form.default_currency.trim().toUpperCase() || "USD",
+        tax_exempt:                   !!form.tax_exempt,
+        tax_exempt_certificate:       form.tax_exempt_certificate.trim() || null,
+        credit_limit:                 dollars,
+        credit_limit_cents:           creditCents,
+        credit_limit_currency:        creditCents == null
           ? null
           : (form.credit_limit_currency.trim().toUpperCase() || "USD"),
-        status:                form.status,
+        status:                       form.status,
+        billing_address:              form.billing_address,
+        shipping_address:             form.shipping_address,
+        default_gl_ar_account_id:     form.default_gl_ar_account_id || null,
+        default_gl_revenue_account_id: form.default_gl_revenue_account_id || null,
+        contact_name:                 form.contact_name.trim() || null,
+        contact_title:                form.contact_title.trim() || null,
+        email:                        form.email.trim() || null,
+        phone:                        form.phone.trim() || null,
+        website:                      form.website.trim() || null,
+        wechat_id:                    form.wechat_id.trim() || null,
       };
       let url: string;
       let method: string;
@@ -479,7 +538,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 560, maxWidth: 760, color: C.text, maxHeight: "90vh", overflowY: "auto" }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add customer" : `Edit ${customer!.name}`}
@@ -563,10 +622,90 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               Yes (skip AR tax calc)
             </label>
           </Field>
+          <Field label="Tax-exempt certificate">
+            <input
+              type="text"
+              value={form.tax_exempt_certificate}
+              onChange={(e) => setForm({ ...form, tax_exempt_certificate: e.target.value })}
+              style={inputStyle}
+              placeholder="Certificate # or identifier"
+            />
+          </Field>
+          <Field label="Default AR account">
+            <SearchableSelect
+              value={form.default_gl_ar_account_id || null}
+              onChange={(v) => setForm({ ...form, default_gl_ar_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(none)"
+            />
+          </Field>
+          <Field label="Default revenue account">
+            <SearchableSelect
+              value={form.default_gl_revenue_account_id || null}
+              onChange={(v) => setForm({ ...form, default_gl_revenue_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(none)"
+            />
+          </Field>
+          <Field label="Contact name">
+            <input
+              type="text"
+              value={form.contact_name}
+              onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+              style={inputStyle}
+              placeholder="Primary contact"
+            />
+          </Field>
+          <Field label="Contact title">
+            <input
+              type="text"
+              value={form.contact_title}
+              onChange={(e) => setForm({ ...form, contact_title: e.target.value })}
+              style={inputStyle}
+              placeholder="e.g. Buyer"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              style={inputStyle}
+              placeholder="contact@example.com"
+            />
+          </Field>
+          <Field label="Phone">
+            <input
+              type="text"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              style={inputStyle}
+              placeholder="+1 (555) 000-0000"
+            />
+          </Field>
+          <Field label="Website">
+            <input
+              type="text"
+              value={form.website}
+              onChange={(e) => setForm({ ...form, website: e.target.value })}
+              style={inputStyle}
+              placeholder="https://"
+            />
+          </Field>
+          <Field label="WeChat ID">
+            <input
+              type="text"
+              value={form.wechat_id}
+              onChange={(e) => setForm({ ...form, wechat_id: e.target.value })}
+              style={inputStyle}
+              placeholder="WeChat handle"
+            />
+          </Field>
         </div>
 
-        <div style={{ marginTop: 12, padding: "8px 12px", background: "#0b1220", border: `1px dashed ${C.cardBdr}`, borderRadius: 6, fontSize: 11, color: C.textMuted }}>
-          Tax exempt certificate handled via dedicated PII workflow — not editable here.
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
+          <AddressFields label="Billing address" value={form.billing_address} onChange={(a) => setForm({ ...form, billing_address: a })} />
+          <AddressFields label="Shipping address" value={form.shipping_address} onChange={(a) => setForm({ ...form, shipping_address: a })} />
         </div>
 
         {err && (

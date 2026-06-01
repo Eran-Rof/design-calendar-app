@@ -9,10 +9,11 @@
 //          ?limit=N                — default 200, max 500
 //        tax_exempt_certificate is OMITTED from list responses (PII-adjacent).
 // POST — create a customer. Body: { name (required), code, customer_type,
-//        country, payment_terms, default_currency, tax_exempt, credit_limit,
-//        status, billing_address, shipping_address }
-//        tax_exempt_certificate is rejected — must go through dedicated PII
-//        endpoint (not built).
+//        country, payment_terms, default_currency, tax_exempt,
+//        tax_exempt_certificate, credit_limit, credit_limit_cents,
+//        status, billing_address, shipping_address,
+//        contact_name, contact_title, email, phone, website, wechat_id,
+//        default_gl_ar_account_id, default_gl_revenue_account_id }
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
@@ -119,12 +120,21 @@ export default async function handler(req, res) {
       payment_terms_id: v.data.payment_terms_id || null,
       default_currency: v.data.default_currency || "USD",
       tax_exempt: v.data.tax_exempt === true,
+      tax_exempt_certificate: v.data.tax_exempt_certificate || null,
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
       credit_limit_cents: v.data.credit_limit_cents ?? null,
       credit_limit_currency: v.data.credit_limit_currency ?? null,
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
+      default_gl_ar_account_id: v.data.default_gl_ar_account_id || null,
+      default_gl_revenue_account_id: v.data.default_gl_revenue_account_id || null,
+      contact_name: v.data.contact_name || null,
+      contact_title: v.data.contact_title || null,
+      email: v.data.email || null,
+      phone: v.data.phone || null,
+      website: v.data.website || null,
+      wechat_id: v.data.wechat_id || null,
     };
 
     const { data, error } = await admin
@@ -149,10 +159,6 @@ export default async function handler(req, res) {
 export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
-  }
-  // PII rejection — tax_exempt_certificate is not accepted via this endpoint.
-  if ("tax_exempt_certificate" in body) {
-    return { error: "tax_exempt_certificate must be set via the dedicated PII endpoint (not this admin route)" };
   }
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
@@ -227,6 +233,14 @@ export function validateInsert(body) {
     }
   } else {
     out.payment_terms_id = null;
+  }
+  // UUID FK fields — coerce empty string to null.
+  for (const k of ["default_gl_ar_account_id", "default_gl_revenue_account_id"]) {
+    if (out[k] === "" || out[k] == null) out[k] = null;
+  }
+  // Free-text contact fields — coerce empty string to null.
+  for (const k of ["contact_name", "contact_title", "email", "phone", "website", "wechat_id", "tax_exempt_certificate"]) {
+    if (out[k] === "") out[k] = null;
   }
   return { data: out };
 }
