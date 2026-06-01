@@ -19,7 +19,8 @@ const path = window.location.pathname;
 // 1-hour idle auto-logout for every internal sub-app. Skips:
 //   /vendor  — Supabase Auth, separate session lifecycle.
 //   /design  — App.tsx mounts its own useIdleLogout with a 5-min warning banner.
-if (!path.startsWith("/vendor") && !path.startsWith("/design")) {
+//   /b2b     — external customer portal, Supabase Auth, separate session lifecycle.
+if (!path.startsWith("/vendor") && !path.startsWith("/design") && !path.startsWith("/b2b")) {
   installIdleLogout();
 }
 
@@ -92,6 +93,12 @@ async function mount() {
     // Sub-routing (/vendor/login, /vendor/setup, /vendor) lives inside VendorApp via react-router-dom.
     const { default: VendorApp } = await import("./vendor/VendorApp");
     root.render(<StrictMode><ErrorBoundary appName="Vendor Portal"><VendorApp /></ErrorBoundary></StrictMode>);
+
+  } else if (path.startsWith("/b2b")) {
+    // External B2B customer portal — passwordless Supabase Auth, isolated from
+    // internal staff and the vendor portal (separate browser client + storageKey).
+    const { default: B2BApp } = await import("./b2b/B2BApp");
+    root.render(<StrictMode><ErrorBoundary appName="B2B Portal"><B2BApp /></ErrorBoundary></StrictMode>);
 
   } else if (path.startsWith("/design")) {
     const { default: App } = await import("./App");
