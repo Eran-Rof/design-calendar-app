@@ -8,9 +8,9 @@
 
 | Metric | Done | Total | % |
 |---|---|---|---|
-| **Phases / slots (P1–P25)** | 12 + P14-slot (RBAC) + P15-slot (Brand Master) ✅; P13 partial, P16 started | 25 | **~57%** |
-| **Modules (M1–M49 + ➕M50)** | ~25 + ➕M50 GL Allocation; 4 partial | 49 (+ins) | **~53%** |
-| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15-slot insertions; P13 in flight, P16 started | 23 | **~58%** |
+| **Phases / slots (P1–P25)** | 12 + P14-slot (RBAC) + P15-slot (Brand Master) ✅; P13 partial, P16 M10 done (M18/M24/M44 left) | 25 | **~59%** |
+| **Modules (M1–M49 + ➕M50)** | ~26 + ➕M50 GL Allocation; M10 SO done; Customer/Vendor 360° + Employee masters extended; 4 partial | 49 (+ins) | **~55%** |
+| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15-slot insertions; P13 in flight, P16 M10 done | 23 | **~60%** |
 
 > Note: the **P14/P15 slots** hold operator insertions (RBAC, Brand Master), not the original roadmap scope (PLM-ext, Pricing — deferred). The brand / allocation / partition work is **built but GATED** (`BRAND_SCOPE_MODE` off) — shipped code, not yet *enforced* in prod.
 
@@ -41,7 +41,7 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 | **P13** Procurement | M11 PO origination · M38 Receiving · M26 QC · M48 Trade Compliance | 🟡 arch (#518) + UI (#548) shipped; full per-vendor cutover pending | |
 | **P14** PLM ext | M32 (Design-Calendar PLM) · M33 (Tech-Pack PLM) | ⬜ | superseded in slot by ➕RBAC insertion |
 | **P15** Pricing | M43 Pricing Engine | ⬜ | superseded in slot by ➕Brand Master insertion |
-| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 arch + M10-A schema (#698) + M10-B SO entry panel + CRUD API (#699) + **M10-C SO→draft-AR-invoice (this PR)** done; next M18 allocations (reuse ATS), then M24, M44 | #698 #699 + this PR |
+| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 **M10 complete** (A schema #698, B entry panel #699, C SO→AR invoice #700) + large Sales/CRM/HR enhancement batch (#701–#708): factor approval, multi-store SO split, P&L Dilution line, Customer Master tabs (reps/defaults/GL/DC+stores), Customer+Vendor 360° scorecards, Employee title/dept masters + Wholesale/Closeout commission rates, favorites/modal UX. **Next: M18 allocations (reuse ATS), M24, M44.** | #698–#708 |
 | **P17** Planning | M31 Planning/Allocations (E4 ATS foundation) | ⬜ | |
 | **P18** B2B customer-facing | M40 B2B Customer Portal · M41 B2B Wholesale Website | ⬜ | |
 | **P19** Returns | M23 RMA / Returns | ⬜ | |
@@ -76,8 +76,8 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 
 🟡 **Partial (4):** M11 PO · M26 QC · M38 Receiving · M48 Trade Compliance (all P13)
 
-🟡 **M10 SO** entry panel + API live (P16, draft→confirm); allocations/fulfilment still ahead.
-⬜ **Not started (~19):** M9-full · M13 3PL · M14 EDI · M15 API · M18 Allocations · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets · M23 RMA · M24 Showroom · M31 Planning · M32/M33 PLM ext · M40/M41 B2B · M43 Pricing · M44 Carrier · M46 BI · M49 Drop-ship
+✅ **M10 SO** complete (P16): entry panel + API, draft→confirm→AR invoice, factor approval, multi-store split. Allocations/fulfilment (M18) still ahead.
+⬜ **Not started (~18):** M9-full · M13 3PL · M14 EDI · M15 API · M18 Allocations · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets · M23 RMA · M24 Showroom · M31 Planning · M32/M33 PLM ext · M40/M41 B2B · M43 Pricing · M44 Carrier · M46 BI · M49 Drop-ship
 
 ---
 
