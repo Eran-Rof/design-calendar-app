@@ -1,4 +1,4 @@
--- 20260713020000_gl_inventory_brand_accounts.sql
+-- 20260713030000_gl_inventory_brand_accounts.sql
 -- ════════════════════════════════════════════════════════════════════════════
 -- GL chart accounts: Inventory + Inventory Adjustments parents with a postable
 -- per-brand child for each of the 11 brands. Operator decision: BOTH parents
