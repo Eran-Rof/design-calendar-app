@@ -205,15 +205,49 @@ export interface GenerateRfqsResult {
   message?: string;
 }
 
-export async function generateRfqs(projectId: string, lineIds: string[]): Promise<GenerateRfqsResult> {
-  return json<GenerateRfqsResult>(await fetch(
+/** One existing style/color/vendor match surfaced by the dup-RFQ guard (409). */
+export interface RfqDuplicate {
+  vendor_id: string;
+  vendor: string;
+  style_code: string | null;
+  color: string | null;
+}
+
+/** 409 body the create handler returns when a matching RFQ already exists. */
+export interface GenerateRfqsNeedsConfirm {
+  needs_confirm: true;
+  reason: "duplicate_rfq";
+  duplicates: RfqDuplicate[];
+  message: string;
+}
+
+/**
+ * Create RFQs from the selected costing lines.
+ *
+ * The handler refuses (HTTP 409 + needs_confirm) when an RFQ already exists
+ * for the same style + color + vendor, UNLESS allowDuplicate is passed. The
+ * caller should catch the needs-confirm result, show a confirm dialog, and
+ * re-call with allowDuplicate=true on OK. Returns the normal result on success
+ * or the needs-confirm payload on 409 (anything else throws).
+ */
+export async function generateRfqs(
+  projectId: string,
+  lineIds: string[],
+  allowDuplicate = false,
+): Promise<GenerateRfqsResult | GenerateRfqsNeedsConfirm> {
+  const res = await fetch(
     `/api/internal/costing/projects/${projectId}/generate-rfqs`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ line_ids: lineIds }),
+      body: JSON.stringify({ line_ids: lineIds, allow_duplicate: allowDuplicate }),
     },
-  ));
+  );
+  if (res.status === 409) {
+    const body = (await res.json()) as GenerateRfqsNeedsConfirm;
+    if (body?.needs_confirm) return body;
+  }
+  return json<GenerateRfqsResult>(res);
 }
 
 export async function selectQuote(lineId: string, quoteId: string): Promise<SelectQuoteResult> {
