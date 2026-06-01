@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type PaymentTerm = {
   id: string;
@@ -83,6 +85,13 @@ export default function InternalPaymentTerms() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentTerm | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<PaymentTerm>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit payment term ${r.code}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -193,7 +202,13 @@ export default function InternalPaymentTerms() {
             </thead>
             <tbody>
               {rows.map((pt) => (
-                <tr key={pt.id} style={!pt.is_active ? { opacity: 0.5 } : {}}>
+                <ScrollHighlightRow
+                  key={pt.id}
+                  rowId={pt.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(pt)}
+                  style={!pt.is_active ? { opacity: 0.5 } : undefined}
+                >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{pt.code}</td>
                   <td style={td}>{pt.name}</td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pt.due_days}</td>
@@ -201,10 +216,10 @@ export default function InternalPaymentTerms() {
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pt.discount_days || "—"}</td>
                   <td style={td}>{pt.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => setEditing(pt)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => void del(pt)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditing(pt); }} style={btnSecondary}>Edit</button>
+                    <button onClick={(e) => { e.stopPropagation(); void del(pt); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>

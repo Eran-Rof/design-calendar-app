@@ -342,7 +342,7 @@ describe("byCustomer.bySku → customerRawAggs transform", () => {
     const out: CustomerRawArg[] = [];
     for (const [skuId, agg] of ross.bySku) {
       const master = cache.getMaster(skuId);
-      const skuKey = master?.sku_code ?? `__unresolved:${skuId.slice(0, 8)}`;
+      const skuKey = master?.sku_code ?? "(unknown sku)";
       out.push({
         customer: ross.customerName, sku: skuKey,
         tyQty: agg.t3.qty, tyRev: agg.t3.totalPrice, tyMrgn: agg.t3.marginAmount,

@@ -107,7 +107,7 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
                   <tr key={s.id}>
                     <td style={S.td}>{s.forecast_type}</td>
                     <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
-                      {skuCodeById.get(s.sku_id) ?? s.sku_id.slice(0, 8)}
+                      {skuCodeById.get(s.sku_id) ?? "(unknown sku)"}
                     </td>
                     <td style={S.td}>{s.period_code}</td>
                     <td style={S.tdNum}>{formatQty(s.system_forecast_qty)}</td>

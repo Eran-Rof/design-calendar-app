@@ -380,7 +380,7 @@ export default function InternalCustomerMaster() {
                   </td>
                   <td style={td} hidden={!isVisible("payment_terms")}>
                     {r.payment_terms_id ? (
-                      termById.get(r.payment_terms_id)?.code || r.payment_terms_id.slice(0, 8) + "…"
+                      termById.get(r.payment_terms_id)?.code || "—"
                     ) : r.payment_terms ? (
                       <span style={{ color: C.textMuted, fontStyle: "italic" }} title="Legacy free-text — edit to migrate to structured term">{r.payment_terms}</span>
                     ) : "—"}

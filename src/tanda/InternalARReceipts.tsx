@@ -23,6 +23,8 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type ARReceipt = {
   id: string;
@@ -177,6 +179,13 @@ export default function InternalARReceipts() {
   const [err, setErr] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<ARReceipt>({
+    onRowClick: (r) => setDetailId(r.id),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: "Open receipt detail",
+  });
 
   async function load() {
     setLoading(true);
@@ -374,10 +383,15 @@ export default function InternalARReceipts() {
                 const bank = accountMap[r.bank_account_id];
                 const st = statusLabel(r);
                 return (
-                  <tr key={r.id}>
+                  <ScrollHighlightRow
+                    key={r.id}
+                    rowId={r.id}
+                    highlightedRowId={highlightedId}
+                    {...getRowProps(r)}
+                  >
                     <td style={td}>{r.receipt_date}</td>
                     <td style={td}>
-                      {cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : <span style={{ color: C.textMuted }}>{r.customer_id.slice(0, 8)}…</span>}
+                      {cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : <span style={{ color: C.textMuted }}>—</span>}
                       <SourceBadge source={r.source} />
                     </td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.amount_cents)}</td>
@@ -387,15 +401,15 @@ export default function InternalARReceipts() {
                     </td>
                     <td style={td}>{r.customer_payment_method}</td>
                     <td style={{ ...td, fontSize: 12, color: C.textSub }}>
-                      {bank ? `${bank.code} — ${bank.name}` : <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>{r.bank_account_id.slice(0, 8)}…</span>}
+                      {bank ? `${bank.code} — ${bank.name}` : <span style={{ color: C.textMuted }}>—</span>}
                     </td>
                     <td style={td}>
                       <span style={{ color: st.color, fontWeight: 500, fontSize: 12 }}>{st.label}</span>
                     </td>
                     <td style={td}>
-                      <button onClick={() => setDetailId(r.id)} style={btnSecondary}>View</button>
+                      <button onClick={(e) => { e.stopPropagation(); setDetailId(r.id); }} style={btnSecondary}>View</button>
                     </td>
-                  </tr>
+                  </ScrollHighlightRow>
                 );
               })}
             </tbody>

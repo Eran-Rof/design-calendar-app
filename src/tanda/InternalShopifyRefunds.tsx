@@ -151,7 +151,7 @@ export default function InternalShopifyRefunds() {
   const exportRows = useMemo(() => {
     return rows.map((r) => ({
       processed_at:           r.processed_at,
-      order_number:           orderMap[r.shopify_order_id] || r.shopify_order_id.slice(0, 8),
+      order_number:           orderMap[r.shopify_order_id] || "—",
       refund_type:            r.refund_type,
       refund_amount_cents:    r.refund_amount_cents,
       restocking_fee_cents:   r.restocking_fee_cents,
@@ -249,7 +249,7 @@ export default function InternalShopifyRefunds() {
                   <tr key={r.id}>
                     <td style={td}>{fmtDate(r.processed_at)}</td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
-                      {orderMap[r.shopify_order_id] || r.shopify_order_id.slice(0, 8)}
+                      {orderMap[r.shopify_order_id] || "—"}
                     </td>
                     <td style={td}>
                       <span style={{ color: refundTypeColor(r.refund_type), fontWeight: 600, textTransform: "uppercase" }}>
@@ -266,10 +266,9 @@ export default function InternalShopifyRefunds() {
                       {r.ar_credit_memo_id ? (
                         <a
                           href={`/tangerine?module=ar_invoices&id=${r.ar_credit_memo_id}`}
-                          style={{ color: C.primary, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
-                          title={r.ar_credit_memo_id}
+                          style={{ color: C.primary, fontSize: 11 }}
                         >
-                          {r.ar_credit_memo_id.slice(0, 8)}…
+                          View credit memo
                         </a>
                       ) : (
                         <span style={{ color: C.textMuted, fontSize: 11 }}>(none)</span>

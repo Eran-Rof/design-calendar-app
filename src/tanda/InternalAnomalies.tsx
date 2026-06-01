@@ -123,7 +123,7 @@ export default function InternalAnomalies() {
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No anomalies in this view.</div>
         ) : rows.map((a) => (
           <div key={a.id} style={{ display: "grid", gridTemplateColumns: "160px 1.5fr 140px 110px 140px 220px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-            <div style={{ fontWeight: 600 }}>{a.vendor?.name || a.vendor_id.slice(0, 8)}</div>
+            <div style={{ fontWeight: 600 }}>{a.vendor?.name || "—"}</div>
             <div style={{ color: C.textSub, fontSize: 12, lineHeight: 1.4 }}>{a.description}</div>
             <div style={{ color: C.textSub, fontSize: 12, textTransform: "capitalize" }}>{a.type.replace(/_/g, " ")}</div>
             <div style={{ color: sevColor(a.severity), fontWeight: 600, textTransform: "uppercase", fontSize: 12 }}>{a.severity}</div>

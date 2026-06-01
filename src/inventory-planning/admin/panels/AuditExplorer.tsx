@@ -88,7 +88,7 @@ export default function AuditExplorer() {
                 </td>
                 <td style={{ ...S.td, fontFamily: "monospace", fontSize: 11 }}>{r.actor ?? ""}</td>
                 <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
-                  {r.entity_type}{r.entity_id ? ` · ${r.entity_id.slice(0, 8)}` : ""}
+                  {r.entity_type}
                 </td>
                 <td style={S.td}>{r.event_or_field}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", fontSize: 11, color: PAL.textDim }}>

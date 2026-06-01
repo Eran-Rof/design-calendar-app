@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type Rule = {
   id: string;
@@ -61,6 +63,13 @@ export default function InternalApprovalRules() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Rule | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<Rule>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit rule ${r.name}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -159,7 +168,12 @@ export default function InternalApprovalRules() {
               </td></tr>
             )}
             {rows.map((r) => (
-              <tr key={r.id}>
+              <ScrollHighlightRow
+                key={r.id}
+                rowId={r.id}
+                highlightedRowId={highlightedId}
+                {...getRowProps(r)}
+              >
                 <td style={{ ...td, fontFamily: "monospace" }}>{r.kind}</td>
                 <td style={td}>{r.name}</td>
                 <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }}>
@@ -169,16 +183,16 @@ export default function InternalApprovalRules() {
                   {r.steps.map((s) => `${s.step_order}. ${s.mode}/${s.role_required}`).join(" → ")}
                 </td>
                 <td style={td}>
-                  <button style={btnSecondary} onClick={() => void toggleActive(r)}>
+                  <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); void toggleActive(r); }}>
                     {r.is_active ? "🟢 Active" : "⚪ Inactive"}
                   </button>
                 </td>
                 <td style={td}>
-                  <button style={btnSecondary} onClick={() => setEditing(r)}>Edit</button>
+                  <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); setEditing(r); }}>Edit</button>
                   &nbsp;
-                  <button style={btnDanger} onClick={() => void deleteRule(r.id)}>Delete</button>
+                  <button style={btnDanger} onClick={(e) => { e.stopPropagation(); void deleteRule(r.id); }}>Delete</button>
                 </td>
-              </tr>
+              </ScrollHighlightRow>
             ))}
           </tbody>
         </table>
