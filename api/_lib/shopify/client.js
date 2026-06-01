@@ -75,6 +75,59 @@ export class ShopifyClient {
     return { data: json.order || null, nextPageInfo: null };
   }
 
+  // ── Products (P11-10) ───────────────────────────────────────────────────
+
+  /**
+   * GET /admin/api/{v}/products.json
+   *
+   * Paginated walk of the product catalog. Same Link-header cursor as orders.
+   * @param {{since?: string|Date, until?: string|Date, limit?: number, page_info?: string, status?: string, vendor?: string}} opts
+   * @returns {Promise<{data: any[], nextPageInfo: string|null}>}
+   */
+  async listProducts({ since, until, limit = 250, page_info, status, vendor } = {}) {
+    const qs = page_info
+      ? { page_info, limit: String(limit) }
+      : {
+          ...(since ? { updated_at_min: toIso(since) } : {}),
+          ...(until ? { updated_at_max: toIso(until) } : {}),
+          ...(status ? { status } : {}),
+          ...(vendor ? { vendor } : {}),
+          limit: String(limit),
+        };
+    const { json, link } = await this._request("GET", `/products.json`, { query: qs });
+    return { data: json.products || [], nextPageInfo: parseLinkHeader(link) };
+  }
+
+  /**
+   * GET /admin/api/{v}/products/{id}.json
+   *
+   * Single-product fetch — used by the webhook handler on products/create and
+   * products/update events, and by the pull-images flow when re-syncing one
+   * product's image set.
+   */
+  async getProduct(productId) {
+    if (!productId) throw new Error("getProduct: productId is required");
+    const { json } = await this._request("GET", `/products/${encodeURIComponent(productId)}.json`);
+    return { data: json.product || null, nextPageInfo: null };
+  }
+
+  /**
+   * GET /admin/api/{v}/products/{id}/images.json
+   *
+   * Sometimes a product webhook fires before its image set is ready; this
+   * lets the pull-images flow refresh the image list independently of the
+   * product payload. The product.images array on getProduct is usually
+   * authoritative — prefer that when available.
+   */
+  async getProductImages(productId) {
+    if (!productId) throw new Error("getProductImages: productId is required");
+    const { json } = await this._request(
+      "GET",
+      `/products/${encodeURIComponent(productId)}/images.json`,
+    );
+    return { data: json.images || [], nextPageInfo: null };
+  }
+
   // ── Refunds ─────────────────────────────────────────────────────────────
 
   /**
