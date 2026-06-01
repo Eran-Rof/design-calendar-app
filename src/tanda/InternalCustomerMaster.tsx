@@ -73,6 +73,9 @@ type Customer = {
   credit_limit: number | string | null;
   credit_limit_cents: number | string | null;
   credit_limit_currency: string | null;
+  // Chunk K — customer factoring (operator item 17).
+  is_factored: boolean | null;
+  factor_id: string | null;
   status: string;
   billing_address: Record<string, unknown>;
   shipping_address: Record<string, unknown>;
@@ -110,6 +113,8 @@ type Employee = {
 
 type Brand = { id: string; code: string; name: string; is_default?: boolean };
 type Channel = { id: string; code: string; name: string };
+// Chunk K — factor / credit-insurance master (operator item 17).
+type Factor = { id: string; code: string; name: string };
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -456,6 +461,9 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     tax_exempt:                   mode === "add" ? true : (customer?.tax_exempt ?? false),
     credit_limit:                 initCreditLimitDollars,
     credit_limit_currency:        customer?.credit_limit_currency        ?? "USD",
+    // Chunk K — customer factoring (operator item 17).
+    is_factored:                  customer?.is_factored                  ?? false,
+    factor_id:                    customer?.factor_id                    ?? "",
     status:                       customer?.status                       ?? "active",
     billing_address:              (customer?.billing_address && typeof customer.billing_address === "object"
                                     ? customer.billing_address : {}) as Address,
@@ -485,6 +493,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [factors, setFactors] = useState<Factor[]>([]);
   const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses">("details");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -505,6 +514,11 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     fetch("/api/internal/channels")
       .then((r) => r.json())
       .then((j: { channels?: Channel[] }) => setChannels(Array.isArray(j?.channels) ? j.channels : []))
+      .catch(() => {});
+    // Chunk K — factor / credit-insurance master (operator item 17).
+    fetch("/api/internal/factors")
+      .then((r) => r.json())
+      .then((arr: Factor[]) => setFactors(Array.isArray(arr) ? arr : []))
       .catch(() => {});
   }, []);
 
@@ -548,6 +562,14 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     { value: "", label: "(none)" },
     ...channels.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` })),
   ], [channels]);
+
+  // Chunk K — factor picker (operator item 17). Label = factor name (with
+  // code as search haystack). Keep the current factor in the list even if it
+  // were de-activated so an edit shows the existing selection.
+  const factorOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(none)" },
+    ...factors.map((f) => ({ value: f.id, label: f.name, searchHaystack: `${f.code} ${f.name}` })),
+  ], [factors]);
 
   // Wave 5 — payment-terms picker is the only modal dropdown whose option
   // list comes from a DB table (payment_terms) and can grow beyond a
@@ -593,6 +615,10 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         credit_limit_currency:        creditCents == null
           ? null
           : (form.credit_limit_currency.trim().toUpperCase() || "USD"),
+        // Chunk K — customer factoring (operator item 17). When not factored,
+        // always clear the factor link.
+        is_factored:                  !!form.is_factored,
+        factor_id:                    form.is_factored ? (form.factor_id || null) : null,
         status:                       form.status,
         billing_address:              form.billing_address,
         shipping_address:             form.shipping_address,
@@ -725,14 +751,14 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             <input type="text" value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value.toUpperCase() })} style={inputStyle} placeholder="USD" maxLength={3} />
           </Field>
           <Field label="Credit limit">
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ color: C.textMuted, fontSize: 13 }}>$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={form.credit_limit}
-                onChange={(e) => setForm({ ...form, credit_limit: e.target.value })}
-                style={{ ...inputStyle, flex: 1 }}
+                onChange={(e) => setForm({ ...form, credit_limit: e.target.value.replace(/[^0-9.]/g, "") })}
+                style={{ ...inputStyle, width: "8ch", flex: "0 0 auto" }}
                 placeholder="0.00"
                 title="0 or blank = no credit limit (no gate)"
               />
@@ -746,6 +772,31 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                 aria-label="Credit limit currency"
               />
             </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
+              For factored customers this is set from the factor&apos;s API.
+            </div>
+          </Field>
+          {/* Chunk K — customer factoring (operator item 17). */}
+          <Field label="Factored?">
+            <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={form.is_factored}
+                onChange={(e) => setForm({ ...form, is_factored: e.target.checked, factor_id: e.target.checked ? form.factor_id : "" })}
+              />
+              Receivables are factored / insured
+            </label>
+            {form.is_factored && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Factor / Insurance</div>
+                <SearchableSelect
+                  value={form.factor_id || null}
+                  onChange={(v) => setForm({ ...form, factor_id: v })}
+                  options={factorOptions}
+                  placeholder="Pick a factor…"
+                />
+              </div>
+            )}
           </Field>
           <Field label="Status">
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle as React.CSSProperties}>
