@@ -19,7 +19,10 @@ const C = {
 };
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
-const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
+// colorScheme:"dark" makes native controls (esp. <input type=date> text + the
+// calendar/picker icon) render light-on-dark instead of the near-invisible
+// dark-on-dark default — matches the Inventory Matrix inputs.
+const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 // Item 7 — ~8-char numeric box with no browser spinner arrows (type=text + inputMode=decimal).
 const numInputStyle: React.CSSProperties = { ...inputStyle, width: "8ch", textAlign: "right" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -219,9 +222,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   function removeLine(idx: number) { setLines((p) => p.filter((_, i) => i !== idx)); }
 
   // MX-SO — append lines produced by the matrix size-grid sub-panel. Each add
-  // is a resolved SKU id + qty. If a line for that SKU already exists, fold the
-  // qty into it; otherwise append a new line (unit price left blank so the
-  // server stamps the per-customer revenue routing, same as manual entry).
+  // is a resolved SKU id + qty + (optional) per-row unit price. If a line for
+  // that SKU already exists, fold the qty into it; otherwise append a new line.
+  // A blank unit price means the server stamps the per-customer revenue routing,
+  // same as manual entry.
   function appendMatrixLines(adds: MatrixLineAdd[]) {
     setLines((prev) => {
       // Drop any trailing fully-empty row so the merge math is clean; the
@@ -234,8 +238,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         const existing = out.find((l) => l.inventory_item_id === a.inventory_item_id);
         if (existing) {
           existing.qty_ordered = String((Number(existing.qty_ordered) || 0) + a.qty_ordered);
+          // Adopt the grid's unit price only when the existing line had none.
+          if (a.unit_price_dollars && !existing.unit_price_dollars) existing.unit_price_dollars = a.unit_price_dollars;
         } else {
-          out.push({ key: nextKey++, inventory_item_id: a.inventory_item_id, qty_ordered: String(a.qty_ordered), unit_price_dollars: "" });
+          out.push({ key: nextKey++, inventory_item_id: a.inventory_item_id, qty_ordered: String(a.qty_ordered), unit_price_dollars: a.unit_price_dollars || "" });
         }
       }
       return out;
@@ -259,6 +265,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     const qty = Number(l.qty_ordered) || 0; const unit = Math.round((Number(l.unit_price_dollars) || 0) * 100);
     return s + Math.round(qty * unit);
   }, 0), [lines]);
+  const totalQty = useMemo(() => lines.reduce((s, l) => s + (Number(l.qty_ordered) || 0), 0), [lines]);
 
   function apiLines() {
     return lines
@@ -412,7 +419,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           <Field label="Payment terms">
             <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
-              options={[{ value: "", label: "(none)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(none)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(select)" disabled={!editable} />
           </Field>
         </div>
 
@@ -519,7 +526,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td style={td} colSpan={2}><span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Total</span></td><td style={{ ...td, fontWeight: 700 }} colSpan={3}>{fmtCents(totalCents)}</td></tr></tfoot>
+            <tfoot><tr>
+              <td style={{ ...td, textAlign: "right" }} colSpan={2}><span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Total</span></td>
+              <td style={{ ...td, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} title="Total quantity">{totalQty.toLocaleString()}</td>
+              <td style={{ ...td, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} colSpan={2} title="Total amount">{fmtCents(totalCents)}</td>
+            </tr></tfoot>
           </table>
         </div>
 

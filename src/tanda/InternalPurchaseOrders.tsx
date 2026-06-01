@@ -313,7 +313,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           <Field label="Expected date"><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           <Field label="Payment terms">
             <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
-              options={[{ value: "", label: "(none)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(none)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(select)" disabled={!editable} />
           </Field>
         </div>
 
