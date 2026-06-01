@@ -448,6 +448,14 @@ function TandAApp() {
     // internal views (e.g. drill-down detail panels) silently skip.
     const mk = tandaViewToMenuKey(v as unknown as string);
     if (mk) logMenuClick(mk);
+    // Reflect the active view in the URL (?view=) so "Star this view" /
+    // FavoritesMenu can detect it (it reads window.location), and so the view
+    // is deep-linkable. No reload.
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("view", String(v));
+      window.history.replaceState(window.history.state, "", u);
+    } catch { /* non-fatal */ }
     coreSet("view", v);
   };
   const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(useTandaStore.getState().pos)); else coreSet("pos", v); };
