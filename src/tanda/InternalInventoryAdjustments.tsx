@@ -393,6 +393,9 @@ function AdjustmentModal({
   );
   const [glAccountId, setGlAccountId] = useState(existing?.gl_account_id || "");
   const [reason, setReason] = useState(existing?.reason || "");
+  // P15 — for a positive (found/correction-up) adjustment, which brand pool the
+  // new layer lands in (WS/EC). Single-pool brands ignore it.
+  const [receivingChannel, setReceivingChannel] = useState<"WS" | "EC">("WS");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -448,7 +451,7 @@ function AdjustmentModal({
           reason,
           gl_account_id: glAccountId,
         };
-        if (isPositive) body.unit_cost_cents = Number(unitCostCents);
+        if (isPositive) { body.unit_cost_cents = Number(unitCostCents); body.receiving_channel = receivingChannel; }
         const actorUid = getCachedAuthUserId();
         if (actorUid) body.created_by_user_id = actorUid;
       }
@@ -564,6 +567,19 @@ function AdjustmentModal({
               onChange={(e) => setUnitCostCents(e.target.value)}
               placeholder="e.g. 1250 = $12.50/unit"
             />
+            {!isEdit && (
+              <>
+                <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Receive into (brand pool)</label>
+                <select
+                  style={{ ...inputStyle, marginBottom: 12 }}
+                  value={receivingChannel}
+                  onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                >
+                  <option value="WS">Wholesale pool</option>
+                  <option value="EC">Ecom pool</option>
+                </select>
+              </>
+            )}
           </>
         )}
 
