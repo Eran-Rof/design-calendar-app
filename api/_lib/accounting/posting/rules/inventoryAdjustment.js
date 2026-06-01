@@ -152,6 +152,7 @@ export function inventoryAdjustment(event) {
           unit_cost_cents: d.unit_cost_cents,
           source_kind: "adjustment",
           source_adjustment_id: d.adjustment_id,
+          partition_id: d.receiving_partition_id || null, // P15 brand stock pool
           received_at: d.posting_date,
           notes: d.reason || null,
         },
