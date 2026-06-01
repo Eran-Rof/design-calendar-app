@@ -26,7 +26,7 @@ const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 // `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
 // fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -169,6 +169,7 @@ export default async function handler(req, res) {
       group_name: v.data.group_name || null,
       category_name: v.data.category_name || null,
       sub_category_name: v.data.sub_category_name || null,
+      brand_id: v.data.brand_id || null,
       attributes: v.data.attributes || {},
     };
 
@@ -223,6 +224,14 @@ export function validateInsert(body) {
     }
   } else {
     body.base_fabric_code_id = null;
+  }
+  // Brand FK (Chunk J, item 4) — uuid or null.
+  if (body.brand_id != null && body.brand_id !== "") {
+    if (!UUID_RE.test(String(body.brand_id))) {
+      return { error: "brand_id must be a uuid" };
+    }
+  } else {
+    body.brand_id = null;
   }
   // Optional classifier fields — coerce empty strings to null so the
   // handler doesn't persist empty text.
