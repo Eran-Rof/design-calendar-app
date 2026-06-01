@@ -41,7 +41,7 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 | **P13** Procurement | M11 PO origination · M38 Receiving · M26 QC · M48 Trade Compliance | 🟡 arch (#518) + UI (#548) shipped; full per-vendor cutover pending | |
 | **P14** PLM ext | M32 (Design-Calendar PLM) · M33 (Tech-Pack PLM) | ⬜ | superseded in slot by ➕RBAC insertion |
 | **P15** Pricing | M43 Pricing Engine | ⬜ | superseded in slot by ➕Brand Master insertion |
-| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 arch (`P16-sales-architecture.md`) + M10-A schema (`sales_orders`/`sales_order_lines`, applied) done; next M10-B SO entry panel | this PR |
+| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 arch + M10-A schema (#698) + **M10-B SO entry panel + CRUD API (this PR)** done; next M10-C SO→AR invoice, then M18 allocations (reuse ATS), M24, M44 | #698 + this PR |
 | **P17** Planning | M31 Planning/Allocations (E4 ATS foundation) | ⬜ | |
 | **P18** B2B customer-facing | M40 B2B Customer Portal · M41 B2B Wholesale Website | ⬜ | |
 | **P19** Returns | M23 RMA / Returns | ⬜ | |
@@ -76,7 +76,8 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 
 🟡 **Partial (4):** M11 PO · M26 QC · M38 Receiving · M48 Trade Compliance (all P13)
 
-⬜ **Not started (~20):** M9-full · M10 SO · M13 3PL · M14 EDI · M15 API · M18 Allocations · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets · M23 RMA · M24 Showroom · M31 Planning · M32/M33 PLM ext · M40/M41 B2B · M43 Pricing · M44 Carrier · M46 BI · M49 Drop-ship
+🟡 **M10 SO** entry panel + API live (P16, draft→confirm); allocations/fulfilment still ahead.
+⬜ **Not started (~19):** M9-full · M13 3PL · M14 EDI · M15 API · M18 Allocations · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets · M23 RMA · M24 Showroom · M31 Planning · M32/M33 PLM ext · M40/M41 B2B · M43 Pricing · M44 Carrier · M46 BI · M49 Drop-ship
 
 ---
 
