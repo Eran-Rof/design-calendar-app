@@ -685,8 +685,11 @@ import h470 from "../cron/fba-returns-daily.js";
 //   h463 = GET/POST /api/cron/fba-settlements-weekly (Vercel cron, Wed 06:00 UTC)
 import h462 from "./internal/fba/sync-settlements.js";
 import h463 from "../cron/fba-settlements-weekly.js";
+import h557 from "./b2b/session.js";
 
 export const ROUTES = [
+  // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
+  { pattern: "/api/b2b/session", handler: h557 },
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
   { pattern: "/api/internal/scf/requests/:id/fund", handler: h2 },
