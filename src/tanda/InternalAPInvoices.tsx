@@ -873,7 +873,7 @@ function APInvoiceModal({
                   <tr>
                     <th style={{ ...th, width: 36 }}>#</th>
                     <th style={{ ...th, width: 90 }}>Kind</th>
-                    <th style={th}>Account / Item</th>
+                    <th style={th}>Account / Style</th>
                     <th style={{ ...th, width: 80 }}>Qty</th>
                     <th style={{ ...th, width: 110 }}>Amount $</th>
                     <th style={th}>Description</th>

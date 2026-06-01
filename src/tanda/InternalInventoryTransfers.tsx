@@ -155,7 +155,7 @@ export default function InternalInventoryTransfers() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Item</th>
+              <th style={th}>Style</th>
               <th style={th}>Qty</th>
               <th style={th}>From</th>
               <th style={th}>To</th>
