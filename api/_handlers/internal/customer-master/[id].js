@@ -24,6 +24,8 @@ const MUTABLE_FIELDS = new Set([
   "name", "code", "customer_type", "country", "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
+  // Chunk K — customer factoring (operator item 17).
+  "is_factored", "factor_id",
   "status",
   "billing_address", "shipping_address",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
@@ -51,6 +53,8 @@ const NULLABLE_TEXT_FIELDS = [
   "default_revenue_account_id", "default_returns_account_id",
   "default_cogs_account_id", "default_ar_account_id",
   "parent_customer_id",
+  // Chunk K — factor_id FK normalizes "" → null too.
+  "factor_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ];
 
@@ -243,6 +247,11 @@ export function validatePatch(body) {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
   }
 
+  // Chunk K — customer factoring (operator item 17).
+  if ("is_factored" in out && typeof out.is_factored !== "boolean") {
+    out.is_factored = out.is_factored === "true" || out.is_factored === 1;
+  }
+
   // Normalize empty strings to null for nullable text/uuid fields.
   for (const k of NULLABLE_TEXT_FIELDS) {
     if (out[k] === "") out[k] = null;
@@ -252,6 +261,11 @@ export function validatePatch(body) {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (out.payment_terms_id != null && !UUID_RE.test(String(out.payment_terms_id))) {
     return { error: "payment_terms_id must be a valid UUID" };
+  }
+
+  // Chunk K — factor_id must be a valid UUID when not null.
+  if (out.factor_id != null && !UUID_RE.test(String(out.factor_id))) {
+    return { error: "factor_id must be a valid UUID" };
   }
 
   // P4-family: validate UUID FK fields when not null.
