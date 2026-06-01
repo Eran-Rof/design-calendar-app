@@ -10,6 +10,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+import { subtypeOptionsFor } from "./glAccountSubtypes";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 // Cross-cutter T11-3 — audit-trail drop-in for the GL account detail modal.
@@ -452,7 +453,20 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
             )}
           </Field>
           <Field label="Subtype">
-            <input type="text" value={form.account_subtype} onChange={(e) => setForm({ ...form, account_subtype: e.target.value })} style={inputStyle} placeholder="e.g. current_asset, ar, cogs" />
+            <SearchableSelect
+              value={form.account_subtype || null}
+              onChange={(v) => setForm({ ...form, account_subtype: v })}
+              options={(() => {
+                const opts = [{ value: "", label: "(none)" }, ...subtypeOptionsFor(form.account_type)];
+                // Preserve a legacy/custom value not in the master so editing
+                // doesn't silently drop it.
+                if (form.account_subtype && !opts.some((o) => o.value === form.account_subtype)) {
+                  opts.push({ value: form.account_subtype, label: `${form.account_subtype} (custom)` });
+                }
+                return opts;
+              })()}
+              placeholder="(none)"
+            />
           </Field>
           <Field label="Parent account">
             <SearchableSelect
