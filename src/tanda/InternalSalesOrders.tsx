@@ -31,12 +31,13 @@ type SO = {
   cancel_date: string | null; status: string; payment_terms_id: string | null; ar_account_id: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
+  parent_sales_order_id?: string | null; is_split_parent?: boolean;
 };
 type SOLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
-type ShipTo = { id: string; name: string; code?: string | null };
+type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null };
 
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
@@ -302,6 +303,27 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
+  // Item 15 — split a draft SO across multiple of the customer's stores/DCs.
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitLocs, setSplitLocs] = useState<string[]>([]);
+  const canSplit = !isNew && so != null && so.status === "draft" && !so.is_split_parent && shipTos.length >= 2;
+  function toggleSplitLoc(locId: string) {
+    setSplitLocs((p) => (p.includes(locId) ? p.filter((x) => x !== locId) : [...p, locId]));
+  }
+  async function splitOrder() {
+    if (!so) return;
+    if (splitLocs.length < 2) { setErr("Pick at least two locations to split across."); return; }
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}/split`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location_ids: splitLocs }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || `Split into ${j.count} per-store sales orders.`, "success");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
@@ -357,6 +379,33 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         </div>
 
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
+
+        {/* Item 15 — ship to multiple stores: split this draft into per-store child SOs. */}
+        {canSplit && (
+          <div style={{ marginTop: 12, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+            <button onClick={() => setSplitOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "8px 12px", background: "#0b1220", color: C.text, border: 0, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+              <span style={{ color: C.textMuted, marginRight: 6 }}>{splitOpen ? "▼" : "▶"}</span>🏬 Ship to multiple stores (split into per-store orders)
+            </button>
+            {splitOpen && (
+              <div style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
+                  Select the customer's stores/DCs to split across. Each line's quantity is divided evenly into one child order per location (adjust afterward). Mostly driven by incoming EDI.
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                  {shipTos.map((s) => (
+                    <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, border: `1px solid ${splitLocs.includes(s.id) ? C.primary : C.cardBdr}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>
+                      <input type="checkbox" checked={splitLocs.includes(s.id)} onChange={() => toggleSplitLoc(s.id)} />
+                      {s.location_type === "dc" ? "🏭" : "🏬"} {s.code ? `${s.code} — ${s.name}` : s.name}
+                    </label>
+                  ))}
+                </div>
+                <button onClick={() => void splitOrder()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} disabled={submitting || splitLocs.length < 2}>
+                  {submitting ? "…" : `Split into ${splitLocs.length || ""} per-store orders`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
