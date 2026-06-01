@@ -212,7 +212,7 @@ type ModuleDef = {
 const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Vendors", "Reports", "Approvals"] },
-  { section: "Operations",  emoji: "⚙️", groups: ["Inventory", "Shadow Mirror"] },
+  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
