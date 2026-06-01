@@ -219,6 +219,8 @@ export interface RfqListRow {
   estimated_quantity: number | null;
   estimated_budget: number | null;
   currency: string;
+  /** FK to payment_terms(id) — Tangerine Payment Terms master. NULL until set. */
+  payment_terms_id: string | null;
   source_costing_project_id: string | null;
   created_at: string;
   updated_at: string;
@@ -294,4 +296,5 @@ export interface RfqPatch {
   estimated_quantity?: number | null;
   estimated_budget?: number | null;
   currency?: string;
+  payment_terms_id?: string | null;
 }

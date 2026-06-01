@@ -40,6 +40,12 @@ export type EditableSizeMatrixProps = {
   /** Quantity per cell. Key = matrixCellKey(rowKey, size). */
   qty: Record<string, number>;
   onQtyChange: (rowKey: string, size: string, value: number) => void;
+  /**
+   * Allow signed (negative) integers in qty cells (e.g. inventory adjustments
+   * where a cell can be -5 or +12). Default false keeps the original
+   * positive-only behaviour for SO / PO entry. Blank or "-" is treated as 0.
+   */
+  allowNegative?: boolean;
   /** Faint per-cell on-hand hint (never negative). Key = matrixCellKey(rowKey, size). */
   onHand?: Record<string, number>;
   /** Optional editable per-row unit value with a bulk "set all" header field. */
@@ -68,13 +74,67 @@ const cellInput: React.CSSProperties = {
 };
 const unitInput: React.CSSProperties = { ...cellInput, width: "8ch" };
 
-function toInt(raw: string): number {
+/** Parse a buffered cell string into a clamped integer.
+ *  Positive-only mode (default): clamps to > 0, else 0.
+ *  Signed mode: accepts negatives; blank/"-" → 0. */
+function toInt(raw: string, allowNegative: boolean): number {
   const n = Math.floor(Number(raw));
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  if (!Number.isFinite(n)) return 0;
+  if (allowNegative) return n;
+  return n > 0 ? n : 0;
+}
+
+/**
+ * A single qty cell with a LOCAL string buffer so the operator can type an
+ * in-progress value like a lone "-" before the number arrives. The buffer is
+ * re-synced from the parent numeric value whenever it changes externally
+ * (e.g. "set all" or a reset). It validates keystrokes against a regex
+ * (`/^-?\d*$/` signed, `/^\d*$/` unsigned) and pushes the parsed integer up.
+ */
+function QtyCell({
+  rowKey, size, color, value, allowNegative, onChange,
+}: {
+  rowKey: string;
+  size: string;
+  color: string | null;
+  value: number;
+  allowNegative: boolean;
+  onChange: (rowKey: string, size: string, value: number) => void;
+}) {
+  const display = value ? String(value) : "";
+  const [buf, setBuf] = React.useState(display);
+  // Re-sync the buffer when the parent value changes from the outside, but not
+  // while the buffer already parses to the same number (avoid clobbering an
+  // in-progress "-" or "007"-style entry that resolves to the same value).
+  React.useEffect(() => {
+    if (toInt(buf, allowNegative) !== value) setBuf(value ? String(value) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const re = allowNegative ? /^-?\d*$/ : /^\d*$/;
+
+  return (
+    <input
+      type="text"
+      inputMode={allowNegative ? "text" : "numeric"}
+      value={buf}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (!re.test(next)) return; // reject invalid keystrokes
+        setBuf(next);
+        onChange(rowKey, size, toInt(next, allowNegative));
+      }}
+      onBlur={() => { setBuf(value ? String(value) : ""); }}
+      placeholder="0"
+      aria-label={`Qty ${color || ""} ${size}`}
+      style={{ ...cellInput, color: value ? C.text : C.emptyCell }}
+    />
+  );
 }
 
 export function EditableSizeMatrix({
   rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, unit,
+  allowNegative = false,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
 
@@ -137,14 +197,13 @@ export function EditableSizeMatrix({
                       {oh != null && (
                         <div style={{ fontSize: 9, color: C.textMuted, lineHeight: 1, marginBottom: 2 }} title="on-hand">{oh}</div>
                       )}
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={qty[k] ? String(qty[k]) : ""}
-                        onChange={(e) => onQtyChange(row.key, sz, toInt(e.target.value))}
-                        placeholder="0"
-                        aria-label={`Qty ${row.color || ""} ${sz}`}
-                        style={{ ...cellInput, color: qty[k] ? C.text : C.emptyCell }}
+                      <QtyCell
+                        rowKey={row.key}
+                        size={sz}
+                        color={row.color}
+                        value={qty[k] || 0}
+                        allowNegative={allowNegative}
+                        onChange={onQtyChange}
                       />
                     </td>
                   );

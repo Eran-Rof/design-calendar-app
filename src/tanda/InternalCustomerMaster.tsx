@@ -24,6 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -373,7 +374,7 @@ export default function InternalCustomerMaster() {
                   style={r.deleted_at ? { opacity: 0.4 } : undefined}
                 >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>
-                    {r.code || r.customer_code || "—"}
+                    {displayCustomerCode(r.code || r.customer_code) || "—"}
                   </td>
                   <td style={td} hidden={!isVisible("name")}>{r.name}</td>
                   <td style={td} hidden={!isVisible("customer_type")}>{r.customer_type}</td>
@@ -586,7 +587,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   const paymentTermsOptions: SearchableSelectOption[] = useMemo(() => {
     const active = paymentTerms.filter((t) => t.is_active || t.id === form.payment_terms_id);
     return [
-      { value: "", label: "(none — inherit / no default)" },
+      { value: "", label: "(select)" },
       ...active.map((t) => ({
         value: t.id,
         label: `${t.code} — ${t.name} (${t.due_days}d)`,
@@ -729,7 +730,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             <div style={readonlyCodeStyle}>
               {mode === "add"
                 ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
-                : (customer?.code || "—")}
+                : (displayCustomerCode(customer?.code) || "—")}
             </div>
           </Field>
           <Field label="Customer type">
