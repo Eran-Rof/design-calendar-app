@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -182,7 +183,7 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 20 }}>
-              {data?.header.customer_name || "Customer"} {data?.header.customer_code ? <span style={{ color: C.textMuted, fontSize: 14 }}>({data.header.customer_code})</span> : null}
+              {data?.header.customer_name || "Customer"} {data?.header.customer_code ? <span style={{ color: C.textMuted, fontSize: 14 }}>({displayCustomerCode(data.header.customer_code)})</span> : null}
             </h2>
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
               {[data?.header.sales_rep_1, data?.header.sales_rep_2].filter(Boolean).length > 0 ? (
