@@ -322,6 +322,11 @@ import h553 from "./internal/style-classifications/index.js";
 import h554 from "./internal/style-classifications/[id].js";
 import h555 from "./internal/factors/index.js";
 import h556 from "./internal/factors/[id].js";
+// P18-F — internal B2B admin (authorize buyers + manage wholesale price lists).
+import h558 from "./internal/b2b-accounts/index.js";
+import h559 from "./internal/b2b-accounts/[id].js";
+import h560 from "./internal/b2b-price-list/index.js";
+import h561 from "./internal/b2b-price-list/[id].js";
 // P4-4 — AR Invoices admin (h304..h307).
 import h304 from "./internal/ar-invoices/index.js";
 import h305 from "./internal/ar-invoices/[id].js";
@@ -981,6 +986,11 @@ export const ROUTES = [
   { pattern: "/api/internal/style-classifications", handler: h553 },
   { pattern: "/api/internal/factors/:id", handler: h556 },
   { pattern: "/api/internal/factors", handler: h555 },
+  // P18-F internal B2B admin — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/b2b-accounts/:id", handler: h559 },
+  { pattern: "/api/internal/b2b-accounts", handler: h558 },
+  { pattern: "/api/internal/b2b-price-list/:id", handler: h561 },
+  { pattern: "/api/internal/b2b-price-list", handler: h560 },
   // Cycle Counts (P3-6) — subpaths BEFORE /:id (first-match-wins)
   { pattern: "/api/internal/inventory-cycle-counts/:id/finalize", handler: h301 },
   { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: h300 },
