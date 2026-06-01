@@ -145,3 +145,33 @@ export function collapseAgingByBucket(rows, partyCol) {
   }
   return [...out.values()];
 }
+
+/**
+ * P15 stock-pool — resolve the inventory_partition a receipt should land in.
+ *
+ * Given a brand and a side ("WS" wholesale | "EC" ecom), return the matching
+ * pool's id. PT (and wholesale-only brands like MPL Epic / Sun & Stone) have a
+ * single pool, so the side is ignored and that one pool is returned. Falls back
+ * to the brand's WS pool, then to any pool for the brand. Returns null when the
+ * brand has no pool configured (caller leaves the layer unpartitioned).
+ *
+ * @param {Object} admin  service-role client
+ * @param {string} brandId
+ * @param {"WS"|"EC"} [side="WS"]
+ * @returns {Promise<string|null>} inventory_partition.id or null
+ */
+export async function resolveReceivingPartition(admin, brandId, side = "WS") {
+  if (!brandId) return null;
+  const { data } = await admin
+    .from("inventory_partition")
+    .select("id, code")
+    .eq("brand_id", brandId);
+  const pools = data || [];
+  if (pools.length === 0) return null;
+  if (pools.length === 1) return pools[0].id; // PT / wholesale-only — single pool
+  const want = side === "EC" ? "-EC" : "-WS";
+  const hit = pools.find((p) => (p.code || "").toUpperCase().endsWith(want));
+  if (hit) return hit.id;
+  const ws = pools.find((p) => (p.code || "").toUpperCase().endsWith("-WS"));
+  return (ws || pools[0]).id;
+}

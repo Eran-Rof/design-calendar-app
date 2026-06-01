@@ -279,6 +279,7 @@ export async function postEvent(supabase, event) {
           source_kind: sourceKind,
           source_invoice_id: pending.source_invoice_id || null,
           source_adjustment_id: pending.source_adjustment_id || null,
+          partition_id: pending.partition_id || null, // P15 brand stock pool
           received_at: pending.received_at || null,
           notes: pending.notes || null,
           created_by_user_id: event.created_by_user_id ?? null,

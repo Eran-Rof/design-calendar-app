@@ -25,6 +25,7 @@ import { requestIfRequired, ApprovalsError } from "../../../_lib/approvals/index
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { expandApExpenseLines } from "../../../_lib/glAllocation.js";
+import { resolveReceivingPartition } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 30 };
 
@@ -111,12 +112,24 @@ async function buildPostingEventData(admin, entityId, invoice, lines) {
   // line, so the bill stays balanced.
   const expandedLines = await expandApExpenseLines(admin, ruleLines);
 
+  // P15 stock-pool: resolve which brand pool received inventory lands in, from
+  // the invoice's brand + chosen receiving side (WS/EC). Stamped on each FIFO
+  // layer the apInvoiceReceived rule queues. Null when no inventory lines or no
+  // pool configured for the brand (layer stays unpartitioned).
+  let receivingPartitionId = null;
+  if (hasInventoryLine && invoice.brand_id) {
+    receivingPartitionId = await resolveReceivingPartition(
+      admin, invoice.brand_id, invoice.receiving_channel === "EC" ? "EC" : "WS",
+    );
+  }
+
   return {
     invoice_id: invoice.id,
     vendor_id: invoice.vendor_id,
     invoice_number: invoice.invoice_number,
     invoice_date: invoice.posting_date,
     ap_account_id: apAccountId,
+    receiving_partition_id: receivingPartitionId,
     lines: expandedLines,
   };
 }

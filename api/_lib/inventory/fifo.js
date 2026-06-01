@@ -121,6 +121,7 @@ export async function createLayer(supabase, args) {
   assertUuid("source_invoice_id", args.source_invoice_id, { optional: true });
   assertUuid("source_adjustment_id", args.source_adjustment_id, { optional: true });
   assertUuid("created_by_user_id", args.created_by_user_id, { optional: true });
+  assertUuid("partition_id", args.partition_id, { optional: true }); // P15 brand stock pool
 
   const row = {
     entity_id: args.entity_id,
@@ -135,6 +136,7 @@ export async function createLayer(supabase, args) {
     source_kind: args.source_kind,
     source_invoice_id: args.source_invoice_id || null,
     source_adjustment_id: args.source_adjustment_id || null,
+    partition_id: args.partition_id || null,
     notes: args.notes || null,
     created_by_user_id: args.created_by_user_id || null,
   };

@@ -108,7 +108,7 @@ export default async function handler(req, res) {
       .select(
         "id, entity_id, vendor_id, invoice_number, invoice_kind, gl_status, " +
         "posting_date, due_date, description, expense_account_id, ap_account_id, " +
-        "accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
+        "receiving_channel, accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
         "source, created_at, updated_at"
       )
       .eq("entity_id", entityId)
@@ -165,6 +165,7 @@ export default async function handler(req, res) {
       description: v.data.description,
       expense_account_id: v.data.expense_account_id,
       ap_account_id,
+      receiving_channel: v.data.receiving_channel,
     };
 
     const { data: header, error: hErr } = await admin
@@ -325,6 +326,7 @@ export function validateInsert(body) {
       description: body.description ? String(body.description).trim() : null,
       expense_account_id: body.expense_account_id || null,
       ap_account_id: body.ap_account_id || null,
+      receiving_channel: body.receiving_channel === "EC" ? "EC" : (body.receiving_channel === "WS" ? "WS" : null),
       lines: normalizedLines,
     },
   };

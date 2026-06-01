@@ -199,6 +199,12 @@ export function validatePatch(body) {
   if ("description" in body) {
     header.description = body.description ? String(body.description).trim() : null;
   }
+  if ("receiving_channel" in body) {
+    if (body.receiving_channel != null && body.receiving_channel !== "WS" && body.receiving_channel !== "EC") {
+      return { error: "receiving_channel must be WS or EC" };
+    }
+    header.receiving_channel = body.receiving_channel || null;
+  }
   if ("expense_account_id" in body) {
     if (body.expense_account_id && !UUID_RE.test(body.expense_account_id)) {
       return { error: "expense_account_id must be a uuid" };
