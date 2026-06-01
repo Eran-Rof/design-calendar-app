@@ -339,11 +339,11 @@ export default function InternalVendorMaster() {
                   <td style={{ ...td, textAlign: "right" }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
-                      style={btnSecondary}
-                      title="Open scorecard"
+                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
+                      title="Open vendor scorecard (lead time, on-time %, purchases, invoices, POs)"
                       aria-label={`Open scorecard for ${r.name}`}
                     >
-                      📊
+                      📊 Scorecard
                     </button>
                     {!r.deleted_at && (
                       <>
