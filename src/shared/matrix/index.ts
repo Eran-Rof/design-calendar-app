@@ -3,6 +3,8 @@
 // Barrel exports for the Matrix React primitive (Tangerine P1 §5.4).
 
 export { MatrixGrid } from "./MatrixGrid";
+export { EditableSizeMatrix, matrixCellKey } from "./EditableSizeMatrix";
+export type { EditableSizeMatrixProps, EditableMatrixRow } from "./EditableSizeMatrix";
 export { MatrixCell } from "./MatrixCell";
 export { MatrixHeader } from "./MatrixHeader";
 export { MatrixPivotControl } from "./MatrixPivotControl";
