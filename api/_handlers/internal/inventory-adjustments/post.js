@@ -20,6 +20,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { postEvent } from "../../../_lib/accounting/posting/index.js";
+import { resolveReceivingPartition } from "../../../_lib/brandContext.js";
 import { requestIfRequired as approvalsRequestIfRequired } from "../../../_lib/approvals/index.js";
 import { enqueue as notificationsEnqueue } from "../../../_lib/notifications/index.js";
 
@@ -156,6 +157,16 @@ export default async function handler(req, res) {
     console.error("[inventory-adjustments/post] approvalsRequestIfRequired error:", err);
   }
 
+  // P15: a positive (found/correction-up) adjustment creates a FIFO layer — land
+  // it in the brand pool chosen on the adjustment (brand + WS/EC). No-op for
+  // negative adjustments (those consume) or when the brand has no pool.
+  let receivingPartitionId = null;
+  if (adj.qty_delta > 0 && adj.brand_id) {
+    receivingPartitionId = await resolveReceivingPartition(
+      admin, adj.brand_id, adj.receiving_channel === "EC" ? "EC" : "WS",
+    );
+  }
+
   // 4. Invoke postEvent
   let postResult;
   try {
@@ -171,6 +182,7 @@ export default async function handler(req, res) {
         unit_cost_cents: adj.unit_cost_cents,
         inventory_account_id: inventoryAccount.id,
         gl_account_id: adj.gl_account_id,
+        receiving_partition_id: receivingPartitionId,
         posting_date: new Date().toISOString().slice(0, 10), // today (operator override TBD)
         reason: adj.reason,
       },

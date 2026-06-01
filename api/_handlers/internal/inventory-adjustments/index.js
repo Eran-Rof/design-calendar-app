@@ -141,6 +141,9 @@ export function validateInsert(body) {
     }
   }
 
+  const receiving_channel = body.receiving_channel === "EC" ? "EC"
+    : (body.receiving_channel === "WS" ? "WS" : null);
+
   return {
     data: {
       item_id: String(body.item_id),
@@ -149,6 +152,7 @@ export function validateInsert(body) {
       unit_cost_cents: unitCost,
       reason: String(body.reason).trim(),
       gl_account_id: String(body.gl_account_id),
+      receiving_channel,
     },
   };
 }
