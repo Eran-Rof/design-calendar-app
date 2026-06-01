@@ -36,6 +36,7 @@ import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
+import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
@@ -161,6 +162,7 @@ type ModuleKey =
   | "employee_departments"
   | "inventory_on_hand"
   | "inventory_matrix"
+  | "purchase_orders"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -298,6 +300,8 @@ const MODULES: ModuleDef[] = [
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
+  // P16/M11 — native Purchase Orders (origination + matrix line entry).
+  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Inventory" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
@@ -557,6 +561,7 @@ export default function Tangerine() {
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
+        {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
