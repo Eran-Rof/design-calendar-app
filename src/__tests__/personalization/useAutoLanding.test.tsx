@@ -128,12 +128,14 @@ describe("useAutoLanding", () => {
       expect(screen.getByTestId("redirecting").textContent).toBe("1");
     });
 
-    expect(screen.getByTestId("target").textContent).toBe("/tanda?view=journal_entries");
+    // Journal Entries is a Tangerine module — its registry route points at the
+    // Tangerine shell (/tangerine?m=…), not the TandA (/tanda?view=…) shell.
+    expect(screen.getByTestId("target").textContent).toBe("/tangerine?m=journal_entries");
     expect(screen.getByTestId("label").textContent).toBe("Journal Entries");
 
     // Wait for the 0ms setTimeout to fire (defers navigate so toast can paint).
     await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
-    expect(navigate).toHaveBeenCalledWith("/tanda?view=journal_entries");
+    expect(navigate).toHaveBeenCalledWith("/tangerine?m=journal_entries");
   });
 
   it("sets sentinel BEFORE navigating", async () => {
@@ -280,7 +282,7 @@ describe("useAutoLanding", () => {
     await waitFor(() => {
       expect(screen.getByTestId("redirecting").textContent).toBe("1");
     });
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/tanda?view=journal_entries"));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/tangerine?m=journal_entries"));
   });
 
   it("bails when homeRoute is null (and sets sentinel)", async () => {
@@ -346,8 +348,10 @@ describe("useAutoLanding", () => {
   });
 
   it("does not redirect to the same route the operator is already on", async () => {
-    // home_route resolves to /tanda?view=journal_entries; operator is already there.
-    // (deep-link path with view=, so the "not at root" guard catches it first.)
+    // home_route resolves to /tangerine?m=journal_entries; operator is already
+    // there. /tangerine is a root-shell prefix (no view= param) so step 3 lets
+    // it through — the step-7 same-route guard is what catches it: matching
+    // pathname + no view= on either side → bail without navigating.
     stubPreferencesFetch("tanda/accounting/journal-entries");
     const navigate = vi.fn();
     const { storage } = makeStorage();
@@ -356,7 +360,7 @@ describe("useAutoLanding", () => {
       <Harness
         navigate={navigate}
         storage={storage}
-        location={{ pathname: "/tanda", search: "?view=journal_entries" }}
+        location={{ pathname: "/tangerine", search: "?m=journal_entries" }}
       />
     );
 

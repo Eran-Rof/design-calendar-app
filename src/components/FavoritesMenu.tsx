@@ -38,12 +38,15 @@ import { usePersonalization } from "../hooks/usePersonalization";
 import { MENU_KEY_BY_KEY, MENU_KEYS } from "../lib/menuKeys";
 
 // Tangerine module key (?m=<key>, e.g. "journal_entries") → menu_key. Tangerine
-// menu entries are the app:"tanda" rows whose route is /tanda?view=<moduleKey>.
+// menu entries are the app:"tanda" rows whose route is /tangerine?m=<moduleKey>
+// (the Tangerine shell selects its active module from ?m=, NOT ?view= — that
+// belongs to the separate TandA / PO-WIP shell at /tanda). We derive the map
+// from the registry's route field so it can't drift from menuKeys.ts.
 const TANGERINE_MODULE_TO_MENU_KEY: Record<string, string> = (() => {
   const m: Record<string, string> = {};
   for (const e of MENU_KEYS) {
     if (e.app !== "tanda") continue;
-    const match = (e.route || "").match(/[?&]view=([^&]+)/);
+    const match = (e.route || "").match(/[?&]m=([^&]+)/);
     if (match) m[match[1]] = e.key;
   }
   return m;

@@ -964,10 +964,15 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                     </div>
                   )}
                   {/* Right pane: the shown sub-group's modules.
-                      Rendered as <a href="?m=<key>"> so right-click → "Open in
-                      new tab" / cmd-click / ctrl-click / middle-click all work
-                      natively. Plain left-click is intercepted: we call
-                      goToModule() and preventDefault() to stay in-app. */}
+                      Item 12 — every nav item opens its module in a NEW browser
+                      tab (real <a href="?m=<key>" target="_blank">). The current
+                      tab is left untouched so an in-progress modal (the Internal*
+                      panels render full-screen fixed overlays) is never lost when
+                      the operator reaches for another module. cmd/ctrl/shift/
+                      middle-click already open a new tab natively; making the
+                      plain left-click do the same keeps the behaviour uniform.
+                      We only close the dropdown on click — we do NOT
+                      preventDefault, so the anchor navigates the new tab. */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 224 }}>
                     {shown.modules.map((m) => {
                       const active = activeModule === m.key;
@@ -976,13 +981,16 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                         <a
                           key={m.key}
                           href={`?m=${m.key}`}
+                          target="_blank"
+                          rel="noopener"
                           role="menuitem"
-                          onClick={(e) => {
-                            // Let modified clicks (cmd/ctrl/shift/middle) pass
-                            // through so the browser opens a new tab naturally.
-                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
-                            e.preventDefault();
-                            handleSelect(m.key);
+                          onClick={() => {
+                            // Open in a new tab (target=_blank handles the
+                            // navigation). Just tidy up the dropdown in THIS
+                            // tab so the operator's open modal stays put.
+                            cancelClose();
+                            setOpenGroup(null);
+                            setHoveredKey(null);
                           }}
                           onMouseEnter={() => setHoveredKey(m.key)}
                           onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
