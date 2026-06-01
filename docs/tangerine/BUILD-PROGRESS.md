@@ -2,15 +2,17 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7).
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-01
 
 ## Summary
 
 | Metric | Done | Total | % |
 |---|---|---|---|
-| **Phases (P1–P25)** | 12 + P13 partial | 25 | **~50%** |
-| **Modules (M1–M49)** | ~25 + 4 partial | 49 | **~51%** |
-| **Path to Xoro retirement (P1–P23)** | through P12, P13 in flight | 23 | **~55%** |
+| **Phases / slots (P1–P25)** | 12 + P14-slot (RBAC) + P15-slot (Brand Master) ✅, P13 partial | 25 | **~57%** |
+| **Modules (M1–M49 + ➕M50)** | ~25 + ➕M50 GL Allocation, 4 partial | 49 (+ins) | **~53%** |
+| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15-slot insertions, P13 in flight | 23 | **~58%** |
+
+> Note: the **P14/P15 slots** hold operator insertions (RBAC, Brand Master) rather than the original roadmap scope (PLM-ext, Pricing — deferred). The brand / allocation / partition work is **built but GATED** (`BRAND_SCOPE_MODE` off) — counts as shipped code, not yet *enforced* in prod.
 
 > **Two important caveats when reading the %:**
 > 1. **The done half is the hard half** — full dual-basis (accrual+cash) accounting, FIFO inventory, 5-yr AR backfill, close/financials, bank recon, and all three revenue integrations. Remaining phases are more numerous but individually lighter.
@@ -60,7 +62,7 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 |---|---|---|
 | ➕ **P14 RBAC** (per-module × per-action permissions, `RBAC_MODE` off→log→enforce) | ✅ | #630 #632 #634 #645 #646 #647 |
 | ➕ **JWT identity bridge** (MS-OAuth → verifiable per-user token) | ✅ (live; `TANGERINE_JWT_SECRET` set) | #648 #652 |
-| ➕ **P15 Brand Master** (brand + channel axes, inventory partitions) | 🟡 C1 data + C2 switchers + C3a list filtering + C3b AR/AP aging brand-aware + C4 Income-Statement brand filtering (via M50 D) done; remaining: stock-pool (inventory-partition) separation | #650–#664 #675 |
+| ➕ **P15 Brand Master** (brand + channel axes, inventory partitions) | ✅ **COMPLETE** — C1 dims + C2 switchers + C3 AR/AP aging + C4/M50 GL allocation + stock-pool fully done: receipt assignment (#681), On-Hand-by-Pool report (#685), adjustment pool (#689), partition-aware FIFO consumption (#692). **Axel entity** (Syndicated Apparel Group + Axel brand + cost mapping) #686. Entity provisioning clones ROF COA on create. ALL gated `BRAND_SCOPE_MODE` off → inert until operator go-live config (see OPERATOR-TODO checklist). | #650–#664 #675 #681 #685 #686 #689 #692 |
 | ➕ **M50 GL Brand Allocation** (per-brand P&L accounts + %-allocation engine) | ✅ arch + A schema + B (COA UI) + C-engine (manual-JE split) + C-2 (AP-invoice split) + **D Income-Statement done** (handler enriches rows w/ brand meta + brand list; UI groups brand-children under rollup parent w/ subtotal, per-brand filter dropdown, hide-account-# toggle, brand-aware export). All gated `BRAND_SCOPE_MODE=enforce` — inert until brands configured + flag flipped. | #665 #666 #669 #670 #671 #674 #675 |
 | ➕ **M51 Payroll Integration (Paycor)** | ⬜ arch (`payroll-paycor-integration-architecture.md`); **integrate, don't build** — Paycor = system-of-record (calc/withholding/e-filing/deposits/W-2); Tangerine posts the run to GL (dual-basis, `source='paycor'`) + reconciles bank draw + optional M50 labor allocation. ~2 chunks. Blocked on Paycor GL-export-vs-API access + pay-code→GL mapping. | #667 |
 | ➕ **M52 Multi-Warehouse** | ⬜ planned (CEO 2026-05-31). Foundation exists: `inventory_locations` table (kinds: warehouse/fba/wfs/3pl/dropship/virtual) + `inventory_transfers`. Gaps: (1) **admin panel** to add/edit warehouses, (2) **per-location stock** — FIFO `inventory_layers` aren't location-scoped (the "advanced multi-warehouse" stretch: per-location on-hand + transfers moving qty). ~2–3 chunks when pulled in. | — |
