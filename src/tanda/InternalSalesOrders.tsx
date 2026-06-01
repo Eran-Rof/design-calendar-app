@@ -9,8 +9,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
-import { notify, confirmDialog } from "../shared/ui/warn";
-import { getCachedAuthUserId } from "../utils/internalApiAuth";
+import { notify } from "../shared/ui/warn";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -220,8 +219,6 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
         payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: apiLines(),
       };
-      const actor = getCachedAuthUserId();
-      if (actor) body.created_by_user_id = actor;
 
       let soId = so?.id || null;
       if (isNew) {
