@@ -766,6 +766,7 @@ function MatrixAdjustmentModal({
             inseam: ins,
             length: null,
             fit: null,
+            rise: null,
           });
         }
       }

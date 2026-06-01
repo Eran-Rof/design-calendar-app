@@ -409,7 +409,7 @@ function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory
     const colors = payload.colors.length ? payload.colors : [null];
     return colors.flatMap((color) => payload.sizes.map((size) => {
       const key = `${color ?? ""}|${size}`;
-      return { id: key, color: color, size, inseam: null, length: null, fit: null, value: qtys[key] ?? 0 };
+      return { id: key, color: color, size, inseam: null, length: null, fit: null, rise: null, value: qtys[key] ?? 0 };
     }));
   }, [payload, qtys]);
 

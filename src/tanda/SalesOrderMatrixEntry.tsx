@@ -104,6 +104,7 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
             inseam: inseam ?? null,
             length: null,
             fit: null,
+            rise: null,
             value: qtyMap[key] ?? 0,
           });
         }
