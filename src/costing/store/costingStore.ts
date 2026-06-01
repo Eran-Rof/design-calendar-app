@@ -8,6 +8,7 @@ import { create } from "zustand";
 import * as api from "../services/costingApi";
 import { fetchLyComp, fetchT3Comp } from "../services/compService";
 import { sbLoad as sbLoadSvc, sbSave as sbSaveSvc } from "../../store/supabaseService";
+import { notify } from "../../shared/ui/warn";
 import type {
   CostingProject,
   CostingLine,
@@ -52,8 +53,10 @@ type State = {
   // Null = no filter (show all lines). Stage names are derived in usePlanFlow.
   stageFilter: string | null;
   setStageFilter: (stage: string | null) => void;
-  // In-app toast notice (replaces window.alert across the costing UI; same
-  // visual language as App.tsx's saveErr toast).
+  // In-app toast notice. Now routed through the canonical Tangerine warn
+  // surface (src/shared/ui/warn → notify) so every costing toast matches the
+  // ATS / PO-WIP layout + app colors. `notice`/`clearNotice` are kept as inert
+  // shims for backward compatibility; the toast itself renders via <WarnHost/>.
   notice: { message: string; level: "error" | "info" } | null;
   setNotice: (message: string, level?: "error" | "info") => void;
   clearNotice: () => void;
@@ -142,8 +145,10 @@ export const useCostingStore = create<State>((set, get) => ({
   stageFilter: null,
   setStageFilter(stage) { set({ stageFilter: stage }); },
   notice: null,
-  setNotice(message, level = "error") { set({ notice: { message, level } }); },
-  clearNotice() { set({ notice: null }); },
+  // Route through the canonical warn surface so the toast matches ATS / PO-WIP.
+  // `level` ("error" | "info") maps 1:1 onto notify()'s ToastKind.
+  setNotice(message, level = "error") { notify(message, level); },
+  clearNotice() { /* no-op: WarnHost owns toast dismissal/auto-hide */ },
   loading: false,
   error: null,
 
