@@ -20,8 +20,19 @@
 | Switch | Effect | Pre-req |
 |---|---|---|
 | `RBAC_MODE` = `log` → `enforce` (Vercel) | Turns on per-user permission enforcement | First configure roles in 🔐 User Access; run `log` a few days to watch telemetry, then `enforce`. |
-| `BRAND_SCOPE_MODE` = `enforce` (Vercel) | Turns on brand/channel filtering on lists + AR/AP aging (C3) | Verify a brand-filtered report sums back to "All" before relying on it. |
+| `BRAND_SCOPE_MODE` = `log` → `enforce` (Vercel) | Activates ALL brand behavior, currently inert: brand/channel report filtering (C3), **M50 GL allocation auto-splitting** of postings into brand sub-accounts, and **P15 inventory pool separation** (FIFO draws from the brand pool). | **Sizable go-live — do the prereqs first (see the dedicated checklist below).** Run `log` first to watch telemetry, then `enforce`. Verify a brand-filtered report sums back to "All". |
 | Xoro cutover gates (P9) | Retire Xoro per area | 2 consecutive months reconciling within tolerance; first gate (Cash) ~2026-07-28. |
+
+### 🟠 Brand-scope enforcement — go-live checklist (`BRAND_SCOPE_MODE=enforce`)
+
+Everything below is **built and inert today**; flipping the flag turns it on. Do these in order:
+
+1. **Configure brand allocations** on the P&L accounts that should split by brand (COA → account edit → Brand Allocation). Parent accounts with >1 brand auto-generate `{code}-{BRAND}` children.
+2. **Assign brands to items / styles** (Style Master / item master `brand_id`) — today everything is tagged ROF by default, so all stock/sales would map to ROF pools until real brands are set.
+3. **Decide existing on-hand handling** — currently forward-only (legacy stock is "(unpartitioned)"). If you want historical stock attributed to brand pools, do a one-time backfill (e.g. from a Xoro store export) — otherwise leave it.
+4. **Build partition-aware FIFO consumption** (the one remaining P15 dev task — agent, ~1 chunk): make a sale draw from its (brand, channel) pool. Deliberately deferred until now so it can be tested against real partitioned stock. *Not an operator task — flag the agent to build it before enforcing.*
+5. **Set `BRAND_SCOPE_MODE=log`** on Vercel; watch the silent-log telemetry for a few days; spot-check that a brand-filtered Income Statement / AR aging foots to the "All brands" total.
+6. **Flip to `enforce`.** From then on: manual JE + AP postings auto-split by allocation %, reports filter by the brand switcher, and inventory separates by pool.
 
 ## ✅ Done
 
