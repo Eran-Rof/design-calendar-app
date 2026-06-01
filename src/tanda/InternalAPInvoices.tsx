@@ -367,7 +367,7 @@ export default function InternalAPInvoices() {
             { key: "due_date",           header: "Due",     format: "date" },
             { key: "vendor",             header: "Vendor" },
             { key: "invoice_number",     header: "Invoice #" },
-            { key: "invoice_kind",       header: "Kind" },
+            { key: "invoice_kind",       header: "Type" },
             { key: "gl_status",          header: "Status" },
             { key: "source",             header: "Source" },
             { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
@@ -781,11 +781,11 @@ function APInvoiceModal({
               <Field label="Invoice number">
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
-              <Field label="Kind">
+              <Field label="Type">
                 <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="vendor_bill">vendor_bill</option>
-                  <option value="vendor_credit_memo">vendor_credit_memo</option>
-                  <option value="expense_report">expense_report</option>
+                  <option value="vendor_bill">Invoice</option>
+                  <option value="vendor_credit_memo">Credit</option>
+                  <option value="expense_report">Expense report</option>
                 </select>
               </Field>
             </div>
