@@ -855,7 +855,7 @@ function ARInvoiceModal({
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <Field label="Revenue (default)">
+              <Field label="Revenue / offset acct (default)">
                 <SearchableSelect
                   value={revenueAccountId || null}
                   onChange={(v) => setRevenueAccountId(v)}
@@ -914,7 +914,7 @@ function ARInvoiceModal({
                     <th style={{ ...th, width: 70 }}>Qty</th>
                     <th style={{ ...th, width: 100 }}>Unit $</th>
                     <th style={{ ...th, width: 110 }}>Or total $</th>
-                    <th style={th}>Revenue acct</th>
+                    <th style={th} title="Revenue account, OR an expense account to offset (e.g. rebilling a vendor for a personal portion of a bill)">Revenue / offset acct</th>
                     <th style={{ ...th, width: 36 }}></th>
                   </tr>
                 </thead>

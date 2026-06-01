@@ -146,15 +146,31 @@ export function apInvoiceReceived(event) {
     ];
   }
 
+  // Vendor credit memo (#3B): reverse every line — the expense lines now CREDIT
+  // (offsetting the expense) and the AP control line DEBITs (reducing the payable
+  // / recording a vendor receivable). A non-inventory credit (e.g. recovering a
+  // personal portion of an expense) just flips DR/CR. Inventory credit memos
+  // (returns to vendor) would need a FIFO consume, not a layer — so we DROP the
+  // queued layers here and leave inventory returns to a dedicated path.
+  const isCredit = d.invoice_kind === "vendor_credit_memo";
+  if (isCredit) {
+    for (const ln of drLines) {
+      const d0 = ln.debit, c0 = ln.credit;
+      ln.debit = c0;
+      ln.credit = d0;
+    }
+    inventoryLayers.length = 0;
+  }
+
   const accrual = {
     entity_id: event.entity_id,
     basis: "ACCRUAL",
-    journal_type: "ap_invoice",
+    journal_type: isCredit ? "ap_credit_memo" : "ap_invoice",
     posting_date: d.invoice_date,
     source_module: "ap",
     source_table: "invoices",
     source_id: d.invoice_id,
-    description: desc,
+    description: isCredit ? `AP credit memo ${d.invoice_number}` : desc,
     created_by_user_id: event.created_by_user_id ?? null,
     lines: drLines,
   };

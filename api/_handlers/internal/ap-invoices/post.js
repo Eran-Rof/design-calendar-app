@@ -128,6 +128,7 @@ async function buildPostingEventData(admin, entityId, invoice, lines) {
     vendor_id: invoice.vendor_id,
     invoice_number: invoice.invoice_number,
     invoice_date: invoice.posting_date,
+    invoice_kind: invoice.invoice_kind, // #3B — vendor_credit_memo reverses DR/CR
     ap_account_id: apAccountId,
     receiving_partition_id: receivingPartitionId,
     lines: expandedLines,
