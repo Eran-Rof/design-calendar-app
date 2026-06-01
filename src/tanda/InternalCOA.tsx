@@ -327,6 +327,8 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // M50 — brand allocation drafted during CREATE (no id yet); PUT after create.
+  const [draftAlloc, setDraftAlloc] = useState<AllocationRow[]>([]);
 
   function onTypeChange(t: string) {
     setForm((f) => ({ ...f, account_type: t, normal_balance: TYPE_TO_NORMAL[t] || f.normal_balance }));
@@ -335,6 +337,16 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
   async function submit() {
     setSubmitting(true);
     setErr(null);
+    // If brands were drafted on a NEW account, they must total 100% (mirrors the
+    // editor's own gate) — else block create with a clear message.
+    if (mode === "add" && draftAlloc.length > 0) {
+      const t = draftAlloc.reduce((s, a) => s + (Number(a.pct) || 0), 0);
+      if (Math.abs(t - 100) > 0.01) {
+        setErr("Brand allocation must total 100% (or deselect all brands).");
+        setSubmitting(false);
+        return;
+      }
+    }
     try {
       let url: string;
       let method: string;
@@ -374,6 +386,17 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
         body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      // On create, persist any drafted brand allocation against the new id.
+      if (mode === "add" && draftAlloc.length > 0) {
+        const created = await r.json().catch(() => null);
+        const newId = created?.id;
+        if (newId) {
+          const ar = await fetch(`/api/internal/gl-accounts/${newId}/brand-allocation`, {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ allocations: draftAlloc }),
+          });
+          if (!ar.ok) throw new Error(`Account created, but saving the brand allocation failed: ${(await ar.json().catch(() => ({}))).error || `HTTP ${ar.status}`}`);
+        }
+      }
       onSaved();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -481,9 +504,12 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
           </button>
         </div>
 
-        {/* M50 — brand allocation (P&L accounts only; needs a saved account). */}
-        {mode === "edit" && account && ["revenue", "expense", "contra_revenue"].includes(form.account_type) && (
-          <BrandAllocationEditor accountId={account.id} />
+        {/* M50 — brand allocation (P&L accounts only). Editable on create (drafted,
+            saved with the account) and on edit (saved via its own button). */}
+        {["revenue", "expense", "contra_revenue"].includes(form.account_type) && (
+          mode === "edit" && account
+            ? <BrandAllocationEditor accountId={account.id} />
+            : <BrandAllocationEditor accountId={null} onDraftChange={setDraftAlloc} />
         )}
 
         {/* Cross-cutter T11-3 — audit trail timeline */}
@@ -508,7 +534,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // Pick the brand(s) this account serves; >1 opens a % split (must total 100,
 // even-split helper, one default). Save → PUT …/brand-allocation, which (server
 // side) replaces the rule + generates/retires `{code}-{BRAND}` child accounts.
-function BrandAllocationEditor({ accountId }: { accountId: string }) {
+type AllocationRow = { brand_id: string; pct: number; is_default: boolean };
+function BrandAllocationEditor(
+  { accountId, onDraftChange }:
+  { accountId: string | null; onDraftChange?: (allocations: AllocationRow[]) => void },
+) {
   const [brands, setBrands] = useState<{ id: string; code: string; name: string }[]>([]);
   const [sel, setSel] = useState<Record<string, number>>({}); // brand_id → pct (selected only)
   const [def, setDef] = useState<string | null>(null);
@@ -522,20 +552,30 @@ function BrandAllocationEditor({ accountId }: { accountId: string }) {
     (async () => {
       setLoading(true); setErr(null); setMsg(null);
       try {
-        const [br, al] = await Promise.all([
-          fetch("/api/internal/brands").then((r) => r.json()),
-          fetch(`/api/internal/gl-accounts/${accountId}/brand-allocation`).then((r) => r.json()),
-        ]);
+        // Always load the brand list; only fetch an existing rule when editing
+        // a saved account (a brand-new account has no allocation yet).
+        const br = await fetch("/api/internal/brands").then((r) => r.json());
         if (cancel) return;
         setBrands(Array.isArray(br.brands) ? br.brands : []);
-        const cur: Record<string, number> = {}; let d: string | null = null;
-        for (const a of (al.allocations || [])) { cur[a.brand_id] = Number(a.pct); if (a.is_default) d = a.brand_id; }
-        setSel(cur); setDef(d);
+        if (accountId) {
+          const al = await fetch(`/api/internal/gl-accounts/${accountId}/brand-allocation`).then((r) => r.json());
+          if (cancel) return;
+          const cur: Record<string, number> = {}; let d: string | null = null;
+          for (const a of (al.allocations || [])) { cur[a.brand_id] = Number(a.pct); if (a.is_default) d = a.brand_id; }
+          setSel(cur); setDef(d);
+        }
       } catch (e) { if (!cancel) setErr((e as Error).message); }
       finally { if (!cancel) setLoading(false); }
     })();
     return () => { cancel = true; };
   }, [accountId]);
+
+  // Draft mode (create): hand the current selection up so the parent can PUT it
+  // after the account is created and its id is known.
+  useEffect(() => {
+    if (accountId || !onDraftChange) return;
+    onDraftChange(Object.entries(sel).map(([brand_id, pct]) => ({ brand_id, pct: Number(pct), is_default: brand_id === def })));
+  }, [sel, def, accountId, onDraftChange]);
 
   const ids = Object.keys(sel);
   const total = ids.reduce((s, id) => s + (Number(sel[id]) || 0), 0);
@@ -593,7 +633,9 @@ function BrandAllocationEditor({ accountId }: { accountId: string }) {
                   <input
                     type="number" min={0} max={100} step="0.01" value={sel[b.id]}
                     onChange={(e) => setSel((p) => ({ ...p, [b.id]: Number(e.target.value) }))}
-                    style={{ ...inputStyle, width: 80, textAlign: "right" } as React.CSSProperties}
+                    // Left-aligned: a right-aligned number input's digits get
+                    // shoved left when the native spinner arrows appear on focus.
+                    style={{ ...inputStyle, width: 80, textAlign: "left" } as React.CSSProperties}
                   />
                   <span style={{ color: C.textMuted }}>%</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.textSub }} title="Default brand for this account">
@@ -611,9 +653,13 @@ function BrandAllocationEditor({ accountId }: { accountId: string }) {
           <span style={{ fontSize: 13, fontWeight: 600, color: totalOk ? C.success : C.danger }}>
             Total: {total.toFixed(2)}% {totalOk ? "✓" : "— must equal 100%"}
           </span>
-          <button onClick={() => void save()} disabled={saving || !totalOk} style={{ ...btnPrimary, marginLeft: "auto", opacity: saving || !totalOk ? 0.5 : 1 }} type="button">
-            {saving ? "Saving…" : "Save allocation"}
-          </button>
+          {accountId ? (
+            <button onClick={() => void save()} disabled={saving || !totalOk} style={{ ...btnPrimary, marginLeft: "auto", opacity: saving || !totalOk ? 0.5 : 1 }} type="button">
+              {saving ? "Saving…" : "Save allocation"}
+            </button>
+          ) : (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted }}>Saved with the account on Create</span>
+          )}
         </div>
       )}
       {ids.length === 0 && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>No brands selected — this account is not brand-split.</div>}

@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
+import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
@@ -533,6 +535,7 @@ function APInvoiceModal({
     { key: 1, kind: "expense", expense_account_id: "", inventory_item_id: "", quantity: "1", amount_dollars: "", unit_cost_dollars: "", description: "" },
   ]);
   const [loading, setLoading] = useState(!isNew);
+  const [stagedDocs, setStagedDocs] = useState<File[]>([]); // attached before save (new invoice)
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -683,6 +686,15 @@ function APInvoiceModal({
         });
       }
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+
+      // Upload any documents staged on a brand-new invoice now that it has an id.
+      if (isNew && stagedDocs.length > 0) {
+        const created = await r.json().catch(() => null);
+        if (created?.id) {
+          try { await uploadStagedDocs("invoices", created.id, stagedDocs); }
+          catch (upErr) { notify(`Invoice saved, but a document upload failed: ${upErr instanceof Error ? upErr.message : String(upErr)}`, "error"); }
+        }
+      }
 
       // Offer to write back the chosen accounts as this vendor's defaults when
       // they differ from what's on file (the "set as default for this vendor?"
@@ -913,6 +925,13 @@ function APInvoiceModal({
                   contextId={invoice.id}
                   kinds={["vendor_invoice_pdf", "receipt", "approval_correspondence", "other"]}
                 />
+              </div>
+            )}
+
+            {isNew && editable && (
+              <div style={{ marginTop: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Supporting documents</div>
+                <StagedDocsPicker files={stagedDocs} onChange={setStagedDocs} hint="attach the vendor invoice / receipt; uploaded when you save." />
               </div>
             )}
 
