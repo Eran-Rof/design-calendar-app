@@ -38,6 +38,8 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+// Chunk E — per-row drill-through scorecard (opened by the ℹ️ button).
+import CustomerScorecard from "./CustomerScorecard";
 
 type Customer = {
   id: string;
@@ -197,6 +199,8 @@ export default function InternalCustomerMaster() {
   const [typeFilter, setTypeFilter] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
+  // Chunk E — customer whose scorecard drawer is open (null = closed).
+  const [scorecardId, setScorecardId] = useState<string | null>(null);
 
   // Wave 5 — row-click opens the edit modal; soft-deleted rows are
   // non-interactive (matches the existing "Edit / Delete buttons hidden
@@ -344,7 +348,7 @@ export default function InternalCustomerMaster() {
                 <th style={th} hidden={!isVisible("status")}>Status</th>
                 <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("credit_limit")}>Credit Limit</th>
                 <th style={th} hidden={!isVisible("payment_terms")}>Payment Terms</th>
-                <th style={{ ...th, width: 140 }}></th>
+                <th style={{ ...th, width: 180 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -377,9 +381,17 @@ export default function InternalCustomerMaster() {
                     ) : "—"}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                      style={btnSecondary}
+                      title="Open scorecard"
+                      aria-label={`Open scorecard for ${r.name}`}
+                    >
+                      📊
+                    </button>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
                         <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                       </>
                     )}
@@ -407,6 +419,9 @@ export default function InternalCustomerMaster() {
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
+      )}
+      {scorecardId && (
+        <CustomerScorecard customerId={scorecardId} onClose={() => setScorecardId(null)} />
       )}
     </div>
   );

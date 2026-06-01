@@ -258,6 +258,8 @@ import h253 from "./internal/vendor-master/index.js";
 import h254 from "./internal/vendor-master/[id].js";
 import h255 from "./internal/customer-master/index.js";
 import h256 from "./internal/customer-master/[id].js";
+import h543 from "./internal/customer-scorecard/index.js";
+import h544 from "./internal/vendor-scorecard/index.js";
 import h257 from "./internal/gl-accounts/index.js";
 import h258 from "./internal/gl-accounts/[id].js";
 import h259 from "./internal/gl-periods/index.js";
@@ -887,6 +889,8 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-master", handler: h253 },
   { pattern: "/api/internal/customer-master/:id", handler: h256 },
   { pattern: "/api/internal/customer-master", handler: h255 },
+  { pattern: "/api/internal/customer-scorecard", handler: h543 },
+  { pattern: "/api/internal/vendor-scorecard", handler: h544 },
   { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: h534 },
   { pattern: "/api/internal/items",                            handler: h535 },
   { pattern: "/api/internal/inventory-on-hand",               handler: h536 },
