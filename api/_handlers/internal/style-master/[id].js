@@ -19,10 +19,10 @@ const UUID_RE          = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const MUTABLE_FIELDS = new Set([
   "style_name", "description", "category_id", "gender_code", "season", "design_year",
   "is_apparel", "launch_date", "lifecycle_status", "planning_class",
-  "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "attributes",
+  "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "attributes",
 ]);
 
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -140,6 +140,14 @@ export function validatePatch(body) {
       out.brand_id = null;
     } else if (!UUID_RE.test(String(out.brand_id))) {
       return { error: "brand_id must be a uuid (or null to clear)" };
+    }
+  }
+  // Size Scale FK — uuid or null.
+  if (Object.prototype.hasOwnProperty.call(out, "size_scale_id")) {
+    if (out.size_scale_id === "" || out.size_scale_id === null) {
+      out.size_scale_id = null;
+    } else if (!UUID_RE.test(String(out.size_scale_id))) {
+      return { error: "size_scale_id must be a uuid (or null to clear)" };
     }
   }
   // Normalize empty strings to null for nullable text fields.
