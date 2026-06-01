@@ -3,23 +3,23 @@
 // MX-SO — Matrix sales-order line entry.
 //
 // A sub-panel for the Sales Order modal's Lines area. Lets the operator pick a
-// style, then enter quantities into an editable color × size (× inseam) grid
-// instead of one SearchableSelect line per SKU. On "Add to order" each cell
-// with qty > 0 is resolved to an ip_item_master SKU id (find-or-create via
-// /api/internal/style-matrix/resolve-sku) and APPENDED to the modal's normal
-// SO line state — the lines then submit through the EXISTING SO create/PATCH
-// path unchanged.
+// style, then type quantities INLINE into an editable color × size (× inseam)
+// grid instead of one SearchableSelect line per SKU. Each color row also carries
+// an editable Unit $ (with a "set all rows" bulk field in the column header) so
+// the operator can stamp one price across the whole style and tweak per color.
 //
-// Reuses the shared Matrix primitive (src/shared/matrix). Because MatrixCell
-// only dispatches onCellClick for non-empty cells, we seed one synthetic
-// MatrixItem per color × size (× inseam) combination so every cell is clickable
-// — carrying the entered qty in `value` and the real SKU id (when the style
-// already has one for that cell) so we can skip resolve-sku for known SKUs.
+// On "Add to order" each cell with qty > 0 is resolved to an ip_item_master SKU
+// id (find-or-create via /api/internal/style-matrix/resolve-sku) and APPENDED to
+// the modal's normal SO line state — the lines then submit through the EXISTING
+// SO create/PATCH path unchanged.
+//
+// Uses the shared EditableSizeMatrix primitive (src/shared/matrix) so the SO,
+// PO and inventory-adjustment grids all share one layout.
 
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
-import { MatrixGrid } from "../shared/matrix";
-import type { MatrixItem, MatrixPivotState } from "../shared/matrix";
+import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
+import type { EditableMatrixRow } from "../shared/matrix";
 import { notify } from "../shared/ui/warn";
 
 const C = {
@@ -27,7 +27,6 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
 
@@ -35,11 +34,15 @@ type Style = { id: string; style_code: string; style_name?: string | null; descr
 type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; length: string | null; fit: string | null; on_hand_qty?: number; available_qty?: number | null };
 type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
 
-/** A resolved SO line the parent appends to its line state. */
-export type MatrixLineAdd = { inventory_item_id: string; qty_ordered: number };
+/** A resolved SO line the parent appends to its line state. unit_price_dollars is
+ *  blank when the operator left the row's Unit $ empty (server stamps the default). */
+export type MatrixLineAdd = { inventory_item_id: string; qty_ordered: number; unit_price_dollars: string };
 
-const cellKey = (color: string | null, size: string | null, inseam: string | null) =>
+// (color, size, inseam) → existing-SKU lookup key.
+const skuCellKey = (color: string | null, size: string | null, inseam: string | null) =>
   `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
+// Per-row key (color × inseam) used by the grid + the unit-price map.
+const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 
 export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (lines: MatrixLineAdd[]) => void; onClose: () => void }) {
   const [styles, setStyles] = useState<Style[]>([]);
@@ -49,8 +52,10 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
   const [err, setErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // qty per cell, keyed by `${color}|${size}|${inseam||""}`.
+  // qty per cell, keyed by matrixCellKey(rowKey, size).
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
+  // unit price (dollars, free text) per row, keyed by rowKey.
+  const [unitMap, setUnitMap] = useState<Record<string, string>>({});
 
   // Style picker source.
   useEffect(() => {
@@ -62,9 +67,9 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
 
   // Fetch the matrix payload when a style is picked.
   useEffect(() => {
-    if (!styleId) { setPayload(null); setQtyMap({}); return; }
+    if (!styleId) { setPayload(null); setQtyMap({}); setUnitMap({}); return; }
     let cancel = false;
-    setLoading(true); setErr(null); setQtyMap({});
+    setLoading(true); setErr(null); setQtyMap({}); setUnitMap({});
     fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`)
       .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return r.json(); })
       .then((p) => { if (!cancel) setPayload(p as MatrixPayload); })
@@ -75,82 +80,54 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
 
   const hasInseams = (payload?.inseams?.length ?? 0) > 1;
 
-  // Map (color,size,inseam) → existing SKU id + available, so resolve-sku is
-  // only called for cells that don't already map to a SKU.
+  // (color,size,inseam) → existing SKU, so resolve-sku is only called for cells
+  // that don't already map to a SKU.
   const skuByCell = useMemo(() => {
     const m = new Map<string, MatrixSku>();
-    for (const s of payload?.skus ?? []) m.set(cellKey(s.color, s.size, s.inseam || null), s);
+    for (const s of payload?.skus ?? []) m.set(skuCellKey(s.color, s.size, s.inseam || null), s);
     return m;
   }, [payload]);
 
-  // Build a synthetic MatrixItem per color × size (× inseam) so EVERY cell is
-  // clickable (MatrixCell only fires onCellClick for non-empty cells). When an
-  // inseam axis applies we fan each color×size out across inseams; otherwise a
-  // single inseam=null plane. `value` carries the entered qty for display.
-  const items = useMemo<MatrixItem[]>(() => {
+  const sizes = payload?.sizes ?? [];
+
+  // Grid rows: one per color (× inseam when the style spans multiple inseams).
+  const rows = useMemo<EditableMatrixRow[]>(() => {
     if (!payload) return [];
-    const colors = payload.colors.length ? payload.colors : [...new Set((payload.skus || []).map((s) => s.color).filter(Boolean) as string[])];
+    const colors = payload.colors.length
+      ? payload.colors
+      : [...new Set((payload.skus || []).map((s) => s.color).filter(Boolean) as string[])];
     const colorList: (string | null)[] = colors.length ? colors : [null];
     const inseamList: (string | null)[] = hasInseams ? payload.inseams : [null];
-    const out: MatrixItem[] = [];
+    const out: EditableMatrixRow[] = [];
     for (const color of colorList) {
-      for (const size of payload.sizes) {
-        for (const inseam of inseamList) {
-          const key = cellKey(color, size, inseam);
-          out.push({
-            id: key,
-            color: color ?? null,
-            size: size ?? null,
-            inseam: inseam ?? null,
-            length: null,
-            fit: null,
-            rise: null,
-            value: qtyMap[key] ?? 0,
-          });
-        }
+      for (const inseam of inseamList) {
+        out.push({ key: rowKeyOf(color, inseam), color: color ?? null, rise: inseam ?? null });
       }
     }
     return out;
-  }, [payload, qtyMap, hasInseams]);
+  }, [payload, hasInseams]);
 
-  const axisValues = useMemo(
-    () => ({ color: (payload?.colors ?? []) as string[], size: (payload?.sizes ?? []) as string[], inseam: (payload?.inseams ?? []) as string[] }),
-    [payload],
-  );
-
-  // Pivot: rows = color, cols = size. When the style has >1 inseam we layer by
-  // inseam (multi-value filter → one grid per inseam tab).
-  const pivot = useMemo<MatrixPivotState>(() => ({
-    rowAxis: "color",
-    colAxis: "size",
-    filters: hasInseams ? { inseam: payload!.inseams } : {},
-  }), [hasInseams, payload]);
+  // Per-cell on-hand hint (Σ remaining_qty — always ≥ 0). Keyed to grid cells.
+  // NOTE: we intentionally show on-hand, NOT available_qty (on-hand − open
+  // reservations), which can read negative on over-allocation and confused the
+  // operator ("false negative"). On-hand is what the grid label promises.
+  const onHand = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const row of rows) {
+      const [color, inseam] = row.key.split("|");
+      for (const sz of sizes) {
+        const sku = skuByCell.get(skuCellKey(color || null, sz, inseam || null));
+        if (sku && sku.on_hand_qty != null) m[matrixCellKey(row.key, sz)] = Math.max(0, Number(sku.on_hand_qty) || 0);
+      }
+    }
+    return m;
+  }, [rows, sizes, skuByCell]);
 
   const totalUnits = useMemo(() => Object.values(qtyMap).reduce((s, n) => s + (n || 0), 0), [qtyMap]);
   const cellsFilled = useMemo(() => Object.values(qtyMap).filter((n) => n > 0).length, [qtyMap]);
 
-  // Cell formatter: show entered qty, with available_qty as a faint hint.
-  function format(cellItems: MatrixItem[]): string {
-    const it = cellItems[0];
-    if (!it) return "";
-    const key = cellKey(it.color, it.size, it.inseam);
-    const qty = qtyMap[key] ?? 0;
-    const sku = skuByCell.get(key);
-    const avail = sku && sku.available_qty != null ? sku.available_qty : null;
-    const hint = avail != null ? ` (${avail})` : "";
-    return qty > 0 ? `${qty}${hint}` : (avail != null ? `·${hint.trim()}` : "");
-  }
-
-  function editCell(color: string | null, size: string | null, inseam: string | null) {
-    const key = cellKey(color, size, inseam);
-    const current = qtyMap[key] ?? 0;
-    const sku = skuByCell.get(key);
-    const availTxt = sku && sku.available_qty != null ? ` (available: ${sku.available_qty})` : "";
-    const labelBits = [color, size, hasInseams && inseam ? `${inseam}"` : ""].filter(Boolean).join(" / ");
-    // eslint-disable-next-line no-alert
-    const raw = window.prompt(`Qty for ${labelBits}${availTxt}`, current ? String(current) : "");
-    if (raw == null) return; // cancelled
-    const n = Math.max(0, Math.floor(Number(raw) || 0));
+  function setQty(rowKey: string, size: string, n: number) {
+    const key = matrixCellKey(rowKey, size);
     setQtyMap((p) => {
       const next = { ...p };
       if (n > 0) next[key] = n; else delete next[key];
@@ -165,9 +142,12 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
     setSubmitting(true); setErr(null);
     try {
       const adds: MatrixLineAdd[] = [];
-      for (const [key, qty] of entries) {
-        const [color, size, inseam] = key.split("|");
-        const existing = skuByCell.get(key);
+      for (const [cell, qty] of entries) {
+        // cell = `${rowKey}__${size}` = `${color}|${inseam}__${size}`.
+        const [rowKey, size] = cell.split("__");
+        const [color, inseam] = rowKey.split("|");
+        const unitPrice = unitMap[rowKey]?.trim() || "";
+        const existing = skuByCell.get(skuCellKey(color || null, size, inseam || null));
         let itemId = existing?.id || null;
         if (!itemId) {
           const r = await fetch("/api/internal/style-matrix/resolve-sku", {
@@ -181,7 +161,7 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
           if (!r.ok || !j.id) throw new Error(j.error || `Could not resolve SKU for ${color || ""} ${size} ${inseam || ""}`.trim());
           itemId = j.id as string;
         }
-        adds.push({ inventory_item_id: itemId, qty_ordered: qty });
+        adds.push({ inventory_item_id: itemId, qty_ordered: qty, unit_price_dollars: unitPrice });
       }
       onAdd(adds);
       notify(`Added ${adds.length} line${adds.length === 1 ? "" : "s"} (${totalUnits} units) from the size grid.`, "success");
@@ -210,34 +190,38 @@ export default function SalesOrderMatrixEntry({ onAdd, onClose }: { onAdd: (line
           />
         </div>
         <div style={{ fontSize: 12, color: C.textMuted, whiteSpace: "nowrap" }}>
-          {cellsFilled > 0 ? <span style={{ color: C.text }}>{cellsFilled} cells · {totalUnits} units</span> : "click a cell to enter qty"}
+          {cellsFilled > 0 ? <span style={{ color: C.text }}>{cellsFilled} cells · {totalUnits} units</span> : "type quantities into the grid"}
         </div>
       </div>
 
       {loading && <div style={{ color: C.textMuted, fontSize: 13, padding: 12 }}>Loading size grid…</div>}
 
-      {!loading && payload && payload.sizes.length === 0 && (
+      {!loading && payload && sizes.length === 0 && (
         <div style={{ color: C.warn, fontSize: 13, padding: 12 }}>
           This style has no size scale and no existing SKUs to derive sizes from — use manual line entry instead.
         </div>
       )}
 
-      {!loading && payload && payload.sizes.length > 0 && (
-        <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12, overflowX: "auto" }}>
-          <MatrixGrid
-            items={items}
-            pivot={pivot}
-            axisValues={axisValues}
-            readOnly={false}
-            format={format}
-            onCellClick={(cell) => {
-              const it = cell.items[0];
-              if (!it) return;
-              editCell(it.color, it.size, it.inseam);
+      {!loading && payload && sizes.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <EditableSizeMatrix
+            rows={rows}
+            sizes={sizes}
+            showRise={hasInseams}
+            riseLabel="Inseam"
+            qty={qtyMap}
+            onQtyChange={setQty}
+            onHand={onHand}
+            unit={{
+              label: "Unit $",
+              placeholder: "0.00",
+              values: unitMap,
+              onChange: (rowKey, v) => setUnitMap((p) => ({ ...p, [rowKey]: v })),
+              onSetAll: (v) => setUnitMap(() => Object.fromEntries(rows.map((r) => [r.key, v]))),
             }}
           />
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>
-            Click a cell to enter the ordered quantity. Numbers in parentheses are currently available on-hand. Cells without a SKU yet are created automatically on “Add to order”.
+            Type ordered quantities directly into the grid. The faint number above each cell is the current on-hand. Use the <b>Unit $</b> header field to stamp one price across every color, then tweak rows as needed (leave blank to use the customer's default price). Cells without a SKU yet are created automatically on “Add to order”.
           </div>
         </div>
       )}
