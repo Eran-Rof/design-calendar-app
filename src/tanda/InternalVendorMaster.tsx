@@ -36,6 +36,8 @@ import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
+// Chunk E — per-row drill-through scorecard (opened by the 📊 button).
+import VendorScorecard from "./VendorScorecard";
 
 type Vendor = {
   id: string;
@@ -156,6 +158,8 @@ export default function InternalVendorMaster() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Vendor | null>(null);
+  // Chunk E — vendor whose scorecard drawer is open (null = closed).
+  const [scorecardId, setScorecardId] = useState<string | null>(null);
 
   // Wave 5 — universal row-click primitive. Click anywhere on a row (except
   // Edit / Inactivate buttons) to open the edit modal. Soft-deleted vendors
@@ -292,7 +296,7 @@ export default function InternalVendorMaster() {
                 <th style={th} hidden={!isVisible("status")}>Status</th>
                 <th style={th} hidden={!isVisible("is_1099_vendor")}>1099</th>
                 <th style={th} hidden={!isVisible("payment_terms")}>Payment terms</th>
-                <th style={{ ...th, width: 140 }}></th>
+                <th style={{ ...th, width: 200 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -326,9 +330,17 @@ export default function InternalVendorMaster() {
                     ) : "—"}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                      style={btnSecondary}
+                      title="Open scorecard"
+                      aria-label={`Open scorecard for ${r.name}`}
+                    >
+                      📊
+                    </button>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
                         <button onClick={(e) => { e.stopPropagation(); void softDelete(r.id); }} style={{ ...btnDanger, marginLeft: 6 }}>Inactivate</button>
                       </>
                     )}
@@ -342,6 +354,7 @@ export default function InternalVendorMaster() {
 
       {addOpen && <VendorFormModal mode="add" paymentTerms={paymentTerms} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
       {editing && <VendorFormModal mode="edit" vendor={editing} paymentTerms={paymentTerms} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {scorecardId && <VendorScorecard vendorId={scorecardId} onClose={() => setScorecardId(null)} />}
     </div>
   );
 }
