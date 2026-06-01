@@ -318,6 +318,28 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
+  // M44 — ship an allocated SO (record carrier + tracking; bumps qty_shipped).
+  const canShip = !isNew && so != null && ["allocated", "fulfilling"].includes(so.status);
+  const [shipOpen, setShipOpen] = useState(false);
+  const [shipCarrier, setShipCarrier] = useState("");
+  const [shipTracking, setShipTracking] = useState("");
+  const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
+  async function shipOrder() {
+    if (!so) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}/ship`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ carrier: shipCarrier.trim() || null, tracking_number: shipTracking.trim() || null, ship_date: shipDate }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "Shipment recorded.", j.sales_order_status === "shipped" ? "success" : "info");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
   // Item 15 — split a draft SO across multiple of the customer's stores/DCs.
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitLocs, setSplitLocs] = useState<string[]>([]);
@@ -470,6 +492,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>
             {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines">{submitting ? "…" : "📦 Allocate stock"}</button>}
+            {canShip && <button onClick={() => setShipOpen(true)} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -479,6 +502,25 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
         </div>
       </div>
+
+      {/* M44 — ship modal (carrier + tracking; ships the allocated quantities). */}
+      {shipOpen && (
+        <div onClick={(e) => { e.stopPropagation(); setShipOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 420, color: C.text }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>🚚 Ship sales order</h3>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Records a carrier shipment and ships each line's allocated quantity. The SO moves to <b>shipped</b> when fully shipped (else fulfilling).</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <Field label="Carrier"><input type="text" value={shipCarrier} onChange={(e) => setShipCarrier(e.target.value)} style={inputStyle} placeholder="UPS, FedEx…" /></Field>
+              <Field label="Ship date"><input type="date" value={shipDate} onChange={(e) => setShipDate(e.target.value)} style={inputStyle} /></Field>
+            </div>
+            <Field label="Tracking #"><input type="text" value={shipTracking} onChange={(e) => setShipTracking(e.target.value)} style={inputStyle} placeholder="optional" /></Field>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setShipOpen(false)} style={btnSecondary} disabled={submitting}>Cancel</button>
+              <button onClick={() => void shipOrder()} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Confirm shipment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

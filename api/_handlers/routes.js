@@ -549,11 +549,13 @@ import h538 from "./internal/customer-locations/[id].js";
 //   h541 = POST /api/internal/sales-orders/:id/create-invoice (M10-C)
 //   h542 = POST /api/internal/sales-orders/:id/split (item 15 — multi-store)
 //   h566 = POST /api/internal/sales-orders/:id/allocate (M18 allocations)
+//   h567 = POST /api/internal/sales-orders/:id/ship (M44 carrier/fulfilment)
 import h539 from "./internal/sales-orders/index.js";
 import h540 from "./internal/sales-orders/[id].js";
 import h541 from "./internal/sales-orders/create-invoice.js";
 import h542 from "./internal/sales-orders/split.js";
 import h566 from "./internal/sales-orders/allocate.js";
+import h567 from "./internal/sales-orders/ship.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -939,6 +941,7 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: h541 },
   { pattern: "/api/internal/sales-orders/:id/split",          handler: h542 },
   { pattern: "/api/internal/sales-orders/:id/allocate",       handler: h566 },
+  { pattern: "/api/internal/sales-orders/:id/ship",           handler: h567 },
   { pattern: "/api/internal/sales-orders/:id",                handler: h540 },
   { pattern: "/api/internal/sales-orders",                    handler: h539 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
