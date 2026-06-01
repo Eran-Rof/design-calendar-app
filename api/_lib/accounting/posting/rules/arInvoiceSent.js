@@ -191,6 +191,9 @@ export function arInvoiceSent(event) {
         consumer_kind: "ar_invoice",
         consumer_ref_id: ln.id || d.invoice_id,
         target_line_id: ln.id || null,
+        // P15 — draw from the sale's brand pool when the AR post resolved one
+        // (only under BRAND_SCOPE_MODE=enforce; null otherwise → all layers).
+        partition_id: d.consume_partition_id || null,
         dr_line_ix: drIx,
         cr_line_ix: crIx,
       });

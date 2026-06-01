@@ -184,6 +184,7 @@ describe("arInvoiceSent — multi-line path with inventory (consumePlan)", () =>
       consumer_kind: "ar_invoice",
       consumer_ref_id: LINE_A,
       target_line_id: LINE_A,
+      partition_id: null, // P15 — null unless the AR post resolved a brand pool (enforce)
       dr_line_ix: 2,
       cr_line_ix: 3,
     });
