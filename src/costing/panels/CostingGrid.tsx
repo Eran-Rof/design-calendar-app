@@ -26,6 +26,7 @@ import { usePersistedHiddenColumns } from "../../inventory-planning/panels/whole
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { appConfirm } from "../../utils/theme";
+import { confirmDialog } from "../../shared/ui/warn";
 import type { CostingLine } from "../types";
 import type { StyleHit } from "../services/costingApi";
 
@@ -146,9 +147,39 @@ export default function CostingGrid() {
 
   const onGenerateRfqs = async () => {
     if (!project || selectedRowIds.size === 0) return;
+    const projectId = project.id;
+    const lineIds = Array.from(selectedRowIds);
     setGenerating(true);
     try {
-      const res = await generateRfqs(project.id, Array.from(selectedRowIds));
+      let res = await generateRfqs(projectId, lineIds);
+
+      // Duplicate-RFQ guard: handler returns needs_confirm (409) when an RFQ
+      // already exists for the same style + color + vendor. Prompt, then
+      // re-submit with allowDuplicate on OK.
+      if ("needs_confirm" in res) {
+        const ok = await confirmDialog(
+          "An RFQ already exists for this style / color / vendor — do you want to create another?",
+          {
+            title: "Duplicate RFQ",
+            confirmText: "Create anyway",
+            cancelText: "Cancel",
+            listItems: res.duplicates.map((d) =>
+              [d.vendor, d.style_code, d.color].filter(Boolean).join(" · "),
+            ),
+          },
+        );
+        if (!ok) {
+          setNotice("RFQ generation cancelled.", "info");
+          return;
+        }
+        res = await generateRfqs(projectId, lineIds, true);
+        if ("needs_confirm" in res) {
+          // Shouldn't happen (allowDuplicate bypasses the guard), but guard anyway.
+          setNotice("Could not generate RFQs: duplicate check did not clear.", "error");
+          return;
+        }
+      }
+
       const parts = [];
       if (res.created.length > 0) {
         const vendorSummary = res.created.map((c) => `${c.vendor} (${c.line_count})`).join(", ");
