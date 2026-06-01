@@ -123,14 +123,15 @@ describe("useMatrixData — custom formatter + axisValues", () => {
     expect(layer.cells[0].displayValue.endsWith("u") || layer.cells[0].displayValue === "").toBe(true);
   });
 
-  it("axisValues override forces axis distincts even when items lack values", () => {
+  it("axisValues override forces axis distincts AND preserves the caller's order", () => {
     const onlyRed = sampleItems.filter((i) => i.color === "RED");
     const { result } = renderHook(() =>
       useMatrixData(onlyRed, defaultPivot, { color: ["RED", "BLUE", "GREEN"], size: ["S", "M", "L"] }),
     );
     const layer = result.current.layers[0];
-    expect(layer.rowValues).toEqual(["BLUE", "GREEN", "RED"]);
-    expect(layer.colValues).toEqual(["L", "M", "S"]);
+    // Overrides keep the caller's order (e.g. a size scale S,M,L), NOT alphabetical.
+    expect(layer.rowValues).toEqual(["RED", "BLUE", "GREEN"]);
+    expect(layer.colValues).toEqual(["S", "M", "L"]);
     // GREEN row + S col combinations are all empty
     const greenS = layer.cells.find((c) => c.rowKey === "GREEN" && c.colKey === "S");
     expect(greenS?.items).toEqual([]);

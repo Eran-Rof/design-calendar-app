@@ -292,6 +292,7 @@ export default function InternalInventoryMatrix() {
           <MatrixGrid
             items={items}
             defaultPivot={defaultPivot}
+            axisValues={payload ? { size: payload.sizes } : undefined}
             readOnly
             format={format}
           />
