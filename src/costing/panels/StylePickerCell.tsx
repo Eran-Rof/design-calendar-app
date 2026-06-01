@@ -3,6 +3,14 @@
 // full style list once on mount, then filters in-memory as the operator
 // types — no async-per-keystroke search.
 //
+// Free-form add — mirrors ColorPickerCell: typing a style code that
+// isn't in style_master enables a "+ Add new style" row at the bottom
+// (and Enter commits it). Picking it calls onChange(code) so the raw
+// string persists to costing_lines.style_code (no style_master_id), the
+// same way the grid persists a picked existing style's code. The
+// operator can cost a brand-new style before it exists in the master,
+// identical to entering a brand-new color.
+//
 // Same portal-rendered popover as VendorGridCell so the cell's
 // overflow:hidden doesn't clip the dropdown.
 
@@ -22,7 +30,7 @@ interface Props {
 
 const EMPTY_STYLES: StyleHit[] = [];
 
-export default function StylePickerCell({ value, onPick, placeholder }: Props) {
+export default function StylePickerCell({ value, onPick, onChange, placeholder }: Props) {
   const styles = useCostingStore((s) => s.stylesForPicker || EMPTY_STYLES);
   const loadStyles = useCostingStore((s) => s.loadStylesForPicker);
 
@@ -66,9 +74,24 @@ export default function StylePickerCell({ value, onPick, placeholder }: Props) {
     });
   }, [styles, query]);
 
+  // A typed value is "new" when it matches no existing style CODE (the
+  // field the grid persists). Mirrors ColorPickerCell.queryIsNew.
+  const queryTrim = query.trim();
+  const queryIsNew = queryTrim.length > 0
+    && !styles.some((s) => (s.style_code || "").toLowerCase() === queryTrim.toLowerCase());
+
   const commitPick = (style: StyleHit) => {
     setOpen(false);
     onPick(style);
+  };
+
+  // Free-form commit — persists the raw code via onChange (→ style_code).
+  // No style_master_id, exactly like a brand-new color persists the raw
+  // string with no master row behind it.
+  const commitNew = (code: string) => {
+    if (!code) return;
+    setOpen(false);
+    onChange?.(code);
   };
 
   return (
@@ -114,9 +137,12 @@ export default function StylePickerCell({ value, onPick, placeholder }: Props) {
             <input
               autoFocus
               type="text"
-              placeholder="Type to search styles…"
+              placeholder="Type to search or add new style…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); commitNew(queryTrim); }
+              }}
               style={{
                 width: "100%", background: "#0F172A", color: "#E2E8F0",
                 border: "1px solid #334155", borderRadius: 4,
@@ -129,7 +155,7 @@ export default function StylePickerCell({ value, onPick, placeholder }: Props) {
                 : `${filtered.length} of ${styles.length} style${styles.length === 1 ? "" : "s"}`}
             </div>
           </div>
-          {filtered.length === 0 && styles.length > 0 && (
+          {filtered.length === 0 && styles.length > 0 && !queryIsNew && (
             <div style={{ padding: 12, color: "#94A3B8", fontSize: 12 }}>No matches</div>
           )}
           {filtered.map((s) => {
@@ -160,6 +186,24 @@ export default function StylePickerCell({ value, onPick, placeholder }: Props) {
               </div>
             );
           })}
+          {queryIsNew && (
+            <div
+              role="option"
+              tabIndex={0}
+              onClick={() => commitNew(queryTrim)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitNew(queryTrim); } }}
+              style={{
+                padding: "8px 12px", cursor: "pointer",
+                fontSize: 12, color: "#10B981",
+                background: "#10B98111",
+                borderTop: filtered.length > 0 ? "1px solid #334155" : undefined,
+                fontWeight: 600,
+              }}
+              title="Costs a style not yet in the master — saved to this line's Style#."
+            >
+              + Add new style: <strong>{queryTrim}</strong>
+            </div>
+          )}
         </div>,
         document.body,
       )}
