@@ -182,6 +182,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tanda?view=sales_by_customer", group: "Reports", icon: "🤝" },
   { key: "tanda/reports/gl-detail",     label: "GL Detail",         app: "tanda", route: "/tanda?view=gl_detail",         group: "Reports", icon: "🔍" },
   // Inventory
+  { key: "tanda/inventory/on-hand",      label: "On-Hand by Pool",   app: "tanda", route: "/tanda?view=inventory_on_hand",  group: "Inventory", icon: "📦" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tanda?view=inventory_transfers", group: "Inventory", icon: "🔁" },
   { key: "tanda/inventory/adjustments", label: "Inventory Adjustments", app: "tanda", route: "/tanda?view=inventory_adjustments", group: "Inventory", icon: "📐" },
   { key: "tanda/inventory/cycle-counts", label: "Cycle Counts",     app: "tanda", route: "/tanda?view=cycle_counts",      group: "Inventory", icon: "📋" },
