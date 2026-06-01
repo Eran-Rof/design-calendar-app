@@ -82,7 +82,7 @@ type Account = {
   is_postable: boolean;
   status: string;
 };
-type Item = { id: string; sku_code: string; style?: string; color?: string };
+type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 
 type DraftLine = {
   key: number; // stable for React lists
@@ -549,6 +549,17 @@ function APInvoiceModal({
       .catch(() => {});
   }, []);
 
+  // #3A — load the selected vendor's items for the inventory-line item picker.
+  useEffect(() => {
+    if (!vendorId) { setItems([]); return; }
+    let cancel = false;
+    fetch(`/api/internal/items?vendor_id=${encodeURIComponent(vendorId)}&limit=500`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: Item[]) => { if (!cancel) setItems(Array.isArray(arr) ? arr : []); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [vendorId]);
+
   // On vendor select, load that vendor's default AP + expense accounts and
   // auto-fill the header accounts. New invoice → adopt the vendor's defaults;
   // editing → only fill blanks (don't clobber the invoice's saved coding).
@@ -892,12 +903,26 @@ function APInvoiceModal({
                             disabled={!editable}
                           />
                         ) : (
-                          <input
-                            type="text" value={l.inventory_item_id}
-                            onChange={(e) => updateLine(idx, { inventory_item_id: e.target.value })}
-                            disabled={!editable}
-                            placeholder="ip_item_master uuid"
-                            style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
+                          <SearchableSelect
+                            value={l.inventory_item_id || null}
+                            onChange={(v) => updateLine(idx, { inventory_item_id: v })}
+                            options={(() => {
+                              const opts = [
+                                { value: "", label: vendorId ? "(pick item…)" : "(select a vendor first)" },
+                                ...items.map((it) => ({
+                                  value: it.id,
+                                  label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`,
+                                  searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""} ${it.color || ""} ${it.size || ""}`,
+                                })),
+                              ];
+                              // Preserve an already-saved item not in the vendor's current list.
+                              if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
+                                opts.push({ value: l.inventory_item_id, label: `${l.inventory_item_id.slice(0, 8)}… (saved)`, searchHaystack: l.inventory_item_id });
+                              }
+                              return opts;
+                            })()}
+                            placeholder={vendorId ? "(pick item…)" : "(select a vendor first)"}
+                            disabled={!editable || !vendorId}
                           />
                         )}
                       </td>

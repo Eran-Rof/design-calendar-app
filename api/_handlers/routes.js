@@ -510,6 +510,9 @@ import h533 from "./internal/channels/index.js";
 // M50-B — GL account brand-allocation rule (read/save + child-account gen).
 //   h534 = GET/PUT /api/internal/gl-accounts/:id/brand-allocation
 import h534 from "./internal/gl-accounts/[id]/brand-allocation.js";
+// Item lookup for invoice line pickers (#3A).
+//   h535 = GET /api/internal/items
+import h535 from "./internal/items/index.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -868,6 +871,7 @@ export const ROUTES = [
   { pattern: "/api/internal/customer-master/:id", handler: h256 },
   { pattern: "/api/internal/customer-master", handler: h255 },
   { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: h534 },
+  { pattern: "/api/internal/items",                            handler: h535 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
