@@ -162,6 +162,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/ap-invoices", label: "AP Invoices",      app: "tanda", route: "/tanda?view=ap_invoices",       group: "Accounting", icon: "🧾" },
   { key: "tanda/accounting/ap-payments", label: "AP Payments",      app: "tanda", route: "/tanda?view=ap_payments",       group: "Accounting", icon: "💸" },
   { key: "tanda/accounting/ar-invoices", label: "AR Invoices",      app: "tanda", route: "/tanda?view=ar_invoices",       group: "Accounting", icon: "🧮" },
+  { key: "tanda/sales/sales-orders",  label: "Sales Orders",        app: "tanda", route: "/tanda?view=sales_orders",      group: "Sales", icon: "🛒" },
   { key: "tanda/accounting/ar-receipts", label: "AR Receipts",      app: "tanda", route: "/tanda?view=ar_receipts",       group: "Accounting", icon: "💵" },
   { key: "tanda/accounting/ar-aging",   label: "AR Aging",          app: "tanda", route: "/tanda?view=ar_aging",          group: "Accounting", icon: "📅" },
   { key: "tanda/accounting/ar-backfill", label: "AR Backfill",      app: "tanda", route: "/tanda?view=ar_backfill",       group: "Accounting", icon: "🗄️" },
