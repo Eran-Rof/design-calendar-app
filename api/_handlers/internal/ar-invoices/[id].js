@@ -176,6 +176,12 @@ export function validatePatch(body) {
     }
     header.customer_id = body.customer_id;
   }
+  if ("ship_to_location_id" in body) {
+    if (body.ship_to_location_id && !UUID_RE.test(body.ship_to_location_id)) {
+      return { error: "ship_to_location_id must be a uuid" };
+    }
+    header.ship_to_location_id = body.ship_to_location_id || null;
+  }
   if ("invoice_number" in body) {
     const s = String(body.invoice_number || "").trim();
     if (!s) return { error: "invoice_number must be non-empty" };
