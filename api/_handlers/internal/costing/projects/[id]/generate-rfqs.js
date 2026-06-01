@@ -63,6 +63,8 @@ export default async function handler(req, res) {
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
   const lineIds = Array.isArray(body?.line_ids) ? body.line_ids.filter((s) => typeof s === "string" && s.length > 0) : [];
   if (lineIds.length === 0) return res.status(400).json({ error: "line_ids[] is required and must be non-empty" });
+  // Operator confirmed the duplicate-RFQ prompt → skip the pre-create dup check.
+  const allowDuplicate = body?.allow_duplicate === true;
 
   // 1. Project (for title + due date defaults). costing_projects has no
   // `currency` column — RFQs default to USD on the insert below. If a
@@ -129,6 +131,81 @@ export default async function handler(req, res) {
     .select("id, code, legal_name")
     .in("id", Array.from(linesByVendor.keys()));
   const vendorById = Object.fromEntries((vendorRows || []).map((v) => [v.id, v]));
+
+  // 4b. Duplicate-RFQ guard. For each (vendor, style_code, color) tuple in the
+  // groups we're about to create, check whether an RFQ already exists for the
+  // SAME entity + vendor that already has a line item with that style + color.
+  // If so — and the operator hasn't already confirmed via allow_duplicate — we
+  // bail out with 409 + needs_confirm so the UI can show the confirm dialog and
+  // re-submit with allow_duplicate:true.
+  //
+  // Match key = (entity_id via rfqs, rfq_invitations.vendor_id,
+  //              rfq_line_items.style_code, rfq_line_items.color).
+  // style_code/color were promoted to first-class rfq_line_items columns in
+  // migration 20260713060000; on a pre-migration DB the SELECT 500s with
+  // "column does not exist" — we swallow that and skip the check (fail-open) so
+  // RFQ generation keeps working until the migration lands.
+  if (!allowDuplicate) {
+    const duplicates = [];
+    for (const [vendorId, vendorLines] of linesByVendor.entries()) {
+      // The (style, color) tuples this vendor group would create.
+      const wantTuples = new Set(
+        vendorLines.map((l) => `${(l.style_code || "").trim().toLowerCase()}|${(l.color || "").trim().toLowerCase()}`),
+      );
+      // Existing RFQ ids for this entity + vendor (via invitations).
+      const { data: invRows, error: invErr } = await admin.from("rfq_invitations")
+        .select("rfq_id, rfqs!inner(id, entity_id)")
+        .eq("vendor_id", vendorId)
+        .eq("rfqs.entity_id", entityId);
+      if (invErr) {
+        // Vendor link table problem — fail-open (don't block creation).
+        console.warn("[costing/generate-rfqs] dup-check invitations lookup failed:", invErr.message);
+        continue;
+      }
+      const existingRfqIds = Array.from(new Set((invRows || []).map((r) => r.rfq_id).filter(Boolean)));
+      if (existingRfqIds.length === 0) continue;
+
+      const { data: existingItems, error: itemsLookupErr } = await admin.from("rfq_line_items")
+        .select("style_code, color")
+        .in("rfq_id", existingRfqIds);
+      if (itemsLookupErr) {
+        // Almost certainly "column style_code does not exist" pre-migration.
+        // Fail-open so generation isn't blocked.
+        console.warn("[costing/generate-rfqs] dup-check line-item lookup failed (likely pre-migration) — skipping dup guard:", itemsLookupErr.message);
+        continue;
+      }
+      const vendor = vendorById[vendorId];
+      const vendorLabel = vendor?.legal_name || vendor?.code || "Vendor";
+      for (const it of existingItems || []) {
+        const sig = `${(it.style_code || "").trim().toLowerCase()}|${(it.color || "").trim().toLowerCase()}`;
+        // Ignore rows with no style mirrored (legacy / pre-migration NULLs).
+        if (sig === "|") continue;
+        if (wantTuples.has(sig)) {
+          duplicates.push({
+            vendor_id: vendorId,
+            vendor: vendorLabel,
+            style_code: it.style_code || null,
+            color: it.color || null,
+          });
+        }
+      }
+    }
+    if (duplicates.length > 0) {
+      // Dedup the surfaced list (one entry per vendor/style/color).
+      const seen = new Set();
+      const uniqueDups = duplicates.filter((d) => {
+        const k = `${d.vendor_id}|${d.style_code}|${d.color}`;
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      });
+      return res.status(409).json({
+        needs_confirm: true,
+        reason: "duplicate_rfq",
+        duplicates: uniqueDups,
+        message: "An RFQ already exists for this style / color / vendor.",
+      });
+    }
+  }
 
   // 6. For each vendor group, create rfqs + rfq_line_items + rfq_invitation.
   // Sequential to keep errors localized; Vercel maxDuration covers typical
@@ -229,6 +306,9 @@ export default async function handler(req, res) {
         size_scale_label: ln.size_scale_label || null,
         waist_type:       ln.waist_type       || null,
         target_price:     typeof ln.target_cost === "number" ? ln.target_cost : null,
+        // Mirrored for the duplicate-RFQ match key (migration 20260713060000).
+        style_code:       ln.style_code       || null,
+        color:            ln.color            || null,
       };
     });
 
