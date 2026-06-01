@@ -34,7 +34,7 @@ type SO = {
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
 };
 type SOLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string };
-type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null };
+type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
 type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null };
@@ -376,6 +376,12 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <Field label="Approved $"><input type="text" inputMode="decimal" value={factorApprovedDollars} onChange={(e) => setFactorApprovedDollars(e.target.value)} disabled={!editable} style={inputStyle} placeholder="0.00" /></Field>
           </div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>Manual entry for now — this will auto-fill from the Rosenthal &amp; Rosenthal Factor API in a future release.</div>
+          {/* Chunk K (operator item 17) — ship-gate cue. Server is the source of truth (409 on ship). */}
+          {customers.find((c) => c.id === customerId)?.is_factored === true && factorStatus !== "approved" && (
+            <div style={{ fontSize: 11, color: C.warn, marginTop: 8, fontWeight: 600 }}>
+              ⚠ Factored customer — factor approval must be &quot;approved&quot; before this order can ship.
+            </div>
+          )}
         </div>
 
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>

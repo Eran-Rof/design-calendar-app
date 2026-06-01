@@ -35,6 +35,8 @@ const LIST_COLUMNS = [
   "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
+  // Chunk K — customer factoring (operator item 17).
+  "is_factored", "factor_id",
   // P4-family sales-rep / default / GL-routing columns.
   "sales_rep_1_id",
   "sales_rep_1_commission_pct",
@@ -137,6 +139,9 @@ export default async function handler(req, res) {
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
       credit_limit_cents: v.data.credit_limit_cents ?? null,
       credit_limit_currency: v.data.credit_limit_currency ?? null,
+      // Chunk K — customer factoring (operator item 17).
+      is_factored: v.data.is_factored === true,
+      factor_id: v.data.factor_id || null,
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
@@ -253,6 +258,15 @@ export function validateInsert(body) {
   }
   if (out.tax_exempt != null && typeof out.tax_exempt !== "boolean") {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
+  }
+  // Chunk K — customer factoring (operator item 17).
+  if (out.is_factored != null && typeof out.is_factored !== "boolean") {
+    out.is_factored = out.is_factored === "true" || out.is_factored === 1;
+  }
+  if (out.factor_id === "" || out.factor_id == null) {
+    out.factor_id = null;
+  } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.factor_id))) {
+    return { error: "factor_id must be a valid UUID" };
   }
   // P3-9: payment_terms_id structured FK. Validate UUID when provided.
   if (out.payment_terms_id != null && out.payment_terms_id !== "") {

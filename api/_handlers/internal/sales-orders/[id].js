@@ -118,6 +118,34 @@ export default async function handler(req, res, params) {
 
     if ("status" in body) {
       if (!STATUSES.includes(body.status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+
+      // Chunk K (operator item 17) — factored-customer ship-gate.
+      // A factored customer's SO cannot move into the pick/pack ('fulfilling')
+      // or ship ('shipped') stages until factor approval is 'approved'.
+      // 'shipped' is the hard gate; we block at 'fulfilling' too to be safe.
+      // The effective factor status is the PATCH value when supplied, else
+      // the current row value.
+      if (body.status === "fulfilling" || body.status === "shipped") {
+        const custId = ("customer_id" in patch ? patch.customer_id : so.customer_id);
+        if (custId) {
+          const { data: cust } = await admin
+            .from("customers")
+            .select("is_factored")
+            .eq("id", custId)
+            .maybeSingle();
+          if (cust?.is_factored === true) {
+            const effFactor = ("factor_approval_status" in patch)
+              ? patch.factor_approval_status
+              : so.factor_approval_status;
+            if (effFactor !== "approved") {
+              return res.status(409).json({
+                error: "Factored customer — factor approval required before shipping. Set Factor/Ins Approval = approved on the sales order first.",
+              });
+            }
+          }
+        }
+      }
+
       patch.status = body.status;
       // Assign the immutable SO number when first confirmed.
       if (body.status === "confirmed" && !so.so_number) {
