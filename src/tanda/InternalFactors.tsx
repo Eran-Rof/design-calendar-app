@@ -56,6 +56,13 @@ const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -261,7 +268,7 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
         api_enabled:  form.api_enabled,
         is_active:    form.is_active,
       };
-      if (isAdd) body.code = form.code.trim().toUpperCase();
+      // Chunk M — code is server-generated; never sent from the client.
       const r = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -281,12 +288,13 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 560, maxWidth: 720, maxHeight: "85vh", overflowY: "auto", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{mode === "add" ? "Add factor" : `Edit ${factor!.code}`}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Code *">
-            {mode === "add" ? (
-              <input type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} style={inputStyle} placeholder="e.g. CIT" autoFocus maxLength={32} />
-            ) : (
-              <input type="text" value={form.code} disabled style={{ ...inputStyle, opacity: 0.5 }} />
-            )}
+          <Field label="Code">
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (factor?.code || "—")}
+            </div>
           </Field>
           <Field label="Name *">
             <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} placeholder="CIT Commercial Services" />

@@ -7,8 +7,12 @@
 // Tangerine P2 Chunk 8.
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
+
+// Chunk M — employee codes are server-generated + read-only (operator item 14).
+const CODE_PREFIX = "EMP-";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -72,14 +76,17 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { data, error } = await admin
-      .from("employees")
-      .insert({ ...v.data, entity_id: entityId })
-      .select()
-      .single();
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const { data, error } = await insertWithAutoCode(
+      admin, "employees", "code", CODE_PREFIX,
+      (code) => ({ ...v.data, code, entity_id: entityId }),
+      { entityId },
+    );
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `Employee with that code or email already exists for this entity` });
+        // email collision (employee code is server-generated + retried, so a
+        // 23505 that survives the retry is the (entity_id, email) unique index).
+        return res.status(409).json({ error: `Employee with that email already exists for this entity` });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -99,7 +106,7 @@ function isUuid(s) {
 }
 
 export function validateInsert(body) {
-  if (!body.code || !String(body.code).trim()) return { error: "code required" };
+  // Chunk M — `code` is server-generated; no longer required from the client.
   if (!body.first_name || !String(body.first_name).trim()) return { error: "first_name required" };
   if (!body.last_name || !String(body.last_name).trim()) return { error: "last_name required" };
   if (!body.email || !String(body.email).trim()) return { error: "email required" };
@@ -139,7 +146,7 @@ export function validateInsert(body) {
 
   return {
     data: {
-      code: String(body.code).trim().toUpperCase(),
+      // code is injected by the handler (server-generated); not taken from body.
       first_name: String(body.first_name).trim(),
       last_name: String(body.last_name).trim(),
       email: String(body.email).trim().toLowerCase(),

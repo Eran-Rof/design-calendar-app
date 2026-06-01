@@ -7,11 +7,8 @@ import { validatePatch } from "../../_handlers/internal/employees/[id].js";
 const UUID = "00000000-0000-0000-0000-000000000001";
 
 describe("employees validateInsert", () => {
-  it("rejects missing code", () => {
-    expect(validateInsert({}).error).toMatch(/code/);
-  });
-  it("rejects missing first_name", () => {
-    expect(validateInsert({ code: "EB001" }).error).toMatch(/first_name/);
+  it("rejects missing first_name (code no longer required — server-generated)", () => {
+    expect(validateInsert({}).error).toMatch(/first_name/);
   });
   it("rejects bad email", () => {
     expect(validateInsert({ code: "EB001", first_name: "Eran", last_name: "B", email: "no-at-sign" }).error).toMatch(/email/);
@@ -34,9 +31,9 @@ describe("employees validateInsert", () => {
       auth_user_id: "abc",
     }).error).toMatch(/auth_user_id/);
   });
-  it("uppercases code", () => {
+  it("does not take code from body (server-generated)", () => {
     const v = validateInsert({ code: "eb001", first_name: "E", last_name: "B", email: "x@y.com" });
-    expect(v.data.code).toBe("EB001");
+    expect(v.data.code).toBeUndefined();
   });
   it("lowercases email", () => {
     const v = validateInsert({ code: "EB001", first_name: "E", last_name: "B", email: "X@Y.COM" });

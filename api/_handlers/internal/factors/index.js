@@ -12,8 +12,12 @@
 // receivables financier / insurer; full contact profile is captured here.
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
+
+// Chunk M — factor/insurance codes are server-generated + read-only (operator item 14).
+const CODE_PREFIX = "FCT-";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -80,14 +84,15 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { data, error } = await admin
-      .from("factor_master")
-      .insert({ ...v.data, entity_id: entityId })
-      .select()
-      .single();
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const { data, error } = await insertWithAutoCode(
+      admin, "factor_master", "code", CODE_PREFIX,
+      (code) => ({ ...v.data, code, entity_id: entityId }),
+      { entityId },
+    );
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `code '${v.data.code}' already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique factor code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -127,16 +132,9 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  if (!body.code || !String(body.code).trim()) {
-    return { error: "code is required" };
-  }
+  // Chunk M — `code` is server-generated; no longer required/validated from the client.
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
-  }
-
-  const code = String(body.code).trim().toUpperCase();
-  if (!/^[A-Z0-9_]+$/.test(code)) {
-    return { error: "code may only contain letters, digits, and underscores" };
   }
 
   if (body.email != null && String(body.email).trim() !== "" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(body.email).trim())) {
@@ -148,7 +146,7 @@ export function validateInsert(body) {
       body.is_active === "true" || body.is_active === 1;
 
   const out = {
-    code,
+    // code is injected by the handler (server-generated); not taken from body.
     name:        String(body.name).trim(),
     api_enabled: false,
     address:     {},

@@ -160,6 +160,13 @@ const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -603,7 +610,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       // Parse billing/shipping address JSON blobs (textarea input).
       const body: Record<string, unknown> = {
         name:                         form.name.trim(),
-        code:                         form.code.trim() || null,
+        // Chunk M — code is server-generated; never sent from the client.
         customer_type:                form.customer_type,
         country:                      form.country.trim() || null,
         // P3-9: structured FK. Legacy text column stays read-only display.
@@ -718,13 +725,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             />
           </Field>
           <Field label="Code">
-            <input
-              type="text"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              style={inputStyle}
-              placeholder="Short ERP code"
-            />
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (customer?.code || "—")}
+            </div>
           </Field>
           <Field label="Customer type">
             <select value={form.customer_type} onChange={(e) => setForm({ ...form, customer_type: e.target.value })} style={inputStyle as React.CSSProperties}>

@@ -92,6 +92,13 @@ const inputStyle: React.CSSProperties = {
   // popup chrome in dark mode so the calendar widget matches the panel.
   colorScheme: "dark",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -365,9 +372,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
         phone: form.phone.trim() || null,
         is_active: form.is_active,
       };
-      if (mode === "add") {
-        payload.code = form.code.trim();
-      }
+      // Chunk M — code is server-generated; never sent from the client.
 
       const url = mode === "add"
         ? "/api/internal/employees"
@@ -446,11 +451,12 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Code">
-            {mode === "edit" ? (
-              <input style={{ ...inputStyle, color: C.textMuted }} value={form.code} disabled />
-            ) : (
-              <input style={inputStyle} value={form.code} onChange={(e) => set("code", e.target.value)} placeholder="EB001" />
-            )}
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (employee?.code || "—")}
+            </div>
           </Field>
           <Field label="Active">
             <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingTop: 6 }}>

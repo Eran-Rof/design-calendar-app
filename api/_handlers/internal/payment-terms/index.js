@@ -14,8 +14,12 @@
 // customer-master handler shape (resolveDefaultEntityId + ROF scope).
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
+
+// Chunk M — payment-term codes are server-generated + read-only (operator item 14).
+const CODE_PREFIX = "TERM-";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -82,14 +86,15 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { data, error } = await admin
-      .from("payment_terms")
-      .insert({ ...v.data, entity_id: entityId })
-      .select()
-      .single();
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const { data, error } = await insertWithAutoCode(
+      admin, "payment_terms", "code", CODE_PREFIX,
+      (code) => ({ ...v.data, code, entity_id: entityId }),
+      { entityId },
+    );
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `code '${v.data.code}' already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique payment-term code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -104,19 +109,12 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  if (!body.code || !String(body.code).trim()) {
-    return { error: "code is required" };
-  }
+  // Chunk M — `code` is server-generated; no longer required/validated from the client.
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
   }
   if (body.due_days == null || body.due_days === "") {
     return { error: "due_days is required" };
-  }
-
-  const code = String(body.code).trim().toUpperCase();
-  if (!/^[A-Z0-9_]+$/.test(code)) {
-    return { error: "code may only contain letters, digits, and underscores" };
   }
 
   const dueDays = typeof body.due_days === "number" ? body.due_days : parseInt(body.due_days, 10);
@@ -150,7 +148,7 @@ export function validateInsert(body) {
 
   return {
     data: {
-      code,
+      // code is injected by the handler (server-generated); not taken from body.
       name:          String(body.name).trim(),
       due_days:      dueDays,
       discount_pct:  discountPct,

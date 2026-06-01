@@ -14,9 +14,12 @@
 // Tangerine P3 Chunk 11.
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
 
+// Chunk M — fabric codes are server-generated + read-only (operator item 14).
+const CODE_PREFIX = "FAB-";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function corsHeaders(res) {
@@ -89,9 +92,10 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const row = {
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const buildRow = (code) => ({
       entity_id: entityId,
-      code: v.data.code,
+      code,
       name: v.data.name,
       composition_text: v.data.composition_text,
       composition_json: v.data.composition_json ?? null,
@@ -101,17 +105,15 @@ export default async function handler(req, res) {
       care_instructions: v.data.care_instructions ?? null,
       default_vendor_id: v.data.default_vendor_id ?? null,
       is_active: v.data.is_active !== false,
-    };
+    });
 
-    const { data, error } = await admin
-      .from("fabric_codes")
-      .insert(row)
-      .select()
-      .single();
+    const { data, error } = await insertWithAutoCode(
+      admin, "fabric_codes", "code", CODE_PREFIX, buildRow, { entityId },
+    );
 
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `fabric code '${row.code}' already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique fabric code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -123,9 +125,7 @@ export default async function handler(req, res) {
 }
 
 export function validateInsert(body) {
-  if (!body.code || !String(body.code).trim()) {
-    return { error: "code is required" };
-  }
+  // Chunk M — `code` is server-generated; no longer required from the client.
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
   }
@@ -134,7 +134,7 @@ export function validateInsert(body) {
   }
 
   const out = {
-    code: String(body.code).trim().toUpperCase(),
+    // code is injected by the handler (server-generated); not taken from body.
     name: String(body.name).trim(),
     composition_text: String(body.composition_text).trim(),
   };
