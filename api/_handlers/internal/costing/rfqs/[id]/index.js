@@ -23,6 +23,7 @@ const EDITABLE_FIELDS = [
   "estimated_quantity",
   "estimated_budget",
   "currency",
+  "payment_terms_id",
 ];
 
 function getId(req) {
