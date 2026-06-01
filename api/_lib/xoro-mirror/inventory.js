@@ -25,6 +25,24 @@
 // (packs for PPK styles, eaches for non-PPK). We pass through as-is; if a
 // future Xoro feed mixes grains, normalize upstream in the snapshot writer
 // rather than here.
+//
+// SIZE-GRAIN ROUTING (Tangerine-only, per-style, 2026-06-01):
+// The Inventory Matrix needs per-SIZE on-hand, but planning's
+// ip_inventory_snapshot is COLOR grain. We add a Tangerine-only size-grain
+// source, `tangerine_size_onhand` (keyed on the per-SIZE ip_item_master SKU).
+// rebuildInventoryLayersForDate now routes PER STYLE:
+//   - A style that HAS rows in tangerine_size_onhand (on/before the date)
+//     sources its layers from there (per-size, the truth from the Xoro REST
+//     feed). The color-grain placeholder SKUs for that style contribute
+//     NOTHING — no double-count.
+//   - Every other style keeps the existing color-grain ip_inventory_snapshot
+//     path, byte-for-byte unchanged.
+// Because tangerine_size_onhand starts EMPTY, no style routes to size grain
+// and this whole module is a NO-OP until the operator lands size-grain rows
+// for a style (the "replace per style" cutover). The drop-and-rebuild of
+// source_kind='xoro_mirror_snapshot' layers already gives replace-per-style
+// for free: the next rebuild after landing size rows retires that style's
+// color-grain mirror layers and emits per-size ones instead.
 
 /**
  * @param {object} supabase    – supabase service-role client
@@ -49,6 +67,56 @@ export async function rebuildInventoryLayersForDate(supabase, entity_id, snapsho
   let rows_skipped_unmatched_sku = 0;
   let rows_skipped_zero_qty = 0;
 
+  // --- 0. Read the Tangerine size-grain source first and work out which
+  //        STYLES it covers. Those styles route to size-grain layers; every
+  //        other style keeps the color-grain ip_inventory_snapshot path.
+  //        When tangerine_size_onhand is empty (the default after the
+  //        scaffolding migration) sizeGrainStyleIds is empty and the rest of
+  //        this function behaves exactly as before — a true no-op.
+  let sizeGrainRows = [];
+  let sizeGrainStyleIds = new Set();
+  let sizeGrainSkuStyleId = new Map(); // sku_id -> style_id (for size SKUs)
+  {
+    const { data, error } = await supabase
+      .from("tangerine_size_onhand")
+      .select("item_id, warehouse_code, qty_on_hand, snapshot_date")
+      .eq("entity_id", entity_id)
+      .lte("snapshot_date", snapshot_date)
+      .order("snapshot_date", { ascending: false });
+    if (error) {
+      // Treat a missing table / read failure as "no size grain configured" —
+      // the color-grain path below is the safe fallback. Record and continue.
+      errors.push({ stage: "read_size_onhand", message: error.message });
+    } else {
+      sizeGrainRows = data || [];
+    }
+  }
+  if (sizeGrainRows.length > 0) {
+    const sizeItemIds = Array.from(new Set(sizeGrainRows.map((r) => r.item_id).filter(Boolean)));
+    for (let i = 0; i < sizeItemIds.length; i += 1000) {
+      const slice = sizeItemIds.slice(i, i + 1000);
+      const { data, error } = await supabase
+        .from("ip_item_master")
+        .select("id, style_id")
+        .in("id", slice);
+      if (error) {
+        errors.push({ stage: "read_size_sku_style", message: error.message });
+        // Can't safely route without style ids — fall back to color grain
+        // entirely so we never half-apply.
+        sizeGrainRows = [];
+        sizeGrainStyleIds = new Set();
+        sizeGrainSkuStyleId = new Map();
+        break;
+      }
+      for (const r of data || []) {
+        if (r.style_id) {
+          sizeGrainSkuStyleId.set(r.id, r.style_id);
+          sizeGrainStyleIds.add(r.style_id);
+        }
+      }
+    }
+  }
+
   // --- 1. Read latest snapshot per (sku_id, warehouse_code) on/before date.
   let snapshotRows;
   {
@@ -64,7 +132,7 @@ export async function rebuildInventoryLayersForDate(supabase, entity_id, snapsho
     snapshotRows = data || [];
   }
 
-  // Pick the most-recent row per (sku_id, warehouse_code).
+  // Pick the most-recent COLOR-grain row per (sku_id, warehouse_code).
   const latestByKey = new Map();
   for (const r of snapshotRows) {
     if (!r || !r.sku_id) continue;
@@ -73,19 +141,29 @@ export async function rebuildInventoryLayersForDate(supabase, entity_id, snapsho
     if (!latestByKey.has(key)) latestByKey.set(key, r);
   }
 
+  // Pick the most-recent SIZE-grain row per (item_id, warehouse_code).
+  const latestSizeByKey = new Map();
+  for (const r of sizeGrainRows) {
+    if (!r || !r.item_id) continue;
+    const wh = r.warehouse_code || "DEFAULT";
+    const key = `${r.item_id}|${wh}`;
+    if (!latestSizeByKey.has(key)) latestSizeByKey.set(key, { sku_id: r.item_id, warehouse_code: r.warehouse_code, qty_on_hand: r.qty_on_hand, snapshot_date: r.snapshot_date });
+  }
+
   // --- 2. Read unit costs.  Primary: ip_item_master.unit_cost.  Secondary
   //        (fallback when unit_cost is NULL): ip_item_avg_cost.avg_cost keyed
   //        by sku_code.  Both reads filter to the SKUs that actually appear
   //        in the snapshot so we don't pull the whole catalog.
-  const itemIds = Array.from(new Set(
-    Array.from(latestByKey.values()).map((r) => r.sku_id).filter(Boolean),
-  ));
+  const itemIds = Array.from(new Set([
+    ...Array.from(latestByKey.values()).map((r) => r.sku_id).filter(Boolean),
+    ...Array.from(latestSizeByKey.values()).map((r) => r.sku_id).filter(Boolean),
+  ]));
 
   const itemMasterById = new Map();
   if (itemIds.length > 0) {
     const { data, error } = await supabase
       .from("ip_item_master")
-      .select("id, sku_code, unit_cost, style_code")
+      .select("id, sku_code, unit_cost, style_code, style_id")
       .in("id", itemIds);
     if (error) {
       errors.push({ stage: "read_item_master", message: error.message });
@@ -113,17 +191,21 @@ export async function rebuildInventoryLayersForDate(supabase, entity_id, snapsho
   }
 
   // --- 3. Build the new layer payload.
+  //        One layer per (item, warehouse). SIZE-grain styles draw from
+  //        latestSizeByKey; every COLOR-grain row whose style is size-grain is
+  //        SKIPPED here (its quantity is now represented per-size) so the two
+  //        grains never coexist for a style → no double-count.
   const receivedAt = `${snapshot_date}T23:59:59.000Z`;
   const newLayers = [];
-  for (const [key, snap] of latestByKey.entries()) {
+
+  const pushLayer = (snap, grain) => {
     const qty = Number(snap.qty_on_hand);
     if (!Number.isFinite(qty) || qty <= 0) {
       rows_skipped_zero_qty++;
-      continue;
+      return;
     }
     const master = itemMasterById.get(snap.sku_id);
     if (!master) {
-      // Snapshot references an unknown ip_item_master.id — log and skip.
       rows_skipped_unmatched_sku++;
       errors.push({
         stage: "match_sku",
@@ -131,7 +213,7 @@ export async function rebuildInventoryLayersForDate(supabase, entity_id, snapsho
         warehouse_code: snap.warehouse_code,
         message: "no ip_item_master row for snapshot sku_id",
       });
-      continue;
+      return;
     }
     let unitCost = null;
     if (master.unit_cost != null) {
@@ -157,8 +239,21 @@ export async function rebuildInventoryLayersForDate(supabase, entity_id, snapsho
       remaining_qty: qty,
       unit_cost_cents,
       source_kind: "xoro_mirror_snapshot",
-      notes: `xoro_mirror_snapshot:${snapshot_date}:wh=${warehouse_code}`,
+      notes: `xoro_mirror_snapshot:${snapshot_date}:wh=${warehouse_code}:grain=${grain}`,
     });
+  };
+
+  // COLOR-grain rows — skip any whose style has a size-grain source.
+  for (const [, snap] of latestByKey.entries()) {
+    const master = itemMasterById.get(snap.sku_id);
+    const styleId = master?.style_id || null;
+    if (styleId && sizeGrainStyleIds.has(styleId)) continue; // routed to size grain
+    pushLayer(snap, "color");
+  }
+
+  // SIZE-grain rows — only present for styles the operator has cut over.
+  for (const [, snap] of latestSizeByKey.entries()) {
+    pushLayer(snap, "size");
   }
 
   // --- 4. Atomic drop-and-rebuild.  Supabase JS doesn't expose BEGIN/COMMIT,
