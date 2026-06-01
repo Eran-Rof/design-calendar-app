@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { B } from "./theme";
-import type { B2BSession } from "./types";
+import type { B2BSession, CartLine } from "./types";
+import { useCart } from "./useCart";
+import B2BCatalog from "./B2BCatalog";
+import B2BOrders from "./B2BOrders";
+import B2BAccount from "./B2BAccount";
 
-// Authenticated portal shell. Minimal by design — this chunk delivers correct,
-// secure auth + the session chokepoint; Catalog / Orders / Account are stubbed
-// here and filled by later chunks (P18-C/D/E).
+// Authenticated portal shell. Renders the three buyer pages (Catalog / Orders /
+// Account) and owns the cart so it persists while the buyer switches tabs.
 type Tab = "catalog" | "orders" | "account";
 
 const TABS: { key: Tab; label: string }[] = [
@@ -21,6 +24,16 @@ export default function B2BShell({
   onLogout: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("catalog");
+  const cart = useCart(session.customer_id);
+
+  function addToCart(line: CartLine) {
+    cart.addLine(line);
+  }
+
+  function reorderInto(lines: CartLine[]) {
+    cart.replaceAll(lines);
+    setTab("orders");
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: B.bg, fontFamily: B.font }}>
@@ -49,28 +62,27 @@ export default function B2BShell({
             style={navTab(tab === t.key)}
           >
             {t.label}
+            {t.key === "orders" && cart.totalUnits > 0 && (
+              <span style={cartBadge}>{cart.totalUnits}</span>
+            )}
           </button>
         ))}
       </nav>
 
       <main style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px" }}>
-        <ComingSoon tab={tab} />
+        {tab === "catalog" && <B2BCatalog onAdd={addToCart} />}
+        {tab === "orders" && (
+          <B2BOrders
+            session={session}
+            cart={cart.lines}
+            setQty={cart.setQty}
+            removeLine={cart.removeLine}
+            clearCart={cart.clear}
+            reorderInto={reorderInto}
+          />
+        )}
+        {tab === "account" && <B2BAccount />}
       </main>
-    </div>
-  );
-}
-
-function ComingSoon({ tab }: { tab: Tab }) {
-  const labels: Record<Tab, { title: string; blurb: string }> = {
-    catalog: { title: "Catalog",  blurb: "Browse available styles and build your order. Coming soon." },
-    orders:  { title: "Orders",   blurb: "Track your orders and order history. Coming soon." },
-    account: { title: "Account",  blurb: "Manage your contacts and account details. Coming soon." },
-  };
-  const { title, blurb } = labels[tab];
-  return (
-    <div style={panel}>
-      <h2 style={{ margin: 0, fontSize: 18, color: B.text }}>{title}</h2>
-      <p style={{ color: B.textMuted, fontSize: 14, marginTop: 8 }}>{blurb}</p>
     </div>
   );
 }
@@ -85,14 +97,16 @@ const navBar: React.CSSProperties = {
   borderBottom: `1px solid ${B.border}`,
 };
 const navTab = (active: boolean): React.CSSProperties => ({
+  display: "inline-flex", alignItems: "center", gap: 8,
   padding: "12px 16px", background: "none", border: "none",
   borderBottom: active ? `2px solid ${B.primary}` : "2px solid transparent",
   color: active ? B.primary : B.textSub, fontWeight: 600, fontSize: 14,
   cursor: "pointer", fontFamily: "inherit",
 });
-const panel: React.CSSProperties = {
-  background: B.surface, border: `1px solid ${B.border}`, borderRadius: 12,
-  padding: 28, boxShadow: `0 1px 3px ${B.shadow}`,
+const cartBadge: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center",
+  minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+  background: B.primary, color: "#fff", fontSize: 11, fontWeight: 700,
 };
 const logoutBtn: React.CSSProperties = {
   padding: "7px 14px", borderRadius: 8, border: `1px solid ${B.border}`,

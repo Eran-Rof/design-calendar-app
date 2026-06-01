@@ -691,10 +691,24 @@ import h470 from "../cron/fba-returns-daily.js";
 import h462 from "./internal/fba/sync-settlements.js";
 import h463 from "../cron/fba-settlements-weekly.js";
 import h557 from "./b2b/session.js";
+// P18-C/D/E — B2B customer portal pages (catalog/pricing, cart→order, account).
+//   h562 = GET /api/b2b/catalog       (active styles + per-customer wholesale price)
+//   h563 = GET/POST /api/b2b/orders   (list this customer's SOs / place a draft SO)
+//   h564 = GET /api/b2b/orders/:id    (single order detail; powers reorder)
+//   h565 = GET /api/b2b/account       (invoices/AR + open balance + ship-to locations)
+import h562 from "./b2b/catalog.js";
+import h563 from "./b2b/orders/index.js";
+import h564 from "./b2b/orders/[id].js";
+import h565 from "./b2b/account.js";
 
 export const ROUTES = [
   // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
   { pattern: "/api/b2b/session", handler: h557 },
+  // ── P18-C/D/E — B2B portal pages (:id route before bare /orders) ───────────
+  { pattern: "/api/b2b/catalog", handler: h562 },
+  { pattern: "/api/b2b/orders/:id", handler: h564 },
+  { pattern: "/api/b2b/orders", handler: h563 },
+  { pattern: "/api/b2b/account", handler: h565 },
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
   { pattern: "/api/internal/scf/requests/:id/fund", handler: h2 },
