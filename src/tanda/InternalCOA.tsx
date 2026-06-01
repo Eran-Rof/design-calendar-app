@@ -10,6 +10,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+import { subtypeOptionsFor } from "./glAccountSubtypes";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 // Cross-cutter T11-3 — audit-trail drop-in for the GL account detail modal.
@@ -418,7 +419,7 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, maxHeight: "90vh", overflowY: "auto", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add account" : `Edit ${account!.code}`}
@@ -455,7 +456,18 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
             )}
           </Field>
           <Field label="Subtype">
-            <input type="text" value={form.account_subtype} onChange={(e) => setForm({ ...form, account_subtype: e.target.value })} style={inputStyle} placeholder="e.g. current_asset, ar, cogs" />
+            <SearchableSelect
+              value={form.account_subtype || null}
+              onChange={(v) => setForm({ ...form, account_subtype: v })}
+              options={(() => {
+                const opts = [{ value: "", label: "(none)" }, ...subtypeOptionsFor(form.account_type)];
+                if (form.account_subtype && !opts.some((o) => o.value === form.account_subtype)) {
+                  opts.push({ value: form.account_subtype, label: `${form.account_subtype} (custom)` });
+                }
+                return opts;
+              })()}
+              placeholder="(none)"
+            />
           </Field>
           <Field label="Parent account">
             <SearchableSelect

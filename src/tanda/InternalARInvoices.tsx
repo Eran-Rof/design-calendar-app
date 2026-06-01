@@ -842,7 +842,10 @@ function ARInvoiceModal({
                 <SearchableSelect
                   value={customerId || null}
                   onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
-                  options={customers.map((c) => ({ value: c.id, label: c.customer_code ? `${c.customer_code} — ${c.name}` : c.name }))}
+                  // Show the clean customer name (matches the costing app's
+                  // customer source), not the source-prefixed import code
+                  // (EXCEL:/ATS:/XORO:). Still searchable by code via haystack.
+                  options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
                   placeholder="(pick customer…)"
                   disabled={!editable}
                 />
