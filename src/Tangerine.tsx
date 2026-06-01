@@ -211,7 +211,8 @@ type ModuleDef = {
 // exactly one section (else its modules vanish from the nav).
 const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
-  { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Vendors", "Reports", "Approvals"] },
+  { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
+  { section: "Vendors",     emoji: "🏭", groups: ["Vendors"] },
   { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
