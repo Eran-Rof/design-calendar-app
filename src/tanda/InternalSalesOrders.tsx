@@ -245,6 +245,21 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
+  // M10-C — generate a draft AR invoice from this SO's open lines.
+  const canInvoice = !isNew && so != null && ["confirmed", "allocated", "fulfilling", "shipped"].includes(so.status);
+  async function createInvoice() {
+    if (!so) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}/create-invoice`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || `Draft AR invoice ${j.invoice_number} created.`, "success");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
   const acctOpts = [{ value: "", label: "(header default)" }, ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))];
 
   return (
@@ -330,10 +345,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
-          {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : "Save draft"}</button>}
-          {editable && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <div>
+            {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
+            {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : "Save draft"}</button>}
+            {editable && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
+          </div>
         </div>
       </div>
     </div>
