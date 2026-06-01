@@ -41,7 +41,7 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 | **P13** Procurement | M11 PO origination · M38 Receiving · M26 QC · M48 Trade Compliance | 🟡 arch (#518) + UI (#548) shipped; full per-vendor cutover pending | |
 | **P14** PLM ext | M32 (Design-Calendar PLM) · M33 (Tech-Pack PLM) | ⬜ | superseded in slot by ➕RBAC insertion |
 | **P15** Pricing | M43 Pricing Engine | ⬜ | superseded in slot by ➕Brand Master insertion |
-| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 arch + M10-A schema (#698) + **M10-B SO entry panel + CRUD API (this PR)** done; next M10-C SO→AR invoice, then M18 allocations (reuse ATS), M24, M44 | #698 + this PR |
+| **P16** Sales | M10 SO entry · M18 Product Allocations · M24 Showroom/Line Review · M44 Carrier | 🟡 arch + M10-A schema (#698) + M10-B SO entry panel + CRUD API (#699) + **M10-C SO→draft-AR-invoice (this PR)** done; next M18 allocations (reuse ATS), then M24, M44 | #698 #699 + this PR |
 | **P17** Planning | M31 Planning/Allocations (E4 ATS foundation) | ⬜ | |
 | **P18** B2B customer-facing | M40 B2B Customer Portal · M41 B2B Wholesale Website | ⬜ | |
 | **P19** Returns | M23 RMA / Returns | ⬜ | |
