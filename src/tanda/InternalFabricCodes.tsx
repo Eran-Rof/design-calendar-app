@@ -4,10 +4,11 @@
 // List + search + country/active filter + add/edit modal + hard-delete with
 // 409-on-reference guard. Wraps /api/internal/fabric-codes and /:id.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
 type FabricCode = {
   id: string;
@@ -26,6 +27,8 @@ type FabricCode = {
 };
 
 type Vendor = { id: string; name: string };
+// Chunk J item 7 — country_master rows for the COO picker.
+type Country = { id: string; iso2: string; name: string };
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -61,6 +64,7 @@ const td: React.CSSProperties = {
 export default function InternalFabricCodes() {
   const [rows, setRows] = useState<FabricCode[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -96,8 +100,18 @@ export default function InternalFabricCodes() {
     } catch { /* non-fatal */ }
   }
 
+  async function loadCountries() {
+    try {
+      const r = await fetch(`/api/internal/countries`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (Array.isArray(data)) setCountries(data as Country[]);
+    } catch { /* non-fatal */ }
+  }
+
   useEffect(() => { void load(); }, [includeInactive]);
   useEffect(() => { void loadVendors(); }, []);
+  useEffect(() => { void loadCountries(); }, []);
 
   async function hardDelete(id: string, code: string) {
     if (!(await confirmDialog(`Permanently delete fabric ${code}? This fails if any style uses it (deactivate instead).`))) return;
@@ -215,6 +229,7 @@ export default function InternalFabricCodes() {
         <FabricFormModal
           mode="add"
           vendors={vendors}
+          countries={countries}
           onClose={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); void load(); }}
         />
@@ -224,6 +239,7 @@ export default function InternalFabricCodes() {
           mode="edit"
           fabric={editing}
           vendors={vendors}
+          countries={countries}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
@@ -236,16 +252,16 @@ interface ModalProps {
   mode: "add" | "edit";
   fabric?: FabricCode;
   vendors: Vendor[];
+  countries: Country[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps) {
+function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     code:                   fabric?.code                   ?? "",
     name:                   fabric?.name                   ?? "",
     composition_text:       fabric?.composition_text       ?? "",
-    composition_json:       fabric?.composition_json ? JSON.stringify(fabric.composition_json) : "",
     fabric_weight_gsm:      fabric?.fabric_weight_gsm != null ? String(fabric.fabric_weight_gsm) : "",
     country_of_origin_iso2: fabric?.country_of_origin_iso2 ?? "",
     hts_code:               fabric?.hts_code               ?? "",
@@ -253,6 +269,26 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
     default_vendor_id:      fabric?.default_vendor_id      ?? "",
     is_active:              fabric?.is_active              ?? true,
   });
+
+  // Chunk J item 7 — COO picker options ("<iso2> — <name>", value = iso2).
+  // The stored value remains the 2-letter ISO code. If the row already holds
+  // an ISO that isn't in the active country_master list, surface it so the
+  // picker can render the current selection.
+  const countryOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(none)" },
+      ...countries.map((c) => ({
+        value: c.iso2,
+        label: `${c.iso2} — ${c.name}`,
+        searchHaystack: `${c.iso2} ${c.name}`,
+      })),
+    ];
+    const cur = form.country_of_origin_iso2;
+    if (cur && !countries.some((c) => c.iso2 === cur)) {
+      opts.push({ value: cur, label: cur });
+    }
+    return opts;
+  }, [countries, form.country_of_origin_iso2]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -263,7 +299,8 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
       const body: Record<string, unknown> = {
         name:                   form.name.trim(),
         composition_text:       form.composition_text.trim(),
-        composition_json:       form.composition_json.trim() || null,
+        // Chunk J item 6 — composition_json is no longer collected in the UI.
+        // The DB column + handler support remain; we simply stop sending it.
         fabric_weight_gsm:      form.fabric_weight_gsm ? Number(form.fabric_weight_gsm) : null,
         country_of_origin_iso2: form.country_of_origin_iso2.trim().toUpperCase() || null,
         hts_code:               form.hts_code.trim() || null,
@@ -341,14 +378,6 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
               placeholder='e.g. 60% Polyester / 40% Cotton'
             />
           </Field>
-          <Field label='Composition JSON (optional, e.g. [{"fiber":"cotton","pct":100}])' wide>
-            <textarea
-              value={form.composition_json}
-              onChange={(e) => setForm({ ...form, composition_json: e.target.value })}
-              style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12, minHeight: 60 }}
-              placeholder='[{"fiber":"cotton","pct":100}]'
-            />
-          </Field>
           <Field label="Weight (GSM)">
             <input
               type="number"
@@ -359,14 +388,12 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
               placeholder="180"
             />
           </Field>
-          <Field label="Country of origin (ISO-2)">
-            <input
-              type="text"
-              value={form.country_of_origin_iso2}
-              onChange={(e) => setForm({ ...form, country_of_origin_iso2: e.target.value.toUpperCase().slice(0, 2) })}
-              style={inputStyle}
-              placeholder="US"
-              maxLength={2}
+          <Field label="Country of origin">
+            <SearchableSelect
+              value={form.country_of_origin_iso2 || null}
+              onChange={(v) => setForm({ ...form, country_of_origin_iso2: v })}
+              options={countryOptions}
+              placeholder="Pick a country (search ISO / name)…"
             />
           </Field>
           <Field label="HTS code">
