@@ -40,6 +40,11 @@ type Employee = {
   email: string;
   title: string | null;
   department: string | null;
+  // P16 — title / department FK pointers + per-rep commission rates.
+  title_id: string | null;
+  department_id: string | null;
+  commission_wholesale_pct: number | string | null;
+  commission_closeout_pct: number | string | null;
   manager_employee_id: string | null;
   hire_date: string | null;
   termination_date: string | null;
@@ -48,6 +53,10 @@ type Employee = {
   created_at: string;
   updated_at: string;
 };
+
+// P16 — reference-master rows fetched for the title / department pickers.
+type EmployeeTitle = { id: string; name: string; is_sales_role: boolean };
+type EmployeeDepartment = { id: string; name: string };
 
 // Wave 5 — column visibility registry. Persistence key namespace follows
 // the project convention used by InternalStyleMaster ("tangerine:<panel>:columns").
@@ -101,6 +110,25 @@ export default function InternalEmployees() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
+
+  // P16 — reference masters for the title / department pickers in the modal.
+  const [titles, setTitles] = useState<EmployeeTitle[]>([]);
+  const [departments, setDepartments] = useState<EmployeeDepartment[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [tr, dr] = await Promise.all([
+          fetch("/api/internal/employee-titles"),
+          fetch("/api/internal/employee-departments"),
+        ]);
+        if (tr.ok) setTitles(await tr.json() as EmployeeTitle[]);
+        if (dr.ok) setDepartments(await dr.json() as EmployeeDepartment[]);
+      } catch {
+        // Non-fatal: pickers fall back to empty lists; the panel still works.
+      }
+    })();
+  }, []);
 
   // Wave 5 — column visibility (per-user persisted via user_preferences).
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
@@ -253,6 +281,8 @@ export default function InternalEmployees() {
         <EmployeeModal
           mode="add"
           employees={rows}
+          titles={titles}
+          departments={departments}
           onCancel={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); void load(); }}
         />
@@ -262,6 +292,8 @@ export default function InternalEmployees() {
           mode="edit"
           employee={editing}
           employees={rows}
+          titles={titles}
+          departments={departments}
           onCancel={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
@@ -270,10 +302,12 @@ export default function InternalEmployees() {
   );
 }
 
-function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
+function EmployeeModal({ mode, employee, employees, titles, departments, onCancel, onSaved }: {
   mode: "add" | "edit";
   employee?: Employee;
   employees: Employee[];
+  titles: EmployeeTitle[];
+  departments: EmployeeDepartment[];
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -284,6 +318,13 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
     email: employee?.email ?? "",
     title: employee?.title ?? "",
     department: employee?.department ?? "",
+    // P16 — FK pointers + commission rates.
+    title_id: employee?.title_id ?? "",
+    department_id: employee?.department_id ?? "",
+    commission_wholesale_pct: employee?.commission_wholesale_pct != null
+      ? String(employee.commission_wholesale_pct) : "0",
+    commission_closeout_pct: employee?.commission_closeout_pct != null
+      ? String(employee.commission_closeout_pct) : "0",
     manager_employee_id: employee?.manager_employee_id ?? "",
     hire_date: employee?.hire_date ?? "",
     termination_date: employee?.termination_date ?? "",
@@ -308,6 +349,15 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
         email: form.email.trim(),
         title: form.title.trim() || null,
         department: form.department.trim() || null,
+        // P16 — new FK pointers + commission rates. Commission rates are only
+        // meaningful for sales-role titles; we still send them (0 default) so a
+        // role flip doesn't leave a stale value behind.
+        title_id: form.title_id || null,
+        department_id: form.department_id || null,
+        commission_wholesale_pct: form.commission_wholesale_pct.trim() === ""
+          ? 0 : parseFloat(form.commission_wholesale_pct),
+        commission_closeout_pct: form.commission_closeout_pct.trim() === ""
+          ? 0 : parseFloat(form.commission_closeout_pct),
         manager_employee_id: form.manager_employee_id.trim() || null,
         hire_date: form.hire_date.trim() || null,
         termination_date: form.termination_date.trim() || null,
@@ -356,6 +406,31 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
     ];
   }, [otherActive]);
 
+  // P16 — title / department pickers + commission-rate reveal.
+  const titleOptions: SearchableSelectOption[] = useMemo(() => {
+    return [
+      { value: "", label: "(none)" },
+      ...titles.map((t) => ({
+        value: t.id,
+        label: t.is_sales_role ? `${t.name} (sales)` : t.name,
+        searchHaystack: t.name,
+      })),
+    ];
+  }, [titles]);
+
+  const departmentOptions: SearchableSelectOption[] = useMemo(() => {
+    return [
+      { value: "", label: "(none)" },
+      ...departments.map((d) => ({ value: d.id, label: d.name, searchHaystack: d.name })),
+    ];
+  }, [departments]);
+
+  // The selected title's is_sales_role flag drives the commission-rate reveal.
+  const selectedTitleIsSalesRole = useMemo(
+    () => titles.some((t) => t.id === form.title_id && t.is_sales_role),
+    [titles, form.title_id],
+  );
+
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -396,11 +471,55 @@ function EmployeeModal({ mode, employee, employees, onCancel, onSaved }: {
             <input style={inputStyle} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
           </Field>
           <Field label="Title">
-            <input style={inputStyle} value={form.title} onChange={(e) => set("title", e.target.value)} />
+            <SearchableSelect
+              value={form.title_id || null}
+              onChange={(v) => set("title_id", v)}
+              options={titleOptions}
+              placeholder="(none)"
+              emptyText="No matching titles"
+            />
           </Field>
           <Field label="Department">
-            <input style={inputStyle} value={form.department} onChange={(e) => set("department", e.target.value)} />
+            <SearchableSelect
+              value={form.department_id || null}
+              onChange={(v) => set("department_id", v)}
+              options={departmentOptions}
+              placeholder="(none)"
+              emptyText="No matching departments"
+            />
           </Field>
+          {/* P16 — commission rates only shown for sales-role titles. */}
+          {selectedTitleIsSalesRole && (
+            <>
+              <Field label="Wholesale %">
+                <input
+                  style={inputStyle}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.001"
+                  value={form.commission_wholesale_pct}
+                  onChange={(e) => set("commission_wholesale_pct", e.target.value)}
+                  placeholder="0"
+                />
+              </Field>
+              <Field label="Closeouts %">
+                <input
+                  style={inputStyle}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.001"
+                  value={form.commission_closeout_pct}
+                  onChange={(e) => set("commission_closeout_pct", e.target.value)}
+                  placeholder="0"
+                />
+              </Field>
+              <div style={{ gridColumn: "1 / -1", fontSize: 11, color: C.textMuted, marginTop: -4 }}>
+                Closeout = any sale with margin ≤ 14%.
+              </div>
+            </>
+          )}
           <Field label="Manager">
             <SearchableSelect
               value={form.manager_employee_id || null}

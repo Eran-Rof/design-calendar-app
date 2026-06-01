@@ -98,6 +98,17 @@ function isUuid(s) {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }
 
+// P16 — parse an optional commission percent. null/""/undefined → 0.
+// Accepts a number or numeric string in [0, 100]. Returns { value } or { error }.
+function parsePct(raw) {
+  if (raw == null || raw === "") return { value: 0 };
+  const n = typeof raw === "number" ? raw : parseFloat(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    return { error: "must be a number in [0, 100]" };
+  }
+  return { value: n };
+}
+
 export function validatePatch(body) {
   const data = {};
 
@@ -118,6 +129,34 @@ export function validatePatch(body) {
   }
   if ("title" in body) data.title = body.title ? String(body.title).trim() : null;
   if ("department" in body) data.department = body.department ? String(body.department).trim() : null;
+  // P16 — title_id / department_id FK pointers (uuid-or-null).
+  if ("title_id" in body) {
+    const v = body.title_id;
+    const trimmed = typeof v === "string" ? v.trim() : v;
+    if (trimmed && !isUuid(trimmed)) {
+      return { error: `title_id must be a uuid (got: ${JSON.stringify(v)})` };
+    }
+    data.title_id = trimmed || null;
+  }
+  if ("department_id" in body) {
+    const v = body.department_id;
+    const trimmed = typeof v === "string" ? v.trim() : v;
+    if (trimmed && !isUuid(trimmed)) {
+      return { error: `department_id must be a uuid (got: ${JSON.stringify(v)})` };
+    }
+    data.department_id = trimmed || null;
+  }
+  // P16 — commission rates: numeric percent in 0..100.
+  if ("commission_wholesale_pct" in body) {
+    const p = parsePct(body.commission_wholesale_pct);
+    if (p.error) return { error: `commission_wholesale_pct: ${p.error}` };
+    data.commission_wholesale_pct = p.value;
+  }
+  if ("commission_closeout_pct" in body) {
+    const p = parsePct(body.commission_closeout_pct);
+    if (p.error) return { error: `commission_closeout_pct: ${p.error}` };
+    data.commission_closeout_pct = p.value;
+  }
   if ("hire_date" in body) {
     if (body.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(body.hire_date)) return { error: "hire_date must be YYYY-MM-DD" };
     data.hire_date = body.hire_date || null;
