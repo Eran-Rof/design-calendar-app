@@ -30,7 +30,7 @@ Everything below is **built and inert today**; flipping the flag turns it on. Do
 1. **Configure brand allocations** on the P&L accounts that should split by brand (COA → account edit → Brand Allocation). Parent accounts with >1 brand auto-generate `{code}-{BRAND}` children.
 2. **Assign brands to items / styles** (Style Master / item master `brand_id`) — today everything is tagged ROF by default, so all stock/sales would map to ROF pools until real brands are set.
 3. **Decide existing on-hand handling** — currently forward-only (legacy stock is "(unpartitioned)"). If you want historical stock attributed to brand pools, do a one-time backfill (e.g. from a Xoro store export) — otherwise leave it.
-4. **Build partition-aware FIFO consumption** (the one remaining P15 dev task — agent, ~1 chunk): make a sale draw from its (brand, channel) pool. Deliberately deferred until now so it can be tested against real partitioned stock. *Not an operator task — flag the agent to build it before enforcing.*
+4. ~~Build partition-aware FIFO consumption~~ ✅ **DONE (#692)** — a sale draws from its brand pool when enforcing; inert (draws all layers) until then. **No remaining P15 dev work** — the steps above/below are operator config only.
 5. **Set `BRAND_SCOPE_MODE=log`** on Vercel; watch the silent-log telemetry for a few days; spot-check that a brand-filtered Income Statement / AR aging foots to the "All brands" total.
 6. **Flip to `enforce`.** From then on: manual JE + AP postings auto-split by allocation %, reports filter by the brand switcher, and inventory separates by pool.
 
