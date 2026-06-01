@@ -315,6 +315,9 @@ import h303 from "./internal/payment-terms/[id].js";
 // Size Scale Master — ordered size lists (text[]) reused by Style Master.
 import h568 from "./internal/size-scales/index.js";
 import h569 from "./internal/size-scales/[id].js";
+// Matrix shared endpoints — style matrix payload + find/create SKU per cell.
+import h570 from "./internal/style-matrix/index.js";
+import h571 from "./internal/style-matrix/resolve-sku.js";
 // Chunk I — reference master panels (h549..h556). Grouped here with the
 // other Master Data handlers (payment-terms / style-master).
 import h549 from "./internal/countries/index.js";
@@ -1003,6 +1006,8 @@ export const ROUTES = [
   // Size Scales — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/size-scales/:id", handler: h569 },
   { pattern: "/api/internal/size-scales", handler: h568 },
+  { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
+  { pattern: "/api/internal/style-matrix", handler: h570 },
   // Chunk I reference masters — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/countries/:id", handler: h550 },
   { pattern: "/api/internal/countries", handler: h549 },
