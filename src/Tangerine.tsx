@@ -192,7 +192,7 @@ type ModuleKey =
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
   | "user_access";
 
-type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Sales" | "CRM" | "Customers" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Sales" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -218,7 +218,7 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
   { section: "Sales",       emoji: "🛒", groups: ["Sales", "Shopify", "Marketplaces"] },
-  { section: "Customers",   emoji: "🤝", groups: ["Customers", "CRM", "Customer Service"] },
+  { section: "Customers",   emoji: "🤝", groups: ["Customers", "Customers – Accts Rec", "CRM", "Customer Service"] },
   { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
 ];
 
@@ -228,6 +228,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Vendors":          "🏭",
   "CRM":              "🤝",
   "Customers":        "🤝",
+  "Customers – Accts Rec": "📥",
   "Reports":          "📊",
   "Inventory":        "📦",
   "Customer Service": "🎧",
@@ -264,16 +265,16 @@ const MODULES: ModuleDef[] = [
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
   { key: "ap_invoices",       label: "AP Invoices",       emoji: "🧾", group: "Vendors" },
   { key: "ap_payments",       label: "AP Payments",       emoji: "💸", group: "Vendors" },
-  { key: "ar_invoices",       label: "AR Invoices",       emoji: "🧮", group: "Accounting" },
+  { key: "ar_invoices",       label: "AR Invoices",       emoji: "🧮", group: "Customers – Accts Rec" },
   // P4-5: AR Receipts (customer payments + applications). Sibling to AR
   // Invoices above (P4-4).
-  { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Accounting" },
+  { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Customers – Accts Rec" },
   // P16/M10 — native Sales Order entry.
   { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
-  { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Accounting" },
-  // P4-8: Historical backfill — one-shot operator tool, kept in Accounting.
-  { key: "ar_backfill",       label: "AR Backfill",       emoji: "🗄️", group: "Accounting" },
+  { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
+  // P4-8: Historical backfill — one-shot operator tool.
+  { key: "ar_backfill",       label: "AR Backfill",       emoji: "🗄️", group: "Customers – Accts Rec" },
   // P5-2: Trial Balance — foundation report for all the other financial statements.
   { key: "trial_balance",     label: "Trial Balance",     emoji: "📊", group: "Accounting" },
   // P5-3: Income Statement (P&L) — revenue + COGS + opex with subtotals.
@@ -311,8 +312,8 @@ const MODULES: ModuleDef[] = [
   // P7-9: M47 Customer Service / Cases panel.
   { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
   // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by
-  // Customer + GL Detail). AR Aging stays under Accounting per its existing
-  // P4-6 slot; the Reports menu group hosts the four NEW reports.
+  // Customer + GL Detail). AR items (incl. AR Aging) now live under the
+  // "Customers – Accts Rec" group; the Reports menu group hosts these reports.
   { key: "ap_aging",          label: "AP Aging (report)", emoji: "📅", group: "Vendors" },
   { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Reports" },
   { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Reports" },
