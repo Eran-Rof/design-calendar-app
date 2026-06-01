@@ -976,7 +976,7 @@ function ARInvoiceModal({
                   <tr>
                     <th style={{ ...th, width: 36 }}>#</th>
                     <th style={th}>Description</th>
-                    <th style={th}>Inventory item</th>
+                    <th style={th}>Item (optional)</th>
                     <th style={{ ...th, width: 70 }}>Qty</th>
                     <th style={{ ...th, width: 100 }}>Unit $</th>
                     <th style={{ ...th, width: 110 }}>Or total $</th>
