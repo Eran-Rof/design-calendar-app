@@ -13,6 +13,22 @@ export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = ["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"];
+const FACTOR_STATUSES = ["not_submitted", "pending", "approved", "partial", "declined", "not_required"];
+
+// Item 9 — resolve the revenue account to stamp on each SO line: the customer's
+// default_revenue_account_id, else the entity default. Returns a uuid or null.
+async function resolveLineRevenueAccount(admin, customerId, entityId) {
+  let acct = null;
+  if (customerId) {
+    const { data: cust } = await admin.from("customers").select("default_revenue_account_id").eq("id", customerId).maybeSingle();
+    if (cust?.default_revenue_account_id) acct = cust.default_revenue_account_id;
+  }
+  if (!acct && entityId) {
+    const { data: ent } = await admin.from("entities").select("default_revenue_account_id").eq("id", entityId).maybeSingle();
+    if (ent?.default_revenue_account_id) acct = ent.default_revenue_account_id;
+  }
+  return acct || null;
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -78,6 +94,28 @@ export default async function handler(req, res, params) {
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
 
+    // Item 3 — factor / credit-insurance approval (manual).
+    if ("factor_approval_status" in body) {
+      const fs = body.factor_approval_status;
+      if (fs == null || fs === "") {
+        patch.factor_approval_status = "not_submitted";
+      } else if (!FACTOR_STATUSES.includes(fs)) {
+        return res.status(400).json({ error: `factor_approval_status must be one of ${FACTOR_STATUSES.join(", ")}` });
+      } else {
+        patch.factor_approval_status = fs;
+      }
+    }
+    if ("factor_reference" in body) patch.factor_reference = body.factor_reference ? String(body.factor_reference).trim() : null;
+    if ("factor_approved_cents" in body) {
+      if (body.factor_approved_cents == null || body.factor_approved_cents === "") {
+        patch.factor_approved_cents = null;
+      } else {
+        const n = typeof body.factor_approved_cents === "number" ? body.factor_approved_cents : parseInt(body.factor_approved_cents, 10);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return res.status(400).json({ error: "factor_approved_cents must be a non-negative integer" });
+        patch.factor_approved_cents = n;
+      }
+    }
+
     if ("status" in body) {
       if (!STATUSES.includes(body.status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
       patch.status = body.status;
@@ -94,6 +132,10 @@ export default async function handler(req, res, params) {
         // allow line edits only while draft
         return res.status(409).json({ error: "Lines can only be edited while the order is a draft." });
       }
+      // Item 9 — revenue is auto-routed from the customer master (entity fallback),
+      // not taken from the per-line payload.
+      const custForRouting = ("customer_id" in patch ? patch.customer_id : so.customer_id);
+      const lineRevenueAccountId = await resolveLineRevenueAccount(admin, custForRouting, so.entity_id);
       const norm = [];
       let ln = 1;
       for (const l of body.lines) {
@@ -105,7 +147,7 @@ export default async function handler(req, res, params) {
           inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
           description: l.description ? String(l.description).trim() : null,
           qty_ordered: qty, unit_price_cents: unit, line_total_cents: Math.round(qty * unit),
-          revenue_account_id: l.revenue_account_id && UUID_RE.test(String(l.revenue_account_id)) ? l.revenue_account_id : null,
+          revenue_account_id: lineRevenueAccountId,
         });
       }
       await admin.from("sales_order_lines").delete().eq("sales_order_id", id);

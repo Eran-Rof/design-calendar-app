@@ -29,6 +29,9 @@ const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
   "customer_tier", "country", "channel_id", "customer_type",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
+  // P16 — SO routing defaults (brand/channel prefill + per-line revenue routing).
+  "default_brand_id", "default_channel_id",
+  "default_revenue_account_id", "default_returns_account_id", "default_cogs_account_id",
   "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
