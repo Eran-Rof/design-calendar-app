@@ -486,7 +486,7 @@ export default function InternalARInvoices() {
                       <SourceBadge source={inv.source} />
                     </td>
                     <td style={td} hidden={!isVisible("invoice_date")}>{inv.invoice_date}</td>
-                    <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || inv.customer_id.slice(0, 8)}</td>
+                    <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
                       hidden={!isVisible("total")}
@@ -1005,7 +1005,7 @@ function ARInvoiceModal({
                               })),
                             ];
                             if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
-                              opts.push({ value: l.inventory_item_id, label: `${l.inventory_item_id.slice(0, 8)}… (saved)`, searchHaystack: l.inventory_item_id });
+                              opts.push({ value: l.inventory_item_id, label: "(saved item)", searchHaystack: l.inventory_item_id });
                             }
                             return opts;
                           })()}

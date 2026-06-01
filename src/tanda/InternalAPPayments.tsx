@@ -228,7 +228,7 @@ export default function InternalAPPayments() {
                   <tr key={p.id}>
                     <td style={td}>{p.payment_date}</td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
-                      {inv?.invoice_number || p.invoice_id.slice(0, 8)}
+                      {inv?.invoice_number || "—"}
                     </td>
                     <td style={td}>{vendor?.name || "—"}</td>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
@@ -236,11 +236,11 @@ export default function InternalAPPayments() {
                     </td>
                     <td style={td}>{p.method}</td>
                     <td style={{ ...td, fontSize: 12, color: C.textSub }}>
-                      {bank ? `${bank.code} — ${bank.name}` : <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>{p.bank_account_id.slice(0, 8)}…</span>}
+                      {bank ? `${bank.code} — ${bank.name}` : <span style={{ color: C.textMuted }}>—</span>}
                     </td>
                     <td style={{ ...td, fontSize: 12, color: C.textSub }}>{p.reference || "—"}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11, color: p.cash_je_id ? C.success : C.textMuted }}>
-                      {p.cash_je_id ? p.cash_je_id.slice(0, 8) + "…" : "—"}
+                    <td style={{ ...td, fontSize: 11, color: p.cash_je_id ? C.success : C.textMuted }}>
+                      {p.cash_je_id ? "✓ posted" : "—"}
                     </td>
                   </tr>
                 );

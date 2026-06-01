@@ -104,7 +104,7 @@ export default function SupplyExceptionPanel({ exceptions, skuCodeById }: Supply
                 </td>
                 <td style={S.td}>{EXCEPTION_LABEL[e.exception_type] ?? e.exception_type}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
-                  {skuCodeById.get(e.sku_id) ?? e.sku_id.slice(0, 8)}
+                  {skuCodeById.get(e.sku_id) ?? "(unknown sku)"}
                 </td>
                 <td style={S.td}>{formatPeriodCode(e.period_code)}</td>
                 <td style={{ ...S.td, color: PAL.textDim, fontFamily: "monospace", fontSize: 11 }}>

@@ -118,7 +118,7 @@ export default function InternalSalesOrders() {
             {rows.map((so) => (
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
-                <td style={td}>{customerName[so.customer_id] || so.customer_id.slice(0, 8)}</td>
+                <td style={td}>{customerName[so.customer_id] || "—"}</td>
                 <td style={td}>{so.order_date}</td>
                 <td style={td}>{so.requested_ship_date || "—"}</td>
                 <td style={td}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>

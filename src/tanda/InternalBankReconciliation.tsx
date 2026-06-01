@@ -239,7 +239,7 @@ function AccountsTab() {
                 <td style={{ ...td, fontFamily: "monospace" }}>{r.mask ? `••${r.mask}` : "—"}</td>
                 <td style={td}>{r.account_kind}</td>
                 <td style={{ ...td, color: r.feed_source === "plaid" ? C.success : r.feed_source === "csv_upload" ? C.warn : C.textMuted }}>{r.feed_source}</td>
-                <td style={{ ...td, fontFamily: "monospace" }}>{r.gl_accounts ? `${r.gl_accounts.code} ${r.gl_accounts.name}` : r.gl_account_id.slice(0, 8)}</td>
+                <td style={{ ...td, fontFamily: "monospace" }}>{r.gl_accounts ? `${r.gl_accounts.code} ${r.gl_accounts.name}` : "—"}</td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{r.last_synced_at ? new Date(r.last_synced_at).toLocaleString() : "never"}</td>
                 <td style={tdNum}>{fmtCents(r.current_balance_cents)}</td>
                 <td style={{ ...td, color: r.is_active ? C.success : C.textMuted }}>{r.is_active ? "active" : "inactive"}</td>
@@ -593,7 +593,7 @@ function TransactionsTab() {
                 <tr key={r.id} style={r.pending ? { opacity: 0.5 } : {}}>
                   <td style={td}>{r.posted_date}</td>
                   <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
-                    {r.bank_accounts?.name || r.bank_account_id.slice(0, 8)}
+                    {r.bank_accounts?.name || "—"}
                     {r.bank_accounts?.mask ? ` ••${r.bank_accounts.mask}` : ""}
                   </td>
                   <td style={td}>{r.merchant_name || r.description || "—"}</td>

@@ -422,7 +422,7 @@ export default function InternalAPInvoices() {
                   >
                     <td style={td} hidden={!isVisible("posting_date")}>{inv.posting_date}</td>
                     <td style={td} hidden={!isVisible("due_date")}>{inv.due_date || "—"}</td>
-                    <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || inv.vendor_id.slice(0, 8)}</td>
+                    <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}
                       hidden={!isVisible("invoice_number")}
@@ -917,7 +917,7 @@ function APInvoiceModal({
                               ];
                               // Preserve an already-saved item not in the vendor's current list.
                               if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
-                                opts.push({ value: l.inventory_item_id, label: `${l.inventory_item_id.slice(0, 8)}… (saved)`, searchHaystack: l.inventory_item_id });
+                                opts.push({ value: l.inventory_item_id, label: "(saved item)", searchHaystack: l.inventory_item_id });
                               }
                               return opts;
                             })()}

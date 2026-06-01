@@ -191,10 +191,10 @@ export default function InternalScf() {
           {requests.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 100px 120px 150px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{r.vendor?.name || r.vendor_id}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {r.invoice?.invoice_number || r.invoice_id.slice(0, 8)} · due {r.invoice?.due_date || "—"}</div>
+                <div style={{ fontWeight: 600 }}>{r.vendor?.name || "—"}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {r.invoice?.invoice_number || "—"} · due {r.invoice?.due_date || "—"}</div>
               </div>
-              <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || r.program_id.slice(0, 8)}</div>
+              <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || "—"}</div>
               <div>${Number(r.requested_amount).toLocaleString()}</div>
               <div style={{ color: C.textMuted }}>{r.fee_amount != null ? `$${Number(r.fee_amount).toFixed(2)}` : "—"}</div>
               <div>{r.net_disbursement != null ? `$${Number(r.net_disbursement).toLocaleString()}` : "—"}</div>

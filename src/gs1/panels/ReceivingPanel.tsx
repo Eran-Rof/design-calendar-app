@@ -172,7 +172,7 @@ export default function ReceivingPanel() {
       {confirmDone && receivingSession && (
         <div style={{ background: "#F0FFF4", border: "1px solid #C6F6D5", borderRadius: 8,
           padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#276749" }}>
-          <strong>✓ Received</strong> — session <code style={{ fontSize: 11 }}>{receivingSession.id.slice(0, 8)}…</code> &nbsp;
+          <strong>✓ Received</strong> &nbsp;
           Status: <StatusBadge status={receivingSession.status} />
         </div>
       )}

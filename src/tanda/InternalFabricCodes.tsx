@@ -9,6 +9,8 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type FabricCode = {
   id: string;
@@ -72,6 +74,13 @@ export default function InternalFabricCodes() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<FabricCode | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<FabricCode>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit fabric ${r.code}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -204,7 +213,13 @@ export default function InternalFabricCodes() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} style={!r.is_active ? { opacity: 0.5 } : {}}>
+                <ScrollHighlightRow
+                  key={r.id}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
+                  style={!r.is_active ? { opacity: 0.5 } : undefined}
+                >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
                     {r.code}
                   </td>
@@ -215,10 +230,10 @@ export default function InternalFabricCodes() {
                   <td style={td}>{r.hts_code ?? "—"}</td>
                   <td style={td}>{r.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => void hardDelete(r.id, r.code)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                    <button onClick={(e) => { e.stopPropagation(); void hardDelete(r.id, r.code); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>

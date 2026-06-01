@@ -93,8 +93,8 @@ export default function InternalComplianceAudit() {
           {rows.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "130px 1.5fr 1.5fr 130px 2fr 150px", padding: "8px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 12, alignItems: "center" }}>
               <div><span style={{ fontSize: 10, color: "#fff", background: actionColor(r.action), padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{r.action}</span></div>
-              <div>{r.vendor?.name || r.vendor_id}</div>
-              <div style={{ color: C.textSub }}>{r.document?.document_type?.name || (r.document_id ? r.document_id.slice(0, 8) : "—")}</div>
+              <div>{r.vendor?.name || "—"}</div>
+              <div style={{ color: C.textSub }}>{r.document?.document_type?.name || "—"}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{r.performed_by_type}{r.performed_by ? ` · ${r.performed_by}` : ""}</div>
               <div style={{ color: C.textMuted, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.notes || "—"}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(r.created_at).toLocaleString()}</div>

@@ -20,6 +20,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import InternalPimStyleDetail from "./InternalPimStyleDetail";
 import SearchableSelect from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type Category = {
   id: string;
@@ -193,6 +195,13 @@ export default function InternalPimProductCatalog() {
   const [brandFilter, setBrandFilter] = useState<string>(""); // brand id (Chunk J item 4)
 
   const [openStyleId, setOpenStyleId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<RowVM>({
+    onRowClick: (r) => setOpenStyleId(r.id),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Open product ${r.style_code}`,
+  });
 
   async function loadCategories() {
     try {
@@ -489,12 +498,11 @@ export default function InternalPimProductCatalog() {
             </thead>
             <tbody>
               {filteredRows.map((r) => (
-                <tr
+                <ScrollHighlightRow
                   key={r.id}
-                  onClick={() => setOpenStyleId(r.id)}
-                  style={{ cursor: "pointer" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "#0b1220")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
                 >
                   <td style={{ ...td, width: 110 }}>
                     {r.primary_thumb ? (
@@ -530,7 +538,7 @@ export default function InternalPimProductCatalog() {
                     <PublishPill label={r.publish_label} loaded={r.loaded} />
                   </td>
                   <td style={td}>{fmtDate(r.pim_updated)}</td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>

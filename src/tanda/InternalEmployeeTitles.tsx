@@ -13,6 +13,8 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type EmployeeTitle = {
   id: string;
@@ -60,6 +62,13 @@ export default function InternalEmployeeTitles() {
   const [q, setQ] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<EmployeeTitle | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<EmployeeTitle>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit title ${r.name}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -146,15 +155,20 @@ export default function InternalEmployeeTitles() {
             </thead>
             <tbody>
               {rows.map((t) => (
-                <tr key={t.id}>
+                <ScrollHighlightRow
+                  key={t.id}
+                  rowId={t.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(t)}
+                >
                   <td style={td}>{t.name}</td>
                   <td style={td}>{t.is_sales_role ? "🟢 yes" : "—"}</td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{t.sort_order}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => setEditing(t)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => void del(t)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} style={btnSecondary}>Edit</button>
+                    <button onClick={(e) => { e.stopPropagation(); void del(t); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>

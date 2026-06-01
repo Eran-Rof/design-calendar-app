@@ -163,8 +163,8 @@ export default function InternalDiscountOffers() {
           {offers.map((o) => (
             <div key={o.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px 120px 100px 100px 100px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{o.vendor?.name || o.vendor_id}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {o.invoice?.invoice_number || o.invoice_id.slice(0, 8)}</div>
+                <div style={{ fontWeight: 600 }}>{o.vendor?.name || "—"}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {o.invoice?.invoice_number || "—"}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{o.early_payment_date}</div>
               <div style={{ color: C.textMuted }}>{o.days_early ?? "—"}</div>
