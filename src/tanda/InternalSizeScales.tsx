@@ -78,6 +78,11 @@ export default function InternalSizeScales() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<SizeScale | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  // Right-click context menu: position + the row it targets.
+  const [menu, setMenu] = useState<{ x: number; y: number; row: SizeScale } | null>(null);
+  // When set, the add modal pre-seeds sort_order = insertBelowOrder and the
+  // create flow shifts every scale with sort_order > insertBelowOrder by +1.
+  const [insertBelowOrder, setInsertBelowOrder] = useState<number | null>(null);
 
   const { getRowProps } = useRowClickEdit<SizeScale>({
     onRowClick: (r) => setEditing(r),
@@ -103,6 +108,53 @@ export default function InternalSizeScales() {
   }
 
   useEffect(() => { void load(); }, [includeInactive]);
+
+  // Close the context menu on outside-click or Esc.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(null); };
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  // Begin an "add below" flow: remember the clicked row's sort_order so the
+  // create modal seeds the new scale at clicked+1 and the shift runs on save.
+  function startAddBelow(row: SizeScale) {
+    setMenu(null);
+    setInsertBelowOrder(row.sort_order);
+    setAddOpen(true);
+  }
+
+  // Shift every scale with sort_order > base up by +1 (sequentially, so the DB
+  // never holds two rows at the same sort_order). Returns false on failure.
+  async function shiftScalesBelow(base: number): Promise<boolean> {
+    // Bump the highest sort_order first to keep values from colliding.
+    const toBump = rows
+      .filter((r) => r.sort_order > base)
+      .sort((a, b) => b.sort_order - a.sort_order);
+    for (const r of toBump) {
+      const res = await fetch(`/api/internal/size-scales/${r.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sort_order: r.sort_order + 1 }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        notify(`Failed to reorder ${r.code}: ${j.error || `HTTP ${res.status}`}`, "error");
+        return false;
+      }
+    }
+    return true;
+  }
 
   async function del(ss: SizeScale) {
     if (!(await confirmDialog(`Delete size scale ${ss.code} (${ss.name})?\nWill fail if any style still references it — toggle is_active=false in that case.`))) return;
@@ -198,6 +250,12 @@ export default function InternalSizeScales() {
                   rowId={ss.id}
                   highlightedRowId={highlightedId}
                   {...getRowProps(ss)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.nativeEvent.stopImmediatePropagation();
+                    setMenu({ x: e.clientX, y: e.clientY, row: ss });
+                  }}
                   style={!ss.is_active ? { opacity: 0.5 } : undefined}
                 >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{ss.code}</td>
@@ -217,25 +275,65 @@ export default function InternalSizeScales() {
         )}
       </div>
 
-      {addOpen && <SizeScaleFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+      {menu && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed", top: menu.y, left: menu.x, zIndex: 200,
+            background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+            padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}
+        >
+          <button style={ctxMenuItem} onClick={() => startAddBelow(menu.row)}>
+            ➕ Add size scale below
+          </button>
+          <button style={ctxMenuItem} onClick={() => { const r = menu.row; setMenu(null); setEditing(r); }}>
+            ✏️ Edit
+          </button>
+        </div>
+      )}
+
+      {addOpen && (
+        <SizeScaleFormModal
+          mode="add"
+          seedSortOrder={insertBelowOrder == null ? undefined : insertBelowOrder + 1}
+          beforeCreate={insertBelowOrder == null ? undefined : () => shiftScalesBelow(insertBelowOrder)}
+          onClose={() => { setAddOpen(false); setInsertBelowOrder(null); }}
+          onSaved={() => { setAddOpen(false); setInsertBelowOrder(null); void load(); }}
+        />
+      )}
       {editing && <SizeScaleFormModal mode="edit" scale={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
     </div>
   );
 }
 
+const ctxMenuItem: React.CSSProperties = {
+  display: "block", width: "100%", textAlign: "left",
+  background: "transparent", color: C.text, border: 0,
+  padding: "8px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13,
+};
+
 interface ModalProps {
   mode: "add" | "edit";
   scale?: SizeScale;
+  /** For "add below": pre-seed the sort_order field (clicked row + 1). */
+  seedSortOrder?: number;
+  /**
+   * For "add below": run BEFORE the POST to shift existing scales down so the
+   * new one slots in cleanly. Return false to abort the create.
+   */
+  beforeCreate?: () => Promise<boolean>;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function SizeScaleFormModal({ mode, scale, onClose, onSaved }: ModalProps) {
+function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     code:       scale?.code ?? "",
     name:       scale?.name ?? "",
     sizesText:  scale?.sizes ? scale.sizes.join(", ") : "",
-    sort_order: scale?.sort_order != null ? String(scale.sort_order) : "0",
+    sort_order: scale?.sort_order != null ? String(scale.sort_order)
+      : seedSortOrder != null ? String(seedSortOrder) : "0",
     is_active:  scale?.is_active ?? true,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -251,6 +349,11 @@ function SizeScaleFormModal({ mode, scale, onClose, onSaved }: ModalProps) {
       let method: string;
       let body: Record<string, unknown>;
       if (mode === "add") {
+        // "Add below": shift existing scales down first so the new one slots in.
+        if (beforeCreate) {
+          const ok = await beforeCreate();
+          if (!ok) { setSubmitting(false); return; }
+        }
         url = "/api/internal/size-scales";
         method = "POST";
         body = {
