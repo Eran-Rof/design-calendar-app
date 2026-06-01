@@ -413,7 +413,7 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
   // vendor doesn't silently drop their previous term off the list).
   const paymentTermOptions = useMemo(() => {
     const opts = [
-      { value: "", label: "(none — inherit / no default)" },
+      { value: "", label: "(select)" },
       ...paymentTerms
         .filter((t) => t.is_active || t.id === form.payment_terms_id)
         .map((t) => ({
@@ -588,7 +588,7 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
               value={form.payment_terms_id || ""}
               onChange={(v) => setForm({ ...form, payment_terms_id: v })}
               options={paymentTermOptions}
-              placeholder="(none — inherit / no default)"
+              placeholder="(select)"
               emptyText="No matching terms"
             />
             {mode === "edit" && vendor?.payment_terms && !form.payment_terms_id && (
