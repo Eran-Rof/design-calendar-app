@@ -52,6 +52,17 @@ type Customer = {
   customer_type: string;
   default_gl_ar_account_id: string | null;
   default_gl_revenue_account_id: string | null;
+  // P4-family sales-rep / default / GL-routing columns.
+  sales_rep_1_id: string | null;
+  sales_rep_1_commission_pct: number | string | null;
+  sales_rep_2_id: string | null;
+  sales_rep_2_commission_pct: number | string | null;
+  default_brand_id: string | null;
+  default_channel_id: string | null;
+  default_revenue_account_id: string | null;
+  default_returns_account_id: string | null;
+  default_cogs_account_id: string | null;
+  default_ar_account_id: string | null;
   payment_terms: string | null;       // legacy free-text (read-only display)
   payment_terms_id: string | null;    // P3-9 structured FK
   default_currency: string;
@@ -84,6 +95,19 @@ type GlAccount = {
   is_postable: boolean;
   status: string;
 };
+
+type Employee = {
+  id: string;
+  code: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  display_name: string | null;
+  title: string | null;
+  is_active: boolean;
+};
+
+type Brand = { id: string; code: string; name: string; is_default?: boolean };
+type Channel = { id: string; code: string; name: string };
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -424,6 +448,17 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                                     ? customer.shipping_address : {}) as Address,
     default_gl_ar_account_id:     customer?.default_gl_ar_account_id     ?? "",
     default_gl_revenue_account_id: customer?.default_gl_revenue_account_id ?? "",
+    // P4-family sales-rep / default / GL-routing fields.
+    sales_rep_1_id:               customer?.sales_rep_1_id               ?? "",
+    sales_rep_1_commission_pct:   customer?.sales_rep_1_commission_pct != null ? String(customer.sales_rep_1_commission_pct) : "",
+    sales_rep_2_id:               customer?.sales_rep_2_id               ?? "",
+    sales_rep_2_commission_pct:   customer?.sales_rep_2_commission_pct != null ? String(customer.sales_rep_2_commission_pct) : "",
+    default_brand_id:             customer?.default_brand_id             ?? "",
+    default_channel_id:           customer?.default_channel_id           ?? "",
+    default_revenue_account_id:   customer?.default_revenue_account_id   ?? "",
+    default_returns_account_id:   customer?.default_returns_account_id   ?? "",
+    default_cogs_account_id:      customer?.default_cogs_account_id      ?? "",
+    default_ar_account_id:        customer?.default_ar_account_id        ?? "",
     contact_name:                 customer?.contact_name                 ?? "",
     contact_title:                customer?.contact_title                ?? "",
     email:                        customer?.email                        ?? "",
@@ -432,6 +467,10 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     wechat_id:                    customer?.wechat_id                    ?? "",
   });
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses">("details");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -439,6 +478,18 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     fetch("/api/internal/gl-accounts?limit=1000")
       .then((r) => r.json())
       .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
+      .catch(() => {});
+    fetch("/api/internal/employees")
+      .then((r) => r.json())
+      .then((arr: Employee[]) => setEmployees(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
+    fetch("/api/internal/brands")
+      .then((r) => r.json())
+      .then((j: { brands?: Brand[] }) => setBrands(Array.isArray(j?.brands) ? j.brands : []))
+      .catch(() => {});
+    fetch("/api/internal/channels")
+      .then((r) => r.json())
+      .then((j: { channels?: Channel[] }) => setChannels(Array.isArray(j?.channels) ? j.channels : []))
       .catch(() => {});
   }, []);
 
@@ -450,6 +501,38 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       label: `${a.code} — ${a.name}`,
     })),
   ], [glAccounts]);
+
+  // GL routing pickers (Tab 3) — postable AND active accounts only.
+  const glRoutingOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(none)" },
+    ...glAccounts.filter((a) => a.is_postable && a.status === "active").map((a) => ({
+      value: a.id,
+      label: `${a.code} — ${a.name}`,
+    })),
+  ], [glAccounts]);
+
+  // Sales-rep pickers (Tab 2) — employees by display name.
+  const employeeOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(none)" },
+    ...employees.map((e) => {
+      const label = e.display_name || `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim() || e.code || e.id;
+      return {
+        value: e.id,
+        label: e.title ? `${label} — ${e.title}` : label,
+        searchHaystack: `${label} ${e.code ?? ""} ${e.title ?? ""}`,
+      };
+    }),
+  ], [employees]);
+
+  const brandOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(none)" },
+    ...brands.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}`, searchHaystack: `${b.code} ${b.name}` })),
+  ], [brands]);
+
+  const channelOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(none)" },
+    ...channels.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` })),
+  ], [channels]);
 
   // Wave 5 — payment-terms picker is the only modal dropdown whose option
   // list comes from a DB table (payment_terms) and can grow beyond a
@@ -500,6 +583,17 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         shipping_address:             form.shipping_address,
         default_gl_ar_account_id:     form.default_gl_ar_account_id || null,
         default_gl_revenue_account_id: form.default_gl_revenue_account_id || null,
+        // P4-family sales-rep / default / GL-routing fields.
+        sales_rep_1_id:               form.sales_rep_1_id || null,
+        sales_rep_1_commission_pct:   form.sales_rep_1_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_1_commission_pct),
+        sales_rep_2_id:               form.sales_rep_2_id || null,
+        sales_rep_2_commission_pct:   form.sales_rep_2_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_2_commission_pct),
+        default_brand_id:             form.default_brand_id || null,
+        default_channel_id:           form.default_channel_id || null,
+        default_revenue_account_id:   form.default_revenue_account_id || null,
+        default_returns_account_id:   form.default_returns_account_id || null,
+        default_cogs_account_id:      form.default_cogs_account_id || null,
+        default_ar_account_id:        form.default_ar_account_id || null,
         contact_name:                 form.contact_name.trim() || null,
         contact_title:                form.contact_title.trim() || null,
         email:                        form.email.trim() || null,
@@ -543,7 +637,35 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
           {mode === "add" ? "Add customer" : `Edit ${customer!.name}`}
         </h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.cardBdr}`, marginBottom: 16 }}>
+          {([
+            ["details", "Details"],
+            ["reps", "Reps & Defaults"],
+            ["gl", "GL Accounts"],
+            ["addresses", "Addresses & Locations"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              style={{
+                background: "transparent",
+                border: 0,
+                borderBottom: tab === key ? `2px solid ${C.primary}` : "2px solid transparent",
+                color: tab === key ? C.text : C.textMuted,
+                padding: "8px 12px",
+                fontSize: 13,
+                fontWeight: tab === key ? 600 : 500,
+                cursor: "pointer",
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: tab === "details" ? "grid" : "none", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Name *">
             <input
               type="text"
@@ -693,9 +815,130 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
           </Field>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
-          <AddressFields label="Billing address" value={form.billing_address} onChange={(a) => setForm({ ...form, billing_address: a })} />
-          <AddressFields label="Shipping address" value={form.shipping_address} onChange={(a) => setForm({ ...form, shipping_address: a })} />
+        {/* ── Tab 2 — Reps & Defaults ─────────────────────────────────── */}
+        <div style={{ display: tab === "reps" ? "grid" : "none", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Sales rep 1">
+            <SearchableSelect
+              value={form.sales_rep_1_id || null}
+              onChange={(v) => setForm({ ...form, sales_rep_1_id: v })}
+              options={employeeOptions}
+              placeholder="(none)"
+            />
+          </Field>
+          <Field label="Sales rep 1 commission %">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={form.sales_rep_1_commission_pct}
+              onChange={(e) => setForm({ ...form, sales_rep_1_commission_pct: e.target.value })}
+              style={inputStyle}
+              placeholder="0.00"
+            />
+          </Field>
+          <Field label="Sales rep 2">
+            <SearchableSelect
+              value={form.sales_rep_2_id || null}
+              onChange={(v) => setForm({ ...form, sales_rep_2_id: v })}
+              options={employeeOptions}
+              placeholder="(none)"
+            />
+          </Field>
+          <Field label="Sales rep 2 commission %">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={form.sales_rep_2_commission_pct}
+              onChange={(e) => setForm({ ...form, sales_rep_2_commission_pct: e.target.value })}
+              style={inputStyle}
+              placeholder="0.00"
+            />
+          </Field>
+          <Field label="Default brand">
+            <SearchableSelect
+              value={form.default_brand_id || null}
+              onChange={(v) => setForm({ ...form, default_brand_id: v })}
+              options={brandOptions}
+              placeholder="(none)"
+            />
+          </Field>
+          <Field label="Default channel">
+            <SearchableSelect
+              value={form.default_channel_id || null}
+              onChange={(v) => setForm({ ...form, default_channel_id: v })}
+              options={channelOptions}
+              placeholder="(none)"
+            />
+          </Field>
+          <Field label="Default terms">
+            <SearchableSelect
+              value={form.payment_terms_id || null}
+              onChange={(v) => setForm({ ...form, payment_terms_id: v })}
+              options={paymentTermsOptions}
+              placeholder="Pick a payment term…"
+            />
+          </Field>
+        </div>
+
+        {/* ── Tab 3 — GL Accounts ─────────────────────────────────────── */}
+        <div style={{ display: tab === "gl" ? "block" : "none" }}>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+            Used for this customer&apos;s sales-order and invoice GL routing.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Revenue account">
+              <SearchableSelect
+                value={form.default_revenue_account_id || null}
+                onChange={(v) => setForm({ ...form, default_revenue_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(none)"
+              />
+            </Field>
+            <Field label="Returns account">
+              <SearchableSelect
+                value={form.default_returns_account_id || null}
+                onChange={(v) => setForm({ ...form, default_returns_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(none)"
+              />
+            </Field>
+            <Field label="COGS account">
+              <SearchableSelect
+                value={form.default_cogs_account_id || null}
+                onChange={(v) => setForm({ ...form, default_cogs_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(none)"
+              />
+            </Field>
+            <Field label="AR account">
+              <SearchableSelect
+                value={form.default_ar_account_id || null}
+                onChange={(v) => setForm({ ...form, default_ar_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(none)"
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* ── Tab 4 — Addresses & Locations ───────────────────────────── */}
+        <div style={{ display: tab === "addresses" ? "block" : "none" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <AddressFields label="Billing address" value={form.billing_address} onChange={(a) => setForm({ ...form, billing_address: a })} />
+            <AddressFields label="Shipping address" value={form.shipping_address} onChange={(a) => setForm({ ...form, shipping_address: a })} />
+          </div>
+          <div style={{ marginTop: 20 }}>
+            {mode === "edit" && customer ? (
+              <CustomerLocations customerId={customer.id} />
+            ) : (
+              <div style={{ padding: "8px 12px", background: "#0b1220", borderRadius: 6, border: `1px solid ${C.cardBdr}`, fontSize: 12, color: C.textMuted }}>
+                Save the customer first to add locations.
+              </div>
+            )}
+          </div>
         </div>
 
         {err && (
@@ -720,17 +963,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             />
           </div>
         )}
-
-        {/* Ship-to locations — only shown for existing (saved) customers */}
-        {mode === "edit" && customer ? (
-          <div style={{ marginTop: 20 }}>
-            <CustomerLocations customerId={customer.id} />
-          </div>
-        ) : mode === "add" ? (
-          <div style={{ marginTop: 16, padding: "8px 12px", background: "#0b1220", borderRadius: 6, border: `1px solid ${C.cardBdr}`, fontSize: 12, color: C.textMuted }}>
-            Ship-to locations can be added after the customer is saved.
-          </div>
-        ) : null}
 
         {/* Cross-cutter T11-3 — audit trail timeline */}
         {mode === "edit" && customer && (

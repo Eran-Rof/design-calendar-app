@@ -32,6 +32,17 @@ const LIST_COLUMNS = [
   "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
+  // P4-family sales-rep / default / GL-routing columns.
+  "sales_rep_1_id",
+  "sales_rep_1_commission_pct",
+  "sales_rep_2_id",
+  "sales_rep_2_commission_pct",
+  "default_brand_id",
+  "default_channel_id",
+  "default_revenue_account_id",
+  "default_returns_account_id",
+  "default_cogs_account_id",
+  "default_ar_account_id",
   "status", "billing_address", "shipping_address", "attributes",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
@@ -128,6 +139,17 @@ export default async function handler(req, res) {
       shipping_address: v.data.shipping_address || {},
       default_gl_ar_account_id: v.data.default_gl_ar_account_id || null,
       default_gl_revenue_account_id: v.data.default_gl_revenue_account_id || null,
+      // P4-family sales-rep / default / GL-routing columns.
+      sales_rep_1_id: v.data.sales_rep_1_id || null,
+      sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
+      sales_rep_2_id: v.data.sales_rep_2_id || null,
+      sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      default_brand_id: v.data.default_brand_id || null,
+      default_channel_id: v.data.default_channel_id || null,
+      default_revenue_account_id: v.data.default_revenue_account_id || null,
+      default_returns_account_id: v.data.default_returns_account_id || null,
+      default_cogs_account_id: v.data.default_cogs_account_id || null,
+      default_ar_account_id: v.data.default_ar_account_id || null,
       contact_name: v.data.contact_name || null,
       contact_title: v.data.contact_title || null,
       email: v.data.email || null,
@@ -240,6 +262,30 @@ export function validateInsert(body) {
   // UUID FK fields — coerce empty string to null.
   for (const k of ["default_gl_ar_account_id", "default_gl_revenue_account_id"]) {
     if (out[k] === "" || out[k] == null) out[k] = null;
+  }
+  // P4-family UUID FK fields — coerce empty string to null + validate UUID.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const k of [
+    "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
+    "default_revenue_account_id", "default_returns_account_id",
+    "default_cogs_account_id", "default_ar_account_id",
+  ]) {
+    if (out[k] === "" || out[k] == null) {
+      out[k] = null;
+    } else if (!UUID_RE.test(String(out[k]))) {
+      return { error: `${k} must be a valid UUID` };
+    }
+  }
+  // P4-family commission percentages — numeric, 0..100.
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+    if (out[k] === "" || out[k] == null) {
+      out[k] = null;
+    } else {
+      const n = typeof out[k] === "number" ? out[k] : parseFloat(out[k]);
+      if (!Number.isFinite(n)) return { error: `${k} must be a number` };
+      if (n < 0 || n > 100) return { error: `${k} must be between 0 and 100` };
+      out[k] = n;
+    }
   }
   // Free-text contact fields — coerce empty string to null.
   for (const k of ["contact_name", "contact_title", "email", "phone", "website", "wechat_id"]) {
