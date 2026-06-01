@@ -59,6 +59,7 @@ import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalEmployeeTitles          from "./tanda/InternalEmployeeTitles";
 import InternalEmployeeDepartments     from "./tanda/InternalEmployeeDepartments";
 import InternalInventoryOnHand          from "./tanda/InternalInventoryOnHand";
+import InternalInventoryMatrix          from "./tanda/InternalInventoryMatrix";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
@@ -159,6 +160,7 @@ type ModuleKey =
   | "employee_titles"
   | "employee_departments"
   | "inventory_on_hand"
+  | "inventory_matrix"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -296,6 +298,7 @@ const MODULES: ModuleDef[] = [
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
+  { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -571,6 +574,7 @@ export default function Tangerine() {
         {activeModule === "employee_titles"      && <InternalEmployeeTitles />}
         {activeModule === "employee_departments" && <InternalEmployeeDepartments />}
         {activeModule === "inventory_on_hand"    && <InternalInventoryOnHand />}
+        {activeModule === "inventory_matrix"     && <InternalInventoryMatrix />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
