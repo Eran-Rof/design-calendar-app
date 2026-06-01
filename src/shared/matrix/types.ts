@@ -1,14 +1,14 @@
 // src/shared/matrix/types.ts
 //
-// Type definitions for the Matrix React primitive — a generic 2..5-D grid
-// for apparel SKU variants (color × size × inseam × length × fit). Default
-// view is 2-D (color × size); pivot control lets the user choose any 2 of 5
-// dims as axes and the remaining 3 become filter chips.
+// Type definitions for the Matrix React primitive — a generic 2..6-D grid
+// for apparel SKU variants (color × size × inseam × length × fit × rise).
+// Default view is 2-D (color × size); pivot control lets the user choose any
+// 2 of 6 dims as axes and the remaining 4 become filter chips.
 //
 // Tangerine P1 — see docs/tangerine/P1-foundation-architecture.md §5.4.
 
-/** The five matrix dimensions per arch §5.2. */
-export const MATRIX_AXES = ["color", "size", "inseam", "length", "fit"] as const;
+/** The six matrix dimensions per arch §5.2 (rise added for denim HIGH/MID/LOW). */
+export const MATRIX_AXES = ["color", "size", "inseam", "length", "fit", "rise"] as const;
 export type MatrixAxis = (typeof MATRIX_AXES)[number];
 
 /**
@@ -23,6 +23,7 @@ export interface MatrixItem {
   inseam: string | null;
   length: string | null;
   fit: string | null;
+  rise: string | null;
   value?: number | string | null;
 }
 

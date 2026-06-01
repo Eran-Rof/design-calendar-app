@@ -2,22 +2,22 @@
 //
 // Tangerine MX-INV — Matrix Inventory on-hand view.
 //
-// A read-only color × size (× inseam) matrix of inventory for one style.
-// Pick a style (SearchableSelect over /api/internal/style-master), fetch
-// /api/internal/style-matrix?style_id=<uuid>, and render the shared
-// MatrixGrid primitive with each cell showing the SKU's on-hand qty (or
-// available qty when the toggle is flipped). When a style spans more than
-// one inseam, inseam becomes a filter/layer dim on the grid.
+// Pick a style (SearchableSelect over /api/internal/style-master — the
+// endpoint returns up to 10k entity-scoped styles so every style is
+// reachable), fetch /api/internal/style-matrix?style_id=<uuid>, and render a
+// poMatrixTab-style "Item Matrix" table: one row per color (× rise when the
+// style spans more than one rise), size columns in scale order, an amber
+// TOTAL, green Avg Cost + Total Cost, and a Last-Received date — mirroring the
+// PO detail matrix the operator works from.
 //
 // No new API route — reuses the shared style-matrix endpoint. No migration.
 
 import { useEffect, useMemo, useState } from "react";
-import { MatrixGrid } from "../shared/matrix";
-import type { MatrixItem, MatrixPivotState } from "../shared/matrix";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -30,13 +30,17 @@ type StyleListRow = {
 
 type MatrixSku = {
   id: string;
+  sku_code: string | null;
   color: string | null;
   size: string | null;
   inseam: string | null;
   length: string | null;
   fit: string | null;
+  rise: string | null;
   on_hand_qty: number | string | null;
   available_qty: number | string | null;
+  avg_cost_cents: number | null;
+  last_received: string | null;
 };
 
 type MatrixPayload = {
@@ -50,17 +54,22 @@ type MatrixPayload = {
   sizes: string[];
   colors: string[];
   inseams: string[];
+  rises: string[];
   skus: MatrixSku[];
 };
 
 type SizeScale = { id: string; name: string };
 
-// ── palette (mirrors other Internal* panels) ─────────────────────────────────
+// ── palette (mirrors poMatrixTab + other Internal* panels) ───────────────────
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
+  // poMatrixTab tokens:
+  headerBg: "#0F172A", headerText: "#6B7280", gridText: "#E5E7EB",
+  base: "#60A5FA", desc: "#9CA3AF", amber: "#F59E0B", green: "#10B981",
+  rowBdr: "#1E293B", sectionBdr: "#334155", emptyCell: "#334155",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -76,12 +85,29 @@ const btnToggle = (active: boolean): React.CSSProperties => ({
   fontSize: 12, fontWeight: 600,
 });
 
+const chipStyle = (active: boolean): React.CSSProperties => ({
+  padding: "4px 10px", borderRadius: 12,
+  border: `1px solid ${active ? C.primary : C.cardBdr}`,
+  background: active ? "rgba(59,130,246,0.18)" : "transparent",
+  color: active ? "#93C5FD" : C.textSub,
+  fontSize: 12, cursor: "pointer", lineHeight: 1.4,
+});
+
+// poMatrixTab header cell
+const thBase: React.CSSProperties = {
+  padding: "10px 14px", color: C.headerText, fontSize: 11,
+  textTransform: "uppercase", letterSpacing: 1, borderBottom: `2px solid ${C.sectionBdr}`,
+};
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function fmtQty(v: number | string | null | undefined): string {
+const num = (v: number | string | null | undefined): number => {
   const n = Number(v ?? 0);
-  if (!Number.isFinite(n)) return "";
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return Number.isFinite(n) ? n : 0;
+};
+
+function fmtQty(v: number): string {
+  return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
 // ── component ────────────────────────────────────────────────────────────────
@@ -92,12 +118,15 @@ export default function InternalInventoryMatrix() {
   const [styleId, setStyleId]   = useState<string>("");
   const [payload, setPayload]   = useState<MatrixPayload | null>(null);
   const [metric, setMetric]     = useState<"on_hand" | "available">("on_hand");
+  const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
 
-  // Style list + size-scale names once on mount.
+  // Style list + size-scale names once on mount. Request the endpoint's max
+  // limit so EVERY entity style is reachable in the picker (operator reported
+  // missing styles when the list was capped).
   useEffect(() => {
-    fetch("/api/internal/style-master")
+    fetch("/api/internal/style-master?limit=10000")
       .then((r) => r.json())
       .then((d) => setStyles(Array.isArray(d) ? d : (d.rows || d.styles || [])))
       .catch(() => {/* non-fatal; picker just stays empty */});
@@ -114,10 +143,11 @@ export default function InternalInventoryMatrix() {
 
   // Fetch the matrix payload when a style is picked.
   useEffect(() => {
-    if (!styleId) { setPayload(null); return; }
+    if (!styleId) { setPayload(null); setRiseFilter([]); return; }
     let cancelled = false;
     setLoading(true);
     setErr(null);
+    setRiseFilter([]);
     fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`)
       .then(async (r) => {
         if (!r.ok) {
@@ -145,66 +175,142 @@ export default function InternalInventoryMatrix() {
     [styles],
   );
 
-  // Map SKUs → MatrixItem[] with value = the selected metric.
-  const items = useMemo<MatrixItem[]>(() => {
-    if (!payload) return [];
-    return payload.skus.map((s) => ({
-      id: s.id,
-      color: s.color,
-      size: s.size,
-      inseam: s.inseam,
-      length: s.length,
-      fit: s.fit,
-      value: Number((metric === "on_hand" ? s.on_hand_qty : s.available_qty) ?? 0),
-    }));
-  }, [payload, metric]);
+  const rises = payload?.rises ?? [];
+  const showRise = rises.length > 1;
 
-  // Default pivot: rows=color, cols=size. When the style spans >1 inseam,
-  // inseam joins as a (no-op-default) filter dim so the pivot control offers
-  // it as a layer/filter choice.
-  const defaultPivot = useMemo<Partial<MatrixPivotState>>(() => {
-    const base: Partial<MatrixPivotState> = { rowAxis: "color", colAxis: "size" };
-    if (payload && payload.inseams.length > 1) base.filters = { inseam: [] };
-    return base;
+  // Size columns in scale order (payload.sizes is already scale-ordered;
+  // fall back to distinct SKU sizes if the style has no scale).
+  const sizeOrder = useMemo<string[]>(() => {
+    if (!payload) return [];
+    if (payload.sizes.length) return payload.sizes;
+    const seen: string[] = [];
+    for (const s of payload.skus) if (s.size && !seen.includes(s.size)) seen.push(s.size);
+    return seen;
   }, [payload]);
 
-  // Cell formatter: sum the metric across items in the cell; blank when empty
-  // or zero so empty cells read cleanly.
-  const format = useMemo(
-    () => (cellItems: MatrixItem[]) => {
-      if (cellItems.length === 0) return "";
-      const sum = cellItems.reduce((acc, it) => acc + Number(it.value ?? 0), 0);
-      return sum === 0 ? "" : fmtQty(sum);
-    },
-    [],
-  );
+  // qty for a SKU under the active metric.
+  const skuQty = (s: MatrixSku) => num(metric === "on_hand" ? s.on_hand_qty : s.available_qty);
+
+  // Group SKUs into matrix rows: one row per color (× rise when the style
+  // spans >1 rise). Each row carries a size→qty map, a blended avg cost
+  // (qty-weighted across the row's SKUs), the row's total qty, total cost,
+  // and the latest received date.
+  type MatrixRow = {
+    key: string;
+    color: string;
+    rise: string | null;
+    sizes: Record<string, number>;
+    totalQty: number;
+    avgCostCents: number | null; // qty-weighted blended avg, cents
+    totalCostCents: number;
+    lastReceived: string | null;
+  };
+
+  const rows = useMemo<MatrixRow[]>(() => {
+    if (!payload) return [];
+    const active = riseFilter.length ? new Set(riseFilter) : null;
+    const map = new Map<string, MatrixRow>();
+    for (const s of payload.skus) {
+      const rise = s.rise ?? null;
+      if (active && !(rise != null && active.has(rise))) continue;
+      const color = s.color ?? "—";
+      const key = showRise ? `${color}|${rise ?? ""}` : color;
+      let row = map.get(key);
+      if (!row) {
+        row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, lastReceived: null };
+        map.set(key, row);
+      }
+      const qty = skuQty(s);
+      if (s.size) row.sizes[s.size] = (row.sizes[s.size] || 0) + qty;
+      row.totalQty += qty;
+      if (s.avg_cost_cents != null) {
+        row.totalCostCents += Math.round(qty * s.avg_cost_cents);
+      }
+      if (s.last_received && (!row.lastReceived || s.last_received > row.lastReceived)) {
+        row.lastReceived = s.last_received;
+      }
+    }
+    // Blended avg cost = totalCost / totalQty (cents). When a row has qty but
+    // no cost data, leave avg null; when qty is 0 fall back to a simple mean of
+    // the SKUs' avg_cost so a cost still shows for zero-on-hand colors.
+    for (const row of map.values()) {
+      if (row.totalQty > 0 && row.totalCostCents > 0) {
+        row.avgCostCents = Math.round(row.totalCostCents / row.totalQty);
+      }
+    }
+    // Simple-mean fallback for avg cost (covers zero-qty rows) and ensure every
+    // row reflects an avg when any SKU has cost.
+    const skuByRow = new Map<string, number[]>();
+    for (const s of payload.skus) {
+      const rise = s.rise ?? null;
+      if (active && !(rise != null && active.has(rise))) continue;
+      const color = s.color ?? "—";
+      const key = showRise ? `${color}|${rise ?? ""}` : color;
+      if (s.avg_cost_cents != null) {
+        const arr = skuByRow.get(key) ?? [];
+        arr.push(s.avg_cost_cents);
+        skuByRow.set(key, arr);
+      }
+    }
+    for (const row of map.values()) {
+      if (row.avgCostCents == null) {
+        const arr = skuByRow.get(row.key);
+        if (arr && arr.length) row.avgCostCents = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+      }
+    }
+    return [...map.values()].sort((a, b) =>
+      a.color.localeCompare(b.color) || String(a.rise ?? "").localeCompare(String(b.rise ?? "")),
+    );
+  }, [payload, riseFilter, metric, showRise]);
+
+  // Column (size) grand totals + grand totals for the footer.
+  const colTotals = useMemo<Record<string, number>>(() => {
+    const out: Record<string, number> = {};
+    for (const sz of sizeOrder) out[sz] = rows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+    return out;
+  }, [rows, sizeOrder]);
+
+  const grandQty = useMemo(() => rows.reduce((s, r) => s + r.totalQty, 0), [rows]);
+  const grandCostCents = useMemo(() => rows.reduce((s, r) => s + r.totalCostCents, 0), [rows]);
 
   const scaleName = useMemo(() => {
     if (!payload?.style.size_scale_id) return null;
     return scales.find((s) => s.id === payload.style.size_scale_id)?.name || null;
   }, [payload, scales]);
 
-  // Flat SKU rows for export.
+  // Flat rows for export (one per matrix row).
   const exportRows = useMemo<Array<Record<string, unknown>>>(() => {
     if (!payload) return [];
-    return payload.skus.map((s) => ({
-      style_code:    payload.style.style_code,
-      color:         s.color ?? "",
-      size:          s.size ?? "",
-      inseam:        s.inseam ?? "",
-      on_hand_qty:   Number(s.on_hand_qty ?? 0),
-      available_qty: s.available_qty == null ? "" : Number(s.available_qty),
-    }));
-  }, [payload]);
+    return rows.map((r) => {
+      const out: Record<string, unknown> = {
+        style_code: payload.style.style_code,
+        color: r.color,
+      };
+      if (showRise) out.rise = r.rise ?? "";
+      for (const sz of sizeOrder) out[`size_${sz}`] = r.sizes[sz] || 0;
+      out.total_qty = r.totalQty;
+      out.avg_cost_cents = r.avgCostCents == null ? "" : r.avgCostCents;
+      out.total_cost_cents = r.totalCostCents;
+      out.last_received = r.lastReceived ?? "";
+      return out;
+    });
+  }, [payload, rows, sizeOrder, showRise]);
 
-  const exportColumns: ExportColumn<Record<string, unknown>>[] = [
-    { key: "style_code",    header: "Style" },
-    { key: "color",         header: "Color" },
-    { key: "size",          header: "Size" },
-    { key: "inseam",        header: "Inseam" },
-    { key: "on_hand_qty",   header: "On-Hand",   format: "number" },
-    { key: "available_qty", header: "Available", format: "number" },
-  ];
+  const exportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => {
+    const cols: ExportColumn<Record<string, unknown>>[] = [
+      { key: "style_code", header: "Style" },
+      { key: "color", header: "Color" },
+    ];
+    if (showRise) cols.push({ key: "rise", header: "Rise" });
+    for (const sz of sizeOrder) cols.push({ key: `size_${sz}`, header: sz, format: "number" });
+    cols.push({ key: "total_qty", header: "Total", format: "number" });
+    cols.push({ key: "avg_cost_cents", header: "Avg Cost", format: "currency_cents" });
+    cols.push({ key: "total_cost_cents", header: "Total Cost", format: "currency_cents" });
+    cols.push({ key: "last_received", header: "Last Received", format: "date" });
+    return cols;
+  }, [sizeOrder, showRise]);
+
+  const colSpanLead = showRise ? 3 : 2; // Style col label spans Color (+Rise)
 
   return (
     <div style={{ color: C.text }}>
@@ -257,6 +363,27 @@ export default function InternalInventoryMatrix() {
         )}
       </div>
 
+      {/* Rise filter — only when the style spans more than one rise. */}
+      {showRise && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Rise:</span>
+          <button type="button" style={chipStyle(riseFilter.length === 0)} onClick={() => setRiseFilter([])}>All</button>
+          {rises.map((rv) => {
+            const on = riseFilter.includes(rv);
+            return (
+              <button
+                key={rv}
+                type="button"
+                style={chipStyle(on)}
+                onClick={() => setRiseFilter(on ? riseFilter.filter((x) => x !== rv) : [...riseFilter, rv])}
+              >
+                {rv}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Style meta */}
       {payload && (
         <div style={{ fontSize: 12, color: C.textSub, marginBottom: 12 }}>
@@ -276,28 +403,95 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
-      {/* Grid */}
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 12, overflowX: "auto" }}>
-        {loading ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-        ) : !styleId ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
-            Pick a style to view its inventory matrix.
-          </div>
-        ) : !payload || payload.skus.length === 0 ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
-            No SKUs found for this style.
-          </div>
-        ) : (
-          <MatrixGrid
-            items={items}
-            defaultPivot={defaultPivot}
-            axisValues={payload ? { size: payload.sizes } : undefined}
-            readOnly
-            format={format}
-          />
-        )}
-      </div>
+      {/* Matrix table — poMatrixTab-style "Item Matrix" look. */}
+      {loading ? (
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+      ) : !styleId ? (
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+          Pick a style to view its inventory matrix.
+        </div>
+      ) : !payload || rows.length === 0 ? (
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+          No SKUs found for this style{showRise && riseFilter.length ? " at the selected rise." : "."}
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: C.headerBg }}>
+                <th style={{ ...thBase, textAlign: "left" }}>Base Part</th>
+                <th style={{ ...thBase, textAlign: "left" }}>Description</th>
+                <th style={{ ...thBase, textAlign: "left" }}>Color</th>
+                {showRise && <th style={{ ...thBase, textAlign: "left" }}>Rise</th>}
+                {sizeOrder.map((sz) => (
+                  <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 60 }}>{sz}</th>
+                ))}
+                <th style={{ ...thBase, textAlign: "center" }}>Total</th>
+                <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
+                <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>
+                <th style={{ ...thBase, textAlign: "center" }}>Last Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => {
+                const isLast = ri === rows.length - 1;
+                return (
+                  <tr
+                    key={row.key}
+                    style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                  >
+                    <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700, borderRight: `1px solid ${C.sectionBdr}` }}>
+                      {payload.style.style_code}
+                    </td>
+                    <td style={{ padding: "8px 14px", color: C.desc, fontSize: 12 }}>
+                      {payload.style.style_name || payload.style.description || "—"}
+                    </td>
+                    <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                    {showRise && (
+                      <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>
+                    )}
+                    {sizeOrder.map((sz) => (
+                      <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
+                        {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
+                      </td>
+                    ))}
+                    <td style={{ padding: "8px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
+                      {fmtQty(row.totalQty)}
+                    </td>
+                    <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>
+                      {row.avgCostCents == null ? "—" : fmtCurrency(row.avgCostCents / 100)}
+                    </td>
+                    <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontWeight: 600, fontFamily: "monospace" }}>
+                      {row.totalCostCents > 0 ? fmtCurrency(row.totalCostCents / 100) : "—"}
+                    </td>
+                    <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>
+                      {row.lastReceived ? fmtDate(row.lastReceived.slice(0, 10)) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
+                <td colSpan={colSpanLead} style={{ padding: "12px 14px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
+                {sizeOrder.map((sz) => (
+                  <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
+                    {colTotals[sz] ? fmtQty(colTotals[sz]) : "—"}
+                  </td>
+                ))}
+                <td style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>
+                  {fmtQty(grandQty)}
+                </td>
+                <td style={{ padding: "12px 14px" }} />
+                <td style={{ padding: "12px 14px", textAlign: "right", color: C.green, fontWeight: 800, fontFamily: "monospace" }}>
+                  {grandCostCents > 0 ? fmtCurrency(grandCostCents / 100) : "—"}
+                </td>
+                <td style={{ padding: "12px 14px" }} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

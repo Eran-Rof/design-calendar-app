@@ -15,6 +15,7 @@ function item(over: Partial<MatrixItem>): MatrixItem {
     inseam: over.inseam ?? null,
     length: over.length ?? null,
     fit: over.fit ?? null,
+    rise: over.rise ?? null,
     value: over.value,
   };
 }

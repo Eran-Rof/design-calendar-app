@@ -5,7 +5,8 @@
 // renders the same color × size (× inseam) grid for a style.
 //
 //   enumerateStyleMatrix(admin, entityId, styleId)
-//     → { style, sizes, colors, inseams, skus:[{id,color,size,inseam,length,fit,on_hand_qty,available_qty}] }
+//     → { style, sizes, colors, inseams, rises,
+//         skus:[{id,sku_code,color,size,inseam,length,fit,rise,on_hand_qty,available_qty,avg_cost_cents,last_received}] }
 //     `sizes` comes from the style's size_scale (ordered); falls back to the
 //     distinct sizes on existing SKUs when the style has no scale.
 //
@@ -34,7 +35,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId) {
   // Existing sized SKUs for this style.
   const { data: skuRows } = await admin
     .from("ip_item_master")
-    .select("id, color, size, inseam, length, fit")
+    .select("id, sku_code, color, size, inseam, length, fit, rise")
     .eq("entity_id", entityId)
     .eq("style_id", styleId);
   const skus = skuRows || [];
@@ -45,16 +46,43 @@ export async function enumerateStyleMatrix(admin, entityId, styleId) {
   }
   const colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
   const inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
+  const rises = [...new Set(skus.map((s) => s.rise).filter(Boolean))];
 
-  // On-hand (Σ remaining_qty) + available (M18 view) per item.
+  // On-hand (Σ remaining_qty) + available (M18 view) + last-received per item.
   const ids = skus.map((s) => s.id);
   const onHand = new Map();
   const avail = new Map();
+  const lastReceived = new Map();
   if (ids.length > 0) {
-    const { data: layers } = await admin.from("inventory_layers").select("item_id, remaining_qty").in("item_id", ids).gt("remaining_qty", 0);
-    for (const l of layers || []) onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + Number(l.remaining_qty));
+    const { data: layers } = await admin
+      .from("inventory_layers")
+      .select("item_id, remaining_qty, received_at")
+      .in("item_id", ids);
+    for (const l of layers || []) {
+      if (Number(l.remaining_qty) > 0) onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + Number(l.remaining_qty));
+      if (l.received_at) {
+        const prev = lastReceived.get(l.item_id);
+        if (!prev || l.received_at > prev) lastReceived.set(l.item_id, l.received_at);
+      }
+    }
     const { data: av } = await admin.from("v_inventory_available").select("item_id, available_qty").in("item_id", ids);
     for (const a of av || []) avail.set(a.item_id, Number(a.available_qty));
+  }
+
+  // Avg cost: ip_item_avg_cost is keyed by sku_code, storing dollars in avg_cost.
+  // Convert to integer cents (×100 round). Degrade silently if table absent.
+  const avgCostCentsBySku = new Map();
+  const skuCodes = [...new Set(skus.map((s) => s.sku_code).filter(Boolean))];
+  if (skuCodes.length > 0) {
+    const { data: avgRows, error: avgErr } = await admin
+      .from("ip_item_avg_cost")
+      .select("sku_code, avg_cost")
+      .in("sku_code", skuCodes);
+    if (!avgErr) {
+      for (const r of avgRows || []) {
+        if (r.avg_cost != null) avgCostCentsBySku.set(r.sku_code, Math.round(Number(r.avg_cost) * 100));
+      }
+    }
   }
 
   return {
@@ -62,7 +90,14 @@ export async function enumerateStyleMatrix(admin, entityId, styleId) {
     sizes,
     colors,
     inseams,
-    skus: skus.map((s) => ({ ...s, on_hand_qty: onHand.get(s.id) || 0, available_qty: avail.has(s.id) ? avail.get(s.id) : null })),
+    rises,
+    skus: skus.map((s) => ({
+      ...s,
+      on_hand_qty: onHand.get(s.id) || 0,
+      available_qty: avail.has(s.id) ? avail.get(s.id) : null,
+      avg_cost_cents: s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null,
+      last_received: lastReceived.has(s.id) ? lastReceived.get(s.id) : null,
+    })),
   };
 }
 

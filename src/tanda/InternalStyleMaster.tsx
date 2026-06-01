@@ -112,6 +112,7 @@ type Style = {
   sub_category_name: string | null;
   brand_id: string | null;
   size_scale_id: string | null;
+  rise: string | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -163,6 +164,8 @@ const GENDER_FALLBACK: { value: string; label: string }[] = [
 
 const LIFECYCLE_OPTIONS = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_OPTIONS  = ["", "core", "seasonal", "fashion"];
+// Denim rise classification (style_master.rise). Blank = not applicable.
+const RISE_OPTIONS      = ["", "HIGH", "MID", "LOW"];
 
 const btnPrimary: React.CSSProperties = {
   background: C.primary, color: "white", border: 0, padding: "8px 14px",
@@ -538,6 +541,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     sub_category_name:    style?.sub_category_name     ?? "",
     brand_id:             style?.brand_id              ?? "",
     size_scale_id:        style?.size_scale_id         ?? "",
+    rise:                 style?.rise                  ?? "",
   });
   const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
   const [sizeScales, setSizeScales] = useState<SizeScaleLite[]>([]);
@@ -660,6 +664,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         sub_category_name:    form.sub_category_name.trim() || null,
         brand_id:             form.brand_id || null,
         size_scale_id:        form.size_scale_id || null,
+        rise:                 form.rise.trim() || null,
       };
       let url: string;
       let method: string;
@@ -801,6 +806,17 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               options={sizeScaleOptions}
               placeholder="Pick a size scale…"
             />
+          </Field>
+
+          {/* Rise (style_master.rise) — denim HIGH/MID/LOW; blank = n/a. */}
+          <Field label="Rise">
+            <select
+              value={form.rise}
+              onChange={(e) => setForm({ ...form, rise: e.target.value })}
+              style={inputStyle as React.CSSProperties}
+            >
+              {RISE_OPTIONS.map((r) => <option key={r} value={r}>{r || "(none)"}</option>)}
+            </select>
           </Field>
 
           <Field label="Season">
