@@ -48,6 +48,13 @@ const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -329,7 +336,6 @@ interface ModalProps {
 
 function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    code:       scale?.code ?? "",
     name:       scale?.name ?? "",
     sizesText:  scale?.sizes ? scale.sizes.join(", ") : "",
     sort_order: scale?.sort_order != null ? String(scale.sort_order)
@@ -356,8 +362,8 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
         }
         url = "/api/internal/size-scales";
         method = "POST";
+        // code is server-generated — don't send.
         body = {
-          code:       form.code.trim(),
           name:       form.name.trim(),
           sizes:      parsedSizes,
           sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
@@ -402,18 +408,13 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Code *">
-            {mode === "add" ? (
-              <input
-                type="text"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-                style={inputStyle}
-                placeholder="e.g. ALPHA-XS-3XL"
-              />
-            ) : (
-              <div style={{ ...inputStyle, color: C.textMuted, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{scale?.code}</div>
-            )}
+          <Field label="Code">
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (scale?.code || "—")}
+            </div>
           </Field>
           <Field label="Name *">
             <input

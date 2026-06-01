@@ -6,17 +6,25 @@
 //          ?q=<search>             — ilike match on code or name
 //          ?include_inactive=true  — include inactive rows
 // POST — create one size_scales row. Body:
-//          { code (required), name (required),
+//          { name (required),
 //            sizes (array of strings OR comma-separated string, ORDERED),
 //            sort_order (>=0, optional, default 0), is_active (default true) }
+//          The `code` is SERVER-GENERATED (SCALE-NNNNN); any client-supplied
+//          `code` is ignored. (Auto-coded master — operator item 14 pattern.)
 //
 // Tangerine — Size Scale Master. Mirrors the payment-terms handler shape
 // (resolveDefaultEntityId + ROF scope; service-role writes; anon-read in DB).
 // The `sizes` column is a Postgres text[] — order is preserved exactly as sent.
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
+
+// Chunk M — size-scale codes are server-generated + read-only (operator item 14).
+// Same scheme as the other auto-coded masters: PREFIX + 5-digit zero-padded
+// sequence (count existing rows carrying the prefix, +1), e.g. SCALE-00001.
+const CODE_PREFIX = "SCALE-";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -99,14 +107,15 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { data, error } = await admin
-      .from("size_scales")
-      .insert({ ...v.data, entity_id: entityId })
-      .select()
-      .single();
+    // `code` is always server-generated; any client-supplied code is ignored.
+    const buildRow = (code) => ({ ...v.data, code, entity_id: entityId });
+
+    const { data, error } = await insertWithAutoCode(
+      admin, "size_scales", "code", CODE_PREFIX, buildRow, { entityId },
+    );
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `code '${v.data.code}' already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique size-scale code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -121,9 +130,7 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  if (!body.code || !String(body.code).trim()) {
-    return { error: "code is required" };
-  }
+  // `code` is server-generated (SCALE-NNNNN); no longer required from the client.
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
   }
@@ -147,7 +154,7 @@ export function validateInsert(body) {
 
   return {
     data: {
-      code:       String(body.code).trim(),
+      // code is injected by the handler (server-generated); not taken from body.
       name:       String(body.name).trim(),
       sizes,
       sort_order: sortOrder,
