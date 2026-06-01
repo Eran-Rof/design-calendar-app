@@ -111,6 +111,8 @@ type Account = {
   status: string;
 };
 
+type ARItem = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
+
 type DraftLine = {
   key: number;
   description: string;
@@ -423,7 +425,7 @@ export default function InternalARInvoices() {
             { key: "posting_date",       header: "Posting Date", format: "date" },
             { key: "due_date",           header: "Due Date",     format: "date" },
             { key: "customer",           header: "Customer" },
-            { key: "invoice_kind",       header: "Kind" },
+            { key: "invoice_kind",       header: "Type" },
             { key: "gl_status",          header: "Status" },
             { key: "source",             header: "Source" },
             { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
@@ -583,7 +585,6 @@ function ARInvoiceModal({
   const [customerId, setCustomerId] = useState(invoice?.customer_id || "");
   const [shipToLocationId, setShipToLocationId] = useState(invoice?.ship_to_location_id || "");
   const [shipToLocations, setShipToLocations] = useState<ShipToLocation[]>([]);
-  const [invoiceNumber, setInvoiceNumber] = useState(invoice?.invoice_number || "");
   const [kind, setKind] = useState(invoice?.invoice_kind || "customer_invoice");
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoice_date || new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState(invoice?.due_date || "");
@@ -595,6 +596,7 @@ function ARInvoiceModal({
   const [inventoryAccountId, setInventoryAccountId] = useState(invoice?.inventory_asset_account_id || "");
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [items, setItems] = useState<ARItem[]>([]); // inventory items for the line picker
   const [paymentTerms, setPaymentTerms] = useState<{ id: string; code: string; name: string }[]>([]);
   const [lines, setLines] = useState<DraftLine[]>([
     { key: 1, description: "", inventory_item_id: "", quantity: "", unit_price_dollars: "", line_total_dollars: "", revenue_account_id: "" },
@@ -612,6 +614,11 @@ function ARInvoiceModal({
     fetch("/api/internal/payment-terms?limit=200")
       .then((r) => r.json())
       .then((arr: { id: string; code: string; name: string }[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
+    // Inventory items for the line picker (searchable dropdown).
+    fetch("/api/internal/items?limit=500")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: ARItem[]) => setItems(Array.isArray(arr) ? arr : []))
       .catch(() => {});
   }, []);
 
@@ -744,7 +751,8 @@ function ARInvoiceModal({
       const body: Record<string, unknown> = {
         customer_id: customerId,
         ship_to_location_id: shipToLocationId || null,
-        invoice_number: invoiceNumber.trim() || null,
+        // invoice_number is always system-assigned on create (never sent) and
+        // immutable on edit — so it is deliberately omitted from the body.
         invoice_kind: kind,
         invoice_date: invoiceDate,
         due_date: dueDate || null,
@@ -855,16 +863,23 @@ function ARInvoiceModal({
                 />
               </Field>
               <Field label="Invoice number">
-                <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)}
-                       placeholder="(auto-generated if blank)" disabled={!editable} style={inputStyle} />
+                {/* Always system-assigned at save — never operator-editable. */}
+                <input
+                  type="text"
+                  value={invoice?.invoice_number || ""}
+                  readOnly
+                  disabled
+                  placeholder="(auto-generated on save)"
+                  style={{ ...inputStyle, opacity: 0.6 }}
+                />
               </Field>
             </div>
-            {/* Row 2: Kind (standalone) */}
+            {/* Row 2: Type (standalone) */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <Field label="Kind">
+              <Field label="Type">
                 <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="customer_invoice">customer_invoice</option>
-                  <option value="customer_credit_memo">customer_credit_memo</option>
+                  <option value="customer_invoice">Invoice</option>
+                  <option value="customer_credit_memo">Credit memo</option>
                 </select>
               </Field>
             </div>
@@ -974,12 +989,25 @@ function ARInvoiceModal({
                         <input type="text" value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} disabled={!editable} style={inputStyle} />
                       </td>
                       <td style={td}>
-                        <input
-                          type="text" value={l.inventory_item_id}
-                          onChange={(e) => updateLine(idx, { inventory_item_id: e.target.value.trim() })}
+                        <SearchableSelect
+                          value={l.inventory_item_id || null}
+                          onChange={(v) => updateLine(idx, { inventory_item_id: v })}
+                          options={(() => {
+                            const opts = [
+                              { value: "", label: "(none — non-item line)" },
+                              ...items.map((it) => ({
+                                value: it.id,
+                                label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`,
+                                searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""} ${it.color || ""} ${it.size || ""}`,
+                              })),
+                            ];
+                            if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
+                              opts.push({ value: l.inventory_item_id, label: `${l.inventory_item_id.slice(0, 8)}… (saved)`, searchHaystack: l.inventory_item_id });
+                            }
+                            return opts;
+                          })()}
+                          placeholder="(none — non-item line)"
                           disabled={!editable}
-                          placeholder="ip_item_master uuid (optional)"
-                          style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
                         />
                       </td>
                       <td style={td}>
