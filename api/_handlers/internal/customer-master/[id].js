@@ -27,6 +27,17 @@ const MUTABLE_FIELDS = new Set([
   "status",
   "billing_address", "shipping_address",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
+  // P4-family sales-rep / default / GL-routing columns.
+  "sales_rep_1_id",
+  "sales_rep_1_commission_pct",
+  "sales_rep_2_id",
+  "sales_rep_2_commission_pct",
+  "default_brand_id",
+  "default_channel_id",
+  "default_revenue_account_id",
+  "default_returns_account_id",
+  "default_cogs_account_id",
+  "default_ar_account_id",
   "parent_customer_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ]);
@@ -35,8 +46,19 @@ const MUTABLE_FIELDS = new Set([
 const NULLABLE_TEXT_FIELDS = [
   "code", "country", "payment_terms", "payment_terms_id",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
+  // P4-family UUID FK fields normalize "" → null too.
+  "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
+  "default_revenue_account_id", "default_returns_account_id",
+  "default_cogs_account_id", "default_ar_account_id",
   "parent_customer_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
+];
+
+// P4-family UUID FK fields whose non-null value must be a valid UUID.
+const P4_UUID_FIELDS = [
+  "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
+  "default_revenue_account_id", "default_returns_account_id",
+  "default_cogs_account_id", "default_ar_account_id",
 ];
 
 function corsHeaders(res) {
@@ -227,8 +249,30 @@ export function validatePatch(body) {
   }
 
   // P3-9: validate payment_terms_id is a valid UUID when not null.
-  if (out.payment_terms_id != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.payment_terms_id))) {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (out.payment_terms_id != null && !UUID_RE.test(String(out.payment_terms_id))) {
     return { error: "payment_terms_id must be a valid UUID" };
+  }
+
+  // P4-family: validate UUID FK fields when not null.
+  for (const k of P4_UUID_FIELDS) {
+    if (out[k] != null && !UUID_RE.test(String(out[k]))) {
+      return { error: `${k} must be a valid UUID` };
+    }
+  }
+
+  // P4-family: commission percentages — numeric, 0..100; "" → null.
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+    if (k in out) {
+      if (out[k] == null || out[k] === "") {
+        out[k] = null;
+      } else {
+        const n = typeof out[k] === "number" ? out[k] : parseFloat(out[k]);
+        if (!Number.isFinite(n)) return { error: `${k} must be a number` };
+        if (n < 0 || n > 100) return { error: `${k} must be between 0 and 100` };
+        out[k] = n;
+      }
+    }
   }
 
   return { data: out };

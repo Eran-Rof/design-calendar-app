@@ -16,6 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LOCATION_TYPES = ["dc", "store", "other"];
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -69,6 +70,13 @@ export default async function handler(req, res) {
     }
     if ("code" in body) {
       patch.code = body.code ? String(body.code).trim() || null : null;
+    }
+    if ("location_type" in body) {
+      const lt = String(body.location_type || "").trim().toLowerCase();
+      if (!LOCATION_TYPES.includes(lt)) {
+        return res.status(400).json({ error: `location_type must be one of ${LOCATION_TYPES.join(", ")}` });
+      }
+      patch.location_type = lt;
     }
     if ("address" in body) {
       if (body.address !== null && typeof body.address !== "object") {

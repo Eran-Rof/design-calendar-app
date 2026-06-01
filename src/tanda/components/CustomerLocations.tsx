@@ -13,15 +13,19 @@
 //   PATCH /api/internal/customer-locations/:id             → CustomerLocation
 //   DELETE /api/internal/customer-locations/:id            → 204 (soft-delete)
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { notify, confirmDialog } from "../../shared/ui/warn";
 import AddressFields, { type Address } from "./AddressFields";
+
+type LocationType = "dc" | "store" | "other";
 
 type CustomerLocation = {
   id: string;
   customer_id: string;
   code: string | null;
   name: string;
+  location_type: LocationType;
   address: Address;
   contact_name: string | null;
   phone: string | null;
@@ -35,12 +39,24 @@ type CustomerLocation = {
 type LocationDraft = {
   name: string;
   code: string;
+  location_type: LocationType;
   address: Address;
   contact_name: string;
   phone: string;
   email: string;
   is_default: boolean;
 };
+
+const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
+  dc: "DC", store: "Store", other: "Other",
+};
+
+// Headers for the bulk-store-upload template + parser (must match exactly).
+const STORE_UPLOAD_HEADERS = [
+  "code", "name", "location_type",
+  "address_line1", "city", "state", "postal", "country",
+  "contact_name", "phone", "email",
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -63,8 +79,8 @@ const btnPrimary: React.CSSProperties = {
 };
 const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" };
 
-function emptyDraft(): LocationDraft {
-  return { name: "", code: "", address: {}, contact_name: "", phone: "", email: "", is_default: false };
+function emptyDraft(location_type: LocationType = "store"): LocationDraft {
+  return { name: "", code: "", location_type, address: {}, contact_name: "", phone: "", email: "", is_default: false };
 }
 
 function addrSummary(addr: Address): string {
@@ -100,6 +116,18 @@ function LocationForm({ draft, onChange }: LocationFormProps) {
             onChange={(e) => set("code", e.target.value)}
             placeholder="Short code (optional)"
           />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Type</div>
+          <select
+            style={inputStyle as React.CSSProperties}
+            value={draft.location_type}
+            onChange={(e) => set("location_type", e.target.value as LocationType)}
+          >
+            <option value="dc">DC (distribution center)</option>
+            <option value="store">Store</option>
+            <option value="other">Other</option>
+          </select>
         </div>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Contact name</div>
@@ -150,24 +178,26 @@ function LocationForm({ draft, onChange }: LocationFormProps) {
 interface LocationModalProps {
   customerId: string;
   existing?: CustomerLocation;
+  defaultType?: LocationType;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function LocationModal({ customerId, existing, onClose, onSaved }: LocationModalProps) {
+function LocationModal({ customerId, existing, defaultType = "store", onClose, onSaved }: LocationModalProps) {
   const isEdit = !!existing;
   const [draft, setDraft] = useState<LocationDraft>(
     existing
       ? {
-          name:         existing.name,
-          code:         existing.code ?? "",
-          address:      existing.address ?? {},
-          contact_name: existing.contact_name ?? "",
-          phone:        existing.phone ?? "",
-          email:        existing.email ?? "",
-          is_default:   existing.is_default,
+          name:          existing.name,
+          code:          existing.code ?? "",
+          location_type: existing.location_type ?? "store",
+          address:       existing.address ?? {},
+          contact_name:  existing.contact_name ?? "",
+          phone:         existing.phone ?? "",
+          email:         existing.email ?? "",
+          is_default:    existing.is_default,
         }
-      : emptyDraft(),
+      : emptyDraft(defaultType),
   );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -181,13 +211,14 @@ function LocationModal({ customerId, existing, onClose, onSaved }: LocationModal
     setErr(null);
     try {
       const body: Record<string, unknown> = {
-        name:         draft.name.trim(),
-        code:         draft.code.trim() || null,
-        address:      draft.address,
-        contact_name: draft.contact_name.trim() || null,
-        phone:        draft.phone.trim() || null,
-        email:        draft.email.trim() || null,
-        is_default:   draft.is_default,
+        name:          draft.name.trim(),
+        code:          draft.code.trim() || null,
+        location_type: draft.location_type,
+        address:       draft.address,
+        contact_name:  draft.contact_name.trim() || null,
+        phone:         draft.phone.trim() || null,
+        email:         draft.email.trim() || null,
+        is_default:    draft.is_default,
       };
       let url: string;
       let method: string;
@@ -231,7 +262,7 @@ function LocationModal({ customerId, existing, onClose, onSaved }: LocationModal
         }}
       >
         <h4 style={{ margin: "0 0 14px", fontSize: 16 }}>
-          {isEdit ? `Edit location — ${existing.name}` : "Add ship-to location"}
+          {isEdit ? `Edit location — ${existing.name}` : `Add ${LOCATION_TYPE_LABELS[defaultType]} location`}
         </h4>
         <LocationForm draft={draft} onChange={setDraft} />
         {err && (
@@ -257,8 +288,11 @@ interface CustomerLocationsProps {
 export default function CustomerLocations({ customerId }: CustomerLocationsProps) {
   const [locations, setLocations] = useState<CustomerLocation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
+  // `addType` is non-null while the Add modal is open; it seeds location_type.
+  const [addType, setAddType] = useState<LocationType | null>(null);
   const [editing, setEditing] = useState<CustomerLocation | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   async function load() {
     setLoading(true);
@@ -289,13 +323,145 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
     }
   }
 
+  // Build + download an .xlsx template with exactly the upload headers plus
+  // one example data row, using the same xlsx lib the exports use.
+  function downloadTemplate() {
+    const exampleRow = [
+      "STORE-001", "Downtown Store", "store",
+      "123 Main St", "Los Angeles", "CA", "90001", "US",
+      "Jane Buyer", "+1 (555) 000-0000", "store@example.com",
+    ];
+    const aoa = [STORE_UPLOAD_HEADERS, exampleRow];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Stores");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "store-upload-template.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  // Parse an .xlsx client-side and POST one customer_locations row per data
+  // row. location_type defaults to 'store' when blank/invalid.
+  function handleUploadFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset the input so re-selecting the same file fires onChange again.
+    if (fileRef.current) fileRef.current.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const wb = XLSX.read(ev.target?.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+        if (aoa.length < 2) {
+          notify("No data rows found in the spreadsheet.", "error");
+          return;
+        }
+        const headerRow = (aoa[0] || []).map((h) => String(h).trim().toLowerCase());
+        const col = (name: string) => headerRow.indexOf(name);
+        const idxName = col("name");
+        if (idxName < 0) {
+          notify(`Missing required "name" column. Expected headers: ${STORE_UPLOAD_HEADERS.join(", ")}`, "error");
+          return;
+        }
+        const cell = (row: unknown[], name: string): string => {
+          const i = col(name);
+          return i >= 0 ? String(row[i] ?? "").trim() : "";
+        };
+
+        const drafts = aoa.slice(1)
+          .filter((row) => String(row[idxName] ?? "").trim() !== "")
+          .map((row) => {
+            const ltRaw = cell(row, "location_type").toLowerCase();
+            const location_type: LocationType =
+              ltRaw === "dc" || ltRaw === "other" ? ltRaw : "store";
+            const address: Address = {
+              line1: cell(row, "address_line1") || undefined,
+              city: cell(row, "city") || undefined,
+              state: cell(row, "state") || undefined,
+              postal_code: cell(row, "postal") || undefined,
+              country: cell(row, "country") || undefined,
+            };
+            return {
+              customer_id: customerId,
+              name: cell(row, "name"),
+              code: cell(row, "code") || null,
+              location_type,
+              address,
+              contact_name: cell(row, "contact_name") || null,
+              phone: cell(row, "phone") || null,
+              email: cell(row, "email") || null,
+            };
+          });
+
+        if (drafts.length === 0) {
+          notify("No rows with a non-empty name to import.", "error");
+          return;
+        }
+        if (!(await confirmDialog(`Import ${drafts.length} location(s) for this customer?`))) return;
+
+        setUploading(true);
+        let ok = 0;
+        const errors: string[] = [];
+        for (const body of drafts) {
+          try {
+            const r = await fetch("/api/internal/customer-locations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              throw new Error(j.error || `HTTP ${r.status}`);
+            }
+            ok += 1;
+          } catch (err: unknown) {
+            errors.push(`${body.name}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        await load();
+        if (errors.length === 0) {
+          notify(`Imported ${ok} location(s).`, "success");
+        } else {
+          notify(`Imported ${ok}, ${errors.length} failed:\n${errors.slice(0, 5).join("\n")}`, "error");
+        }
+      } catch (err: unknown) {
+        notify(`Upload failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+      } finally {
+        setUploading(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
           Ship-to locations
         </div>
-        <button onClick={() => setAddOpen(true)} style={btnSecondary}>+ Add location</button>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={() => setAddType("dc")} style={btnSecondary} disabled={uploading}>+ Add DC</button>
+          <button onClick={() => setAddType("store")} style={btnSecondary} disabled={uploading}>+ Add Store</button>
+          <button onClick={() => fileRef.current?.click()} style={btnSecondary} disabled={uploading}>
+            {uploading ? "Uploading…" : "Upload stores (Excel)"}
+          </button>
+          <button onClick={downloadTemplate} style={btnSecondary} disabled={uploading}>Download template</button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleUploadFile}
+            style={{ display: "none" }}
+          />
+        </div>
       </div>
 
       {loading ? (
@@ -323,6 +489,12 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
                       {loc.code}
                     </span>
                   )}
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
+                    background: "#334155", color: "#cbd5e1", textTransform: "uppercase", letterSpacing: 0.5,
+                  }}>
+                    {LOCATION_TYPE_LABELS[loc.location_type] ?? loc.location_type}
+                  </span>
                   {loc.is_default && (
                     <span style={{
                       fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 8,
@@ -350,11 +522,12 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
         </div>
       )}
 
-      {addOpen && (
+      {addType && (
         <LocationModal
           customerId={customerId}
-          onClose={() => setAddOpen(false)}
-          onSaved={() => { setAddOpen(false); void load(); }}
+          defaultType={addType}
+          onClose={() => setAddType(null)}
+          onSaved={() => { setAddType(null); void load(); }}
         />
       )}
       {editing && (
