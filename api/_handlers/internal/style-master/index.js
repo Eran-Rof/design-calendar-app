@@ -71,42 +71,47 @@ export default async function handler(req, res) {
     // any plausible style count and still fits one Vercel response.
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "5000", 10) || 5000, 10000);
 
-    let query = admin
-      .from("style_master")
-      .select(STYLE_SELECT)
-      .eq("entity_id", entityId)
-      .order("style_code", { ascending: true })
-      .limit(limit);
-
-    if (!includeDeleted) query = query.is("deleted_at", null);
-    // Polish 2026-05-30 — search covers the three classifier columns too so
-    // a query like "Tops" or "T-Shirts" matches rows even when style code /
-    // name / description don't mention them. Fabric name/code search runs
-    // as a separate lookup pass below — PostgREST `.or()` cannot reach
-    // through an embedded relation in a single filter expression. We escape
-    // % and , that PostgREST treats as filter separators inside `.or()`;
-    // both are illegal in our actual classifier strings so a strict reject
-    // is sufficient.
-    if (q) {
-      const safe = q.replace(/[,%]/g, " ").trim();
-      if (safe) {
-        query = query.or(
-          [
-            `style_code.ilike.%${safe}%`,
-            `style_name.ilike.%${safe}%`,
-            `description.ilike.%${safe}%`,
-            `group_name.ilike.%${safe}%`,
-            `category_name.ilike.%${safe}%`,
-            `sub_category_name.ilike.%${safe}%`,
-          ].join(","),
-        );
+    // Fresh base query each page. Search covers the three classifier columns
+    // too (Polish 2026-05-30) so "Tops"/"T-Shirts" match even when code/name/
+    // description don't; % and , (PostgREST `.or()` separators) are stripped.
+    const baseQuery = () => {
+      let qy = admin.from("style_master").select(STYLE_SELECT).eq("entity_id", entityId);
+      if (!includeDeleted) qy = qy.is("deleted_at", null);
+      if (q) {
+        const safe = q.replace(/[,%]/g, " ").trim();
+        if (safe) {
+          qy = qy.or(
+            [
+              `style_code.ilike.%${safe}%`,
+              `style_name.ilike.%${safe}%`,
+              `description.ilike.%${safe}%`,
+              `group_name.ilike.%${safe}%`,
+              `category_name.ilike.%${safe}%`,
+              `sub_category_name.ilike.%${safe}%`,
+            ].join(","),
+          );
+        }
       }
+      return qy;
+    };
+
+    // PostgREST silently caps each request at ~1000 rows, so a single
+    // `.limit(10000)` only ever returned the first 1000 styles (alphabetically)
+    // — RYB* and anything past the 1000th code were invisible in pickers.
+    // Keyset-paginate by style_code to assemble the full set up to `limit`.
+    const PAGE = 1000;
+    let rows = [];
+    let after = null;
+    while (rows.length < limit) {
+      let pq = baseQuery().order("style_code", { ascending: true }).limit(Math.min(PAGE, limit - rows.length));
+      if (after) pq = pq.gt("style_code", after);
+      const { data, error } = await pq;
+      if (error) return res.status(500).json({ error: error.message });
+      const page = data || [];
+      rows = rows.concat(page);
+      if (page.length < PAGE) break;
+      after = page[page.length - 1].style_code;
     }
-
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-
-    const rows = data || [];
 
     // If a search term was supplied, union in any styles whose fabric matches.
     // Cheap second query keeps the join clean and avoids a denormalized view.
