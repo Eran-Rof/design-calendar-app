@@ -395,11 +395,11 @@ export default function InternalCustomerMaster() {
                   <td style={{ ...td, textAlign: "right" }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
-                      style={btnSecondary}
-                      title="Open scorecard"
+                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
+                      title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
                       aria-label={`Open scorecard for ${r.name}`}
                     >
-                      📊
+                      📊 Scorecard
                     </button>
                     {!r.deleted_at && (
                       <>
