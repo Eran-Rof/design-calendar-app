@@ -312,6 +312,9 @@ import h300 from "./internal/inventory-cycle-counts/lines.js";
 import h301 from "./internal/inventory-cycle-counts/finalize.js";
 import h302 from "./internal/payment-terms/index.js";
 import h303 from "./internal/payment-terms/[id].js";
+// Size Scale Master — ordered size lists (text[]) reused by Style Master.
+import h568 from "./internal/size-scales/index.js";
+import h569 from "./internal/size-scales/[id].js";
 // Chunk I — reference master panels (h549..h556). Grouped here with the
 // other Master Data handlers (payment-terms / style-master).
 import h549 from "./internal/countries/index.js";
@@ -997,6 +1000,9 @@ export const ROUTES = [
   // Payment Terms (P3-9) — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/payment-terms/:id", handler: h303 },
   { pattern: "/api/internal/payment-terms", handler: h302 },
+  // Size Scales — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/size-scales/:id", handler: h569 },
+  { pattern: "/api/internal/size-scales", handler: h568 },
   // Chunk I reference masters — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/countries/:id", handler: h550 },
   { pattern: "/api/internal/countries", handler: h549 },

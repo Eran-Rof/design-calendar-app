@@ -111,6 +111,7 @@ type Style = {
   category_name: string | null;
   sub_category_name: string | null;
   brand_id: string | null;
+  size_scale_id: string | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -133,6 +134,8 @@ type DimValues = {
 };
 
 type Brand = { id: string; code: string; name: string; is_default?: boolean };
+
+type SizeScaleLite = { id: string; code: string; name: string };
 
 // gender_master row (Chunk J item 13) — replaces the hardcoded GENDER_OPTIONS.
 type GenderMaster = { id: string; code: string; label: string; sort_order: number };
@@ -534,8 +537,10 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     category_name:        style?.category_name         ?? "",
     sub_category_name:    style?.sub_category_name     ?? "",
     brand_id:             style?.brand_id              ?? "",
+    size_scale_id:        style?.size_scale_id         ?? "",
   });
   const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
+  const [sizeScales, setSizeScales] = useState<SizeScaleLite[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -553,6 +558,37 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Load active size_scales for the SearchableSelect picker. Non-fatal on error.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/size-scales`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled && Array.isArray(data)) setSizeScales(data as SizeScaleLite[]);
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const sizeScaleOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(none)" },
+      ...sizeScales.map((s) => ({
+        value: s.id,
+        label: `${s.code} — ${s.name}`,
+        searchHaystack: `${s.code} ${s.name}`,
+      })),
+    ];
+    // Defensive: surface the style's current scale if it didn't come back
+    // from the active-only fetch (e.g. it was later deactivated).
+    if (form.size_scale_id && !sizeScales.some((s) => s.id === form.size_scale_id)) {
+      opts.push({ value: form.size_scale_id, label: form.size_scale_id });
+    }
+    return opts;
+  }, [sizeScales, form.size_scale_id]);
 
   const fabricOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
@@ -623,6 +659,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         category_name:        form.category_name.trim() || null,
         sub_category_name:    form.sub_category_name.trim() || null,
         brand_id:             form.brand_id || null,
+        size_scale_id:        form.size_scale_id || null,
       };
       let url: string;
       let method: string;
@@ -753,6 +790,16 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               onChange={(v) => setForm({ ...form, brand_id: v })}
               options={brandOptions}
               placeholder="Pick a brand…"
+            />
+          </Field>
+
+          {/* Size Scale picker (style_master.size_scale_id). */}
+          <Field label="Size Scale">
+            <SearchableSelect
+              value={form.size_scale_id || null}
+              onChange={(v) => setForm({ ...form, size_scale_id: v })}
+              options={sizeScaleOptions}
+              placeholder="Pick a size scale…"
             />
           </Field>
 
