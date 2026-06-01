@@ -192,7 +192,7 @@ type ModuleKey =
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
   | "user_access";
 
-type GroupKey = "Master Data" | "Accounting" | "Sales" | "CRM" | "Customers" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Operations" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Sales" | "CRM" | "Customers" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -211,8 +211,8 @@ type ModuleDef = {
 // exactly one section (else its modules vanish from the nav).
 const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
-  { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
-  { section: "Operations",  emoji: "⚙️", groups: ["Inventory", "Operations", "Shadow Mirror"] },
+  { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Vendors", "Reports", "Approvals"] },
+  { section: "Operations",  emoji: "⚙️", groups: ["Inventory", "Shadow Mirror"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
@@ -224,6 +224,7 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
 const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
   "Accounting":       "💼",
+  "Vendors":          "🏭",
   "CRM":              "🤝",
   "Customers":        "🤝",
   "Reports":          "📊",
@@ -235,7 +236,6 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Approvals":        "✅",
   "Notifications":    "🔔",
   "HR":               "👥",
-  "Operations":       "⚙️",
   "Audit":            "🕒",
   "Admin":            "🔧",
 };
@@ -261,8 +261,8 @@ const MODULES: ModuleDef[] = [
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
   { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
-  { key: "ap_invoices",       label: "AP Invoices",       emoji: "🧾", group: "Accounting" },
-  { key: "ap_payments",       label: "AP Payments",       emoji: "💸", group: "Accounting" },
+  { key: "ap_invoices",       label: "AP Invoices",       emoji: "🧾", group: "Vendors" },
+  { key: "ap_payments",       label: "AP Payments",       emoji: "💸", group: "Vendors" },
   { key: "ar_invoices",       label: "AR Invoices",       emoji: "🧮", group: "Accounting" },
   // P4-5: AR Receipts (customer payments + applications). Sibling to AR
   // Invoices above (P4-4).
@@ -301,18 +301,18 @@ const MODULES: ModuleDef[] = [
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
-  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Inventory" },
+  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
-  { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Operations" },
+  { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Inventory" },
   // P7-9: M47 Customer Service / Cases panel.
   { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
   // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by
   // Customer + GL Detail). AR Aging stays under Accounting per its existing
   // P4-6 slot; the Reports menu group hosts the four NEW reports.
-  { key: "ap_aging",          label: "AP Aging",          emoji: "📅", group: "Reports" },
+  { key: "ap_aging",          label: "AP Aging (report)", emoji: "📅", group: "Vendors" },
   { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Reports" },
   { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Reports" },
   { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
@@ -1246,7 +1246,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
   const notifModules = visibleModules.filter((m) => m.group === "Notifications");
   const hrModules = visibleModules.filter((m) => m.group === "HR");
   const inventoryModules = visibleModules.filter((m) => m.group === "Inventory");
-  const opsModules = visibleModules.filter((m) => m.group === "Operations");
+  const vendorModules = visibleModules.filter((m) => m.group === "Vendors");
   const csModules = visibleModules.filter((m) => m.group === "Customer Service");
   const marketplacesModules = visibleModules.filter((m) => m.group === "Marketplaces");
   const mirrorModules = visibleModules.filter((m) => m.group === "Shadow Mirror");
@@ -1269,6 +1269,12 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Accounting">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {acctModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+        </div>
+      </Section>
+
+      <Section title="Vendors">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
@@ -1305,12 +1311,6 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Inventory (P3)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {inventoryModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
-        </div>
-      </Section>
-
-      <Section title="Operations (P3)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          {opsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
