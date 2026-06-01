@@ -90,6 +90,54 @@ describe("ShopifyClient request building", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("/orders/42.json");
   });
 
+  it("listProducts builds correct URL + injects access token (P11-10)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ json: { products: [{ id: 555 }] } }));
+    globalThis.fetch = fetchMock;
+
+    const c = new ShopifyClient({ shopifyDomain: DOMAIN, accessToken: TOKEN });
+    const { data } = await c.listProducts({ since: "2026-05-01T00:00:00Z", limit: 50, status: "active" });
+
+    expect(data).toEqual([{ id: 555 }]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(`https://${DOMAIN}/admin/api/2025-01/products.json`);
+    expect(url).toContain("updated_at_min=2026-05-01T00%3A00%3A00Z");
+    expect(url).toContain("status=active");
+    expect(url).toContain("limit=50");
+    expect(init.headers["X-Shopify-Access-Token"]).toBe(TOKEN);
+  });
+
+  it("listProducts with page_info omits other filters (P11-10)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ json: { products: [] } }));
+    globalThis.fetch = fetchMock;
+
+    const c = new ShopifyClient({ shopifyDomain: DOMAIN, accessToken: TOKEN });
+    await c.listProducts({ page_info: "prod-cursor", since: "should-be-ignored" });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain("page_info=prod-cursor");
+    expect(url).not.toContain("updated_at_min");
+  });
+
+  it("getProduct hits the right URL (P11-10)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ json: { product: { id: 9988, title: "T" } } }));
+    globalThis.fetch = fetchMock;
+
+    const c = new ShopifyClient({ shopifyDomain: DOMAIN, accessToken: TOKEN });
+    const { data } = await c.getProduct(9988);
+    expect(data).toEqual({ id: 9988, title: "T" });
+    expect(fetchMock.mock.calls[0][0]).toContain("/products/9988.json");
+  });
+
+  it("getProductImages hits the right URL (P11-10)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ json: { images: [{ id: 1 }, { id: 2 }] } }));
+    globalThis.fetch = fetchMock;
+
+    const c = new ShopifyClient({ shopifyDomain: DOMAIN, accessToken: TOKEN });
+    const { data } = await c.getProductImages(9988);
+    expect(data).toHaveLength(2);
+    expect(fetchMock.mock.calls[0][0]).toContain("/products/9988/images.json");
+  });
+
   it("listRefunds hits the order's refunds endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse({ json: { refunds: [{ id: 7 }] } }));
     globalThis.fetch = fetchMock;
