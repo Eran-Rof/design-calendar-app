@@ -17,6 +17,7 @@ import RowHistory from "./components/RowHistory";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
 type JELine = {
   id?: string;
@@ -383,11 +384,25 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   // — once any field has been touched, every close path (overlay click,
   // Cancel, Escape, browser back) goes through the confirm guard.
   const [dirty, setDirty] = useState(false);
+  // Subledger pickers — vendors / customers for the Sub id dropdown (dependent
+  // on Sub type). Fetched once; "item" stays free-text (rare in a manual JE).
+  const [subVendors, setSubVendors] = useState<SearchableSelectOption[]>([]);
+  const [subCustomers, setSubCustomers] = useState<SearchableSelectOption[]>([]);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=500")
       .then((r) => r.json())
       .then((a: Account[]) => setAccounts(a.filter((x) => x.status === "active" && x.is_postable)))
+      .catch(() => {});
+    fetch("/api/internal/vendor-master?limit=1000")
+      .then((r) => r.json())
+      .then((v: Array<{ id: string; name: string; code?: string | null }>) =>
+        setSubVendors((Array.isArray(v) ? v : []).map((x) => ({ value: x.id, label: x.code ? `${x.code} — ${x.name}` : x.name, searchHaystack: `${x.code || ""} ${x.name} ${x.id}` }))))
+      .catch(() => {});
+    fetch("/api/internal/customer-master?limit=1000")
+      .then((r) => r.json())
+      .then((c: Array<{ id: string; name: string; code?: string | null; customer_code?: string | null }>) =>
+        setSubCustomers((Array.isArray(c) ? c : []).map((x) => ({ value: x.id, label: (x.code || x.customer_code) ? `${x.code || x.customer_code} — ${x.name}` : x.name, searchHaystack: `${x.code || x.customer_code || ""} ${x.name} ${x.id}` }))))
       .catch(() => {});
   }, []);
 
@@ -655,7 +670,11 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    <select value={l.subledger_type} onChange={(e) => updateLine(idx, { subledger_type: e.target.value })} style={inputStyle as React.CSSProperties}>
+                    <select
+                      value={l.subledger_type}
+                      onChange={(e) => updateLine(idx, { subledger_type: e.target.value, subledger_id: "" })}
+                      style={inputStyle as React.CSSProperties}
+                    >
                       <option value="">(none)</option>
                       <option value="vendor">vendor</option>
                       <option value="customer">customer</option>
@@ -663,13 +682,24 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     </select>
                   </td>
                   <td style={td}>
-                    <input
-                      type="text"
-                      value={l.subledger_id}
-                      onChange={(e) => updateLine(idx, { subledger_id: e.target.value })}
-                      placeholder="uuid"
-                      style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
-                    />
+                    {l.subledger_type === "vendor" || l.subledger_type === "customer" ? (
+                      <SearchableSelect
+                        value={l.subledger_id || null}
+                        onChange={(id) => updateLine(idx, { subledger_id: id })}
+                        options={l.subledger_type === "vendor" ? subVendors : subCustomers}
+                        placeholder={`Select ${l.subledger_type}…`}
+                      />
+                    ) : l.subledger_type === "item" ? (
+                      <input
+                        type="text"
+                        value={l.subledger_id}
+                        onChange={(e) => updateLine(idx, { subledger_id: e.target.value })}
+                        placeholder="item id"
+                        style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
+                      />
+                    ) : (
+                      <input type="text" value="" disabled placeholder="—" style={{ ...inputStyle, opacity: 0.5 }} />
+                    )}
                   </td>
                   <td style={td}>
                     {lines.length > 2 && <button onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}
