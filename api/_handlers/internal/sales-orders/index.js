@@ -38,7 +38,8 @@ const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
   "ar_account_id, revenue_account_id, notes, subtotal_cents, total_cents, " +
-  "factor_approval_status, factor_reference, factor_approved_cents, created_at, updated_at";
+  "factor_approval_status, factor_reference, factor_approved_cents, " +
+  "parent_sales_order_id, is_split_parent, created_at, updated_at";
 
 export function validateInsert(body) {
   if (!body || typeof body !== "object") return { error: "body required" };
