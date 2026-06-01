@@ -49,6 +49,8 @@ import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
 import InternalNotificationPreferences from "./tanda/InternalNotificationPreferences";
 import InternalEmployees               from "./tanda/InternalEmployees";
+import InternalEmployeeTitles          from "./tanda/InternalEmployeeTitles";
+import InternalEmployeeDepartments     from "./tanda/InternalEmployeeDepartments";
 import InternalInventoryOnHand          from "./tanda/InternalInventoryOnHand";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
@@ -138,6 +140,8 @@ type ModuleKey =
   | "notifications"
   | "notification_prefs"
   | "employees"
+  | "employee_titles"
+  | "employee_departments"
   | "inventory_on_hand"
   | "inventory_transfers"
   | "inventory_adjustments"
@@ -258,6 +262,9 @@ const MODULES: ModuleDef[] = [
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
   { key: "notification_prefs",label: "Notif. Preferences",emoji: "🎚️", group: "Notifications" },
   { key: "employees",         label: "Employees",         emoji: "👥", group: "HR" },
+  // P16 — Employee Title + Department reference masters.
+  { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
+  { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
@@ -516,6 +523,8 @@ export default function Tangerine() {
         {activeModule === "notifications"      && <InternalNotificationCenter />}
         {activeModule === "notification_prefs" && <InternalNotificationPreferences />}
         {activeModule === "employees"          && <InternalEmployees />}
+        {activeModule === "employee_titles"      && <InternalEmployeeTitles />}
+        {activeModule === "employee_departments" && <InternalEmployeeDepartments />}
         {activeModule === "inventory_on_hand"    && <InternalInventoryOnHand />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}

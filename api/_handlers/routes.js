@@ -281,6 +281,11 @@ import h274 from "./internal/documents/signed-url.js";
 import h275 from "./internal/documents/archive.js";
 import h276 from "./internal/employees/index.js";
 import h277 from "./internal/employees/[id].js";
+// P16 — Employee Title + Department reference masters.
+import h545 from "./internal/employee-titles/index.js";
+import h546 from "./internal/employee-titles/[id].js";
+import h547 from "./internal/employee-departments/index.js";
+import h548 from "./internal/employee-departments/[id].js";
 import h278 from "./internal/auth/provision.js";
 import h279 from "./internal/inventory-transfers/index.js";
 import h280 from "./internal/scanner/events/batch.js";
@@ -922,6 +927,11 @@ export const ROUTES = [
   { pattern: "/api/internal/documents", handler: h273 },
   { pattern: "/api/internal/employees/:id", handler: h277 },
   { pattern: "/api/internal/employees", handler: h276 },
+  // P16 — Employee Title + Department reference masters. :id BEFORE bare.
+  { pattern: "/api/internal/employee-titles/:id", handler: h546 },
+  { pattern: "/api/internal/employee-titles", handler: h545 },
+  { pattern: "/api/internal/employee-departments/:id", handler: h548 },
+  { pattern: "/api/internal/employee-departments", handler: h547 },
   { pattern: "/api/internal/auth/provision", handler: h278 },
   { pattern: "/api/internal/inventory-transfers", handler: h279 },
   // Inventory adjustments — subpath /:id/post BEFORE bare /:id (first-match-wins)

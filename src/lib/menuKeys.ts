@@ -211,6 +211,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/notifications/prefs",   label: "Notification Preferences", app: "tanda", route: "/tangerine?m=notification_prefs", group: "Notifications", icon: "🎚️" },
   // HR
   { key: "tanda/hr/employees",          label: "Employees",         app: "tanda", route: "/tangerine?m=employees",         group: "HR", icon: "👥" },
+  { key: "tanda/hr/employee-titles",       label: "Employee Titles",      app: "tanda", route: "/tangerine?m=employee_titles",      group: "HR", icon: "🏷️" },
+  { key: "tanda/hr/employee-departments",  label: "Employee Departments", app: "tanda", route: "/tangerine?m=employee_departments", group: "HR", icon: "🏢" },
   // Operations
   { key: "tanda/operations/scanner-sessions", label: "Scanner Sessions", app: "tanda", route: "/tangerine?m=scanner_sessions", group: "Operations", icon: "📱" },
 ];
@@ -266,4 +268,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 3;
+export const MENU_KEYS_VERSION = 4;

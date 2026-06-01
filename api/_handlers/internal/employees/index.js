@@ -122,6 +122,20 @@ export function validateInsert(body) {
   if (manager_id_trimmed && !isUuid(manager_id_trimmed)) {
     return { error: `manager_employee_id must be a uuid (got: ${JSON.stringify(body.manager_employee_id)})` };
   }
+  // P16 — title_id / department_id FK pointers (uuid-or-null).
+  const title_id_trimmed = typeof body.title_id === "string" ? body.title_id.trim() : body.title_id;
+  if (title_id_trimmed && !isUuid(title_id_trimmed)) {
+    return { error: `title_id must be a uuid (got: ${JSON.stringify(body.title_id)})` };
+  }
+  const department_id_trimmed = typeof body.department_id === "string" ? body.department_id.trim() : body.department_id;
+  if (department_id_trimmed && !isUuid(department_id_trimmed)) {
+    return { error: `department_id must be a uuid (got: ${JSON.stringify(body.department_id)})` };
+  }
+  // P16 — commission rates: numeric percent in 0..100.
+  const wholesalePct = parsePct(body.commission_wholesale_pct);
+  if (wholesalePct.error) return { error: `commission_wholesale_pct: ${wholesalePct.error}` };
+  const closeoutPct = parsePct(body.commission_closeout_pct);
+  if (closeoutPct.error) return { error: `commission_closeout_pct: ${closeoutPct.error}` };
 
   return {
     data: {
@@ -131,6 +145,10 @@ export function validateInsert(body) {
       email: String(body.email).trim().toLowerCase(),
       title: body.title ? String(body.title).trim() : null,
       department: body.department ? String(body.department).trim() : null,
+      title_id: title_id_trimmed || null,
+      department_id: department_id_trimmed || null,
+      commission_wholesale_pct: wholesalePct.value,
+      commission_closeout_pct: closeoutPct.value,
       hire_date: body.hire_date || null,
       termination_date: body.termination_date || null,
       is_active: body.is_active !== false,
@@ -140,4 +158,15 @@ export function validateInsert(body) {
       metadata: body.metadata || {},
     },
   };
+}
+
+// P16 — parse an optional commission percent. null/""/undefined → 0.
+// Accepts a number or numeric string in [0, 100]. Returns { value } or { error }.
+function parsePct(raw) {
+  if (raw == null || raw === "") return { value: 0 };
+  const n = typeof raw === "number" ? raw : parseFloat(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    return { error: "must be a number in [0, 100]" };
+  }
+  return { value: n };
 }

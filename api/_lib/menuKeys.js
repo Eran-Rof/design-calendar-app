@@ -130,6 +130,8 @@ const KEYS = [
   "tanda/notifications/center",
   "tanda/notifications/prefs",
   "tanda/hr/employees",
+  "tanda/hr/employee-titles",
+  "tanda/hr/employee-departments",
   "tanda/operations/scanner-sessions",
   // Tech Packs (T4-5 close-out)
   "techpack/dashboard",
