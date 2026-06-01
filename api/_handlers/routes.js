@@ -562,6 +562,11 @@ import h541 from "./internal/sales-orders/create-invoice.js";
 import h542 from "./internal/sales-orders/split.js";
 import h566 from "./internal/sales-orders/allocate.js";
 import h567 from "./internal/sales-orders/ship.js";
+// P16/M11 — native Purchase Orders (origination).
+//   h572 = GET/POST  /api/internal/purchase-orders
+//   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
+import h572 from "./internal/purchase-orders/index.js";
+import h573 from "./internal/purchase-orders/[id].js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -950,6 +955,9 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/:id/ship",           handler: h567 },
   { pattern: "/api/internal/sales-orders/:id",                handler: h540 },
   { pattern: "/api/internal/sales-orders",                    handler: h539 },
+  // P16/M11 — native Purchase Orders. :id before the bare collection.
+  { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
+  { pattern: "/api/internal/purchase-orders",                 handler: h572 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
