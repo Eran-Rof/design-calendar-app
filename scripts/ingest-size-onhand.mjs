@@ -21,6 +21,31 @@
 //   node scripts/ingest-size-onhand.mjs --style RYB0412B  # focus one style, verbose
 //   node scripts/ingest-size-onhand.mjs --csv <path>    # explicit CSV
 //   node scripts/ingest-size-onhand.mjs --limit 25      # cap detail rows printed
+//   node scripts/ingest-size-onhand.mjs --apply --style RYB0412
+//                                                       # CUTOVER (writes PROD)
+//
+// --apply (STYLE-SCOPED, OPT-IN, writes PROD) lands ONE style's size-grain
+// on-hand by REPLACING its color-grain seed, per the corrected mechanism
+// (NOT the xoro_mirror rebuild — that manages a different source_kind and would
+// double-count). Atomic-as-possible, fully reversible. Steps:
+//   1. Parse REST CSV, EXACT BasePartNumber == --style, group (Color,Size,Store)
+//      summing OnHandQty, skip 0.
+//   2. resolveOrCreateSku per (Color,Size) → per-size ip_item_master SKU
+//      (store is the warehouse dimension, NOT part of the SKU).
+//   3. Upsert tangerine_size_onhand one row per (item_id, warehouse=Store,
+//      snapshot_date, source='xoro_rest', qty) for provenance/reversibility.
+//   4. RETIRE the seed: zero remaining_qty on EVERY source_kind='opening_balance'
+//      layer under the style's SKUs (UPDATE, never DELETE — preserves
+//      original_qty + rows for exact reversal). Logs the affected layer ids +
+//      original remaining_qty first. Also zeros any prior 'xoro_rest_size'
+//      layers for these SKUs (idempotent re-run). Touches ONLY those two kinds.
+//   5. INSERT one 'xoro_rest_size' layer per (per-size SKU, warehouse=Store)
+//      with original_qty=remaining_qty=REST qty, received_at=2026-05-31T23:59:59Z,
+//      unit_cost_cents best-effort from ip_item_avg_cost, notes carry the store.
+//      ROF Main + ROF - ECOM stay SEPARATE layers (segmented in notes).
+// --apply REFUSES to run without an explicit single --style (no catalog batch).
+// Prod writes go via a service-role client whose key is fetched at runtime from
+// `supabase projects api-keys` (PAT-backed); nothing is persisted to disk.
 //
 // Reads SUPABASE_PAT from .env.local / .env.staging (same as run-sql-prod.mjs).
 
@@ -40,15 +65,20 @@ function argVal(name) {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
 }
-const APPLY = args.includes("--apply"); // intentionally not implemented (gated)
+const APPLY = args.includes("--apply"); // STYLE-SCOPED cutover; writes PROD
 const ONLY_STYLE = argVal("--style");
 const CSV_OVERRIDE = argVal("--csv");
 const DETAIL_LIMIT = Number(argVal("--limit") || 40);
 
-if (APPLY) {
-  console.error("✗ --apply is GATED and not implemented in this script. The");
-  console.error("  per-style cutover is financially material and must be run by");
-  console.error("  the lead. This script is dry-run / reconciliation only.");
+// PROD identity (Ring of Fire entity + prod project ref).
+const PROD_REF = "qcvqvxxoperiurauoxmp";
+const ROF_ENTITY_ID = "404b8a6b-0d2d-44d2-8539-9064ff0fafee";
+
+// --apply is OPT-IN, PROD-mutating, and STYLE-SCOPED. It must refuse to run
+// catalog-wide. A single explicit --style is mandatory.
+if (APPLY && (!ONLY_STYLE || !ONLY_STYLE.trim())) {
+  console.error("✗ --apply requires an explicit single --style (e.g. --apply --style RYB0412).");
+  console.error("  Catalog-wide apply is intentionally NOT supported by this script.");
   process.exit(2);
 }
 
@@ -80,6 +110,39 @@ async function runSql(sql) {
   }
 }
 const sqlLit = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
+// ── PROD service-role client (apply only) ─────────────────────────────────────
+// The repo/.env holds the STAGING key. For the prod cutover we mint a prod
+// service-role client at runtime: fetch the key from `supabase projects
+// api-keys` (PAT-backed via the linked CLI). Nothing is persisted.
+function prodUrl() {
+  return `https://${PROD_REF}.supabase.co`;
+}
+let _prodKey = null;
+function prodServiceKey() {
+  if (_prodKey) return _prodKey;
+  let out;
+  try {
+    out = execFileSync("supabase", ["projects", "api-keys", "--project-ref", PROD_REF], {
+      cwd: WORKDIR, encoding: "utf8", maxBuffer: 8 * 1024 * 1024, shell: true,
+    });
+  } catch (e) {
+    throw new Error(`supabase projects api-keys failed: ${e.stderr || e.message}`);
+  }
+  // The CLI prints a table; the service_role row carries the JWT.
+  const line = out.split(/\r?\n/).find((l) => /\bservice_role\b/.test(l));
+  const m = line && line.match(/(eyJ[\w-]+\.[\w-]+\.[\w-]+)/);
+  if (!m) throw new Error("could not parse service_role key from `supabase projects api-keys`");
+  _prodKey = m[1];
+  return _prodKey;
+}
+
+// ── snapshot_date from the CSV filename (postAD_invrest_YYYYMMDDHHMMSS.csv) ─────
+function snapshotDateFromCsv(p) {
+  const m = String(p).match(/postAD_invrest_(\d{4})(\d{2})(\d{2})/);
+  if (!m) throw new Error(`cannot derive snapshot_date from CSV name: ${p}`);
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
 
 // ── pick newest CSV ───────────────────────────────────────────────────────────
 function newestCsv() {
@@ -131,6 +194,9 @@ if ([cColor, cSize, cBP, cOnHand].some((i) => i < 0)) {
 // key = bp||color||size
 const cellMap = new Map(); // key -> { bp, color, size, qty, stores:Set }
 const bySize = new Map(); // bp -> Map(size -> qty)  (style-level size profile)
+// Store-grain cells for --apply (ROF Main vs ROF - ECOM stay SEPARATE layers).
+// key = bp||color||size||store -> { bp, color, size, store, qty }
+const cellStoreMap = new Map();
 for (let i = 1; i < lines.length; i++) {
   const f = parseCsvLine(lines[i]);
   const bp = (f[cBP] || "").trim();
@@ -145,6 +211,10 @@ for (let i = 1; i < lines.length; i++) {
   if (!cell) { cell = { bp, color, size, qty: 0, stores: new Set() }; cellMap.set(key, cell); }
   cell.qty += qty;
   if (store) cell.stores.add(store);
+  const skey = `${bp}||${color}||${size}||${store}`;
+  let scell = cellStoreMap.get(skey);
+  if (!scell) { scell = { bp, color, size, store, qty: 0 }; cellStoreMap.set(skey, scell); }
+  scell.qty += qty;
   if (!bySize.has(bp)) bySize.set(bp, new Map());
   const sm = bySize.get(bp);
   sm.set(size, (sm.get(size) || 0) + qty);
@@ -160,6 +230,285 @@ for (const [bp, sm] of bySize.entries()) {
 
 const bps = Array.from(restStyleTotal.keys());
 console.log(`# REST styles in CSV (after filter): ${bps.length}`);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// --apply : STYLE-SCOPED PROD cutover (writes). Replaces a style's color-grain
+// opening_balance seed layers with per-SIZE xoro_rest_size layers. Runs and
+// then EXITS before the dry-run reconciliation block below.
+// ══════════════════════════════════════════════════════════════════════════════
+if (APPLY) {
+  await runApply();
+  process.exit(0);
+}
+
+async function runApply() {
+  const snapshotDate = snapshotDateFromCsv(csvPath);
+  const styleCode = ONLY_STYLE.trim();
+  console.log(`\n# ── APPLY (PROD) ──────────────────────────────────────────────`);
+  console.log(`# Style:         ${styleCode}  (EXACT BasePartNumber match)`);
+  console.log(`# snapshot_date: ${snapshotDate}`);
+  console.log(`# entity_id:     ${ROF_ENTITY_ID}`);
+
+  // Store-grain cells for the EXACT style only, nonzero qty. (cellStoreMap was
+  // already filtered to ONLY_STYLE; re-assert EXACT bp as a prefix-slip guard.)
+  const cells = Array.from(cellStoreMap.values()).filter(
+    (c) => c.bp === styleCode && Number(c.qty) !== 0,
+  );
+  if (cells.length === 0) {
+    console.error(`✗ no non-zero (color,size,store) cells for EXACT BasePartNumber '${styleCode}' in ${csvPath}`);
+    process.exit(3);
+  }
+  const restTotal = cells.reduce((s, c) => s + c.qty, 0);
+  const whTotals = {};
+  for (const c of cells) whTotals[c.store] = (whTotals[c.store] || 0) + c.qty;
+  console.log(`# (color,size,store) cells: ${cells.length}   REST total: ${restTotal}   per-warehouse: ${JSON.stringify(whTotals)}`);
+
+  // Resolve the style_id from prod (must exist; do NOT create styles here).
+  const styleRows = await runSql(
+    `SELECT id::text AS id FROM style_master
+      WHERE style_code = ${sqlLit(styleCode)} AND entity_id = ${sqlLit(ROF_ENTITY_ID)};`,
+  );
+  if (styleRows.length !== 1) {
+    console.error(`✗ expected exactly 1 style_master row for ${styleCode} in ROF entity, got ${styleRows.length}`);
+    process.exit(3);
+  }
+  const styleId = styleRows[0].id;
+  console.log(`# style_id:      ${styleId}`);
+
+  // Build a PROD service-role JS client (key fetched at runtime; never stored).
+  const { createClient } = await import("@supabase/supabase-js");
+  const admin = createClient(prodUrl(), prodServiceKey(), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  // 1. Find-or-create per-size SKU per (color,size). Store is NOT part of the
+  //    SKU. We do this INLINE (not via the shared resolveOrCreateSku) because
+  //    that helper hard-codes is_apparel=true, which trips ip_item_master's
+  //    `apparel_dims_required` CHECK (apparel rows need inseam/length/fit —
+  //    dims the REST snapshot does not carry). This style's existing color-grain
+  //    SKUs are is_apparel=false; we match that so the size SKUs are consistent
+  //    and the constraint is satisfied. (No matrix surface relies on these being
+  //    apparel-flagged; the matrix reads dims off the size_scale, not is_apparel.)
+  const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  async function findOrCreateSizeSku(color, size) {
+    const colorVal = color ? String(color).trim() : null;
+    const sizeVal = String(size).trim();
+    // find existing (style,color,size) with inseam IS NULL
+    let q = admin.from("ip_item_master").select("id")
+      .eq("entity_id", ROF_ENTITY_ID).eq("style_id", styleId).eq("size", sizeVal).is("inseam", null);
+    q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
+    const { data: existing } = await q.maybeSingle();
+    if (existing?.id) return { id: existing.id, created: false };
+    const base = [SKU_SAFE(styleCode), SKU_SAFE(colorVal), SKU_SAFE(sizeVal)].filter(Boolean).join("-");
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const skuCode = attempt === 0 ? base : `${base}-${attempt}`;
+      const { data: ins, error } = await admin.from("ip_item_master")
+        .insert({ entity_id: ROF_ENTITY_ID, sku_code: skuCode, style_code: styleCode, style_id: styleId, color: colorVal, size: sizeVal, inseam: null, is_apparel: false })
+        .select("id").single();
+      if (!error && ins) return { id: ins.id, created: true };
+      if (error && error.code !== "23505") return { error: error.message };
+      const { data: again } = await admin.from("ip_item_master").select("id")
+        .eq("entity_id", ROF_ENTITY_ID).eq("sku_code", skuCode).maybeSingle();
+      if (again?.id) return { id: again.id, created: false };
+    }
+    return { error: "could not allocate a unique sku_code" };
+  }
+
+  const skuByColorSize = new Map(); // `${color}||${size}` -> item_id
+  let created = 0, reused = 0;
+  for (const cell of cells) {
+    const k = `${cell.color}||${cell.size}`;
+    if (skuByColorSize.has(k)) continue;
+    const res = await findOrCreateSizeSku(cell.color, cell.size);
+    if (res.error || !res.id) {
+      console.error(`✗ findOrCreateSizeSku failed for (${cell.color}, ${cell.size}): ${res.error}`);
+      process.exit(4);
+    }
+    skuByColorSize.set(k, res.id);
+    if (res.created) created++; else reused++;
+  }
+  console.log(`# SKUs: ${skuByColorSize.size} distinct (color,size)  [${created} created, ${reused} reused]`);
+
+  // Need sku_code + a default location for every SKU we will write a layer to.
+  // We mirror the location used by this style's existing layers (all opening_
+  // balance rows sit at one location); fall back to the entity's MAIN_WH.
+  const skuIds = [...new Set(skuByColorSize.values())];
+  const { data: skuMeta, error: skuMetaErr } = await admin
+    .from("ip_item_master")
+    .select("id, sku_code, color, size")
+    .in("id", skuIds);
+  if (skuMetaErr) { console.error(`✗ load sku meta: ${skuMetaErr.message}`); process.exit(4); }
+  const skuCodeById = new Map((skuMeta || []).map((r) => [r.id, r.sku_code]));
+
+  // Determine the location_id to stamp on new layers: reuse the location on the
+  // style's existing layers (deterministic, single-location in prod); fallback
+  // to MAIN_WH for the entity.
+  const { data: existLayerLoc } = await admin
+    .from("inventory_layers")
+    .select("location_id")
+    .in("item_id", skuIds)
+    .not("location_id", "is", null)
+    .limit(1);
+  let locationId = existLayerLoc && existLayerLoc[0] ? existLayerLoc[0].location_id : null;
+  if (!locationId) {
+    const { data: mainWh } = await admin
+      .from("inventory_locations")
+      .select("id")
+      .eq("entity_id", ROF_ENTITY_ID)
+      .eq("code", "MAIN_WH")
+      .maybeSingle();
+    locationId = mainWh?.id || null;
+  }
+  if (!locationId) { console.error(`✗ could not resolve a location_id for new layers`); process.exit(4); }
+  console.log(`# location_id:   ${locationId}`);
+
+  // Avg cost: ip_item_avg_cost keyed by sku_code, dollars. Prefer the exact
+  // per-size sku_code; fall back to the color-level sku_code (style-COLOR);
+  // else 0. Cost is not final pre-go-live (operator confirmed).
+  const allSkuCodesNeeded = new Set();
+  for (const code of skuCodeById.values()) if (code) {
+    allSkuCodesNeeded.add(code);
+    // color-level code = strip trailing -<size> (e.g. RYB0412-GREY-30 -> RYB0412-GREY)
+    const colorCode = code.replace(/-[^-]+$/, "");
+    if (colorCode && colorCode !== code) allSkuCodesNeeded.add(colorCode);
+  }
+  const avgBySku = new Map();
+  if (allSkuCodesNeeded.size > 0) {
+    const { data: avgRows } = await admin
+      .from("ip_item_avg_cost")
+      .select("sku_code, avg_cost")
+      .in("sku_code", [...allSkuCodesNeeded]);
+    for (const r of avgRows || []) if (r.avg_cost != null) avgBySku.set(r.sku_code, Number(r.avg_cost));
+  }
+  function unitCostCentsFor(code) {
+    if (!code) return 0;
+    if (avgBySku.has(code)) return Math.round(avgBySku.get(code) * 100);
+    const colorCode = code.replace(/-[^-]+$/, "");
+    if (avgBySku.has(colorCode)) return Math.round(avgBySku.get(colorCode) * 100);
+    return 0;
+  }
+
+  // 2. Upsert tangerine_size_onhand: one row per (item_id, warehouse=Store).
+  const upsertRows = cells.map((cell) => ({
+    entity_id: ROF_ENTITY_ID,
+    item_id: skuByColorSize.get(`${cell.color}||${cell.size}`),
+    warehouse_code: cell.store, // ROF Main / ROF - ECOM kept SEPARATE
+    snapshot_date: snapshotDate,
+    qty_on_hand: cell.qty,
+    source: "xoro_rest",
+  }));
+  const { error: upErr } = await admin
+    .from("tangerine_size_onhand")
+    .upsert(upsertRows, { onConflict: "entity_id,item_id,warehouse_code,snapshot_date,source" });
+  if (upErr) { console.error(`✗ tangerine_size_onhand upsert failed: ${upErr.message}`); process.exit(5); }
+  console.log(`# ✓ upserted ${upsertRows.length} tangerine_size_onhand rows.`);
+
+  // ── Retire the seed (REVERSIBLE) ────────────────────────────────────────────
+  // EVERY ip_item_master SKU under this style (not just resolved ones) — the
+  // 24 color-grain seed SKUs must all go to 0 so the matrix total == REST.
+  const { data: allStyleSkus, error: allSkuErr } = await admin
+    .from("ip_item_master")
+    .select("id")
+    .eq("entity_id", ROF_ENTITY_ID)
+    .eq("style_id", styleId);
+  if (allSkuErr) { console.error(`✗ load style SKUs: ${allSkuErr.message}`); process.exit(5); }
+  const allStyleSkuIds = (allStyleSkus || []).map((r) => r.id);
+
+  // 4a. Capture the opening_balance layers we will zero (for exact reversal),
+  //     then UPDATE remaining_qty=0 (do NOT delete).
+  const { data: obLayers, error: obErr } = await admin
+    .from("inventory_layers")
+    .select("id, item_id, original_qty, remaining_qty")
+    .eq("entity_id", ROF_ENTITY_ID)
+    .in("item_id", allStyleSkuIds)
+    .eq("source_kind", "opening_balance")
+    .gt("remaining_qty", 0);
+  if (obErr) { console.error(`✗ load opening_balance layers: ${obErr.message}`); process.exit(5); }
+  const obToZero = obLayers || [];
+  const obZeroedTotal = obToZero.reduce((s, l) => s + Number(l.remaining_qty), 0);
+  console.log(`\n# ── REVERSAL LOG: opening_balance layers being zeroed (${obToZero.length} layers, ${obZeroedTotal} units) ──`);
+  for (const l of obToZero) {
+    console.log(`#   layer ${l.id}  item ${l.item_id}  remaining_qty ${l.remaining_qty}  (original_qty ${l.original_qty})`);
+  }
+  // Persist the reversal manifest to disk too.
+  const manifest = {
+    style_code: styleCode, style_id: styleId, entity_id: ROF_ENTITY_ID,
+    snapshot_date: snapshotDate, zeroed_opening_balance_layers: obToZero,
+  };
+  const manifestPath = join(tmp, `reversal-manifest-${styleCode}-${snapshotDate}.json`);
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  console.log(`# reversal manifest written: ${manifestPath}`);
+
+  // 4b. Idempotent re-run: zero any PRIOR xoro_rest_size layers for these SKUs
+  //     FIRST (we delete-then-reinsert below, but zero guards a partial state).
+  const { error: delPriorErr } = await admin
+    .from("inventory_layers")
+    .delete()
+    .eq("entity_id", ROF_ENTITY_ID)
+    .in("item_id", allStyleSkuIds)
+    .eq("source_kind", "xoro_rest_size");
+  if (delPriorErr) { console.error(`✗ delete prior xoro_rest_size layers: ${delPriorErr.message}`); process.exit(5); }
+
+  // 4c. Zero the opening_balance layers.
+  if (obToZero.length > 0) {
+    const { error: zeroErr } = await admin
+      .from("inventory_layers")
+      .update({ remaining_qty: 0 })
+      .in("id", obToZero.map((l) => l.id));
+    if (zeroErr) { console.error(`✗ zero opening_balance layers: ${zeroErr.message}`); process.exit(5); }
+    console.log(`# ✓ zeroed ${obToZero.length} opening_balance layers (original_qty preserved).`);
+  }
+
+  // 5. Insert one xoro_rest_size layer per (per-size SKU, warehouse=Store).
+  const layerRows = cells.map((cell) => {
+    const itemId = skuByColorSize.get(`${cell.color}||${cell.size}`);
+    const code = skuCodeById.get(itemId);
+    return {
+      entity_id: ROF_ENTITY_ID,
+      item_id: itemId,
+      location_id: locationId,
+      received_at: "2026-05-31T23:59:59Z",
+      original_qty: cell.qty,
+      remaining_qty: cell.qty,
+      unit_cost_cents: unitCostCentsFor(code),
+      source_kind: "xoro_rest_size",
+      notes: `xoro_rest_size:${snapshotDate}:wh=${cell.store}`,
+    };
+  });
+  const { error: insErr } = await admin.from("inventory_layers").insert(layerRows);
+  if (insErr) { console.error(`✗ insert xoro_rest_size layers: ${insErr.message}`); process.exit(6); }
+  console.log(`# ✓ inserted ${layerRows.length} xoro_rest_size layers (total ${restTotal} units).`);
+
+  // ── In-process VERIFY ───────────────────────────────────────────────────────
+  const { data: postLayers, error: verErr } = await admin
+    .from("inventory_layers")
+    .select("remaining_qty, source_kind, notes")
+    .eq("entity_id", ROF_ENTITY_ID)
+    .in("item_id", allStyleSkuIds)
+    .gt("remaining_qty", 0);
+  if (verErr) { console.error(`✗ verify read failed: ${verErr.message}`); process.exit(7); }
+  let total = 0; const byKind = {}; const byWh = {};
+  for (const l of postLayers || []) {
+    const q = Number(l.remaining_qty); total += q;
+    byKind[l.source_kind] = (byKind[l.source_kind] || 0) + q;
+    const m = (l.notes || "").match(/wh=(.+)$/);
+    const wh = m ? m[1] : "(none)";
+    byWh[wh] = (byWh[wh] || 0) + q;
+  }
+  console.log(`\n# ── POST-APPLY VERIFY (live read) ──`);
+  console.log(`#   Σ remaining_qty (all nonzero layers): ${total}`);
+  console.log(`#   by source_kind: ${JSON.stringify(byKind)}`);
+  console.log(`#   by warehouse:   ${JSON.stringify(byWh)}`);
+  const okTotal = total === restTotal;
+  const okKinds = Object.keys(byKind).every((k) => k === "xoro_rest_size");
+  console.log(`#   total == REST (${restTotal}): ${okTotal ? "PASS" : "FAIL"}`);
+  console.log(`#   only xoro_rest_size nonzero: ${okKinds ? "PASS" : "FAIL"}`);
+  if (!okTotal || !okKinds) {
+    console.error(`✗ POST-APPLY VERIFY FAILED — inspect immediately (reversal manifest: ${manifestPath}).`);
+    process.exit(8);
+  }
+  console.log(`# ✓ APPLY complete for ${styleCode}. Reversal manifest: ${manifestPath}`);
+}
 
 // ── current color-grain on-hand per style_code, from prod ─────────────────────
 // Match REST BasePartNumber -> style_master.style_code (exact). Some BPs carry
