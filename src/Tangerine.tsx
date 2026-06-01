@@ -48,6 +48,7 @@ import InternalApprovalRequests        from "./tanda/InternalApprovalRequests";
 import InternalNotificationCenter      from "./tanda/InternalNotificationCenter";
 import InternalNotificationPreferences from "./tanda/InternalNotificationPreferences";
 import InternalEmployees               from "./tanda/InternalEmployees";
+import InternalInventoryOnHand          from "./tanda/InternalInventoryOnHand";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
@@ -135,6 +136,7 @@ type ModuleKey =
   | "notifications"
   | "notification_prefs"
   | "employees"
+  | "inventory_on_hand"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -252,6 +254,7 @@ const MODULES: ModuleDef[] = [
   { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
   { key: "notification_prefs",label: "Notif. Preferences",emoji: "🎚️", group: "Notifications" },
   { key: "employees",         label: "Employees",         emoji: "👥", group: "HR" },
+  { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -469,6 +472,7 @@ export default function Tangerine() {
         {activeModule === "notifications"      && <InternalNotificationCenter />}
         {activeModule === "notification_prefs" && <InternalNotificationPreferences />}
         {activeModule === "employees"          && <InternalEmployees />}
+        {activeModule === "inventory_on_hand"    && <InternalInventoryOnHand />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
