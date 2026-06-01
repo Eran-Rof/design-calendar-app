@@ -42,6 +42,7 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   sales_by_rep: "analytics",
   sales_by_customer: "analytics",
   // Inventory / ops
+  inventory_on_hand: "inventory",
   inventory_transfers: "inventory",
   inventory_adjustments: "inventory",
   cycle_counts: "inventory",

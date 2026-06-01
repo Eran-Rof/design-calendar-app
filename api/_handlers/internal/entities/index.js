@@ -52,27 +52,50 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     let body = req.body;
     if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
-    const { name, slug, parent_entity_id } = body || {};
+    const { name, slug, parent_entity_id, code: rawCode } = body || {};
     if (!name || !String(name).trim()) return res.status(400).json({ error: "name is required" });
     const normSlug = normalizeSlug(slug || name);
     if (!normSlug) return res.status(400).json({ error: "Valid slug required (alphanumeric + dashes)" });
+    const code = String(rawCode || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!code) return res.status(400).json({ error: "code is required (short uppercase, e.g. SAG)" });
 
     if (parent_entity_id) {
       const { data: parent } = await admin.from("entities").select("id").eq("id", parent_entity_id).maybeSingle();
       if (!parent) return res.status(400).json({ error: "parent_entity_id not found" });
     }
 
+    // Clone ROF's entity settings so the new entity has a valid currency /
+    // fiscal calendar / basis, and a starter Chart of Accounts (operator
+    // decision: new entities clone ROF).
+    const { data: rof } = await admin
+      .from("entities")
+      .select("id, functional_currency, fiscal_year_start_month, accounting_basis_primary")
+      .eq("code", "ROF")
+      .maybeSingle();
+
     const { data, error } = await admin.from("entities").insert({
       name: String(name).trim(),
+      code,
       slug: normSlug,
       parent_entity_id: parent_entity_id || null,
       status: "active",
+      functional_currency: rof?.functional_currency || "USD",
+      fiscal_year_start_month: rof?.fiscal_year_start_month ?? 1,
+      accounting_basis_primary: rof?.accounting_basis_primary || "ACCRUAL",
     }).select("*").single();
     if (error) {
-      if (error.code === "23505") return res.status(409).json({ error: `Slug '${normSlug}' is already taken` });
+      if (error.code === "23505") return res.status(409).json({ error: `Code '${code}' or slug '${normSlug}' is already taken` });
       return res.status(500).json({ error: error.message });
     }
-    return res.status(201).json(data);
+
+    // Provision the COA by cloning ROF's (best-effort; entity still created).
+    let coa_cloned = 0;
+    if (rof?.id) {
+      const { data: n, error: cloneErr } = await admin.rpc("clone_coa_to_entity", { p_target: data.id, p_source: rof.id });
+      if (cloneErr) return res.status(201).json({ ...data, coa_cloned: 0, coa_warning: `Entity created but COA clone failed: ${cloneErr.message}` });
+      coa_cloned = Number(n) || 0;
+    }
+    return res.status(201).json({ ...data, coa_cloned });
   }
 
   return res.status(405).json({ error: "Method not allowed" });
