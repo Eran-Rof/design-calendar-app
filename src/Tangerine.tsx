@@ -307,13 +307,15 @@ export default function Tangerine() {
   // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
   // Fires once per tab session at app-shell root. See useAutoLanding.ts.
   const landing = useAutoLanding();
-  // Deep-link support: `?view=<module_key>` (used by COA balance click-
-  // through → GL Detail, the menu registry, and future favorites). Read
-  // exactly once at mount; subsequent navigation goes through setActiveModule.
+  // Deep-link / multi-tab support: `?m=<module_key>` drives activeModule so
+  // opening ?m=journal_entries in a new tab lands directly on that panel.
+  // Also accepts the legacy `?view=` param written by COA click-throughs etc.
+  // Read on initial mount; subsequent navigation uses goToModule() below.
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {
-      const v = new URLSearchParams(window.location.search).get("view");
+      const sp = new URLSearchParams(window.location.search);
+      const v = sp.get("m") ?? sp.get("view");
       return v && (MODULES as { key: string }[]).some((m) => m.key === v)
         ? (v as ModuleKey)
         : null;
@@ -321,6 +323,43 @@ export default function Tangerine() {
       return null;
     }
   });
+
+  // ── URL sync helpers ──────────────────────────────────────────────────────
+  // goToModule: single call-site that updates both React state and the browser
+  // URL (?m=<key> or clear when null). Use pushState so back/forward work.
+  function goToModule(key: ModuleKey | null) {
+    setActiveModule(key);
+    const url = new URL(window.location.href);
+    if (key) {
+      url.searchParams.set("m", key);
+    } else {
+      url.searchParams.delete("m");
+    }
+    // Also remove legacy ?view= if present, to keep the URL tidy.
+    url.searchParams.delete("view");
+    window.history.pushState({ module: key }, "", url.toString());
+  }
+
+  // popstate: handle browser back / forward buttons.
+  useEffect(() => {
+    function onPopState() {
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        const v = sp.get("m") ?? sp.get("view");
+        const resolved =
+          v && (MODULES as { key: string }[]).some((m) => m.key === v)
+            ? (v as ModuleKey)
+            : null;
+        setActiveModule(resolved);
+      } catch {
+        setActiveModule(null);
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -431,17 +470,17 @@ export default function Tangerine() {
       <WarnHost />
       <TopNav
         activeModule={activeModule}
-        onSelectModule={setActiveModule}
+        onSelectModule={goToModule}
         appsOpen={appsOpen}
         onToggleApps={() => setAppsOpen((v) => !v)}
         onCloseApps={() => setAppsOpen(false)}
-        onGoHome={() => setActiveModule(null)}
+        onGoHome={() => goToModule(null)}
         userEmail={userEmail}
         onSignOut={handleSignOut}
       />
 
       <main style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
-        {activeModule === null && <HomeLanding onSelectModule={setActiveModule} />}
+        {activeModule === null && <HomeLanding onSelectModule={goToModule} />}
         {activeModule === "style_master"    && <InternalStyleMaster />}
         {activeModule === "pim_catalog"     && <InternalPimProductCatalog />}
         {activeModule === "fabric_codes"    && <InternalFabricCodes />}
@@ -915,17 +954,27 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                       })}
                     </div>
                   )}
-                  {/* Right pane: the shown sub-group's modules. */}
+                  {/* Right pane: the shown sub-group's modules.
+                      Rendered as <a href="?m=<key>"> so right-click → "Open in
+                      new tab" / cmd-click / ctrl-click / middle-click all work
+                      natively. Plain left-click is intercepted: we call
+                      goToModule() and preventDefault() to stay in-app. */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 224 }}>
                     {shown.modules.map((m) => {
                       const active = activeModule === m.key;
                       const hovered = hoveredKey === m.key;
                       return (
-                        <button
+                        <a
                           key={m.key}
-                          type="button"
+                          href={`?m=${m.key}`}
                           role="menuitem"
-                          onClick={() => handleSelect(m.key)}
+                          onClick={(e) => {
+                            // Let modified clicks (cmd/ctrl/shift/middle) pass
+                            // through so the browser opens a new tab naturally.
+                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+                            e.preventDefault();
+                            handleSelect(m.key);
+                          }}
                           onMouseEnter={() => setHoveredKey(m.key)}
                           onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
                           style={{
@@ -934,11 +983,12 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                             padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
                             textAlign: "left", display: "flex", alignItems: "center", gap: 8,
                             transition: "background 80ms ease, color 80ms ease",
+                            textDecoration: "none",
                           }}
                         >
                           <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
                           <span>{m.label}</span>
-                        </button>
+                        </a>
                       );
                     })}
                   </div>
