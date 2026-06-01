@@ -237,21 +237,37 @@ export default async function handler(req, res) {
   counts.new_rows = newRows.length;
   counts.updated_rows = updateRows.length;
 
-  // Upsert each list. ignoreDuplicates: false makes existing rows go through
-  // ON CONFLICT DO UPDATE, but the SET clause only touches columns included
-  // in the payload — fields not passed stay under the prior-source authority.
-  for (const [label, rows] of [["new", newRows], ["update", updateRows]]) {
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const chunk = rows.slice(i, i + CHUNK);
-      const { error } = await admin
-        .from("ip_item_master")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
-      if (error) {
-        counts.errors.push(`upsert ${label} chunk ${i}: ${error.message}`);
-        continue;
-      }
-      counts.upserted += chunk.length;
+  // NEW-row path: plain INSERT (via upsert with ignoreDuplicates so a race
+  // doesn't error). is_apparel:false in the payload satisfies
+  // apparel_dims_required on the proposed row.
+  for (let i = 0; i < newRows.length; i += CHUNK) {
+    const chunk = newRows.slice(i, i + CHUNK);
+    const { error } = await admin
+      .from("ip_item_master")
+      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true });
+    if (error) {
+      counts.errors.push(`upsert new chunk ${i}: ${error.message}`);
+      continue;
     }
+    counts.upserted += chunk.length;
+  }
+  // UPDATE-row path: call the bulk_refresh RPC instead of upsert. PostgREST
+  // upsert builds INSERT...ON CONFLICT, and PG evaluates CHECK on the
+  // proposed INSERT row BEFORE the conflict resolves — apparel_dims_required
+  // fails immediately because the payload's is_apparel defaults to true with
+  // size/inseam/length/fit NULL. The RPC does a true UPDATE FROM jsonb input,
+  // skipping the INSERT path entirely. Migration 20260713050000.
+  for (let i = 0; i < updateRows.length; i += CHUNK) {
+    const chunk = updateRows.slice(i, i + CHUNK);
+    const { data, error } = await admin.rpc(
+      "bulk_refresh_item_master_descriptions",
+      { payload: chunk }
+    );
+    if (error) {
+      counts.errors.push(`rpc update chunk ${i}: ${error.message}`);
+      continue;
+    }
+    counts.upserted += (typeof data === "number") ? data : chunk.length;
   }
 
   return res.status(200).json({ processed: true, ...counts });
