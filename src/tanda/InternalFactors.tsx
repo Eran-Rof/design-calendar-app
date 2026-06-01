@@ -310,7 +310,7 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Country</div>
             <SearchableSelect
-              value={(address.country as string) ?? ""}
+              value={typeof address.country === "string" ? address.country : ""}
               onChange={(v) => setAddress({ ...address, country: v })}
               options={countryOptions}
               placeholder="Select country…"
