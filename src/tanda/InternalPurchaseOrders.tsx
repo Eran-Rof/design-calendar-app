@@ -8,8 +8,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
-import { MatrixGrid } from "../shared/matrix";
-import type { MatrixItem } from "../shared/matrix";
+import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
+import type { EditableMatrixRow } from "../shared/matrix";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
@@ -367,17 +367,18 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 }
 
 // ── Matrix line entry sub-panel ─────────────────────────────────────────────
-// Pick a style → fetch /api/internal/style-matrix → render an editable color ×
-// size MatrixGrid (size columns in scale order via axisValues). Click a cell to
-// set its qty; "Add to PO" resolves each non-zero cell to a SKU and appends.
+// Pick a style → fetch /api/internal/style-matrix → render the shared editable
+// size-matrix (EditableSizeMatrix): type quantities inline into a color × size
+// grid, with a per-row Unit cost column + a "set all rows" header field. "Add to
+// PO" resolves each non-zero cell to a SKU and appends, stamping the row's cost.
 function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory_item_id: string; description: string; qty: number; unitCostDollars: string }>) => void; setErr: (m: string | null) => void }) {
   const [open, setOpen] = useState(false);
   const [styles, setStyles] = useState<StyleListRow[]>([]);
   const [styleId, setStyleId] = useState("");
   const [payload, setPayload] = useState<MatrixPayload | null>(null);
   const [loading, setLoading] = useState(false);
-  const [unitCost, setUnitCost] = useState("");
-  const [qtys, setQtys] = useState<Record<string, number>>({}); // key = `${color}|${size}`
+  const [qtys, setQtys] = useState<Record<string, number>>({}); // key = matrixCellKey(color, size)
+  const [unitMap, setUnitMap] = useState<Record<string, string>>({}); // unit cost $ per color row
   const [resolving, setResolving] = useState(false);
 
   useEffect(() => {
@@ -387,9 +388,9 @@ function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory
   }, [open, styles.length]);
 
   useEffect(() => {
-    if (!styleId) { setPayload(null); setQtys({}); return; }
+    if (!styleId) { setPayload(null); setQtys({}); setUnitMap({}); return; }
     let cancelled = false;
-    setLoading(true); setQtys({});
+    setLoading(true); setQtys({}); setUnitMap({});
     fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error("style-matrix fetch failed")))
       .then((d: MatrixPayload) => { if (!cancelled) setPayload(d); })
@@ -403,17 +404,12 @@ function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory
     return { value: s.id, label: name ? `${s.style_code} — ${name}` : s.style_code, searchHaystack: `${s.style_code} ${name}` };
   }), [styles]);
 
-  // One MatrixItem per color × size cell, value = the entered qty.
-  const items = useMemo<MatrixItem[]>(() => {
+  // One grid row per color (rowKey = color); size columns from the scale.
+  const rows = useMemo<EditableMatrixRow[]>(() => {
     if (!payload) return [];
     const colors = payload.colors.length ? payload.colors : [null];
-    return colors.flatMap((color) => payload.sizes.map((size) => {
-      const key = `${color ?? ""}|${size}`;
-      return { id: key, color: color, size, inseam: null, length: null, fit: null, rise: null, value: qtys[key] ?? 0 };
-    }));
-  }, [payload, qtys]);
-
-  function cellKey(color: string | null, size: string | null): string { return `${color ?? ""}|${size ?? ""}`; }
+    return colors.map((color) => ({ key: color ?? "", color: color ?? null }));
+  }, [payload]);
 
   async function addToPo() {
     if (!payload) return;
@@ -423,7 +419,7 @@ function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory
     try {
       const resolved: Array<{ inventory_item_id: string; description: string; qty: number; unitCostDollars: string }> = [];
       for (const [key, qty] of cells) {
-        const [color, size] = key.split("|");
+        const [color, size] = key.split("__");
         const r = await fetch("/api/internal/style-matrix/resolve-sku", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ style_id: payload.style.id, style_code: payload.style.style_code, color: color || null, size }),
@@ -433,12 +429,12 @@ function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory
         resolved.push({
           inventory_item_id: j.id,
           description: `${payload.style.style_code} ${color || ""} ${size}`.replace(/\s+/g, " ").trim(),
-          qty, unitCostDollars: unitCost.trim(),
+          qty, unitCostDollars: (unitMap[color] || "").trim(),
         });
       }
       onAppend(resolved);
       // Reset the grid for the next style.
-      setQtys({}); setStyleId(""); setPayload(null); setUnitCost("");
+      setQtys({}); setStyleId(""); setPayload(null); setUnitMap({});
       notify(`Added ${resolved.length} line${resolved.length === 1 ? "" : "s"} from the matrix.`, "success");
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setResolving(false); }
@@ -456,51 +452,39 @@ function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Style</div>
               <SearchableSelect value={styleId || null} onChange={(v) => setStyleId(v)} options={styleOptions} placeholder="Search style code or name…" inputStyle={inputStyle} />
             </div>
-            <div>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Unit cost $ (all cells)</div>
-              <input type="text" inputMode="decimal" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="0.00" style={{ ...inputStyle, width: 120 }} />
-            </div>
             <button onClick={() => void addToPo()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} disabled={resolving || !payload}>
               {resolving ? "Resolving…" : "Add to PO"}
             </button>
           </div>
 
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>Click a cell to set its quantity. Empty / zero cells are skipped.</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>Type quantities directly into the grid. Use the <b>Unit cost</b> header field to stamp one cost across every color row, then tweak rows as needed. Empty / zero cells are skipped.</div>
 
-          <div style={{ background: "white", borderRadius: 8, padding: 8, overflowX: "auto" }}>
-            {loading ? (
-              <div style={{ padding: 20, textAlign: "center", color: "#64748b" }}>Loading…</div>
-            ) : !styleId ? (
-              <div style={{ padding: 20, textAlign: "center", color: "#64748b" }}>Pick a style to build a matrix.</div>
-            ) : !payload || payload.sizes.length === 0 ? (
-              <div style={{ padding: 20, textAlign: "center", color: "#64748b" }}>No sizes found for this style.</div>
-            ) : (
-              <MatrixGrid
-                items={items}
-                defaultPivot={{ rowAxis: "color", colAxis: "size" }}
-                axisValues={{ size: payload.sizes }}
-                readOnly={false}
-                format={(cellItems) => {
-                  const sum = cellItems.reduce((acc, it) => acc + Number(it.value ?? 0), 0);
-                  return sum === 0 ? "" : String(sum);
-                }}
-                onCellClick={(cell) => {
-                  const item = cell.items[0];
-                  if (!item) return;
-                  const k = cellKey(item.color, item.size);
-                  const cur = qtys[k] ?? 0;
-                  const next = window.prompt(`Qty for ${item.color || "—"} / ${item.size}`, cur ? String(cur) : "");
-                  if (next == null) return;
-                  const n = Number(next);
-                  setQtys((p) => {
-                    const copy = { ...p };
-                    if (!Number.isFinite(n) || n <= 0) delete copy[k]; else copy[k] = n;
-                    return copy;
-                  });
-                }}
-              />
-            )}
-          </div>
+          {loading ? (
+            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+          ) : !styleId ? (
+            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Pick a style to build a matrix.</div>
+          ) : !payload || payload.sizes.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No sizes found for this style.</div>
+          ) : (
+            <EditableSizeMatrix
+              rows={rows}
+              sizes={payload.sizes}
+              qty={qtys}
+              onQtyChange={(rowKey, size, value) => setQtys((p) => {
+                const k = matrixCellKey(rowKey, size);
+                const copy = { ...p };
+                if (value > 0) copy[k] = value; else delete copy[k];
+                return copy;
+              })}
+              unit={{
+                label: "Unit cost $",
+                placeholder: "0.00",
+                values: unitMap,
+                onChange: (rowKey, v) => setUnitMap((p) => ({ ...p, [rowKey]: v })),
+                onSetAll: (v) => setUnitMap(() => Object.fromEntries(rows.map((r) => [r.key, v]))),
+              }}
+            />
+          )}
         </div>
       )}
     </div>

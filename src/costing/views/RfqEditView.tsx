@@ -14,6 +14,7 @@
 // project + regenerate.
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { getRfq, updateRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
 import { useCostingStore } from "../store/costingStore";
@@ -32,6 +33,8 @@ export default function RfqEditView() {
 
   const [detail, setDetail] = useState<RfqDetail | null>(null);
   const [form, setForm] = useState<RfqPatch>({});
+  // Tangerine Payment Terms master — drives the payment-terms picker.
+  const [paymentTerms, setPaymentTerms] = useState<Array<{ id: string; code: string | null; name: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +67,14 @@ export default function RfqEditView() {
     })();
     return () => { cancelled = true; };
   }, [id]);
+
+  // Load Tangerine Payment Terms for the picker (same endpoint as Sales Orders).
+  useEffect(() => {
+    fetch("/api/internal/payment-terms?limit=200")
+      .then((r) => r.json())
+      .then((a) => setPaymentTerms(Array.isArray(a) ? a : []))
+      .catch(() => {});
+  }, []);
 
   const dirty = !!detail && Object.keys(form).some((k) => {
     const v1 = (form as Record<string, unknown>)[k];
@@ -219,7 +230,14 @@ export default function RfqEditView() {
             <Field label="Currency">
               <input value={form.currency || ""} onChange={(e) => setField("currency", e.target.value || "USD")} style={inp} placeholder="USD" />
             </Field>
-            <div />
+            <Field label="Payment terms">
+              <SearchableSelect
+                value={form.payment_terms_id || null}
+                onChange={(v) => setField("payment_terms_id", v || null)}
+                options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]}
+                placeholder="(select)"
+              />
+            </Field>
 
             {/* Three date fields mirror the costing project header (request,
                 due, projected delivery). Replaces the legacy submission_deadline
@@ -314,6 +332,7 @@ function seedForm(r: RfqListRow): RfqPatch {
     estimated_quantity: r.estimated_quantity,
     estimated_budget: r.estimated_budget,
     currency: r.currency,
+    payment_terms_id: r.payment_terms_id,
   };
 }
 
