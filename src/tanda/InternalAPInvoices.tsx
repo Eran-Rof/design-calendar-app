@@ -51,6 +51,7 @@ type APInvoice = {
   description: string | null;
   expense_account_id: string | null;
   ap_account_id: string | null;
+  receiving_channel?: "WS" | "EC" | null;
   accrual_je_id: string | null;
   cash_je_id: string | null;
   total_amount_cents: string;
@@ -523,6 +524,8 @@ function APInvoiceModal({
   const [kind, setKind] = useState(invoice?.invoice_kind || "vendor_bill");
   const [postingDate, setPostingDate] = useState(invoice?.posting_date || new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState(invoice?.due_date || "");
+  // P15 — which brand pool side received inventory lands in (WS/EC).
+  const [receivingChannel, setReceivingChannel] = useState<"WS" | "EC">(invoice?.receiving_channel === "EC" ? "EC" : "WS");
   const [description, setDescription] = useState(invoice?.description || "");
   const [apAccountId, setApAccountId] = useState(invoice?.ap_account_id || "");
   const [expenseAccountId, setExpenseAccountId] = useState(invoice?.expense_account_id || "");
@@ -665,6 +668,7 @@ function APInvoiceModal({
         invoice_kind: kind,
         posting_date: postingDate,
         due_date: dueDate || null,
+        receiving_channel: receivingChannel,
         description: description.trim() || null,
         expense_account_id: expenseAccountId || null,
         ap_account_id: apAccountId || null,
@@ -822,6 +826,25 @@ function APInvoiceModal({
             <Field label="Description">
               <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" />
             </Field>
+
+            {lines.some((l) => l.kind === "inventory") && (
+              <div style={{ marginTop: 12 }}>
+                <Field label="Receive inventory into (brand pool)">
+                  <select
+                    value={receivingChannel}
+                    onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                    disabled={!editable}
+                    style={inputStyle as React.CSSProperties}
+                  >
+                    <option value="WS">Wholesale pool</option>
+                    <option value="EC">Ecom pool</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                    Received units land in the brand's {receivingChannel === "EC" ? "Ecom" : "Wholesale"} pool when posted (single-pool brands ignore this).
+                  </div>
+                </Field>
+              </div>
+            )}
 
             <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>

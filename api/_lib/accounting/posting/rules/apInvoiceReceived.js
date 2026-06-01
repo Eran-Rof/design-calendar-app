@@ -104,6 +104,7 @@ export function apInvoiceReceived(event) {
           qty: ln.qty,
           unit_cost_cents: ln.unit_cost_cents,
           source_invoice_id: d.invoice_id,
+          partition_id: d.receiving_partition_id || null, // P15 brand stock pool
           received_at: d.invoice_date, // YYYY-MM-DD — fifo.createLayer accepts ISO; PG casts to timestamptz
           notes: ln.memo || null,
         });
