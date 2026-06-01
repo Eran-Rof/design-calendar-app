@@ -19,6 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LOCATION_TYPES = ["dc", "store", "other"];
 
 function isUuid(s) {
   return typeof s === "string" && UUID_RE.test(s);
@@ -104,12 +105,20 @@ export default async function handler(req, res) {
     if (!body.name || !String(body.name).trim()) {
       return res.status(400).json({ error: "name is required" });
     }
+    let locationType = "store";
+    if (body.location_type != null && body.location_type !== "") {
+      locationType = String(body.location_type).trim().toLowerCase();
+      if (!LOCATION_TYPES.includes(locationType)) {
+        return res.status(400).json({ error: `location_type must be one of ${LOCATION_TYPES.join(", ")}` });
+      }
+    }
 
     const row = {
       entity_id:    entityId,
       customer_id:  body.customer_id,
       name:         String(body.name).trim(),
       code:         body.code   ? String(body.code).trim()         || null : null,
+      location_type: locationType,
       address:      body.address && typeof body.address === "object"
                       ? body.address : {},
       contact_name: body.contact_name ? String(body.contact_name).trim() || null : null,
