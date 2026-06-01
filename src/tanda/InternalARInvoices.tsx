@@ -804,17 +804,10 @@ function ARInvoiceModal({
                 <SearchableSelect
                   value={customerId || null}
                   onChange={(v) => setCustomerId(v)}
-                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                  options={customers.map((c) => ({ value: c.id, label: c.customer_code ? `${c.customer_code} — ${c.name}` : c.name }))}
                   placeholder="(pick customer…)"
                   disabled={!editable}
                 />
-                {!customerId && (
-                  <input
-                    type="text" placeholder="…or paste customer uuid"
-                    onChange={(e) => setCustomerId(e.target.value.trim())}
-                    style={{ ...inputStyle, marginTop: 6, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
-                  />
-                )}
               </Field>
               <Field label="Invoice number">
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)}
