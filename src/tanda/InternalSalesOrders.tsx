@@ -30,7 +30,7 @@ type SO = {
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
 };
 type SOLine = { key: number; inventory_item_id: string; description: string; qty_ordered: string; unit_price_dollars: string; revenue_account_id: string };
-type Customer = { id: string; name: string; customer_code?: string };
+type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Account = { id: string; code: string; name: string; is_postable: boolean; status: string };
 type Lookup = { id: string; code?: string; name: string };
@@ -254,7 +254,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
-            <SearchableSelect value={customerId || null} onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
+            <SearchableSelect value={customerId || null} onChange={(v) => {
+              setCustomerId(v); setShipToLocationId("");
+              // Item 5: prefill Brand/Channel from the customer's defaults when present.
+              // These fields are optional on the customer object (owned by the
+              // Customer Master chunk) — no-op gracefully if absent.
+              const picked = customers.find((c) => c.id === v);
+              if (picked?.default_brand_id) setBrandId(picked.default_brand_id);
+              if (picked?.default_channel_id) setChannelId(picked.default_channel_id);
+            }}
               options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
               placeholder="(pick customer…)" disabled={!editable} />
           </Field>
