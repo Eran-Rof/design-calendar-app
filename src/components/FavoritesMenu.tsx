@@ -35,7 +35,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePersonalization } from "../hooks/usePersonalization";
-import { MENU_KEY_BY_KEY } from "../lib/menuKeys";
+import { MENU_KEY_BY_KEY, MENU_KEYS } from "../lib/menuKeys";
+
+// Tangerine module key (?m=<key>, e.g. "journal_entries") → menu_key. Tangerine
+// menu entries are the app:"tanda" rows whose route is /tanda?view=<moduleKey>.
+const TANGERINE_MODULE_TO_MENU_KEY: Record<string, string> = (() => {
+  const m: Record<string, string> = {};
+  for (const e of MENU_KEYS) {
+    if (e.app !== "tanda") continue;
+    const match = (e.route || "").match(/[?&]view=([^&]+)/);
+    if (match) m[match[1]] = e.key;
+  }
+  return m;
+})();
 import {
   emitFavoritesToast,
   subscribeFavoritesToasts,
@@ -78,7 +90,10 @@ export function detectCurrentView(): CurrentView {
 
   let menuKey: string | null = null;
 
-  if (path.startsWith("/tanda")) {
+  if (path.startsWith("/tangerine")) {
+    // Tangerine tracks the active module in ?m=<moduleKey> (set on every nav).
+    menuKey = TANGERINE_MODULE_TO_MENU_KEY[params.get("m") || ""] ?? null;
+  } else if (path.startsWith("/tanda")) {
     menuKey = tandaViewToMenuKey(params.get("view") || "dashboard");
   } else if (path.startsWith("/ats")) {
     const report = params.get("report");
