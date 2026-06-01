@@ -14,8 +14,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import SearchableSelect from "./components/SearchableSelect";
-import { MatrixGrid } from "../shared/matrix";
-import type { MatrixItem } from "../shared/matrix";
+import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
+import type { EditableMatrixRow } from "../shared/matrix";
 
 type Adjustment = {
   id: string;
@@ -671,8 +671,13 @@ type StyleMatrixPayload = {
   skus: MatrixSku[];
 };
 
+// (color,size,inseam) → existing-SKU lookup key.
 function cellKey(color: string | null, size: string | null, inseam: string | null): string {
   return `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
+}
+// Per-row key (color × inseam) used by the grid + the unit-cost map.
+function rowKeyOf(color: string | null, inseam: string | null): string {
+  return `${color ?? ""}|${inseam ?? ""}`;
 }
 
 function MatrixAdjustmentModal({
@@ -686,15 +691,22 @@ function MatrixAdjustmentModal({
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("shrinkage");
   const [glAccountId, setGlAccountId] = useState("");
   const [reason, setReason] = useState("");
+  // Brand pool for POSITIVE (increase) cells only — mirrors the single "+ Add"
+  // modal's receiving_channel. Single-pool brands ignore it server-side.
+  const [receivingChannel, setReceivingChannel] = useState<"WS" | "EC">("WS");
 
   // Style picker.
   const [styleOpts, setStyleOpts] = useState<StyleOption[]>([]);
   const [styleId, setStyleId] = useState("");
 
-  // Loaded matrix + per-cell deltas keyed by cellKey().
+  // Loaded matrix + per-cell deltas keyed by matrixCellKey(rowKey, size).
   const [matrix, setMatrix] = useState<StyleMatrixPayload | null>(null);
   const [matrixLoading, setMatrixLoading] = useState(false);
   const [deltas, setDeltas] = useState<Record<string, number>>({});
+  // Per-row unit COST in cents (free text), keyed by rowKey. Used only for
+  // positive (increase) rows — the create endpoint requires unit_cost_cents
+  // when qty_delta > 0.
+  const [unitCostMap, setUnitCostMap] = useState<Record<string, string>>({});
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -718,7 +730,7 @@ function MatrixAdjustmentModal({
 
   // When a style is picked, fetch its matrix and reset deltas.
   useEffect(() => {
-    if (!styleId) { setMatrix(null); setDeltas({}); return; }
+    if (!styleId) { setMatrix(null); setDeltas({}); setUnitCostMap({}); return; }
     setMatrixLoading(true);
     setErr(null);
     (async () => {
@@ -727,6 +739,7 @@ function MatrixAdjustmentModal({
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         setMatrix(await r.json() as StyleMatrixPayload);
         setDeltas({});
+        setUnitCostMap({});
       } catch (e) {
         setErr((e as Error).message);
         setMatrix(null);
@@ -745,68 +758,48 @@ function MatrixAdjustmentModal({
 
   const hasMultiInseam = (matrix?.inseams?.length ?? 0) > 1;
 
-  // Build one MatrixItem per (color × size × inseam) cell so each grid cell
-  // maps 1:1 to a SKU coordinate. `value` carries the entered delta (or the
-  // on-hand hint when no delta is set yet) via the formatter.
-  const matrixItems: MatrixItem[] = useMemo(() => {
+  const sizes = matrix?.sizes ?? [];
+
+  // Grid rows: one per color (× inseam when the style spans multiple inseams).
+  const rows = useMemo<EditableMatrixRow[]>(() => {
     if (!matrix) return [];
-    const colors = matrix.colors.length ? matrix.colors : [null as unknown as string];
-    const sizes = matrix.sizes.length ? matrix.sizes : [];
-    const inseams = hasMultiInseam ? matrix.inseams : [null as unknown as string];
-    const items: MatrixItem[] = [];
-    for (const color of colors) {
-      for (const size of sizes) {
-        for (const inseam of inseams) {
-          const ins = (inseam ?? null) as string | null;
-          const k = cellKey((color ?? null) as string | null, (size ?? null) as string | null, ins);
-          items.push({
-            id: k,
-            color: (color ?? null) as string | null,
-            size: (size ?? null) as string | null,
-            inseam: ins,
-            length: null,
-            fit: null,
-            rise: null,
-          });
-        }
+    const colors = matrix.colors.length
+      ? matrix.colors
+      : [...new Set((matrix.skus || []).map((s) => s.color).filter(Boolean) as string[])];
+    const colorList: (string | null)[] = colors.length ? colors : [null];
+    const inseamList: (string | null)[] = hasMultiInseam ? matrix.inseams : [null];
+    const out: EditableMatrixRow[] = [];
+    for (const color of colorList) {
+      for (const inseam of inseamList) {
+        out.push({ key: rowKeyOf(color, inseam), color: color ?? null, rise: inseam ?? null });
       }
     }
-    return items;
+    return out;
   }, [matrix, hasMultiInseam]);
+
+  // Per-cell on-hand hint (≥ 0), keyed to grid cells = matrixCellKey(rowKey,size).
+  const onHand = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const row of rows) {
+      const [color, inseam] = row.key.split("|");
+      for (const sz of sizes) {
+        const sku = skuByCell.get(cellKey(color || null, sz, inseam || null));
+        if (sku && sku.on_hand_qty != null) m[matrixCellKey(row.key, sz)] = Math.max(0, Number(sku.on_hand_qty) || 0);
+      }
+    }
+    return m;
+  }, [rows, sizes, skuByCell]);
 
   const enteredCount = useMemo(
     () => Object.values(deltas).filter((v) => Number.isFinite(v) && v !== 0).length,
     [deltas],
   );
 
-  // Cell formatter: show the entered delta (signed) or the on-hand hint.
-  const fmt = (items: MatrixItem[]): string => {
-    const it = items[0];
-    if (!it) return "";
-    const k = cellKey(it.color, it.size, it.inseam);
-    const d = deltas[k];
-    if (Number.isFinite(d) && d !== 0) return `${d > 0 ? "+" : ""}${d}`;
-    const oh = skuByCell.get(k)?.on_hand_qty;
-    return oh != null && oh !== 0 ? `(${oh})` : "·";
-  };
-
-  function onCellClick(items: MatrixItem[]) {
-    const it = items[0];
-    if (!it) return;
-    const k = cellKey(it.color, it.size, it.inseam);
-    const oh = skuByCell.get(k)?.on_hand_qty ?? 0;
-    const cur = deltas[k] ?? 0;
-    const raw = window.prompt(
-      `Signed qty delta for ${it.color ?? "-"} / ${it.size ?? "-"}${it.inseam ? ` / ${it.inseam}` : ""}` +
-      ` (on hand: ${oh}). Negative = decrease, positive = increase. Blank/0 clears.`,
-      cur ? String(cur) : "",
-    );
-    if (raw == null) return; // cancelled
-    const n = Number(raw.trim());
-    setDeltas((prev) => {
-      const next = { ...prev };
-      if (!raw.trim() || !Number.isFinite(n) || n === 0) delete next[k];
-      else next[k] = n;
+  function setDelta(rowKey: string, size: string, n: number) {
+    const key = matrixCellKey(rowKey, size);
+    setDeltas((p) => {
+      const next = { ...p };
+      if (Number.isFinite(n) && n !== 0) next[key] = n; else delete next[key];
       return next;
     });
   }
@@ -817,12 +810,27 @@ function MatrixAdjustmentModal({
     if (!glAccountId) { setErr("Pick a counter GL account"); return; }
     if (!reason.trim()) { setErr("Reason required"); return; }
     const cells = Object.entries(deltas).filter(([, v]) => Number.isFinite(v) && v !== 0);
-    if (cells.length === 0) { setErr("No cells with a non-zero delta. Click a cell to enter a qty."); return; }
-    // Positive deltas require a unit cost, which this batch surface does not
-    // capture per-cell; guide the operator to the single-item "+ Add" modal.
-    const positives = cells.filter(([, v]) => v > 0);
-    if (positives.length > 0) {
-      setErr(`${positives.length} cell(s) have a positive (increase) delta. Positive adjustments need a per-unit cost — use the single "+ Add" modal for those. Matrix mode supports decreases (FIFO-consume) only.`);
+    if (cells.length === 0) { setErr("No cells with a non-zero delta. Type a signed qty into a cell."); return; }
+
+    // Positive (increase) cells create a FIFO layer and REQUIRE a per-unit cost,
+    // captured in the row's "Unit cost (¢)" column. Block any positive cell whose
+    // row has no valid cost before we POST anything.
+    const missingCost: string[] = [];
+    for (const [k, v] of cells) {
+      if (v <= 0) continue;
+      const [rowKey, size] = k.split("__");
+      const [color] = rowKey.split("|");
+      const raw = (unitCostMap[rowKey] ?? "").trim();
+      const cents = Number(raw);
+      if (!raw || !Number.isFinite(cents) || !Number.isInteger(cents) || cents < 0) {
+        missingCost.push(`${color || "—"} / ${size}`);
+      }
+    }
+    if (missingCost.length > 0) {
+      setErr(
+        `${missingCost.length} increase cell(s) need a unit cost. Enter the per-unit cost (in cents, e.g. 1250 = $12.50) in the "Unit cost (¢)" column for: ` +
+        `${missingCost.slice(0, 5).join(", ")}${missingCost.length > 5 ? "…" : ""}.`,
+      );
       return;
     }
 
@@ -832,10 +840,12 @@ function MatrixAdjustmentModal({
     const failures: string[] = [];
     try {
       for (const [k, qty] of cells) {
-        const [color, size, inseam] = k.split("|");
+        // k = `${rowKey}__${size}` = `${color}|${inseam}__${size}`.
+        const [rowKey, size] = k.split("__");
+        const [color, inseam] = rowKey.split("|");
         setProgress(`Resolving SKU ${created + failures.length + 1}/${cells.length}…`);
         // Reuse the existing SKU id when we already have it; else resolve/create.
-        let itemId = skuByCell.get(k)?.id;
+        let itemId = skuByCell.get(cellKey(color || null, size, inseam || null))?.id;
         if (!itemId) {
           const rs = await fetch(`/api/internal/style-matrix/resolve-sku`, {
             method: "POST",
@@ -852,7 +862,10 @@ function MatrixAdjustmentModal({
           if (!rs.ok || !out.id) { failures.push(`${color}/${size}: resolve-sku ${out.error || rs.status}`); continue; }
           itemId = out.id as string;
         }
-        // Create one adjustment via the EXISTING create endpoint.
+        // Create one adjustment via the EXISTING create endpoint. Negative →
+        // FIFO-consume (no unit cost). Positive → create a FIFO layer with the
+        // row's unit cost + brand pool — the same server path the single
+        // "+ Add" modal uses for increases.
         const body: any = {
           item_id: itemId,
           adjustment_type: adjustmentType,
@@ -860,6 +873,10 @@ function MatrixAdjustmentModal({
           reason: reason.trim(),
           gl_account_id: glAccountId,
         };
+        if (qty > 0) {
+          body.unit_cost_cents = Number((unitCostMap[rowKey] ?? "").trim());
+          body.receiving_channel = receivingChannel;
+        }
         if (actorUid) body.created_by_user_id = actorUid;
         const rc = await fetch(`/api/internal/inventory-adjustments`, {
           method: "POST",
@@ -901,8 +918,10 @@ function MatrixAdjustmentModal({
       <div style={{ ...modalCard, width: 820 }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Adjustment</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
-          Pick type / counter account / reason once, choose a style, then click cells to enter a signed qty delta.
-          One draft adjustment is created per non-zero cell. Matrix mode handles decreases (FIFO-consume); use "+ Add" for positive/found with a unit cost.
+          Pick type / counter account / reason once, choose a style, then type a signed qty into each cell:
+          negative = decrease (FIFO-consume), positive = increase (creates a FIFO layer). One draft adjustment is
+          created per non-zero cell. Increase rows must carry a per-unit <b>Unit cost (¢)</b> — use the column's
+          "set all" header to stamp one cost across every row.
         </div>
 
         {err && (
@@ -933,6 +952,17 @@ function MatrixAdjustmentModal({
               {glAccounts.filter((g) => g.is_postable).map((g) => (
                 <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
               ))}
+            </select>
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Receive into (increase rows)</label>
+            <select
+              style={inputStyle}
+              value={receivingChannel}
+              onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+            >
+              <option value="WS">Wholesale pool</option>
+              <option value="EC">Ecom pool</option>
             </select>
           </div>
         </div>
@@ -969,34 +999,30 @@ function MatrixAdjustmentModal({
               {matrix.colors.length} color(s) × {matrix.sizes.length} size(s)
               {hasMultiInseam ? ` × ${matrix.inseams.length} inseam(s)` : ""} ·{" "}
               <span style={{ color: C.warn }}>{enteredCount} cell(s) with a delta</span> ·{" "}
-              <span style={{ color: C.textMuted }}>cells show entered Δ, else (on-hand)</span>
+              <span style={{ color: C.textMuted }}>type −5 to decrease, 12 to increase; faint number is on-hand</span>
             </div>
-            {matrix.sizes.length === 0 ? (
+            {sizes.length === 0 ? (
               <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>
                 This style has no sized SKUs or size scale yet — nothing to adjust in matrix mode.
               </div>
             ) : (
-              <div style={{ background: "white", borderRadius: 6, padding: 8, overflow: "auto", maxHeight: 360 }}>
-                <MatrixGrid
-                  items={matrixItems}
-                  defaultPivot={{
-                    rowAxis: "color",
-                    colAxis: "size",
-                    // Multi-inseam → render one layered tab per inseam so each
-                    // grid cell maps 1:1 to a (color,size,inseam) SKU. Single
-                    // inseam → no inseam filter (collapses to one grid).
-                    filters: hasMultiInseam ? { inseam: matrix.inseams } : { inseam: [] },
-                  }}
-                  axisValues={{
-                    color: matrix.colors,
-                    size: matrix.sizes,
-                    inseam: hasMultiInseam ? matrix.inseams : [],
-                  }}
-                  format={fmt}
-                  readOnly={false}
-                  onCellClick={(cell) => onCellClick(cell.items)}
-                />
-              </div>
+              <EditableSizeMatrix
+                rows={rows}
+                sizes={sizes}
+                showRise={hasMultiInseam}
+                riseLabel="Inseam"
+                qty={deltas}
+                onQtyChange={setDelta}
+                onHand={onHand}
+                allowNegative
+                unit={{
+                  label: "Unit cost (¢)",
+                  placeholder: "e.g. 1250",
+                  values: unitCostMap,
+                  onChange: (rowKey, v) => setUnitCostMap((p) => ({ ...p, [rowKey]: v })),
+                  onSetAll: (v) => setUnitCostMap(() => Object.fromEntries(rows.map((r) => [r.key, v]))),
+                }}
+              />
             )}
           </div>
         )}
