@@ -157,6 +157,7 @@ export async function postEvent(supabase, event) {
         qty: plan.qty,
         consumer_kind: plan.consumer_kind,
         consumer_ref_id: plan.consumer_ref_id,
+        partition_id: plan.partition_id || null, // P15 — draw from the sale's brand pool (gated)
         user_id: event.created_by_user_id || null,
       });
       perEntryCogs.push(cogs_cents);

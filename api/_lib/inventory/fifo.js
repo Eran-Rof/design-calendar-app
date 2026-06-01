@@ -208,6 +208,7 @@ export async function consume(supabase, args) {
   }
   assertUuid("consumer_ref_id", args.consumer_ref_id, { optional: true });
   assertUuid("user_id", args.user_id, { optional: true });
+  assertUuid("partition_id", args.partition_id, { optional: true }); // P15 — draw from this brand pool
 
   const { data, error } = await supabase.rpc("inventory_fifo_consume", {
     p_entity_id: args.entity_id,
@@ -216,6 +217,7 @@ export async function consume(supabase, args) {
     p_consumer_kind: args.consumer_kind,
     p_consumer_ref_id: args.consumer_ref_id || null,
     p_user_id: args.user_id || null,
+    p_partition_id: args.partition_id || null,
   });
 
   if (error) {
