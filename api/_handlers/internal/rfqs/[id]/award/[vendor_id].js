@@ -74,6 +74,143 @@ export default async function handler(req, res) {
     await admin.from("rfq_quotes").update({ status: "rejected", updated_at: nowIso }).in("id", losingIds);
   }
 
+  // 3b. Costing write-back. If this RFQ originated from a costing project
+  //     (rfqs.source_costing_project_id set) AND its line items carry the
+  //     costing_line_id back-pointer (migration 20260719000000), flow the
+  //     winning vendor's quoted unit_price back into each source costing line:
+  //       • upsert a costing_line_vendors row (vendor_id = awarded vendor,
+  //         quoted_cost = quote line unit_price, status='selected'),
+  //       • demote any other previously-selected quote on that line to
+  //         'received' (the partial unique index allows only one 'selected'),
+  //       • stamp costing_lines.selected_vendor_quote_id at the new row.
+  //     Fully idempotent (re-award reuses the existing (line,vendor) row).
+  //     Legacy / non-costing RFQs (no source project, or NULL costing_line_id,
+  //     or no winning quote) skip this block silently. All failures are caught
+  //     + surfaced in costing_write_errors; they never break the award flow.
+  const costingWriteback = { written: 0, skipped_reason: null, errors: [] };
+  try {
+    if (!rfq.source_costing_project_id) {
+      costingWriteback.skipped_reason = "rfq_not_from_costing";
+    } else if (!winning) {
+      costingWriteback.skipped_reason = "no_winning_quote";
+    } else {
+      // Quote lines for the winning quote, joined to their rfq_line_item so we
+      // can read the costing_line_id back-pointer. unit_price is the quoted
+      // per-unit cost we write into costing.
+      const { data: qLines, error: qLinesErr } = await admin
+        .from("rfq_quote_lines")
+        .select("id, unit_price, rfq_line_item_id, rfq_line_items!inner(id, costing_line_id)")
+        .eq("quote_id", winning.id);
+      if (qLinesErr) throw new Error(`quote-line lookup failed: ${qLinesErr.message}`);
+
+      // Map costing_line_id → unit_price (first non-null wins; one line item
+      // per costing line by construction in generate-rfqs).
+      const byCostingLine = new Map();
+      for (const ql of qLines || []) {
+        const cli = ql.rfq_line_items?.costing_line_id;
+        if (!cli) continue; // legacy / non-costing line item
+        if (!byCostingLine.has(cli)) byCostingLine.set(cli, ql);
+      }
+
+      if (byCostingLine.size === 0) {
+        costingWriteback.skipped_reason = "no_costing_line_ids";
+      } else {
+        const costingLineIds = Array.from(byCostingLine.keys());
+        // Pull entity_id for the costing_line_vendors insert (service-role
+        // bypasses the current_entity_id() default → supply it explicitly).
+        const { data: clRows, error: clErr } = await admin
+          .from("costing_lines")
+          .select("id, entity_id")
+          .in("id", costingLineIds);
+        if (clErr) throw new Error(`costing_lines lookup failed: ${clErr.message}`);
+        const entityByLine = Object.fromEntries((clRows || []).map((r) => [r.id, r.entity_id]));
+        // Only act on costing lines that still exist.
+        const liveLineIds = new Set((clRows || []).map((r) => r.id));
+
+        // Existing (line, awarded-vendor) quote rows — for idempotent upsert.
+        const { data: existingCLV, error: existingErr } = await admin
+          .from("costing_line_vendors")
+          .select("id, costing_line_id")
+          .in("costing_line_id", costingLineIds)
+          .eq("vendor_id", vendor_id);
+        if (existingErr) throw new Error(`costing_line_vendors lookup failed: ${existingErr.message}`);
+        const clvByLine = Object.fromEntries((existingCLV || []).map((r) => [r.costing_line_id, r.id]));
+
+        for (const lineId of costingLineIds) {
+          if (!liveLineIds.has(lineId)) {
+            costingWriteback.errors.push({ costing_line_id: lineId, error: "costing line not found" });
+            continue;
+          }
+          const ql = byCostingLine.get(lineId);
+          const unitPrice = Number(ql.unit_price);
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+            // quoted_cost is NOT NULL CHECK >= 0; skip un-priced quote lines.
+            costingWriteback.errors.push({ costing_line_id: lineId, error: `invalid unit_price (${ql.unit_price})` });
+            continue;
+          }
+
+          // 1. Demote any other currently-selected quote on this line so the
+          //    partial unique index (one 'selected' per line) allows the swap.
+          const existingId = clvByLine[lineId] || null;
+          {
+            let demote = admin.from("costing_line_vendors")
+              .update({ status: "received", updated_at: nowIso })
+              .eq("costing_line_id", lineId)
+              .eq("status", "selected");
+            if (existingId) demote = demote.neq("id", existingId);
+            await demote;
+          }
+
+          // 2. Upsert the awarded vendor's quote row for this line.
+          let clvId = existingId;
+          if (existingId) {
+            const { error: updErr } = await admin.from("costing_line_vendors")
+              .update({
+                quoted_cost: unitPrice,
+                status: "selected",
+                updated_at: nowIso,
+              })
+              .eq("id", existingId);
+            if (updErr) { costingWriteback.errors.push({ costing_line_id: lineId, error: updErr.message }); continue; }
+          } else {
+            const insertRow = {
+              costing_line_id: lineId,
+              vendor_id,
+              quoted_cost: unitPrice,
+              currency: "USD",
+              status: "selected",
+              notes: `Awarded via RFQ ${rfq_id}`,
+            };
+            if (entityByLine[lineId]) insertRow.entity_id = entityByLine[lineId];
+            const { data: ins, error: insErr } = await admin.from("costing_line_vendors")
+              .insert(insertRow).select("id").maybeSingle();
+            if (insErr || !ins) { costingWriteback.errors.push({ costing_line_id: lineId, error: insErr?.message || "insert returned no row" }); continue; }
+            clvId = ins.id;
+          }
+
+          // 3. Stamp the line back-pointer at the selected quote.
+          const { error: stampErr } = await admin.from("costing_lines")
+            .update({ selected_vendor_quote_id: clvId, updated_at: nowIso })
+            .eq("id", lineId);
+          if (stampErr) { costingWriteback.errors.push({ costing_line_id: lineId, error: stampErr.message }); continue; }
+
+          costingWriteback.written += 1;
+        }
+      }
+    }
+  } catch (e) {
+    // Pre-migration DBs (costing_line_id column absent) land here via the
+    // join error — treat as legacy and skip without failing the award.
+    const msg = e && e.message ? e.message : String(e);
+    if (/costing_line_id|column .* does not exist/i.test(msg)) {
+      costingWriteback.skipped_reason = "costing_line_id_unavailable";
+    } else {
+      costingWriteback.errors.push({ error: msg });
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[rfq-award] costing write-back issue rfq=${rfq_id} vendor=${vendor_id}: ${msg}`);
+  }
+
   // 4. Winner notification
   const origin = `https://${req.headers.host}`;
   try {
@@ -137,5 +274,11 @@ export default async function handler(req, res) {
     });
   } catch { /* non-blocking */ }
 
-  return res.status(200).json({ ok: true, rfq_id, awarded_to: vendor_id, losers_notified: losingVendors.length });
+  return res.status(200).json({
+    ok: true,
+    rfq_id,
+    awarded_to: vendor_id,
+    losers_notified: losingVendors.length,
+    costing_writeback: costingWriteback,
+  });
 }
