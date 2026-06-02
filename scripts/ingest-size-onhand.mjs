@@ -476,17 +476,30 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   if (allSkuErr) { return { ok: false, error: `load style SKUs: ${allSkuErr.message}`, code: 5 }; }
   const allStyleSkuIds = (allStyleSkus || []).map((r) => r.id);
 
+  // A few legacy styles carry HUNDREDS of stale SKUs; a single `.in(item_id,[…])`
+  // over all of them blows past PostgREST's URL length (→ 400 Bad Request). Chunk
+  // every item_id-keyed query/delete into batches of 100.
+  const ID_CHUNK = 100;
+  const chunkIds = (arr) => {
+    const out = [];
+    for (let i = 0; i < arr.length; i += ID_CHUNK) out.push(arr.slice(i, i + ID_CHUNK));
+    return out;
+  };
+
   // 4a. Capture the opening_balance layers we will zero (for exact reversal),
-  //     then UPDATE remaining_qty=0 (do NOT delete).
-  const { data: obLayers, error: obErr } = await admin
-    .from("inventory_layers")
-    .select("id, item_id, original_qty, remaining_qty")
-    .eq("entity_id", ROF_ENTITY_ID)
-    .in("item_id", allStyleSkuIds)
-    .eq("source_kind", "opening_balance")
-    .gt("remaining_qty", 0);
-  if (obErr) { return { ok: false, error: `load opening_balance layers: ${obErr.message}`, code: 5 }; }
-  const obToZero = obLayers || [];
+  //     then UPDATE remaining_qty=0 (do NOT delete). Chunked over item_id.
+  const obToZero = [];
+  for (const ids of chunkIds(allStyleSkuIds)) {
+    const { data: obLayers, error: obErr } = await admin
+      .from("inventory_layers")
+      .select("id, item_id, original_qty, remaining_qty")
+      .eq("entity_id", ROF_ENTITY_ID)
+      .in("item_id", ids)
+      .eq("source_kind", "opening_balance")
+      .gt("remaining_qty", 0);
+    if (obErr) { return { ok: false, error: `load opening_balance layers: ${obErr.message}`, code: 5 }; }
+    for (const l of obLayers || []) obToZero.push(l);
+  }
   const obZeroedTotal = obToZero.reduce((s, l) => s + Number(l.remaining_qty), 0);
   console.log(`\n# ── REVERSAL LOG: opening_balance layers being zeroed (${obToZero.length} layers, ${obZeroedTotal} units) ──`);
   for (const l of obToZero) {
@@ -506,21 +519,25 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
 
   // 4b. Idempotent re-run: delete any PRIOR xoro_rest_size layers for these SKUs
   //     FIRST (we delete-then-reinsert below; this guards a partial state).
-  const { error: delPriorErr } = await admin
-    .from("inventory_layers")
-    .delete()
-    .eq("entity_id", ROF_ENTITY_ID)
-    .in("item_id", allStyleSkuIds)
-    .eq("source_kind", "xoro_rest_size");
-  if (delPriorErr) { return { ok: false, error: `delete prior xoro_rest_size layers: ${delPriorErr.message}`, code: 5, manifest, manifestPath }; }
-
-  // 4c. Zero the opening_balance layers.
-  if (obToZero.length > 0) {
-    const { error: zeroErr } = await admin
+  for (const ids of chunkIds(allStyleSkuIds)) {
+    const { error: delPriorErr } = await admin
       .from("inventory_layers")
-      .update({ remaining_qty: 0 })
-      .in("id", obToZero.map((l) => l.id));
-    if (zeroErr) { return { ok: false, error: `zero opening_balance layers: ${zeroErr.message}`, code: 5, manifest, manifestPath }; }
+      .delete()
+      .eq("entity_id", ROF_ENTITY_ID)
+      .in("item_id", ids)
+      .eq("source_kind", "xoro_rest_size");
+    if (delPriorErr) { return { ok: false, error: `delete prior xoro_rest_size layers: ${delPriorErr.message}`, code: 5, manifest, manifestPath }; }
+  }
+
+  // 4c. Zero the opening_balance layers (chunked over layer id).
+  if (obToZero.length > 0) {
+    for (const ids of chunkIds(obToZero.map((l) => l.id))) {
+      const { error: zeroErr } = await admin
+        .from("inventory_layers")
+        .update({ remaining_qty: 0 })
+        .in("id", ids);
+      if (zeroErr) { return { ok: false, error: `zero opening_balance layers: ${zeroErr.message}`, code: 5, manifest, manifestPath }; }
+    }
     console.log(`# ✓ zeroed ${obToZero.length} opening_balance layers (original_qty preserved).`);
   }
 
@@ -544,21 +561,23 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   if (insErr) { return { ok: false, error: `insert xoro_rest_size layers: ${insErr.message}`, code: 6, manifest, manifestPath }; }
   console.log(`# ✓ inserted ${layerRows.length} xoro_rest_size layers (total ${restTotal} units).`);
 
-  // ── In-process VERIFY ───────────────────────────────────────────────────────
-  const { data: postLayers, error: verErr } = await admin
-    .from("inventory_layers")
-    .select("remaining_qty, source_kind, notes")
-    .eq("entity_id", ROF_ENTITY_ID)
-    .in("item_id", allStyleSkuIds)
-    .gt("remaining_qty", 0);
-  if (verErr) { return { ok: false, error: `verify read failed: ${verErr.message}`, code: 7, manifest, manifestPath }; }
+  // ── In-process VERIFY ─────────────────────────────────────────────────────── (chunked over item_id)
   let total = 0; const byKind = {}; const byWh = {};
-  for (const l of postLayers || []) {
-    const q = Number(l.remaining_qty); total += q;
-    byKind[l.source_kind] = (byKind[l.source_kind] || 0) + q;
-    const m = (l.notes || "").match(/wh=(.+)$/);
-    const wh = m ? m[1] : "(none)";
-    byWh[wh] = (byWh[wh] || 0) + q;
+  for (const ids of chunkIds(allStyleSkuIds)) {
+    const { data: postLayers, error: verErr } = await admin
+      .from("inventory_layers")
+      .select("remaining_qty, source_kind, notes")
+      .eq("entity_id", ROF_ENTITY_ID)
+      .in("item_id", ids)
+      .gt("remaining_qty", 0);
+    if (verErr) { return { ok: false, error: `verify read failed: ${verErr.message}`, code: 7, manifest, manifestPath }; }
+    for (const l of postLayers || []) {
+      const q = Number(l.remaining_qty); total += q;
+      byKind[l.source_kind] = (byKind[l.source_kind] || 0) + q;
+      const m = (l.notes || "").match(/wh=(.+)$/);
+      const wh = m ? m[1] : "(none)";
+      byWh[wh] = (byWh[wh] || 0) + q;
+    }
   }
   console.log(`\n# ── POST-APPLY VERIFY (live read) ──`);
   console.log(`#   Σ remaining_qty (all nonzero layers): ${total}`);
@@ -585,12 +604,14 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
 async function reverseStyle(admin, manifest) {
   const skuIds = manifest.all_style_sku_ids || [];
   // 1. Delete the xoro_rest_size layers we inserted (only this style's SKUs).
-  if (skuIds.length > 0) {
+  //    Chunk over item_id (legacy styles can have >1000 SKUs → URL-length 400).
+  for (let i = 0; i < skuIds.length; i += 100) {
+    const ids = skuIds.slice(i, i + 100);
     const { error: delErr } = await admin
       .from("inventory_layers")
       .delete()
       .eq("entity_id", ROF_ENTITY_ID)
-      .in("item_id", skuIds)
+      .in("item_id", ids)
       .eq("source_kind", "xoro_rest_size");
     if (delErr) return { ok: false, error: `reverse delete xoro_rest_size: ${delErr.message}` };
   }
