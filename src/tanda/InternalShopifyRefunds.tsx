@@ -23,6 +23,18 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const SHOPIFY_REFUNDS_TABLE_KEY = "tangerine:shopifyrefunds:columns";
+const SHOPIFY_REFUND_COLUMNS: ColumnDef[] = [
+  { key: "refund_date",    label: "Refund Date" },
+  { key: "order",          label: "Order #" },
+  { key: "type",           label: "Type" },
+  { key: "refund_amount",  label: "Refund Amount" },
+  { key: "restocking_fee", label: "Restocking Fee" },
+  { key: "credit_memo",    label: "AR Credit Memo" },
+];
 
 type RefundType = "full" | "partial";
 
@@ -102,6 +114,13 @@ export default function InternalShopifyRefunds() {
   const [toDate, setToDate] = useState("");
   const [typeFilter, setTypeFilter] = useState<RefundType | "">("");
   const [limit, setLimit] = useState(200);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    SHOPIFY_REFUNDS_TABLE_KEY,
+    SHOPIFY_REFUND_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -202,6 +221,13 @@ export default function InternalShopifyRefunds() {
           <option value={500}>Limit 500</option>
         </select>
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
+        <TablePrefsButton
+          tableKey={SHOPIFY_REFUNDS_TABLE_KEY}
+          columns={SHOPIFY_REFUND_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={exportRows}
           filename="shopify-refunds"
@@ -234,12 +260,12 @@ export default function InternalShopifyRefunds() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ ...th, width: 130 }}>Refund Date</th>
-                <th style={{ ...th, width: 130 }}>Order #</th>
-                <th style={{ ...th, width: 100 }}>Type</th>
-                <th style={{ ...th, textAlign: "right" }}>Refund Amount</th>
-                <th style={{ ...th, textAlign: "right" }}>Restocking Fee</th>
-                <th style={th}>AR Credit Memo</th>
+                <th style={{ ...th, width: 130 }} hidden={!isVisible("refund_date")}>Refund Date</th>
+                <th style={{ ...th, width: 130 }} hidden={!isVisible("order")}>Order #</th>
+                <th style={{ ...th, width: 100 }} hidden={!isVisible("type")}>Type</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("refund_amount")}>Refund Amount</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("restocking_fee")}>Restocking Fee</th>
+                <th style={th} hidden={!isVisible("credit_memo")}>AR Credit Memo</th>
               </tr>
             </thead>
             <tbody>
@@ -247,22 +273,22 @@ export default function InternalShopifyRefunds() {
                 const hasRestock = BigInt(r.restocking_fee_cents || "0") > 0n;
                 return (
                   <tr key={r.id}>
-                    <td style={td}>{fmtDate(r.processed_at)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                    <td style={td} hidden={!isVisible("refund_date")}>{fmtDate(r.processed_at)}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("order")}>
                       {orderMap[r.shopify_order_id] || "—"}
                     </td>
-                    <td style={td}>
+                    <td style={td} hidden={!isVisible("type")}>
                       <span style={{ color: refundTypeColor(r.refund_type), fontWeight: 600, textTransform: "uppercase" }}>
                         ● {r.refund_type}
                       </span>
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }} hidden={!isVisible("refund_amount")}>
                       {fmtCents(r.refund_amount_cents)}
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: hasRestock ? C.success : C.textMuted }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: hasRestock ? C.success : C.textMuted }} hidden={!isVisible("restocking_fee")}>
                       {fmtCents(r.restocking_fee_cents)}
                     </td>
-                    <td style={td}>
+                    <td style={td} hidden={!isVisible("credit_memo")}>
                       {r.ar_credit_memo_id ? (
                         <a
                           href={`/tangerine?module=ar_invoices&id=${r.ar_credit_memo_id}`}
