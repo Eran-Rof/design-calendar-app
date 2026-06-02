@@ -1,7 +1,7 @@
 // api/vendor/onboarding/steps/:step_name
 //
 // PUT — mark a step complete and attach its data jsonb.
-//   body: { data: {...}, skip?: boolean }
+//   body: { data: {...}, skip?: boolean, skip_reason?: string }
 //
 // Enforces the sequential rule: a step can only be completed if all
 // prior steps (in ALL_STEPS order) are already complete or skipped.
@@ -11,7 +11,10 @@
 //   company_info  → legal_name, address, business_type, year_founded required (tax_id optional)
 //   banking       → expects banking_detail_id to exist (client calls /api/vendor/banking first)
 //   tax           → classification + document_url required
-//   compliance_docs → every required compliance_document_type must be approved or submitted
+//   compliance_docs → every required compliance_document_type must be approved or submitted,
+//                     UNLESS the body sets skip:true (the "I currently do not have any"
+//                     affordance). When skipped, status='skipped' and skip_reason persists
+//                     for admin review.
 //   portal_tour   → any data; marks complete
 //   agreement     → accepted_at + ip required; also stamps workflow.status='pending_review'
 //                   if this is the last step.
@@ -20,7 +23,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const config = { maxDuration: 15 };
 
-const ALL_STEPS = ["company_info", "banking", "tax", "compliance_docs", "portal_tour", "agreement"];
+export const ALL_STEPS = ["company_info", "banking", "tax", "compliance_docs", "portal_tour", "agreement"];
 
 async function resolveVendor(admin, authHeader) {
   const jwt = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -40,7 +43,7 @@ function getStepName(req) {
   return idx >= 0 ? parts[idx + 1] : null;
 }
 
-async function validateStep(admin, vendorId, stepName, data) {
+export async function validateStep(admin, vendorId, stepName, data) {
   if (stepName === "company_info") {
     const req = ["legal_name", "address", "business_type", "year_founded"];
     const missing = req.filter((k) => !data?.[k] || !String(data[k]).trim());
@@ -84,6 +87,20 @@ async function validateStep(admin, vendorId, stepName, data) {
   return null;
 }
 
+// Build the row we upsert into onboarding_steps. Exported for direct
+// unit testing — keeps the skip semantics (status + skip_reason) covered
+// without needing to mock the full Supabase chain.
+export function buildStepUpsert({ workflowId, stepName, stepData, skip, skipReason, nowIso }) {
+  return {
+    workflow_id: workflowId,
+    step_name: stepName,
+    status: skip ? "skipped" : "complete",
+    data: stepData || null,
+    skip_reason: skip ? (skipReason || null) : null,
+    completed_at: nowIso,
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "PUT, OPTIONS");
@@ -104,7 +121,7 @@ export default async function handler(req, res) {
 
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
-  const { data: stepData, skip } = body || {};
+  const { data: stepData, skip, skip_reason: skipReason } = body || {};
 
   const { data: workflow } = await admin
     .from("onboarding_workflows").select("*").eq("vendor_id", caller.vendor_id).maybeSingle();
@@ -116,20 +133,29 @@ export default async function handler(req, res) {
   const priorComplete = ALL_STEPS.slice(0, stepIdx).every((s) => (workflow.completed_steps || []).includes(s));
   if (!priorComplete) return res.status(400).json({ error: `Prior steps must be completed first: ${ALL_STEPS.slice(0, stepIdx).join(" → ")}` });
 
-  // Per-step validation (unless skipping)
+  // Per-step validation (unless skipping).
+  //
+  // The "I currently do not have any" affordance on the Compliance Docs
+  // step sends skip:true + skip_reason:"no_docs"; we honor that by
+  // bypassing the required-docs check and marking the step skipped. Admin
+  // sees the skip + reason at final review (see internal/onboarding GET).
   if (!skip) {
     const err = await validateStep(admin, caller.vendor_id, stepName, stepData);
     if (err) return res.status(400).json({ error: err });
   }
 
   const nowIso = new Date().toISOString();
-  await admin.from("onboarding_steps").upsert({
-    workflow_id: workflow.id,
-    step_name: stepName,
-    status: skip ? "skipped" : "complete",
-    data: stepData || null,
-    completed_at: nowIso,
-  }, { onConflict: "workflow_id,step_name" });
+  await admin.from("onboarding_steps").upsert(
+    buildStepUpsert({
+      workflowId: workflow.id,
+      stepName,
+      stepData,
+      skip: !!skip,
+      skipReason,
+      nowIso,
+    }),
+    { onConflict: "workflow_id,step_name" },
+  );
 
   // Mirror collect_tax into vendors.is_tax_vendor so the invoice form can
   // gate the Tax line without joining onboarding state. Bail out loudly
