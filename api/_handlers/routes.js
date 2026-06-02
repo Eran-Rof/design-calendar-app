@@ -541,9 +541,8 @@ import h534 from "./internal/gl-accounts/[id]/brand-allocation.js";
 // Item lookup for invoice line pickers (#3A).
 //   h535 = GET /api/internal/items
 import h535 from "./internal/items/index.js";
-// P15 — Inventory On-Hand by Brand Pool read report.
-//   h536 = GET /api/internal/inventory-on-hand
-import h536 from "./internal/inventory-on-hand/index.js";
+// P15 — Inventory On-Hand by Brand Pool read report. (Report removed; handler
+// h536 + view v_inventory_on_hand_by_partition dropped.)
 // Customer ship-to locations (multi-DC / multi-store).
 //   h537 = GET/POST  /api/internal/customer-locations
 //   h538 = PATCH/DELETE /api/internal/customer-locations/:id
@@ -945,7 +944,6 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-scorecard", handler: h544 },
   { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: h534 },
   { pattern: "/api/internal/items",                            handler: h535 },
-  { pattern: "/api/internal/inventory-on-hand",               handler: h536 },
   // Customer ship-to locations — subpath /:id BEFORE bare collection.
   { pattern: "/api/internal/customer-locations/:id",          handler: h538 },
   { pattern: "/api/internal/customer-locations",              handler: h537 },
