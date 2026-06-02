@@ -460,13 +460,13 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
               value={form.account_subtype || null}
               onChange={(v) => setForm({ ...form, account_subtype: v })}
               options={(() => {
-                const opts = [{ value: "", label: "(none)" }, ...subtypeOptionsFor(form.account_type)];
+                const opts = [{ value: "", label: "(select)" }, ...subtypeOptionsFor(form.account_type)];
                 if (form.account_subtype && !opts.some((o) => o.value === form.account_subtype)) {
                   opts.push({ value: form.account_subtype, label: `${form.account_subtype} (custom)` });
                 }
                 return opts;
               })()}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Parent account">
@@ -474,10 +474,10 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
               value={form.parent_account_id || null}
               onChange={(v) => setForm({ ...form, parent_account_id: v })}
               options={[
-                { value: "", label: "(none)" },
+                { value: "", label: "(select)" },
                 ...parentOptions.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })),
               ]}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Status">

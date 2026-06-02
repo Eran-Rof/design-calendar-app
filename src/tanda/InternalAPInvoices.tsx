@@ -813,10 +813,10 @@ function APInvoiceModal({
                   value={expenseAccountId || null}
                   onChange={(v) => setExpenseAccountId(v)}
                   options={[
-                    { value: "", label: "(none — set per line)" },
+                    { value: "", label: "(select)" },
                     ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
                   ]}
-                  placeholder="(none — set per line)"
+                  placeholder="(select)"
                   disabled={!editable}
                 />
               </Field>

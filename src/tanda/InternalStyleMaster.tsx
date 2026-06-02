@@ -152,7 +152,7 @@ const C = {
 // /api/internal/genders, which also carries Toddler "T"). The STORED value is
 // the single-letter code; the display LABEL is the descriptive name.
 const GENDER_FALLBACK: { value: string; label: string }[] = [
-  { value: "",  label: "(none)" },
+  { value: "",  label: "(select)" },
   { value: "M", label: "Mens"   },
   { value: "B", label: "Boys"   },
   { value: "C", label: "Child"  },
@@ -579,7 +579,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
 
   const sizeScaleOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...sizeScales.map((s) => ({
         value: s.id,
         label: `${s.code} — ${s.name}`,
@@ -596,7 +596,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
 
   const fabricOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...fabrics.map((f) => ({
         value: f.id,
         label: `${f.code} — ${f.name}`,
@@ -625,7 +625,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     const base = genders.length > 0
       ? genders.map((g) => ({ value: g.code, label: g.label }))
       : GENDER_FALLBACK.filter((o) => o.value !== "");
-    const opts = [{ value: "", label: "(none)" }, ...base];
+    const opts = [{ value: "", label: "(select)" }, ...base];
     // Defensive: surface the current saved code if the master doesn't list it.
     if (form.gender_code && !opts.some((o) => o.value === form.gender_code)) {
       opts.push({ value: form.gender_code, label: form.gender_code });
@@ -636,7 +636,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // Chunk J item 4 — brand picker options.
   const brandOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code} ${b.name}` })),
     ];
     if (form.brand_id && !brands.some((b) => b.id === form.brand_id)) {
@@ -815,7 +815,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               onChange={(e) => setForm({ ...form, rise: e.target.value })}
               style={inputStyle as React.CSSProperties}
             >
-              {RISE_OPTIONS.map((r) => <option key={r} value={r}>{r || "(none)"}</option>)}
+              {RISE_OPTIONS.map((r) => <option key={r} value={r}>{r || "(select)"}</option>)}
             </select>
           </Field>
 
@@ -832,7 +832,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           </Field>
           <Field label="Planning class">
             <select value={form.planning_class} onChange={(e) => setForm({ ...form, planning_class: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(none)"}</option>)}
+              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(select)"}</option>)}
             </select>
           </Field>
           <Field label="Base fabric">
@@ -932,7 +932,7 @@ function DimValuePicker({
 }) {
   const options: SearchableSelectOption[] = useMemo(() => {
     const base: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...choices.map((c) => ({ value: c, label: c })),
     ];
     // If the row's current value isn't one of the known choices, surface it

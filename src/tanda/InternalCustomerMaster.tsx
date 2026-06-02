@@ -530,9 +530,9 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       .catch(() => {});
   }, []);
 
-  // GL account picker options — postable accounts only, with "(none)" entry.
+  // GL account picker options — postable accounts only, with "(select)" entry.
   const glAccountOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...glAccounts.filter((a) => a.is_postable).map((a) => ({
       value: a.id,
       label: `${a.code} — ${a.name}`,
@@ -541,7 +541,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
 
   // GL routing pickers (Tab 3) — postable AND active accounts only.
   const glRoutingOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...glAccounts.filter((a) => a.is_postable && a.status === "active").map((a) => ({
       value: a.id,
       label: `${a.code} — ${a.name}`,
@@ -550,7 +550,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
 
   // Sales-rep pickers (Tab 2) — employees by display name.
   const employeeOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...employees.map((e) => {
       const label = e.display_name || `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim() || e.code || e.id;
       return {
@@ -562,12 +562,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   ], [employees]);
 
   const brandOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...brands.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}`, searchHaystack: `${b.code} ${b.name}` })),
   ], [brands]);
 
   const channelOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...channels.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` })),
   ], [channels]);
 
@@ -575,7 +575,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   // code as search haystack). Keep the current factor in the list even if it
   // were de-activated so an edit shows the existing selection.
   const factorOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...factors.map((f) => ({ value: f.id, label: f.name, searchHaystack: `${f.code} ${f.name}` })),
   ], [factors]);
 
@@ -821,7 +821,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               value={form.default_gl_ar_account_id || null}
               onChange={(v) => setForm({ ...form, default_gl_ar_account_id: v })}
               options={glAccountOptions}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Default revenue account">
@@ -829,7 +829,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               value={form.default_gl_revenue_account_id || null}
               onChange={(v) => setForm({ ...form, default_gl_revenue_account_id: v })}
               options={glAccountOptions}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Contact name">
@@ -895,7 +895,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               value={form.sales_rep_1_id || null}
               onChange={(v) => setForm({ ...form, sales_rep_1_id: v })}
               options={employeeOptions}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Sales rep 1 commission %">
@@ -915,7 +915,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               value={form.sales_rep_2_id || null}
               onChange={(v) => setForm({ ...form, sales_rep_2_id: v })}
               options={employeeOptions}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Sales rep 2 commission %">
@@ -935,7 +935,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               value={form.default_brand_id || null}
               onChange={(v) => setForm({ ...form, default_brand_id: v })}
               options={brandOptions}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Default channel">
@@ -943,7 +943,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               value={form.default_channel_id || null}
               onChange={(v) => setForm({ ...form, default_channel_id: v })}
               options={channelOptions}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Default terms">
@@ -967,7 +967,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                 value={form.default_revenue_account_id || null}
                 onChange={(v) => setForm({ ...form, default_revenue_account_id: v })}
                 options={glRoutingOptions}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="Returns account">
@@ -975,7 +975,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                 value={form.default_returns_account_id || null}
                 onChange={(v) => setForm({ ...form, default_returns_account_id: v })}
                 options={glRoutingOptions}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="COGS account">
@@ -983,7 +983,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                 value={form.default_cogs_account_id || null}
                 onChange={(v) => setForm({ ...form, default_cogs_account_id: v })}
                 options={glRoutingOptions}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="AR account">
@@ -991,7 +991,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                 value={form.default_ar_account_id || null}
                 onChange={(v) => setForm({ ...form, default_ar_account_id: v })}
                 options={glRoutingOptions}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
           </div>

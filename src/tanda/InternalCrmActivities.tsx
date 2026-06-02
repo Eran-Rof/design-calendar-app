@@ -513,10 +513,10 @@ function CreateActivityModal({ customers, opportunities, onClose, onCreated }: {
             value={customerId || null}
             onChange={(v) => setCustomerId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
         <Field label="Opportunity">
@@ -524,10 +524,10 @@ function CreateActivityModal({ customers, opportunities, onClose, onCreated }: {
             value={opportunityId || null}
             onChange={(v) => setOpportunityId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
       </div>

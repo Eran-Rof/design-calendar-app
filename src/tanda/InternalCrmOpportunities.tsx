@@ -624,7 +624,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
                 value={customerId || null}
                 onChange={(v) => setCustomerId(v)}
                 options={[
-                  { value: "", label: "(none)" },
+                  { value: "", label: "(select)" },
                   ...customers.map((c) => ({
                     value: c.id,
                     label: (c.code ? `${c.code} — ` : "") + c.name,
@@ -633,7 +633,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
                     ? [{ value: customerId, label: customerId }]
                     : []),
                 ]}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="Expected close">
@@ -867,10 +867,10 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
             value={customerId || null}
             onChange={(v) => setCustomerId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
         <Field label="Stage">
