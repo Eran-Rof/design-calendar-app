@@ -1,6 +1,11 @@
 // api/internal/costing/search/sales-reps
 // GET ?q=<text>&entity_id=<uuid>  → up to 25 active sales reps
-// ILIKE on display_name.
+//
+// Sales reps ARE sales-role employees (employee_titles.is_sales_role). This
+// searches employees, but returns the commission-subledger shadow sales_reps.id
+// in `id` (resolved-or-created via sales_rep_for_employee) so the picked value
+// is FK-valid for costing_projects.sales_rep_id. display_name/email come from
+// the employee.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
@@ -26,18 +31,47 @@ export default async function handler(req, res) {
   const q = (url.searchParams.get("q") || "").trim();
   const entityId = url.searchParams.get("entity_id") || req.headers["x-entity-id"];
 
-  let query = admin.from("sales_reps")
-    .select("id, entity_id, display_name, email, default_commission_pct, is_active")
+  // Sales-role employees: filter via the title FK to employee_titles.
+  let query = admin.from("employees")
+    .select("id, entity_id, display_name, first_name, last_name, email, " +
+            "commission_wholesale_pct, employee_titles!inner(is_sales_role)")
     .eq("is_active", true)
+    .eq("employee_titles.is_sales_role", true)
     .limit(25);
   if (entityId) query = query.eq("entity_id", entityId);
   if (q) {
     const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
-    query = query.or(`display_name.ilike.${like},email.ilike.${like}`);
+    query = query.or(
+      `display_name.ilike.${like},first_name.ilike.${like},last_name.ilike.${like},email.ilike.${like}`,
+    );
   }
   query = query.order("display_name", { ascending: true });
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json({ rows: data || [] });
+
+  // For each matched employee, resolve-or-create its shadow sales_reps row so
+  // the returned `id` is FK-valid for costing_projects.sales_rep_id.
+  const rows = [];
+  for (const e of data || []) {
+    const name = (e.display_name && e.display_name.trim())
+      || `${e.first_name || ""} ${e.last_name || ""}`.trim()
+      || e.email
+      || "(no name)";
+    const { data: repId, error: rpcErr } = await admin.rpc("sales_rep_for_employee", {
+      p_employee_id: e.id,
+    });
+    if (rpcErr || !repId) continue; // skip un-provisionable rows rather than 500
+    rows.push({
+      id: repId,
+      entity_id: e.entity_id,
+      employee_id: e.id,
+      display_name: name,
+      email: e.email,
+      default_commission_pct: Number(e.commission_wholesale_pct || 0),
+      is_active: true,
+    });
+  }
+
+  return res.status(200).json({ rows });
 }
