@@ -11,6 +11,18 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const CRM_ACTIVITIES_TABLE_KEY = "tangerine:crmactivities:columns";
+const CRM_ACTIVITY_COLUMNS: ColumnDef[] = [
+  { key: "type",        label: "Type" },
+  { key: "subject",     label: "Subject / Body" },
+  { key: "customer",    label: "Customer" },
+  { key: "opportunity", label: "Opportunity" },
+  { key: "occurred",    label: "Occurred" },
+  { key: "duration",    label: "Dur" },
+];
 
 type Activity = {
   id: string;
@@ -129,6 +141,13 @@ export default function InternalCrmActivities() {
 
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityLite[]>([]);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CRM_ACTIVITIES_TABLE_KEY,
+    CRM_ACTIVITY_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -319,6 +338,15 @@ export default function InternalCrmActivities() {
           <input type="checkbox" checked={includeHidden} onChange={(e) => setIncludeHidden(e.target.checked)} />
           Include hidden
         </label>
+        <div style={{ paddingTop: 18 }}>
+          <TablePrefsButton
+            tableKey={CRM_ACTIVITIES_TABLE_KEY}
+            columns={CRM_ACTIVITY_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
+        </div>
       </div>
 
       {err && (
@@ -335,12 +363,12 @@ export default function InternalCrmActivities() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Type</th>
-              <th style={th}>Subject / Body</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Opportunity</th>
-              <th style={th}>Occurred</th>
-              <th style={th}>Dur</th>
+              <th style={th} hidden={!isVisible("type")}>Type</th>
+              <th style={th} hidden={!isVisible("subject")}>Subject / Body</th>
+              <th style={th} hidden={!isVisible("customer")}>Customer</th>
+              <th style={th} hidden={!isVisible("opportunity")}>Opportunity</th>
+              <th style={th} hidden={!isVisible("occurred")}>Occurred</th>
+              <th style={th} hidden={!isVisible("duration")}>Dur</th>
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -355,8 +383,8 @@ export default function InternalCrmActivities() {
               const palette = TYPE_COLOR[r.activity_type] || TYPE_COLOR.system;
               return (
                 <tr key={r.id} style={{ opacity: r.is_hidden ? 0.55 : 1 }}>
-                  <td style={td}><span style={pill(palette)}>{r.activity_type}</span></td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("type")}><span style={pill(palette)}>{r.activity_type}</span></td>
+                  <td style={td} hidden={!isVisible("subject")}>
                     <div style={{ color: C.text, fontWeight: 500 }}>{r.subject}</div>
                     {r.body && (
                       <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{truncate(r.body, 120)}</div>
@@ -367,20 +395,20 @@ export default function InternalCrmActivities() {
                       </div>
                     )}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("customer")}>
                     {r.customer_id
                       ? (customerById.get(r.customer_id)
                           ? `${customerById.get(r.customer_id)!.code ?? ""} ${customerById.get(r.customer_id)!.name}`.trim()
                           : truncate(r.customer_id, 12))
                       : "—"}
                   </td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }} hidden={!isVisible("opportunity")}>
                     {r.opportunity_id
                       ? (oppById.get(r.opportunity_id)?.opportunity_number ?? truncate(r.opportunity_id, 12))
                       : "—"}
                   </td>
-                  <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{fmtDate(r.occurred_at)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", textAlign: "right" }}>
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("occurred")}>{fmtDate(r.occurred_at)}</td>
+                  <td style={{ ...td, fontFamily: "monospace", textAlign: "right" }} hidden={!isVisible("duration")}>
                     {r.duration_minutes != null ? `${r.duration_minutes}m` : "—"}
                   </td>
                   <td style={td}>
