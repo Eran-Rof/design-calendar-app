@@ -25,6 +25,20 @@ import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const AR_RECEIPTS_TABLE_KEY = "tangerine:arreceipts:columns";
+const AR_RECEIPT_COLUMNS: ColumnDef[] = [
+  { key: "receipt_date", label: "Date" },
+  { key: "customer",     label: "Customer" },
+  { key: "amount",       label: "Amount" },
+  { key: "applied",      label: "Applied" },
+  { key: "unapplied",    label: "Unapplied" },
+  { key: "method",       label: "Method" },
+  { key: "bank",         label: "Bank" },
+  { key: "status",       label: "Status" },
+];
 
 type ARReceipt = {
   id: string;
@@ -187,6 +201,13 @@ export default function InternalARReceipts() {
     ariaLabel: "Open receipt detail",
   });
 
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    AR_RECEIPTS_TABLE_KEY,
+    AR_RECEIPT_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -312,6 +333,13 @@ export default function InternalARReceipts() {
           <option value="500">500</option>
         </select>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
+        <TablePrefsButton
+          tableKey={AR_RECEIPTS_TABLE_KEY}
+          columns={AR_RECEIPT_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows.map((r) => {
             const cust = customerMap[r.customer_id];
@@ -366,14 +394,14 @@ export default function InternalARReceipts() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Date</th>
-                <th style={th}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }}>Amount</th>
-                <th style={{ ...th, textAlign: "right" }}>Applied</th>
-                <th style={{ ...th, textAlign: "right" }}>Unapplied</th>
-                <th style={th}>Method</th>
-                <th style={th}>Bank</th>
-                <th style={th}>Status</th>
+                <th style={th} hidden={!isVisible("receipt_date")}>Date</th>
+                <th style={th} hidden={!isVisible("customer")}>Customer</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("amount")}>Amount</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("applied")}>Applied</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("unapplied")}>Unapplied</th>
+                <th style={th} hidden={!isVisible("method")}>Method</th>
+                <th style={th} hidden={!isVisible("bank")}>Bank</th>
+                <th style={th} hidden={!isVisible("status")}>Status</th>
                 <th style={th}></th>
               </tr>
             </thead>
@@ -389,21 +417,21 @@ export default function InternalARReceipts() {
                     highlightedRowId={highlightedId}
                     {...getRowProps(r)}
                   >
-                    <td style={td}>{r.receipt_date}</td>
-                    <td style={td}>
+                    <td style={td} hidden={!isVisible("receipt_date")}>{r.receipt_date}</td>
+                    <td style={td} hidden={!isVisible("customer")}>
                       {cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : <span style={{ color: C.textMuted }}>—</span>}
                       <SourceBadge source={r.source} />
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.amount_cents)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.applied_cents || "0")}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: BigInt(r.unapplied_cents || "0") > 0n ? C.warn : C.textMuted }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }} hidden={!isVisible("amount")}>{fmtCents(r.amount_cents)}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }} hidden={!isVisible("applied")}>{fmtCents(r.applied_cents || "0")}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: BigInt(r.unapplied_cents || "0") > 0n ? C.warn : C.textMuted }} hidden={!isVisible("unapplied")}>
                       {fmtCents(r.unapplied_cents || "0")}
                     </td>
-                    <td style={td}>{r.customer_payment_method}</td>
-                    <td style={{ ...td, fontSize: 12, color: C.textSub }}>
+                    <td style={td} hidden={!isVisible("method")}>{r.customer_payment_method}</td>
+                    <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!isVisible("bank")}>
                       {bank ? `${bank.code} — ${bank.name}` : <span style={{ color: C.textMuted }}>—</span>}
                     </td>
-                    <td style={td}>
+                    <td style={td} hidden={!isVisible("status")}>
                       <span style={{ color: st.color, fontWeight: 500, fontSize: 12 }}>{st.label}</span>
                     </td>
                     <td style={td}>

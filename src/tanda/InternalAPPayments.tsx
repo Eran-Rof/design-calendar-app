@@ -8,6 +8,20 @@ import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const AP_PAYMENTS_TABLE_KEY = "tangerine:appayments:columns";
+const AP_PAYMENT_COLUMNS: ColumnDef[] = [
+  { key: "payment_date", label: "Date" },
+  { key: "invoice",      label: "Invoice" },
+  { key: "vendor",       label: "Vendor" },
+  { key: "amount",       label: "Amount" },
+  { key: "method",       label: "Method" },
+  { key: "bank",         label: "Bank" },
+  { key: "reference",    label: "Reference" },
+  { key: "cash_je",      label: "Cash JE" },
+];
 
 type APPayment = {
   id: string;
@@ -73,6 +87,13 @@ export default function InternalAPPayments() {
   const [to, setTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    AP_PAYMENTS_TABLE_KEY,
+    AP_PAYMENT_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -158,6 +179,13 @@ export default function InternalAPPayments() {
           onChange={(f, t) => { setFrom(f); setTo(t); }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
+        <TablePrefsButton
+          tableKey={AP_PAYMENTS_TABLE_KEY}
+          columns={AP_PAYMENT_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows.map((p) => {
             const inv = invMap[p.invoice_id];
@@ -209,14 +237,14 @@ export default function InternalAPPayments() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Date</th>
-                <th style={th}>Invoice</th>
-                <th style={th}>Vendor</th>
-                <th style={{ ...th, textAlign: "right" }}>Amount</th>
-                <th style={th}>Method</th>
-                <th style={th}>Bank</th>
-                <th style={th}>Reference</th>
-                <th style={th}>Cash JE</th>
+                <th style={th} hidden={!isVisible("payment_date")}>Date</th>
+                <th style={th} hidden={!isVisible("invoice")}>Invoice</th>
+                <th style={th} hidden={!isVisible("vendor")}>Vendor</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("amount")}>Amount</th>
+                <th style={th} hidden={!isVisible("method")}>Method</th>
+                <th style={th} hidden={!isVisible("bank")}>Bank</th>
+                <th style={th} hidden={!isVisible("reference")}>Reference</th>
+                <th style={th} hidden={!isVisible("cash_je")}>Cash JE</th>
               </tr>
             </thead>
             <tbody>
@@ -226,20 +254,20 @@ export default function InternalAPPayments() {
                 const bank = acctMap[p.bank_account_id];
                 return (
                   <tr key={p.id}>
-                    <td style={td}>{p.payment_date}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                    <td style={td} hidden={!isVisible("payment_date")}>{p.payment_date}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("invoice")}>
                       {inv?.invoice_number || "—"}
                     </td>
-                    <td style={td}>{vendor?.name || "—"}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
+                    <td style={td} hidden={!isVisible("vendor")}>{vendor?.name || "—"}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }} hidden={!isVisible("amount")}>
                       {fmtCents(p.amount_cents)}
                     </td>
-                    <td style={td}>{p.method}</td>
-                    <td style={{ ...td, fontSize: 12, color: C.textSub }}>
+                    <td style={td} hidden={!isVisible("method")}>{p.method}</td>
+                    <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!isVisible("bank")}>
                       {bank ? `${bank.code} — ${bank.name}` : <span style={{ color: C.textMuted }}>—</span>}
                     </td>
-                    <td style={{ ...td, fontSize: 12, color: C.textSub }}>{p.reference || "—"}</td>
-                    <td style={{ ...td, fontSize: 11, color: p.cash_je_id ? C.success : C.textMuted }}>
+                    <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!isVisible("reference")}>{p.reference || "—"}</td>
+                    <td style={{ ...td, fontSize: 11, color: p.cash_je_id ? C.success : C.textMuted }} hidden={!isVisible("cash_je")}>
                       {p.cash_je_id ? "✓ posted" : "—"}
                     </td>
                   </tr>

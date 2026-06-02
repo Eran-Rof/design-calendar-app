@@ -8,6 +8,18 @@ import { useEffect, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const APPROVAL_REQ_TABLE_KEY = "tangerine:approvalrequests:columns";
+const APPROVAL_REQ_COLUMNS: ColumnDef[] = [
+  { key: "kind",         label: "Kind" },
+  { key: "context",      label: "Context" },
+  { key: "amount",       label: "Amount" },
+  { key: "current_step", label: "Current step" },
+  { key: "status",       label: "Status" },
+  { key: "created",      label: "Created" },
+];
 
 type Step = {
   id: string;
@@ -88,6 +100,13 @@ export default function InternalApprovalRequests() {
   const [kindFilter, setKindFilter] = useState("");
   const [deciding, setDeciding] = useState<Request | null>(null);
 
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    APPROVAL_REQ_TABLE_KEY,
+    APPROVAL_REQ_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -151,7 +170,7 @@ export default function InternalApprovalRequests() {
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="approval-requests"
@@ -168,6 +187,13 @@ export default function InternalApprovalRequests() {
               { key: "expires_at",              header: "Expires At",    format: "datetime" },
             ] as ExportColumn<Record<string, unknown>>[]}
           />
+          <TablePrefsButton
+            tableKey={APPROVAL_REQ_TABLE_KEY}
+            columns={APPROVAL_REQ_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
         </div>
       </div>
 
@@ -177,12 +203,12 @@ export default function InternalApprovalRequests() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Kind</th>
-              <th style={th}>Context</th>
-              <th style={th}>Amount</th>
-              <th style={th}>Current step</th>
-              <th style={th}>Status</th>
-              <th style={th}>Created</th>
+              <th style={th} hidden={!isVisible("kind")}>Kind</th>
+              <th style={th} hidden={!isVisible("context")}>Context</th>
+              <th style={th} hidden={!isVisible("amount")}>Amount</th>
+              <th style={th} hidden={!isVisible("current_step")}>Current step</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -197,16 +223,16 @@ export default function InternalApprovalRequests() {
               const cur = currentStep(r);
               return (
                 <tr key={r.id}>
-                  <td style={{ ...td, fontFamily: "monospace" }}>{r.kind}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }}>
+                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("kind")}>{r.kind}</td>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!isVisible("context")}>
                     {r.context_table}#{r.context_id.slice(0, 8)}
                   </td>
-                  <td style={td}>{formatCents(r.requested_amount_cents)}</td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("amount")}>{formatCents(r.requested_amount_cents)}</td>
+                  <td style={td} hidden={!isVisible("current_step")}>
                     {cur ? `${cur.step_order}. ${cur.mode}/${cur.role_required}` : "—"}
                   </td>
-                  <td style={{ ...td, color: STATUS_COLOR[r.status] }}>{r.status}</td>
-                  <td style={{ ...td, color: C.textSub, fontSize: 12 }}>
+                  <td style={{ ...td, color: STATUS_COLOR[r.status] }} hidden={!isVisible("status")}>{r.status}</td>
+                  <td style={{ ...td, color: C.textSub, fontSize: 12 }} hidden={!isVisible("created")}>
                     {new Date(r.created_at).toLocaleString()}
                   </td>
                   <td style={td}>
