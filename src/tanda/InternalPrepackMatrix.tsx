@@ -9,13 +9,17 @@
 // 2×34, …" so the Inventory Matrix "Explode PPK" toggle can convert packs
 // on-hand into garment-size eaches on the SIZED sibling style (RYB059430).
 //
-// Populated either by hand (add/edit modal) or via the Excel template:
-//   • Download template → an .xlsx with a header row + one example, columns:
-//       PPK Style Code | Matrix Name | Pack Token | Size | Inner Pack Qty | Qty Per Box
-//     (Pack Token e.g. PPK24 = carton contents; carton = Σ Qty Per Box, made up
-//      of inner packs = Σ Inner Pack Qty.)
-//   • Upload Excel → parse the rows, group by PPK Style Code, and idempotently
-//     UPSERT each matrix (matrix POST upserts by ppk_style_code).
+// Populated either by hand (add/edit modal) or via the Excel/CSV template:
+//   • Download template → a WIDE matrix: row = PPK style, column = size, cell =
+//     Qty Per Box (carton units); each row sums to its Carton Total (the PPKnn
+//     token, e.g. PPK24 → 24).
+//   • Upload → parseWorkbook accepts BOTH the wide matrix and the long format
+//     (one row per size). It is section-aware: '#'-comment + blank rows are
+//     skipped and a repeated "PPK Style Code" header re-establishes the size
+//     columns, so the bulk file (one block per size scale) imports in one shot.
+//     Rows are grouped by PPK Style Code and idempotently UPSERT each matrix
+//     (matrix POST upserts by ppk_style_code). Inner packs come from the editor
+//     (size:inner:box) or the long template; wide import sets inner packs = 0.
 //
 // Wraps /api/internal/prepack-matrices and /api/internal/prepack-matrices/:id.
 
@@ -97,7 +101,14 @@ const chipStyle: React.CSSProperties = {
 };
 
 // Template columns (canonical headers the upload parser also accepts).
-const TPL_COLS = ["PPK Style Code", "Matrix Name", "Pack Token", "Size", "Inner Pack Qty", "Qty Per Box"] as const;
+// Fixed (non-size) column headers shared by the wide + long templates.
+const FIXED_HEADERS = new Set([
+  "ppk style code", "ppk_style_code", "style", "style code",
+  "matrix name", "name", "pack token", "pack_token", "pack",
+  "carton total", "pack total", "size", "inner pack qty", "inner_pack_qty",
+  "inner packs", "inner", "qty per box", "qty per pack", "qty_per_box",
+  "qty_per_pack", "qty", "quantity", "(sizes...)",
+]);
 
 function compositionLabel(sizes: SizeRow[]): string {
   if (!Array.isArray(sizes) || sizes.length === 0) return "—";
@@ -105,21 +116,19 @@ function compositionLabel(sizes: SizeRow[]): string {
   return sizes.map((s) => `${s.size}:${s.qty_per_pack}${s.inner_pack_qty ? ` (${s.inner_pack_qty}pk)` : ""}`).join("  ");
 }
 
-// Generate + download the Excel template (header + the filled inner-pack example).
-// Pack Token (e.g. PPK24) = carton contents (24 units); the carton is made up of
-// inner packs. Per size: Inner Pack Qty = # inner packs; Qty Per Box = carton units.
+// Generate + download the WIDE matrix template: one row per PPK style, one
+// column per size, cells = Qty Per Box (carton units) for that size; each row
+// sums to its Carton Total (= the PPKnn token, e.g. PPK24 → 24). Upload accepts
+// this same shape — including the multi-section file (one block per size scale)
+// produced by the bulk export. Inner packs are set via the editor (size:inner:box)
+// or left at 0 on bulk import.
 function downloadTemplate() {
-  const example = [
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "30", "Inner Pack Qty": 1, "Qty Per Box": 3 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "31", "Inner Pack Qty": 1, "Qty Per Box": 3 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "32", "Inner Pack Qty": 2, "Qty Per Box": 6 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "33", "Inner Pack Qty": 1, "Qty Per Box": 3 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "34", "Inner Pack Qty": 2, "Qty Per Box": 6 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "36", "Inner Pack Qty": 1, "Qty Per Box": 3 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "38", "Inner Pack Qty": 0, "Qty Per Box": 0 },
+  const aoa: (string | number)[][] = [
+    ["PPK Style Code", "Matrix Name", "Pack Token", "Carton Total", "30", "31", "32", "33", "34", "36"],
+    ["RYB059430PPK", "RYB059430 Pack of 24", "PPK24", 24, 3, 3, 6, 3, 6, 3],
   ];
-  const ws = XLSX.utils.json_to_sheet(example, { header: TPL_COLS as unknown as string[] });
-  ws["!cols"] = [{ wch: 18 }, { wch: 26 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 18 }, { wch: 24 }, { wch: 12 }, { wch: 12 }, ...Array(6).fill({ wch: 6 })];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Prepack Matrices");
   XLSX.writeFile(wb, "prepack-matrix-template.xlsx");
@@ -127,46 +136,78 @@ function downloadTemplate() {
 
 // Parse an uploaded workbook → grouped matrices keyed by PPK Style Code.
 type ParsedMatrix = { ppk_style_code: string; name: string; pack_token: string | null; sizes: SizeRow[] };
+// Accepts BOTH the wide matrix (sizes as columns, cells = Qty Per Box) and the
+// long format (one row per size). Works on a multi-section sheet: '#'-prefixed
+// comment/divider rows and blank rows are skipped, and a new header row (first
+// cell = "PPK Style Code") re-establishes the column layout for the rows below
+// it — so the bulk export with one block per size scale imports in one go.
 function parseWorkbook(buffer: ArrayBuffer): { matrices: ParsedMatrix[]; errors: string[] } {
   const wb = XLSX.read(buffer, { type: "array" });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
   const errors: string[] = [];
   const byStyle = new Map<string, ParsedMatrix>();
+  const norm = (v: unknown) => String(v ?? "").trim();
+  const lc = (v: unknown) => norm(v).toLowerCase();
 
-  const pick = (r: Record<string, unknown>, names: string[]): string => {
-    for (const n of names) {
-      const key = Object.keys(r).find((k) => k.trim().toLowerCase() === n.toLowerCase());
-      if (key != null) { const v = r[key]; if (v != null && String(v).trim() !== "") return String(v).trim(); }
-    }
-    return "";
-  };
-
-  rows.forEach((r, i) => {
-    const style = pick(r, ["PPK Style Code", "ppk_style_code", "Style", "Style Code"]);
-    const size = pick(r, ["Size", "size"]);
-    const qtyRaw = pick(r, ["Qty Per Box", "Qty Per Pack", "qty_per_box", "qty_per_pack", "Qty", "Quantity"]);
-    const innerRaw = pick(r, ["Inner Pack Qty", "inner_pack_qty", "Inner Packs", "Inner"]);
-    if (!style && !size && !qtyRaw && !innerRaw) return; // blank row
-    if (!style) { errors.push(`Row ${i + 2}: missing PPK Style Code`); return; }
-    if (!size) { errors.push(`Row ${i + 2}: missing Size`); return; }
-    const qty = parseInt(qtyRaw, 10);
-    if (!Number.isInteger(qty) || qty < 0) { errors.push(`Row ${i + 2}: Qty Per Box must be a non-negative integer (got "${qtyRaw}")`); return; }
-    const inner = innerRaw === "" ? 0 : parseInt(innerRaw, 10);
-    if (!Number.isInteger(inner) || inner < 0) { errors.push(`Row ${i + 2}: Inner Pack Qty must be a non-negative integer (got "${innerRaw}")`); return; }
-
+  const getMatrix = (style: string, name: string, pack: string): ParsedMatrix => {
     const key = style.toLowerCase();
     let m = byStyle.get(key);
-    if (!m) {
-      m = {
-        ppk_style_code: style,
-        name: pick(r, ["Matrix Name", "Name", "name"]) || `${style.replace(/-?PPK\d*$/i, "")} prepack`,
-        pack_token: pick(r, ["Pack Token", "pack_token", "Pack"]) || null,
-        sizes: [],
+    if (!m) { m = { ppk_style_code: style, name: name || `${style.replace(/-?PPK\d*$/i, "")} prepack`, pack_token: pack || null, sizes: [] }; byStyle.set(key, m); }
+    else { if (!m.name && name) m.name = name; if (!m.pack_token && pack) m.pack_token = pack; }
+    return m;
+  };
+  const pushSize = (m: ParsedMatrix, size: string, box: number, inner: number) => {
+    const i = m.sizes.findIndex((s) => s.size === size);
+    const row = { size, qty_per_pack: box, inner_pack_qty: inner };
+    if (i >= 0) m.sizes[i] = row; else m.sizes.push(row); // last value wins
+  };
+
+  let cols: { ppk: number; name: number; pack: number; size: number; box: number; inner: number; sizeCols: { idx: number; size: string }[] } | null = null;
+
+  aoa.forEach((rowArr, i) => {
+    const row = Array.isArray(rowArr) ? rowArr : [];
+    if (norm(row[0]).startsWith("#")) return;            // comment / section divider
+    if (row.every((c) => norm(c) === "")) return;        // blank
+
+    if (lc(row[0]) === "ppk style code") {               // (re)header
+      const findIdx = (names: string[]) => row.findIndex((c) => names.includes(lc(c)));
+      const sizeCols: { idx: number; size: string }[] = [];
+      row.forEach((c, idx) => { const name = norm(c); if (name && !FIXED_HEADERS.has(lc(c))) sizeCols.push({ idx, size: name }); });
+      cols = {
+        ppk: findIdx(["ppk style code", "ppk_style_code", "style", "style code"]),
+        name: findIdx(["matrix name", "name"]),
+        pack: findIdx(["pack token", "pack_token", "pack"]),
+        size: findIdx(["size"]),
+        box: findIdx(["qty per box", "qty per pack", "qty_per_box", "qty_per_pack", "qty", "quantity"]),
+        inner: findIdx(["inner pack qty", "inner_pack_qty", "inner packs", "inner"]),
+        sizeCols,
       };
-      byStyle.set(key, m);
+      return;
     }
-    if (qty > 0) m.sizes.push({ size, qty_per_pack: qty, inner_pack_qty: inner });
+    if (!cols || cols.ppk < 0) return;                   // data before any header
+    const style = norm(row[cols.ppk]);
+    if (!style) return;
+    const name = cols.name >= 0 ? norm(row[cols.name]) : "";
+    const pack = cols.pack >= 0 ? norm(row[cols.pack]) : "";
+
+    if (cols.size >= 0) {                                // LONG: one size per row
+      const size = norm(row[cols.size]);
+      if (!size) return;
+      const box = parseInt(norm(row[cols.box]), 10);
+      if (!Number.isInteger(box) || box < 0) { errors.push(`Row ${i + 1} (${style}): Qty Per Box must be ≥ 0 (got "${norm(row[cols.box])}")`); return; }
+      const innerN = cols.inner >= 0 ? parseInt(norm(row[cols.inner]) || "0", 10) : 0;
+      if (box > 0) pushSize(getMatrix(style, name, pack), size, box, Number.isInteger(innerN) && innerN >= 0 ? innerN : 0);
+    } else {                                             // WIDE: size columns
+      const m = getMatrix(style, name, pack);
+      for (const sc of cols.sizeCols) {
+        const raw = norm(row[sc.idx]);
+        if (raw === "") continue;
+        const box = parseInt(raw, 10);
+        if (!Number.isInteger(box) || box < 0) { errors.push(`Row ${i + 1} (${style}, size ${sc.size}): "${raw}" is not a non-negative integer`); continue; }
+        if (box > 0) pushSize(m, sc.size, box, 0);
+      }
+    }
   });
 
   const matrices = [...byStyle.values()].filter((m) => {
@@ -297,12 +338,12 @@ export default function InternalPrepackMatrix() {
           ⬇ Download template
         </button>
         <button onClick={() => fileRef.current?.click()} style={{ ...btnSecondary, color: C.success, borderColor: "#14532d" }} disabled={uploading}>
-          {uploading ? "Uploading…" : "⬆ Upload Excel"}
+          {uploading ? "Uploading…" : "⬆ Upload (xlsx / csv)"}
         </button>
         <input
           ref={fileRef}
           type="file"
-          accept=".xlsx,.xls"
+          accept=".xlsx,.xls,.csv"
           style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onUploadFile(f); }}
         />
@@ -347,7 +388,7 @@ export default function InternalPrepackMatrix() {
         ) : rows.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
             No prepack matrices yet. Use <strong>+ Add matrix</strong>, or <strong>Download template</strong> →
-            fill it in → <strong>Upload Excel</strong>.
+            fill it in → <strong>Upload</strong> (xlsx or csv).
           </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
