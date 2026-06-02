@@ -603,6 +603,17 @@ import h586 from "./internal/procurement/receipts/[id].js";
 import h587 from "./internal/procurement/receipts/post.js";
 import h588 from "./internal/procurement/bookkeeper-queue/index.js";
 import h589 from "./internal/procurement/bookkeeper-queue/[id].js";
+// P13/C2-C4 — QC inspections, customs entries, broker invoices, 3-way match.
+import h590 from "./internal/procurement/qc/index.js";
+import h591 from "./internal/procurement/qc/[id].js";
+import h592 from "./internal/procurement/customs-entries/index.js";
+import h593 from "./internal/procurement/customs-entries/[id].js";
+import h594 from "./internal/procurement/broker-invoices/index.js";
+import h595 from "./internal/procurement/broker-invoices/[id].js";
+import h596 from "./internal/procurement/vendor-invoice-drafts/index.js";
+import h597 from "./internal/procurement/vendor-invoice-drafts/[id].js";
+// P13/C5 — procurement reconciliation inbox + open-commitments report.
+import h598 from "./internal/procurement/recon-inbox/index.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -1011,6 +1022,16 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/receipts",            handler: h585 },
   { pattern: "/api/internal/procurement/bookkeeper-queue/:id", handler: h589 },
   { pattern: "/api/internal/procurement/bookkeeper-queue",    handler: h588 },
+  // P13/C2-C4 — QC, customs, broker, 3-way match (:id before bare).
+  { pattern: "/api/internal/procurement/qc/:id",              handler: h591 },
+  { pattern: "/api/internal/procurement/qc",                  handler: h590 },
+  { pattern: "/api/internal/procurement/customs-entries/:id", handler: h593 },
+  { pattern: "/api/internal/procurement/customs-entries",     handler: h592 },
+  { pattern: "/api/internal/procurement/broker-invoices/:id", handler: h595 },
+  { pattern: "/api/internal/procurement/broker-invoices",     handler: h594 },
+  { pattern: "/api/internal/procurement/vendor-invoice-drafts/:id", handler: h597 },
+  { pattern: "/api/internal/procurement/vendor-invoice-drafts",     handler: h596 },
+  { pattern: "/api/internal/procurement/recon-inbox",               handler: h598 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
