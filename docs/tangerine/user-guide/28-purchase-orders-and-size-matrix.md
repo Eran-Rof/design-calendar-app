@@ -200,7 +200,11 @@ Prepacks (PPK) hold inventory in **packs**, not eaches: a pack SKU has a `style_
 - **`prepack_matrices`** — one row per prepack: server-generated `code` (**`PPKM-NNNNN`**, read-only), name, `ppk_style_code` (the PPK `style_code` exactly as in `ip_item_master`), `pack_token`, optional `pack_total`. A partial unique index enforces one matrix per `(entity, lower(ppk_style_code))`.
 - **`prepack_matrix_sizes`** — the composition: `(matrix_id, size, qty_per_pack, inner_pack_qty)`. The **Pack Token** (e.g. `PPK24`) names the **carton** contents (24 units); the carton is built from **inner packs**. Per size: **`qty_per_pack`** = "Qty Per Box" (carton units of that size) and **`inner_pack_qty`** = how many inner packs of that size. **Carton total = `SUM(qty_per_pack)`** (24 for PPK24); **inner packs = `SUM(inner_pack_qty)`**. `size` matches the **sized sibling** style's size labels. Seeded example `RYB059430PPK` / PPK24: sizes 30·31·33·36 = 1 inner pack × 3 units, 32·34 = 2 inner packs × 6 → **8 inner packs, 24 units**.
 
-The panel supports CRUD plus an XLSX template round-trip — **Download template** / **Upload** with columns `PPK Style Code | Matrix Name | Pack Token | Size | Inner Pack Qty | Qty Per Box` — that upserts matrices by `ppk_style_code`. The add/edit modal's composition field takes `size:innerPacks:qtyPerBox` triples (e.g. `32:2:6`), or `size:qtyPerBox` when there are no inner packs, and previews the carton total + inner-pack count.
+The panel supports CRUD plus an xlsx/csv template round-trip that upserts matrices by `ppk_style_code`:
+- **Download template** produces a **wide matrix**: one row per PPK style, one column per size, each cell = **Qty Per Box** (carton units); a row sums to its Carton Total (the `PPKnn` token).
+- **Upload** accepts **both** the wide matrix and the long (`…| Size | Inner Pack Qty | Qty Per Box`) layout, in `.xlsx` **or `.csv`**. The parser is **section-aware** — `#`-comment and blank rows are skipped and a repeated `PPK Style Code` header re-establishes the size columns — so a bulk file with **one block per size scale** imports in a single upload. Wide import sets inner packs = 0; the add/edit modal's composition field (`size:innerPacks:qtyPerBox`, e.g. `32:2:6`) is how inner packs are entered.
+
+A ready-to-fill bulk file of every PPK style still needing a matrix (216 styles, grouped by size scale, sizes ordered numeric / alpha) can be generated on request.
 
 ### Explode-PPK on the Inventory Matrix
 
