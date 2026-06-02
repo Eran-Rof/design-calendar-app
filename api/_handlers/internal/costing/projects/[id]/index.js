@@ -14,6 +14,7 @@ const EDITABLE = [
   "sales_rep_id", "customer_id",
   "request_date", "due_date", "projected_delivery_date",
   "status", "notes", "grid_state",
+  "payment_terms_id", "payment_terms_name",
 ];
 
 function getId(req) {

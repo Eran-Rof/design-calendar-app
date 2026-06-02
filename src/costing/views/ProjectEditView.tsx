@@ -12,7 +12,7 @@ import PlanFlowWidget from "../panels/PlanFlowWidget";
 import CompliancePanel from "../panels/CompliancePanel";
 import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
-import { customerDisplayName } from "../services/costingApi";
+import { customerDisplayName, listPaymentTerms, type PaymentTermHit } from "../services/costingApi";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
@@ -42,6 +42,7 @@ export default function ProjectEditView() {
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [saving, setSaving] = useState(false);
   const [brands, setBrands] = useState<BrandRow[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermHit[]>([]);
   // Tracks whether the local form differs from the project on the server —
   // drives the Discard button's enabled state.
   const dirty = !!project && Object.keys(form).some((k) => {
@@ -59,6 +60,18 @@ export default function ProjectEditView() {
         if (cancelled) return;
         if (Array.isArray(rows)) setBrands(rows as BrandRow[]);
       } catch { /* swallow; field stays freeform */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load Tangerine payment terms for the project-level dropdown (Task 10).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await listPaymentTerms();
+        if (!cancelled && Array.isArray(rows)) setPaymentTerms(rows);
+      } catch { /* swallow; dropdown just stays at "(select)" */ }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -84,6 +97,8 @@ export default function ProjectEditView() {
         projected_delivery_date: project.projected_delivery_date,
         status: project.status,
         notes: project.notes,
+        payment_terms_id: project.payment_terms_id,
+        payment_terms_name: project.payment_terms_name,
       });
     }
   }, [project]);
@@ -122,6 +137,8 @@ export default function ProjectEditView() {
       projected_delivery_date: project.projected_delivery_date,
       status: project.status,
       notes: project.notes,
+      payment_terms_id: project.payment_terms_id,
+      payment_terms_name: project.payment_terms_name,
     });
   };
 
@@ -225,7 +242,29 @@ export default function ProjectEditView() {
             inputStyle={inp}
           />
         </Field>
-        <div />
+        <Field label="Payment terms">
+          <select
+            value={form.payment_terms_id || ""}
+            onChange={(e) => {
+              const ptId = e.target.value || null;
+              const pt = paymentTerms.find((p) => p.id === ptId) || null;
+              // Stamp both the FK and the name snapshot in one update so the
+              // grid's DDP detection (matches /DDP/i on payment_terms_name)
+              // updates immediately.
+              setForm((f) => ({
+                ...f,
+                payment_terms_id: ptId,
+                payment_terms_name: pt ? pt.name : null,
+              }));
+            }}
+            style={inp}
+          >
+            <option value="">(select)</option>
+            {paymentTerms.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </Field>
 
         <Field label="Request date">
           <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={dateInp} />
