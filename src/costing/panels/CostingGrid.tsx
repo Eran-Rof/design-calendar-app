@@ -172,7 +172,11 @@ export default function CostingGrid() {
   };
 
   const onGenerateRfqs = async () => {
-    if (!project || selectedRowIds.size === 0) return;
+    if (!project) return;
+    if (selectedRowIds.size === 0) {
+      setNotice("Tick the checkbox on at least one row, then click Vendor RFQ.", "info");
+      return;
+    }
     const projectId = project.id;
     const lineIds = Array.from(selectedRowIds);
     setGenerating(true);
@@ -362,10 +366,10 @@ export default function CostingGrid() {
         >+ Add row</button>
         <button
           onClick={onGenerateRfqs}
-          disabled={generating || selectedRowIds.size === 0}
+          disabled={generating}
           title={
             selectedRowIds.size === 0
-              ? "Check rows in the grid first"
+              ? "Tick a row checkbox first, then click to generate RFQs"
               : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
           }
           style={{
@@ -373,7 +377,7 @@ export default function CostingGrid() {
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
             padding: "5px 14px", borderRadius: 4,
-            cursor: generating || selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            cursor: generating ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600,
             opacity: generating ? 0.6 : 1,
           }}
