@@ -27,6 +27,7 @@ import { arInvoiceSent } from "./rules/arInvoiceSent.js";
 import { arPaymentReceived } from "./rules/arPaymentReceived.js";
 import { inventoryReceipt } from "./rules/inventoryReceipt.js";
 import { inventoryAdjustment } from "./rules/inventoryAdjustment.js";
+import { apInvoiceGrirMatch } from "./rules/apInvoiceGrirMatch.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -52,6 +53,7 @@ const RULE_BY_KIND = {
   ar_payment_received:   arPaymentReceived,
   inventory_receipt:     inventoryReceipt,
   inventory_adjustment:  inventoryAdjustment,
+  ap_invoice_grir_match: apInvoiceGrirMatch,
 };
 
 export class PostingError extends Error {

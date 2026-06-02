@@ -23,10 +23,24 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { computeMatchForPo, matchTolerance } from "./index.js";
+import { postEvent } from "../../../../_lib/accounting/posting/index.js";
 
 export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// decimal-string for cents.
+function centsToStr(cents) {
+  const n = BigInt(Math.trunc(Number(cents)));
+  const neg = n < 0n; const abs = neg ? -n : n;
+  return `${neg ? "-" : ""}${(abs / 100n).toString()}.${(abs % 100n).toString().padStart(2, "0")}`;
+}
+// Resolve a postable GL account by code (2050 GR/IR, 6320 PO Variance, 2010 AP).
+async function findPostableAccount(admin, entityId, code) {
+  const { data } = await admin.from("gl_accounts")
+    .select("id, is_postable, status").eq("entity_id", entityId).eq("code", code).maybeSingle();
+  return (data && data.is_postable && data.status === "active") ? data.id : null;
+}
 const DELETABLE_STATUSES = ["pending", "variance", "exception"];
 // A draft can be re-matched / approved / rejected / edited only while it is
 // still open (not already turned into an AP invoice or rejected).
@@ -201,7 +215,14 @@ export default async function handler(req, res, params) {
       return res.status(200).json({ ...fresh, match: breakdown });
     }
 
-    // ── approve → create AP invoice DRAFT (no JE) ───────────────────────────
+    // ── approve → create AP invoice + (if matched) post the GR/IR-clearing JE ─
+    //
+    // A draft WITHIN the 3-way tolerance (matched) auto-posts: the goods were
+    // already booked into inventory by the receipt GRNI JE, so this invoice
+    // CLEARS GR/IR (DR 2050 received / DR-CR 6320 variance / CR AP total) and
+    // creates NO second inventory layer. A draft OUTSIDE tolerance (variance /
+    // exception / pending) keeps the prior behavior: an unposted AP draft with
+    // an expense line that a bookkeeper posts via the normal AP flow.
     if (action === "approve") {
       if (!OPEN_STATUSES.includes(draft.three_way_match_status)) {
         return res.status(409).json({ error: "Only an open draft can be approved." });
@@ -212,17 +233,32 @@ export default async function handler(req, res, params) {
       const expenseAccountId =
         body.expense_account_id && UUID_RE.test(String(body.expense_account_id)) ? body.expense_account_id : null;
 
-      // Resolve the entity's default AP control account (soft default).
+      // Resolve the entity's default AP control account (soft default → 2010).
       const { data: ent } = await admin
         .from("entities").select("default_ap_account_id").eq("id", entityId).maybeSingle();
-      const apAccountId = ent && ent.default_ap_account_id ? ent.default_ap_account_id : null;
+      const apAccountId = (ent && ent.default_ap_account_id)
+        || (await findPostableAccount(admin, entityId, "2010"));
 
       const dueDate = draft.due_date || draft.invoice_date;
       const totalCents = Number(draft.total_cents) || 0;
 
-      // 1. AP invoice header — unposted. The standard AP posting flow (owned
-      //    elsewhere) takes it from gl_status='unposted' → posted later.
-      //    (invoices_gl_status_check rejects 'draft'; verified against prod.)
+      // Recompute the breakdown to decide matched vs not (source of truth = the
+      // live receipts, not the stored status).
+      const bd = await buildBreakdown(admin, entityId, draft);
+      const matched = bd.within_tolerance === true && Number(bd.received_value_cents) > 0;
+      const receivedCents = Number(bd.received_value_cents) || 0;
+
+      const grirAcctId = matched ? await findPostableAccount(admin, entityId, "2050") : null;
+      const varianceAcctId = matched ? await findPostableAccount(admin, entityId, "6320") : null;
+      if (matched && (!grirAcctId || !apAccountId)) {
+        return res.status(409).json({ error: "Matched invoice needs postable GR/IR (2050) + AP (2010) accounts to auto-post." });
+      }
+      if (matched && totalCents !== receivedCents && !varianceAcctId) {
+        return res.status(409).json({ error: "Price variance present but no postable PO Variance account (6320)." });
+      }
+
+      // 1. AP invoice header. invoices_gl_status_check rejects 'draft' → use
+      //    'unposted'; we flip it to 'posted' below for the matched path.
       const { data: inv, error: hErr } = await admin
         .from("invoices")
         .insert({
@@ -233,7 +269,7 @@ export default async function handler(req, res, params) {
           gl_status: "unposted",
           posting_date: draft.invoice_date,
           due_date: dueDate,
-          expense_account_id: expenseAccountId,
+          expense_account_id: matched ? grirAcctId : expenseAccountId,
           ap_account_id: apAccountId,
           source: "manual",
         })
@@ -246,28 +282,58 @@ export default async function handler(req, res, params) {
         return res.status(500).json({ error: hErr.message });
       }
 
-      // 2. Single expense line. total_amount_cents is trigger-maintained from
+      // 2. Single line. total_amount_cents is trigger-maintained from
       //    quantity × unit_cost_cents, so set quantity 1 + unit_cost = total.
+      //    Matched → the line carries the GR/IR clearing account (cosmetic; the
+      //    JE below is what actually posts); else the chosen expense account.
       const { error: lErr } = await admin
         .from("invoice_line_items")
         .insert({
           invoice_id: inv.id,
           entity_id: entityId,
           line_index: 1,
-          description: `Vendor invoice ${draft.vendor_invoice_number} (3-way match)`,
-          expense_account_id: expenseAccountId,
+          description: `Vendor invoice ${draft.vendor_invoice_number} (3-way ${matched ? "matched" : "match"})`,
+          expense_account_id: matched ? grirAcctId : expenseAccountId,
           inventory_item_id: null,
           quantity: 1,
           unit_cost_cents: totalCents,
           tax_amount_cents: 0,
         });
       if (lErr) {
-        // Roll back the orphan header so we don't leave a zero-total draft.
         await admin.from("invoices").delete().eq("id", inv.id);
         return res.status(500).json({ error: `AP invoice line failed: ${lErr.message}` });
       }
 
-      // 3. Point the draft at the new AP invoice + mark it posted (into AP).
+      // 3. Matched → post the GR/IR-clearing JE now + mark the invoice posted.
+      let jeId = null;
+      if (matched) {
+        try {
+          const result = await postEvent(admin, {
+            kind: "ap_invoice_grir_match",
+            entity_id: entityId,
+            created_by_user_id: null,
+            data: {
+              invoice_id: inv.id,
+              vendor_id: draft.vendor_id,
+              invoice_number: draft.vendor_invoice_number,
+              invoice_date: draft.invoice_date,
+              ap_account_id: apAccountId,
+              grir_account_id: grirAcctId,
+              variance_account_id: varianceAcctId,
+              received_amount: centsToStr(receivedCents),
+              total_amount: centsToStr(totalCents),
+            },
+          });
+          jeId = result.accrual_je_id;
+        } catch (e) {
+          // Roll back the invoice we just created so a failed JE doesn't strand it.
+          await admin.from("invoices").delete().eq("id", inv.id);
+          return res.status(500).json({ error: `Matched AP invoice JE failed: ${e instanceof Error ? e.message : String(e)}` });
+        }
+        await admin.from("invoices").update({ gl_status: "posted" }).eq("id", inv.id);
+      }
+
+      // 4. Point the draft at the new AP invoice + mark it posted (into AP).
       const { data: fresh, error: uErr } = await admin
         .from("vendor_invoice_drafts")
         .update({
@@ -281,7 +347,7 @@ export default async function handler(req, res, params) {
       if (uErr) {
         return res.status(500).json({ error: `AP invoice ${inv.id} created but linking the draft failed: ${uErr.message}` });
       }
-      return res.status(200).json({ ...fresh, ap_invoice_id: inv.id });
+      return res.status(200).json({ ...fresh, ap_invoice_id: inv.id, je_id: jeId, auto_posted: matched });
     }
 
     // ── reject ──────────────────────────────────────────────────────────────

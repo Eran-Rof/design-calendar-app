@@ -224,8 +224,8 @@ export default function RfqEditView() {
                 {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
-            <Field label="Category">
-              <input value={form.category || ""} onChange={(e) => setField("category", e.target.value || null)} style={inp} placeholder="e.g. BOYS" />
+            <Field label="Brand">
+              <input value={form.category || ""} onChange={(e) => setField("category", e.target.value || null)} style={inp} placeholder="e.g. Ring of Fire" />
             </Field>
             <Field label="Currency">
               <input value={form.currency || ""} onChange={(e) => setField("currency", e.target.value || "USD")} style={inp} placeholder="USD" />
