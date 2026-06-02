@@ -20,6 +20,16 @@ import {
   exportReconcileWorkbook,
   type ReconcileBuildOutput,
 } from "../services/buildReconcileService";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.build_reconcile";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "build", label: "Build" },
+  { key: "vendor", label: "Vendor" },
+  { key: "skus", label: "SKUs" },
+  { key: "total_qty", label: "Total qty" },
+  { key: "total_cost", label: "Total cost" },
+];
 
 export default function BuildReconcileWorkbench() {
   const [savedBuilds, setSavedBuilds] = useState<IpScenario[]>([]);
@@ -29,6 +39,7 @@ export default function BuildReconcileWorkbench() {
   const [computing, setComputing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   useEffect(() => { void loadSavedBuilds(); }, []);
 
@@ -205,33 +216,43 @@ export default function BuildReconcileWorkbench() {
         <div style={S.card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Preview — {previewRows.length} sheet{previewRows.length === 1 ? "" : "s"}</strong>
-            <div style={{ color: PAL.textDim, fontSize: 12 }}>
-              Total qty <strong style={{ color: PAL.text }}>{totalQty.toLocaleString()}</strong>
-              {totalCost > 0 && <> · cost <strong style={{ color: PAL.text }}>${totalCost.toFixed(2)}</strong></>}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ color: PAL.textDim, fontSize: 12 }}>
+                Total qty <strong style={{ color: PAL.text }}>{totalQty.toLocaleString()}</strong>
+                {totalCost > 0 && <> · cost <strong style={{ color: PAL.text }}>${totalCost.toFixed(2)}</strong></>}
+              </div>
+              <TablePrefsButton
+                tableKey={TABLE_KEY}
+                columns={ALL_COLUMNS}
+                visibleColumns={visibleColumns}
+                onToggle={toggleColumn}
+                onReset={resetToDefault}
+                onSetAll={setAllVisible}
+              />
             </div>
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: PAL.panelAlt }}>
-                  <th style={th}>Build</th>
-                  <th style={th}>Vendor</th>
-                  <th style={{ ...th, textAlign: "right" }}>SKUs</th>
-                  <th style={{ ...th, textAlign: "right" }}>Total qty</th>
-                  <th style={{ ...th, textAlign: "right" }}>Total cost</th>
+                  <th style={th} hidden={!visibleColumns.has("build")}>Build</th>
+                  <th style={th} hidden={!visibleColumns.has("vendor")}>Vendor</th>
+                  <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("skus")}>SKUs</th>
+                  <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total_qty")}>Total qty</th>
+                  <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total_cost")}>Total cost</th>
                 </tr>
               </thead>
               <tbody>
                 {previewRows.map((r, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${PAL.borderFaint}` }}>
-                    <td style={td}>{r.build}</td>
-                    <td style={{ ...td, color: r.vendor_id ? PAL.text : PAL.yellow }}>
+                    <td style={td} hidden={!visibleColumns.has("build")}>{r.build}</td>
+                    <td style={{ ...td, color: r.vendor_id ? PAL.text : PAL.yellow }} hidden={!visibleColumns.has("vendor")}>
                       {r.vendor}
                       {!r.vendor_id && <span style={{ marginLeft: 6, fontSize: 10, color: PAL.yellow }}>⚠ no master vendor</span>}
                     </td>
-                    <td style={{ ...td, textAlign: "right" }}>{r.skus.toLocaleString()}</td>
-                    <td style={{ ...td, textAlign: "right" }}>{r.qty.toLocaleString()}</td>
-                    <td style={{ ...td, textAlign: "right" }}>{r.cost > 0 ? `$${r.cost.toFixed(2)}` : "—"}</td>
+                    <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("skus")}>{r.skus.toLocaleString()}</td>
+                    <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("total_qty")}>{r.qty.toLocaleString()}</td>
+                    <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("total_cost")}>{r.cost > 0 ? `$${r.cost.toFixed(2)}` : "—"}</td>
                   </tr>
                 ))}
               </tbody>

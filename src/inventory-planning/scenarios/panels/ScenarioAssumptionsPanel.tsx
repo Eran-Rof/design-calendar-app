@@ -12,6 +12,16 @@ import { scenarioRepo } from "../services/scenarioRepo";
 import { logChange } from "../services/auditLogService";
 import { S, PAL } from "../../components/styles";
 import type { ToastMessage } from "../../components/Toast";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.scenario_assumptions";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "type", label: "Type" },
+  { key: "value", label: "Value" },
+  { key: "unit", label: "Unit" },
+  { key: "scope", label: "Scope" },
+  { key: "note", label: "Note" },
+];
 
 const TYPES: Array<{ key: IpAssumptionType; unit: IpAssumptionUnit; hint: string }> = [
   { key: "demand_uplift_percent",   unit: "percent", hint: "+ lifts demand by %, − reduces it" },
@@ -48,6 +58,7 @@ export default function ScenarioAssumptionsPanel({
   const [scopeChannel, setScopeChannel] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const customerById = new Map(customers.map((c) => [c.id, c.name]));
   const channelById = new Map(channels.map((c) => [c.id, c.name]));
@@ -114,7 +125,17 @@ export default function ScenarioAssumptionsPanel({
 
   return (
     <div style={S.card}>
-      <h3 style={S.cardTitle}>Scenario assumptions</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h3 style={S.cardTitle}>Scenario assumptions</h3>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       {!readOnly && (
         <div style={{ ...S.infoCell, marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: PAL.textDim, marginBottom: 8 }}>
@@ -179,24 +200,24 @@ export default function ScenarioAssumptionsPanel({
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Type</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Value</th>
-              <th style={S.th}>Unit</th>
-              <th style={S.th}>Scope</th>
-              <th style={S.th}>Note</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("value")}>Value</th>
+              <th style={S.th} hidden={!visibleColumns.has("unit")}>Unit</th>
+              <th style={S.th} hidden={!visibleColumns.has("scope")}>Scope</th>
+              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
               <th style={S.th}></th>
             </tr>
           </thead>
           <tbody>
             {assumptions.map((a) => (
               <tr key={a.id}>
-                <td style={S.td}>{a.assumption_type.replace(/_/g, " ")}</td>
-                <td style={{ ...S.tdNum, fontFamily: "monospace" }}>{a.assumption_value ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{a.assumption_unit ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>
+                <td style={S.td} hidden={!visibleColumns.has("type")}>{a.assumption_type.replace(/_/g, " ")}</td>
+                <td style={{ ...S.tdNum, fontFamily: "monospace" }} hidden={!visibleColumns.has("value")}>{a.assumption_value ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }} hidden={!visibleColumns.has("unit")}>{a.assumption_unit ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("scope")}>
                   {scopeLabel(a, itemById, categoryById, customerById, channelById)}
                 </td>
-                <td style={{ ...S.td, color: PAL.textMuted }}>{a.note ?? ""}</td>
+                <td style={{ ...S.td, color: PAL.textMuted }} hidden={!visibleColumns.has("note")}>{a.note ?? ""}</td>
                 <td style={S.td}>
                   {!readOnly && (
                     <button style={{ ...S.btnGhost, color: PAL.red }} onClick={() => removeAssumption(a.id)}>Remove</button>
