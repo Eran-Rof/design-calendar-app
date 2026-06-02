@@ -209,27 +209,38 @@ export default function RfqEditView() {
             <ContextField label="Created" value={detail.rfq.created_at ? fmtDateDisplay(detail.rfq.created_at.slice(0, 10)) : "—"} />
           </div>
 
-          {/* Editable header form. */}
+          {/* Header form. Most fields are backfilled from the source costing
+              project at generation (generate-rfqs.js) and are READ-ONLY here —
+              the project is the single source of truth, edit them there. Only
+              Status + Payment terms are RFQ-native and stay editable. */}
+          <div style={{ marginBottom: 6, color: "#64748B", fontSize: 11, fontStyle: "italic" }}>
+            Fields from the source project are read-only here — edit them on the costing project. Only Status and Payment terms are set on the RFQ.
+          </div>
           <div style={{
             background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
             padding: "14px 16px", display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
             maxWidth: 1080,
           }}>
+            {/* Backfilled — read-only. */}
             <Field label="Title" span={4}>
-              <input value={form.title || ""} onChange={(e) => setField("title", e.target.value)} style={inp} />
+              <ReadOnlyValue value={detail.rfq.title} />
             </Field>
+
+            {/* RFQ-native — editable. */}
             <Field label="Status">
               <select value={form.status || "draft"} onChange={(e) => setField("status", e.target.value as RfqStatus)} style={inp}>
                 {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
+            {/* Backfilled — read-only. */}
             <Field label="Brand">
-              <input value={form.category || ""} onChange={(e) => setField("category", e.target.value || null)} style={inp} placeholder="e.g. Ring of Fire" />
+              <ReadOnlyValue value={detail.rfq.category} />
             </Field>
             <Field label="Currency">
-              <input value={form.currency || ""} onChange={(e) => setField("currency", e.target.value || "USD")} style={inp} placeholder="USD" />
+              <ReadOnlyValue value={detail.rfq.currency || "USD"} />
             </Field>
+            {/* RFQ-native — editable. */}
             <Field label="Payment terms">
               <SearchableSelect
                 value={form.payment_terms_id || null}
@@ -239,31 +250,26 @@ export default function RfqEditView() {
               />
             </Field>
 
-            {/* Three date fields mirror the costing project header (request,
-                due, projected delivery). Replaces the legacy submission_deadline
-                + delivery_required_by inputs — those columns still exist on the
-                row for other procurement readers, just not surfaced here. */}
+            {/* Backfilled dates — read-only, displayed in canonical MMM/DD/YYYY. */}
             <Field label="Request date">
-              <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={dateInp} />
+              <ReadOnlyValue value={detail.rfq.request_date ? fmtDateDisplay(detail.rfq.request_date) : null} />
             </Field>
             <Field label="Due date">
-              <input type="date" value={form.due_date || ""} onChange={(e) => setField("due_date", e.target.value || null)} style={dateInp} />
+              <ReadOnlyValue value={detail.rfq.due_date ? fmtDateDisplay(detail.rfq.due_date) : null} />
             </Field>
             <Field label="Projected delivery date">
-              <input type="date" value={form.projected_delivery_date || ""} onChange={(e) => setField("projected_delivery_date", e.target.value || null)} style={dateInp} />
+              <ReadOnlyValue value={detail.rfq.projected_delivery_date ? fmtDateDisplay(detail.rfq.projected_delivery_date) : null} />
             </Field>
-            {/* type="text" + inputMode removes the up/down stepper arrows
-                while keeping the field typeable (mirrors the inventory-planning
-                numeric cells). */}
+            {/* Backfilled estimates — read-only. */}
             <Field label="Estimated qty">
-              <input type="text" inputMode="numeric" value={form.estimated_quantity ?? ""} onChange={(e) => { const t = e.target.value.trim(); const n = Number(t); setField("estimated_quantity", t === "" || Number.isNaN(n) ? null : n); }} style={inp} />
+              <ReadOnlyValue value={typeof detail.rfq.estimated_quantity === "number" ? fmtQty.format(detail.rfq.estimated_quantity) : null} />
             </Field>
             <Field label="Estimated budget">
-              <input type="text" inputMode="decimal" value={form.estimated_budget ?? ""} onChange={(e) => { const t = e.target.value.trim(); const n = Number(t); setField("estimated_budget", t === "" || Number.isNaN(n) ? null : n); }} style={inp} />
+              <ReadOnlyValue value={typeof detail.rfq.estimated_budget === "number" ? fmtMoney.format(detail.rfq.estimated_budget) : null} />
             </Field>
 
             <Field label="Description" span={4}>
-              <textarea value={form.description || ""} onChange={(e) => setField("description", e.target.value || null)} rows={3} style={{ ...inp, fontFamily: "inherit", resize: "vertical" }} />
+              <ReadOnlyValue value={detail.rfq.description} multiline />
             </Field>
           </div>
 
@@ -321,20 +327,15 @@ export default function RfqEditView() {
   );
 }
 
+// Only the RFQ-NATIVE fields are seeded into the editable form — everything
+// else (title, description, brand/category, currency, the three dates,
+// estimated qty/budget) is backfilled from the source costing project at
+// generation time (see generate-rfqs.js) and is the project's to own, so it
+// renders read-only below and is never sent on the PATCH. Status +
+// payment_terms_id are the only operator-entered, RFQ-stage fields.
 function seedForm(r: RfqListRow): RfqPatch {
   return {
-    title: r.title,
-    description: r.description,
-    category: r.category,
     status: r.status,
-    submission_deadline: r.submission_deadline,
-    delivery_required_by: r.delivery_required_by,
-    request_date: r.request_date,
-    due_date: r.due_date,
-    projected_delivery_date: r.projected_delivery_date,
-    estimated_quantity: r.estimated_quantity,
-    estimated_budget: r.estimated_budget,
-    currency: r.currency,
     payment_terms_id: r.payment_terms_id,
   };
 }
@@ -357,6 +358,25 @@ function Field({ label, span, children }: { label: string; span?: 1 | 2 | 3 | 4;
   );
 }
 
+// Read-only display for a backfilled field — styled to match the disabled
+// look of the editable inputs (same box, dimmed text) so the form reads as a
+// consistent grid. `multiline` switches to a min-height block for description.
+function ReadOnlyValue({ value, multiline }: { value: string | null | undefined; multiline?: boolean }) {
+  const text = value != null && String(value).trim() !== "" ? String(value) : "—";
+  return (
+    <div style={{
+      ...inp,
+      background: "#162033",
+      color: "#94A3B8",
+      cursor: "default",
+      whiteSpace: multiline ? "pre-wrap" : "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      minHeight: multiline ? 54 : undefined,
+    }}>{text}</div>
+  );
+}
+
 function Th({ children, align, width }: { children: React.ReactNode; align?: "left" | "right" | "center"; width?: number }) {
   return <th style={{ textAlign: align || "left", padding: "6px 10px", fontWeight: 600, fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", width }}>{children}</th>;
 }
@@ -368,9 +388,4 @@ const inp: React.CSSProperties = {
   width: "100%", background: "#0F172A", color: "#E2E8F0",
   border: "1px solid #334155", borderRadius: 4, padding: "5px 8px", fontSize: 12,
   outline: "none",
-};
-
-const dateInp: React.CSSProperties = {
-  ...inp,
-  colorScheme: "dark",
 };
