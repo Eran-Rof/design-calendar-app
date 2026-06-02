@@ -6,7 +6,7 @@
 // procurement team.
 
 import { createClient } from "@supabase/supabase-js";
-import { getInternalRecipients } from "../../../../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
 
   // Internal notification
   try {
-    const { emails } = getInternalRecipients("procurement", { event: "rfq_quote_submitted" });
+    const { emails } = await resolveInternalRecipients(admin, "procurement", { event: "rfq_quote_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";

@@ -28,6 +28,7 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { NOTIFICATION_CATEGORIES } from "../lib/notificationCategories";
 
 type Employee = {
   id: string;
@@ -50,6 +51,8 @@ type Employee = {
   termination_date: string | null;
   is_active: boolean;
   phone: string | null;
+  // Internal notification categories this employee receives email alerts for.
+  notification_subscriptions: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -371,7 +374,18 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     termination_date: employee?.termination_date ?? "",
     phone: formatPhone(employee?.phone ?? ""),
     is_active: employee?.is_active ?? true,
+    notification_subscriptions: employee?.notification_subscriptions ?? [],
   });
+
+  // Toggle a notification category on/off in the form's subscription list.
+  function toggleSubscription(key: string) {
+    setForm((f) => ({
+      ...f,
+      notification_subscriptions: f.notification_subscriptions.includes(key)
+        ? f.notification_subscriptions.filter((k) => k !== key)
+        : [...f.notification_subscriptions, key],
+    }));
+  }
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -408,6 +422,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
         termination_date: form.termination_date.trim() || null,
         phone: form.phone.trim() || null,
         is_active: form.is_active,
+        notification_subscriptions: form.notification_subscriptions,
       };
       // Chunk M — code is server-generated; never sent from the client.
       // auth_user_id is no longer collected in the form (operator request);
@@ -596,6 +611,34 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
           <Field label="Termination date">
             <input style={inputStyle} type="date" value={form.termination_date} onChange={(e) => set("termination_date", e.target.value)} />
           </Field>
+
+          {/* Email notification subscriptions — ticking a box routes that
+              category's internal alerts to this employee's email (in addition
+              to any INTERNAL_*_EMAILS env recipients). */}
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <label style={{ display: "block", marginBottom: 6, color: C.textSub, fontSize: 12, fontWeight: 600 }}>
+              Email notifications
+            </label>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
+              This employee receives an email when any checked event happens. Requires a valid email above.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+              {NOTIFICATION_CATEGORIES.map((cat) => (
+                <label
+                  key={cat.key}
+                  title={cat.description}
+                  style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textSub, cursor: "pointer" }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.notification_subscriptions.includes(cat.key)}
+                    onChange={() => toggleSubscription(cat.key)}
+                  />
+                  {cat.label}
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
 
         {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginTop: 12, fontSize: 13 }}>{err}</div>}

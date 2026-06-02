@@ -6,7 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { digestSubject, digestBody, filterDigestInsights } from "../../_lib/notifications-phase9.js";
-import { getInternalRecipients } from "../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 60 };
 
@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   const result = { started_at: new Date().toISOString(), entities_digested: 0, total_insights: 0, errors: [] };
 
   const { data: entities } = await admin.from("entities").select("id, name").eq("status", "active");
-  const { emails: toEmails } = getInternalRecipients("procurement", { event: "ai_insight_new" });
+  const { emails: toEmails } = await resolveInternalRecipients(admin, "procurement", { event: "ai_insight_new" });
 
   for (const e of entities || []) {
     try {
