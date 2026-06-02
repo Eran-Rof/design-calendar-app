@@ -40,6 +40,21 @@ const MASTER_KEY: Record<MasterKind, string> = {
 // have to type these in by hand. They can edit/delete from Settings later.
 const DEFAULT_COMPLIANCE_CODES = ["CPSIA", "PROP65", "FLAMMABILITY", "LABEL_FIBER_CONTENT", "COO"];
 
+// Default bottom-closure options seeded the first time the closure master
+// loads empty, so the grid dropdown isn't blank for new operators. Same
+// auto-seed-when-empty pattern as DEFAULT_COMPLIANCE_CODES; the SQL seed
+// migration (20260713210000_costing_closure_seed.sql) also lands these in
+// prod, so this client seed only fires for entities the migration hasn't
+// touched. Idempotent: only inserts names not already present.
+const DEFAULT_CLOSURES = [
+  "Fixed waist with adjuster",
+  "Elastic waist",
+  "Side zip closure",
+  "Snap button closure",
+  "Button closure",
+  "Drawcord",
+];
+
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `m_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
 
 type State = {
@@ -107,6 +122,7 @@ type State = {
   masters: Record<MasterKind, MasterEntry[]>;
   loadMasters: () => Promise<void>;
   addMaster: (kind: MasterKind, name: string) => Promise<void>;
+  updateMaster: (kind: MasterKind, id: string, name: string) => Promise<void>;
   deleteMaster: (kind: MasterKind, id: string) => Promise<void>;
 
   // Operator-added extra colors (saved to app_data.costing_extra_colors so
@@ -582,10 +598,25 @@ export const useCostingStore = create<State>((set, get) => ({
         complianceList = DEFAULT_COMPLIANCE_CODES.map((name) => ({ id: newId(), name }));
         try { await sbSaveSvc(MASTER_KEY.compliance, complianceList); } catch { /* non-blocking */ }
       }
+      // Closure master — idempotent seed of the standard bottom-closure
+      // options. Merges any missing DEFAULT_CLOSURES into the existing list
+      // (case-insensitive on name) so it tops up rather than overwrites; only
+      // persists when something was actually added. Mirrors the SQL seed
+      // migration so the dropdown is never blank, regardless of which side
+      // (client or migration) reached the entity first.
+      let closureList: MasterEntry[] = Array.isArray(closure) ? (closure as MasterEntry[]) : [];
+      {
+        const have = new Set(closureList.map((m) => m.name.toLowerCase()));
+        const missing = DEFAULT_CLOSURES.filter((n) => !have.has(n.toLowerCase()));
+        if (missing.length > 0) {
+          closureList = [...closureList, ...missing.map((name) => ({ id: newId(), name }))];
+          try { await sbSaveSvc(MASTER_KEY.closure, closureList); } catch { /* non-blocking */ }
+        }
+      }
       set({
         masters: {
           fit:        Array.isArray(fit)     ? (fit as MasterEntry[])     : [],
-          closure:    Array.isArray(closure) ? (closure as MasterEntry[]) : [],
+          closure:    closureList,
           waist:      Array.isArray(waist)   ? (waist as MasterEntry[])   : [],
           comment:    Array.isArray(comment) ? (comment as MasterEntry[]) : [],
           compliance: complianceList,
@@ -607,6 +638,19 @@ export const useCostingStore = create<State>((set, get) => ({
     set((s) => ({ masters: { ...s.masters, [kind]: next } }));
     try { await sbSaveSvc(MASTER_KEY[kind], next); }
     catch (e) { set({ error: `addMaster: ${(e as Error).message}` }); }
+  },
+
+  async updateMaster(kind, id, name) {
+    const clean = name.trim();
+    if (!clean) return;
+    const current = get().masters[kind] || [];
+    // Block renaming onto a different entry's name (case-insensitive); a
+    // no-op rename onto itself is allowed.
+    if (current.some((m) => m.id !== id && m.name.toLowerCase() === clean.toLowerCase())) return;
+    const next = current.map((m) => (m.id === id ? { ...m, name: clean } : m));
+    set((s) => ({ masters: { ...s.masters, [kind]: next } }));
+    try { await sbSaveSvc(MASTER_KEY[kind], next); }
+    catch (e) { set({ error: `updateMaster: ${(e as Error).message}` }); }
   },
 
   async deleteMaster(kind, id) {

@@ -96,6 +96,20 @@ const btnToggle = (active: boolean): React.CSSProperties => ({
   fontSize: 12, fontWeight: 600,
 });
 
+// ATS app accent (matches the PLM launcher's ATS card color).
+const ATS_GREEN = "#10B981";
+
+// Cross-app link button → ATS app at /ats (same `<a href>` nav the suite uses
+// for its other app links, e.g. App.tsx T&A → /tanda, Costing → /costing).
+const atsLinkStyle: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 6,
+  background: ATS_GREEN, color: "white",
+  border: `1px solid ${ATS_GREEN}`,
+  padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+  fontSize: 12, fontWeight: 600, textDecoration: "none",
+  whiteSpace: "nowrap",
+};
+
 const chipStyle = (active: boolean): React.CSSProperties => ({
   padding: "4px 10px", borderRadius: 12,
   border: `1px solid ${active ? C.primary : C.cardBdr}`,
@@ -130,7 +144,8 @@ export default function InternalInventoryMatrix() {
   const [brandId, setBrandId]   = useState<string>(""); // "" = all brands
   const [styleId, setStyleId]   = useState<string>("");
   const [payload, setPayload]   = useState<MatrixPayload | null>(null);
-  const [metric, setMetric]     = useState<"on_hand" | "available">("on_hand");
+  // On-Hand is the only metric. The old "Available" toggle was replaced by an
+  // ATS app link (see the Show/ATS controls below).
   const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
@@ -254,13 +269,12 @@ export default function InternalInventoryMatrix() {
     return [...seen].sort((a, b) => a.localeCompare(b));
   }, [payload]);
 
-  // The warehouse filter only narrows on-hand (the breakdown is on-hand-only).
-  // When "Available" is the metric, or "All" is selected, sum everything.
-  const whActive = metric === "on_hand" && warehouse !== ALL_WAREHOUSES;
+  // The warehouse filter narrows on-hand (the breakdown is on-hand-only).
+  // "All" sums every warehouse; a specific warehouse narrows to its column.
+  const whActive = warehouse !== ALL_WAREHOUSES;
 
-  // qty for a SKU under the active metric + warehouse filter.
+  // qty for a SKU under the active warehouse filter (On-Hand is the only metric).
   const skuQty = (s: MatrixSku) => {
-    if (metric === "available") return num(s.available_qty);
     if (whActive) return num((s.on_hand_by_wh || {})[warehouse]);
     return num(s.on_hand_qty);
   };
@@ -339,7 +353,7 @@ export default function InternalInventoryMatrix() {
       .map((r, i) => ({ r, i }))
       .sort((a, b) => (b.r.totalQty - a.r.totalQty) || (a.i - b.i))
       .map((x) => x.r);
-  }, [payload, riseFilter, metric, showRise, warehouse]);
+  }, [payload, riseFilter, showRise, warehouse]);
 
   // Apply the hide-zero-total-rows toggle (default ON). Hides color rows whose
   // row Total under the active metric+warehouse is 0 (e.g. White / Woodland Camo
@@ -442,28 +456,33 @@ export default function InternalInventoryMatrix() {
           />
         </label>
 
-        {/* Metric toggle */}
+        {/* Metric + cross-app link. On-Hand is the only metric (always active);
+            the old "Available" toggle is now a link out to the ATS app, which is
+            the suite's source of truth for available-to-sell. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Show
           <div style={{ display: "flex", gap: 6 }}>
-            <button type="button" style={btnToggle(metric === "on_hand")} onClick={() => setMetric("on_hand")}>
+            <button type="button" style={btnToggle(true)} disabled>
               On-Hand
             </button>
-            <button type="button" style={btnToggle(metric === "available")} onClick={() => setMetric("available")}>
-              Available
-            </button>
+            <a
+              href="/ats"
+              style={atsLinkStyle}
+              title="Open the ATS app for available-to-sell"
+            >
+              ATS ↗
+            </a>
           </div>
         </div>
 
         {/* Warehouse filter — on-hand-only; "All" sums every warehouse (today's
-            number). Disabled when the metric is Available (no per-wh breakdown). */}
+            number). Always enabled now that On-Hand is the only metric. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Warehouse
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", opacity: metric === "available" ? 0.5 : 1 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button
               type="button"
               style={btnToggle(warehouse === ALL_WAREHOUSES)}
-              disabled={metric === "available"}
               onClick={() => setWarehouse(ALL_WAREHOUSES)}
             >
               All
@@ -472,8 +491,7 @@ export default function InternalInventoryMatrix() {
               <button
                 key={wh}
                 type="button"
-                style={btnToggle(metric === "on_hand" && warehouse === wh)}
-                disabled={metric === "available"}
+                style={btnToggle(warehouse === wh)}
                 onClick={() => setWarehouse(wh)}
               >
                 {wh}
@@ -535,7 +553,7 @@ export default function InternalInventoryMatrix() {
           {payload.style.style_name ? <span> — {payload.style.style_name}</span> : null}
           <span style={{ color: C.textMuted }}>
             {"  ·  Size scale: "}{scaleName || (payload.style.size_scale_id ? "—" : "none")}
-            {"  ·  "}{metric === "on_hand" ? "On-hand qty" : "Available qty"}
+            {"  ·  On-hand qty"}
             {whActive ? `  ·  Warehouse: ${warehouse}` : "  ·  All warehouses"}
           </span>
         </div>
