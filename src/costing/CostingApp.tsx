@@ -42,10 +42,25 @@ export default function CostingApp() {
   }, []);
 
   return (
-    <div style={{
+    <div className="costing-app" style={{
       display: "flex", flexDirection: "column", height: "100vh",
       background: TH.surfaceHi, fontFamily: "system-ui, -apple-system, sans-serif",
     }}>
+      {/* Strip the native up/down spinner steppers from every number input in
+          the costing subtree. Scoped to .costing-app so it can't affect other
+          apps, and applied at the root so any number field added later inherits
+          it without per-input styling. */}
+      <style>{`
+        .costing-app input[type="number"]::-webkit-outer-spin-button,
+        .costing-app input[type="number"]::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .costing-app input[type="number"] {
+          -moz-appearance: textfield;
+          appearance: textfield;
+        }
+      `}</style>
       <CostingNavBar />
       <div style={{ flex: 1, overflowY: "auto" }}>
         {view === "list" && <ProjectListView />}
