@@ -571,6 +571,8 @@ import h573 from "./internal/purchase-orders/[id].js";
 //   h575 = GET/PATCH/DELETE    /api/internal/prepack-matrices/:id
 import h574 from "./internal/prepack-matrices/index.js";
 import h575 from "./internal/prepack-matrices/[id].js";
+// h599 = GET /api/internal/prepack-matrices/needed (PPK styles still needing a matrix)
+import h599 from "./internal/prepack-matrices/needed.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1091,6 +1093,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
   { pattern: "/api/internal/prepack-matrices", handler: h574 },
   // Chunk I reference masters — :id before bare collection (first-match-wins)

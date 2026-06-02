@@ -52,6 +52,25 @@ async function resolveDefaultEntityId(admin) {
   return data.id;
 }
 
+// Resolve a matrix name from the style MASTER (never guess). Tries style_master
+// .style_name for the PPK code, then its sized sibling, then ip_item_master
+// .description for the sibling. Returns "" if the master has nothing.
+async function resolveStyleName(admin, ppkStyleCode) {
+  if (!ppkStyleCode) return "";
+  const base = String(ppkStyleCode).replace(/-?PPK\d*/gi, "");
+  const sm = async (code) => {
+    const { data } = await admin.from("style_master").select("style_name").eq("style_code", code).maybeSingle();
+    return data?.style_name ? String(data.style_name).trim() : "";
+  };
+  let n = await sm(ppkStyleCode);
+  if (!n && base && base !== ppkStyleCode) n = await sm(base);
+  if (!n && base) {
+    const { data } = await admin.from("ip_item_master").select("description").eq("style_code", base).not("description", "is", null).limit(1).maybeSingle();
+    n = data?.description ? String(data.description).trim() : "";
+  }
+  return n;
+}
+
 // Normalize a `sizes` payload to an ordered array of { size, qty_per_pack }.
 // Accepts either an array of { size, qty_per_pack } objects OR an object map
 // { "<size>": <qty> }. Blank sizes and non-positive/NaN qtys are dropped.
@@ -91,9 +110,8 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  if (!body.name || !String(body.name).trim()) {
-    return { error: "name is required" };
-  }
+  // name is OPTIONAL — when blank the handler resolves it from the style master
+  // (we never guess a "<code> Pack of N" name).
   const sizes = normalizeSizes(body.sizes);
   if (sizes.length === 0) {
     return { error: "at least one size with a positive qty_per_pack is required" };
@@ -113,7 +131,7 @@ export function validateInsert(body) {
 
   return {
     data: {
-      name:           String(body.name).trim(),
+      name:           body.name ? String(body.name).trim() : "",
       ppk_style_code: body.ppk_style_code ? String(body.ppk_style_code).trim() : null,
       pack_token:     body.pack_token ? String(body.pack_token).trim() : null,
       pack_total:     packTotal,
@@ -203,6 +221,11 @@ export default async function handler(req, res) {
     }
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
+
+    // Name from the style master when not explicitly provided (no guessing).
+    if (!v.data.name) {
+      v.data.name = (await resolveStyleName(admin, v.data.ppk_style_code)) || v.data.ppk_style_code || "Prepack";
+    }
 
     // Idempotent upsert by (entity, ppk_style_code): if a matrix already exists
     // for this PPK style, UPDATE it in place (re-import path). Otherwise insert
