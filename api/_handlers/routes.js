@@ -612,6 +612,8 @@ import h594 from "./internal/procurement/broker-invoices/index.js";
 import h595 from "./internal/procurement/broker-invoices/[id].js";
 import h596 from "./internal/procurement/vendor-invoice-drafts/index.js";
 import h597 from "./internal/procurement/vendor-invoice-drafts/[id].js";
+// P13/C5 — procurement reconciliation inbox + open-commitments report.
+import h598 from "./internal/procurement/recon-inbox/index.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -1029,6 +1031,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/broker-invoices",     handler: h594 },
   { pattern: "/api/internal/procurement/vendor-invoice-drafts/:id", handler: h597 },
   { pattern: "/api/internal/procurement/vendor-invoice-drafts",     handler: h596 },
+  { pattern: "/api/internal/procurement/recon-inbox",               handler: h598 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
