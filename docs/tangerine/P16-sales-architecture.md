@@ -27,5 +27,14 @@ Brand/channel scoping (`applyBrandScope`), entity scoping, T11 audit (`audit_row
 ## Out of scope (later phases)
 SO demand → Planning is **P17** (consumes SO via ATS). EDI order intake is **P22**. B2B self-service order placement is **P18**.
 
+## M18 Allocations Workbench (#788)
+Standalone `Sales → Allocations` screen (`src/tanda/InternalAllocations.tsx`) — the cross-SO allocation surface the per-SO `📦 Allocate stock` button (#725) couldn't provide.
+
+- **Data (`v_allocation_demand`):** one row per manageable open SO line (confirmed/allocated/fulfilling, not split-parent, not fully shipped), carrying `is_factored` / `has_card` + factor fields. The GET handler joins it with `v_inventory_available` (on-hand / reserved / available per item). The grid groups **style/color rollup → SKU (size) → competing SO lines**; the rollup is a *view* only — allocation always resolves at size-level SKU, so a style/color target can never allocate sizes with zero stock.
+- **Priority tiering (auto-allocate):** **(1) factor-approved → (2) non-factored w/ stored card → (3) oldest** (`order_date` asc within each tier). v1 strategy = **Priority full-fill** only; the strategy is chosen at run time in the preview dialog (the seam for future fair-share / capped-% modes). Preview (`/allocations/preview`) computes the proposal with no write; the operator sees the exact per-SKU/per-SO grants (and blocked rows) before applying.
+- **Hard factor-credit gate** (enforced in `apply_allocations`, surfaced in preview): a factored customer's SO can only be allocated when `factor_approval_status='approved'` AND `factor_reference` is non-empty AND the resulting SO allocated $ (Σ qty_allocated × unit_price_cents) ≤ `factor_approved_cents`. Otherwise the line is skipped with a reason.
+- **Write path (`apply_allocations(jsonb, uuid)` RPC):** single authoritative absolute-SET of `qty_allocated` per line (0 releases), used by both manual cell edits and Auto-apply. Validates against a running per-item available pool; recomputes line + SO header status. FIFO consumption is unchanged (stays at invoice/ship). No partition/brand netting in v1 (`BRAND_SCOPE_MODE` off).
+- **Fast-follow:** fair-share (pro-rata) + capped-% (% of order) fill modes; style/color-level % *cap*; partition-aware netting.
+
 ## Deferred / planned
 - **Rosenthal & Rosenthal Factor API integration** — auto-fill the SO Factor/Ins Approval fields (`factor_approval_status`, `factor_approved_cents`, `factor_reference`) from the factor's API instead of manual entry. **Scheduled AFTER Xoro retirement** (per operator, 2026-06-01) — defer until the Xoro nightly pipeline is decommissioned so integration effort isn't split. Schema is already in place (`factor_source` enum reserves `rosenthal_api`); only the connector + a sync job remain.

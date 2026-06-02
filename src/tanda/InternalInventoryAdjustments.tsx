@@ -16,6 +16,20 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const INV_ADJ_TABLE_KEY = "tangerine:inventoryadjustments:columns";
+const INV_ADJ_COLUMNS: ColumnDef[] = [
+  { key: "when",    label: "When" },
+  { key: "type",    label: "Type" },
+  { key: "style",   label: "Style" },
+  { key: "qty",     label: "Qty" },
+  { key: "cost",    label: "Cost (cents)" },
+  { key: "counter", label: "Counter Account" },
+  { key: "reason",  label: "Reason" },
+  { key: "status",  label: "Status" },
+];
 
 type Adjustment = {
   id: string;
@@ -118,6 +132,13 @@ export default function InternalInventoryAdjustments() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<Adjustment | null>(null);
   const [matrixModalOpen, setMatrixModalOpen] = useState(false);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    INV_ADJ_TABLE_KEY,
+    INV_ADJ_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -282,7 +303,14 @@ export default function InternalInventoryAdjustments() {
           to={filterTo}
           onChange={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={INV_ADJ_TABLE_KEY}
+            columns={INV_ADJ_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="inventory-adjustments"
@@ -312,14 +340,14 @@ export default function InternalInventoryAdjustments() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>When</th>
-              <th style={th}>Type</th>
-              <th style={th}>Style</th>
-              <th style={th}>Qty</th>
-              <th style={th}>Cost (cents)</th>
-              <th style={th}>Counter Account</th>
-              <th style={th}>Reason</th>
-              <th style={th}>Status</th>
+              <th style={th} hidden={!isVisible("when")}>When</th>
+              <th style={th} hidden={!isVisible("type")}>Type</th>
+              <th style={th} hidden={!isVisible("style")}>Style</th>
+              <th style={th} hidden={!isVisible("qty")}>Qty</th>
+              <th style={th} hidden={!isVisible("cost")}>Cost (cents)</th>
+              <th style={th} hidden={!isVisible("counter")}>Counter Account</th>
+              <th style={th} hidden={!isVisible("reason")}>Reason</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
               <th style={th}></th>
             </tr>
           </thead>
@@ -336,16 +364,16 @@ export default function InternalInventoryAdjustments() {
               const isPositive = row.qty_delta > 0;
               return (
                 <tr key={row.id}>
-                  <td style={td}>{fmtDate(row.created_at)}</td>
-                  <td style={td}>{row.adjustment_type}</td>
-                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{itemLabel(row.item_id)}</td>
-                  <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }}>
+                  <td style={td} hidden={!isVisible("when")}>{fmtDate(row.created_at)}</td>
+                  <td style={td} hidden={!isVisible("type")}>{row.adjustment_type}</td>
+                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(row.item_id)}</td>
+                  <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }} hidden={!isVisible("qty")}>
                     {isPositive ? "+" : ""}{row.qty_delta}
                   </td>
-                  <td style={{ ...td, fontFamily: "monospace" }}>{fmtMoneyCents(row.unit_cost_cents)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{glLabel(row.gl_account_id)}</td>
-                  <td style={{ ...td, color: C.textSub, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.reason}</td>
-                  <td style={td}>
+                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("cost")}>{fmtMoneyCents(row.unit_cost_cents)}</td>
+                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("counter")}>{glLabel(row.gl_account_id)}</td>
+                  <td style={{ ...td, color: C.textSub, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} hidden={!isVisible("reason")}>{row.reason}</td>
+                  <td style={td} hidden={!isVisible("status")}>
                     {row.posted_je_id
                       ? <span style={{ color: C.success }}>POSTED</span>
                       : <span style={{ color: C.warn }}>DRAFT</span>}

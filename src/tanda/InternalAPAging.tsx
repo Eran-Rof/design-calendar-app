@@ -6,6 +6,18 @@
 
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.ap_aging";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "vendor",   label: "Vendor" },
+  { key: "current",  label: "Current" },
+  { key: "b1_30",    label: "1-30" },
+  { key: "b31_60",   label: "31-60" },
+  { key: "b61_90",   label: "61-90" },
+  { key: "b91_plus", label: "91+" },
+  { key: "total",    label: "Total Open" },
+];
 
 type AgingRow = {
   entity_id?: string;
@@ -138,6 +150,7 @@ export default function InternalAPAging() {
   const [asOf, setAsOf] = useState<string>(todayISO());
   const [vendorFilter, setVendorFilter] = useState<string>("");
   const [mode, setMode] = useState<string>("current");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true);
@@ -220,6 +233,14 @@ export default function InternalAPAging() {
             { key: "total",       header: "Total Open", format: "currency_cents" },
           ]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && (
@@ -237,42 +258,42 @@ export default function InternalAPAging() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Vendor</th>
-                <th style={{ ...th, textAlign: "right" }}>Current</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b1_30 }}>1-30</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b31_60 }}>31-60</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b61_90 }}>61-90</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b91_plus }}>91+</th>
-                <th style={{ ...th, textAlign: "right" }}>Total Open</th>
+                <th style={th} hidden={!visibleColumns.has("vendor")}>Vendor</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("current")}>Current</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b1_30 }} hidden={!visibleColumns.has("b1_30")}>1-30</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b31_60 }} hidden={!visibleColumns.has("b31_60")}>31-60</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b61_90 }} hidden={!visibleColumns.has("b61_90")}>61-90</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b91_plus }} hidden={!visibleColumns.has("b91_plus")}>91+</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total")}>Total Open</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.vendor_id}>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("vendor")}>
                     <strong>{r.vendor_name || r.vendor_code || r.vendor_id}</strong>
                     {r.vendor_code && r.vendor_name && (
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>({r.vendor_code})</span>
                     )}
                   </td>
-                  <td style={tdNum}>{fmtCents(r.current)}</td>
-                  <td style={{ ...tdNum, color: r.b1_30    > 0 ? BUCKET_COLOR.b1_30    : C.textMuted }}>{fmtCents(r.b1_30)}</td>
-                  <td style={{ ...tdNum, color: r.b31_60   > 0 ? BUCKET_COLOR.b31_60   : C.textMuted }}>{fmtCents(r.b31_60)}</td>
-                  <td style={{ ...tdNum, color: r.b61_90   > 0 ? BUCKET_COLOR.b61_90   : C.textMuted }}>{fmtCents(r.b61_90)}</td>
-                  <td style={{ ...tdNum, color: r.b91_plus > 0 ? BUCKET_COLOR.b91_plus : C.textMuted, fontWeight: r.b91_plus > 0 ? 700 : 400 }}>{fmtCents(r.b91_plus)}</td>
-                  <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(r.total)}</td>
+                  <td style={tdNum} hidden={!visibleColumns.has("current")}>{fmtCents(r.current)}</td>
+                  <td style={{ ...tdNum, color: r.b1_30    > 0 ? BUCKET_COLOR.b1_30    : C.textMuted }} hidden={!visibleColumns.has("b1_30")}>{fmtCents(r.b1_30)}</td>
+                  <td style={{ ...tdNum, color: r.b31_60   > 0 ? BUCKET_COLOR.b31_60   : C.textMuted }} hidden={!visibleColumns.has("b31_60")}>{fmtCents(r.b31_60)}</td>
+                  <td style={{ ...tdNum, color: r.b61_90   > 0 ? BUCKET_COLOR.b61_90   : C.textMuted }} hidden={!visibleColumns.has("b61_90")}>{fmtCents(r.b61_90)}</td>
+                  <td style={{ ...tdNum, color: r.b91_plus > 0 ? BUCKET_COLOR.b91_plus : C.textMuted, fontWeight: r.b91_plus > 0 ? 700 : 400 }} hidden={!visibleColumns.has("b91_plus")}>{fmtCents(r.b91_plus)}</td>
+                  <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("total")}>{fmtCents(r.total)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
-                <td style={{ ...td, fontWeight: 700, color: C.textSub }}>TOTAL ({filtered.length})</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.current)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b1_30 }}>{fmtCents(totals.b1_30)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b31_60 }}>{fmtCents(totals.b31_60)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b61_90 }}>{fmtCents(totals.b61_90)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b91_plus }}>{fmtCents(totals.b91_plus)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.total)}</td>
+                <td style={{ ...td, fontWeight: 700, color: C.textSub }} hidden={!visibleColumns.has("vendor")}>TOTAL ({filtered.length})</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("current")}>{fmtCents(totals.current)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b1_30 }} hidden={!visibleColumns.has("b1_30")}>{fmtCents(totals.b1_30)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b31_60 }} hidden={!visibleColumns.has("b31_60")}>{fmtCents(totals.b31_60)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b61_90 }} hidden={!visibleColumns.has("b61_90")}>{fmtCents(totals.b61_90)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b91_plus }} hidden={!visibleColumns.has("b91_plus")}>{fmtCents(totals.b91_plus)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("total")}>{fmtCents(totals.total)}</td>
               </tr>
             </tfoot>
           </table>

@@ -36,6 +36,7 @@ import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
+import InternalAllocations        from "./tanda/InternalAllocations";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
@@ -60,6 +61,7 @@ import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalEmployeeTitles          from "./tanda/InternalEmployeeTitles";
 import InternalEmployeeDepartments     from "./tanda/InternalEmployeeDepartments";
 import InternalInventoryMatrix          from "./tanda/InternalInventoryMatrix";
+import InternalPrepackMatrix            from "./tanda/InternalPrepackMatrix";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
@@ -145,6 +147,7 @@ type ModuleKey =
   | "ar_invoices"
   | "ar_receipts"
   | "sales_orders"
+  | "sales_allocations"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -162,6 +165,7 @@ type ModuleKey =
   | "employee_titles"
   | "employee_departments"
   | "inventory_matrix"
+  | "prepack_matrices"
   | "purchase_orders"
   | "inventory_transfers"
   | "inventory_adjustments"
@@ -272,6 +276,8 @@ const MODULES: ModuleDef[] = [
   { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Customers – Accts Rec" },
   // P16/M10 — native Sales Order entry.
   { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
+  // P16/M18 — Allocations Workbench (cross-SO allocation).
+  { key: "sales_allocations", label: "Allocations",       emoji: "📊", group: "Sales" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
@@ -306,6 +312,8 @@ const MODULES: ModuleDef[] = [
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
   { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
+  // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
+  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -568,6 +576,7 @@ export default function Tangerine() {
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
+        {activeModule === "sales_allocations" && <InternalAllocations />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
@@ -586,6 +595,7 @@ export default function Tangerine() {
         {activeModule === "employee_titles"      && <InternalEmployeeTitles />}
         {activeModule === "employee_departments" && <InternalEmployeeDepartments />}
         {activeModule === "inventory_matrix"     && <InternalInventoryMatrix />}
+        {activeModule === "prepack_matrices"     && <InternalPrepackMatrix />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
