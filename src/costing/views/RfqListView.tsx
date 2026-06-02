@@ -188,7 +188,7 @@ export default function RfqListView() {
               <Th align="right">Lines</Th>
               <Th align="right">Est Qty</Th>
               <Th align="right">Est Budget</Th>
-              <Th align="right">Target Cost</Th>
+              <Th align="right">Target Cost / Unit</Th>
               <Th>Status</Th>
               <Th>Due</Th>
               <Th>Created</Th>
