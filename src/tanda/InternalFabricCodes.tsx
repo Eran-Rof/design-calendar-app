@@ -11,6 +11,18 @@ import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const FABRIC_CODES_TABLE_KEY = "tangerine:fabriccodes:columns";
+const FABRIC_CODE_COLUMNS: ColumnDef[] = [
+  { key: "code",              label: "Code" },
+  { key: "name",              label: "Name" },
+  { key: "composition_text",  label: "Composition" },
+  { key: "fabric_weight_gsm", label: "GSM" },
+  { key: "country_of_origin", label: "COO" },
+  { key: "hts_code",          label: "HTS" },
+  { key: "is_active",         label: "Active" },
+];
 
 type FabricCode = {
   id: string;
@@ -82,6 +94,12 @@ export default function InternalFabricCodes() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<FabricCode | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    FABRIC_CODES_TABLE_KEY,
+    FABRIC_CODE_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<FabricCode>({
     onRowClick: (r) => setEditing(r),
@@ -191,6 +209,13 @@ export default function InternalFabricCodes() {
             { key: "updated_at",             header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={FABRIC_CODES_TABLE_KEY}
+          columns={FABRIC_CODE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -208,13 +233,13 @@ export default function InternalFabricCodes() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Composition</th>
-                <th style={th}>GSM</th>
-                <th style={th}>COO</th>
-                <th style={th}>HTS</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("composition_text")}>Composition</th>
+                <th style={th} hidden={!isVisible("fabric_weight_gsm")}>GSM</th>
+                <th style={th} hidden={!isVisible("country_of_origin")}>COO</th>
+                <th style={th} hidden={!isVisible("hts_code")}>HTS</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
@@ -227,15 +252,15 @@ export default function InternalFabricCodes() {
                   {...getRowProps(r)}
                   style={!r.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>
                     {r.code}
                   </td>
-                  <td style={td}>{r.name}</td>
-                  <td style={td}>{r.composition_text}</td>
-                  <td style={td}>{r.fabric_weight_gsm ?? "—"}</td>
-                  <td style={td}>{r.country_of_origin_iso2 ?? "—"}</td>
-                  <td style={td}>{r.hts_code ?? "—"}</td>
-                  <td style={td}>{r.is_active ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("name")}>{r.name}</td>
+                  <td style={td} hidden={!isVisible("composition_text")}>{r.composition_text}</td>
+                  <td style={td} hidden={!isVisible("fabric_weight_gsm")}>{r.fabric_weight_gsm ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("country_of_origin")}>{r.country_of_origin_iso2 ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("hts_code")}>{r.hts_code ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{r.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void hardDelete(r.id, r.code); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
@@ -298,7 +323,7 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
   // picker can render the current selection.
   const countryOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...countries.map((c) => ({
         value: c.iso2,
         label: `${c.iso2} — ${c.name}`,
@@ -427,7 +452,7 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
               onChange={(e) => setForm({ ...form, default_vendor_id: e.target.value })}
               style={inputStyle as React.CSSProperties}
             >
-              <option value="">(none)</option>
+              <option value="">(select)</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </Field>

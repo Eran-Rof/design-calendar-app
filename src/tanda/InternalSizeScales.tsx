@@ -16,6 +16,15 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const SIZE_SCALES_TABLE_KEY = "tangerine:sizescales:columns";
+const SIZE_SCALE_COLUMNS: ColumnDef[] = [
+  { key: "code",      label: "Code" },
+  { key: "name",      label: "Name" },
+  { key: "sizes",     label: "Sizes" },
+  { key: "is_active", label: "Active" },
+];
 
 type SizeScale = {
   id: string;
@@ -90,6 +99,12 @@ export default function InternalSizeScales() {
   // When set, the add modal pre-seeds sort_order = insertBelowOrder and the
   // create flow shifts every scale with sort_order > insertBelowOrder by +1.
   const [insertBelowOrder, setInsertBelowOrder] = useState<number | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    SIZE_SCALES_TABLE_KEY,
+    SIZE_SCALE_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<SizeScale>({
     onRowClick: (r) => setEditing(r),
@@ -223,6 +238,13 @@ export default function InternalSizeScales() {
             { key: "updated_at",   header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={SIZE_SCALES_TABLE_KEY}
+          columns={SIZE_SCALE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -243,10 +265,10 @@ export default function InternalSizeScales() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Sizes</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("sizes")}>Sizes</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -265,12 +287,12 @@ export default function InternalSizeScales() {
                   }}
                   style={!ss.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{ss.code}</td>
-                  <td style={td}>{ss.name}</td>
-                  <td style={{ ...td, color: C.textSub }}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{ss.code}</td>
+                  <td style={td} hidden={!isVisible("name")}>{ss.name}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sizes")}>
                     {Array.isArray(ss.sizes) ? ss.sizes.join(" · ") : ""}
                   </td>
-                  <td style={td}>{ss.is_active ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{ss.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(ss); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(ss); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>

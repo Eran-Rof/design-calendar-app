@@ -252,11 +252,14 @@ export default function RfqEditView() {
             <Field label="Projected delivery date">
               <input type="date" value={form.projected_delivery_date || ""} onChange={(e) => setField("projected_delivery_date", e.target.value || null)} style={dateInp} />
             </Field>
+            {/* type="text" + inputMode removes the up/down stepper arrows
+                while keeping the field typeable (mirrors the inventory-planning
+                numeric cells). */}
             <Field label="Estimated qty">
-              <input type="number" value={form.estimated_quantity ?? ""} onChange={(e) => setField("estimated_quantity", e.target.value === "" ? null : Number(e.target.value))} style={inp} />
+              <input type="text" inputMode="numeric" value={form.estimated_quantity ?? ""} onChange={(e) => { const t = e.target.value.trim(); const n = Number(t); setField("estimated_quantity", t === "" || Number.isNaN(n) ? null : n); }} style={inp} />
             </Field>
             <Field label="Estimated budget">
-              <input type="number" step="0.01" value={form.estimated_budget ?? ""} onChange={(e) => setField("estimated_budget", e.target.value === "" ? null : Number(e.target.value))} style={inp} />
+              <input type="text" inputMode="decimal" value={form.estimated_budget ?? ""} onChange={(e) => { const t = e.target.value.trim(); const n = Number(t); setField("estimated_budget", t === "" || Number.isNaN(n) ? null : n); }} style={inp} />
             </Field>
 
             <Field label="Description" span={4}>
@@ -282,7 +285,7 @@ export default function RfqEditView() {
                     <Th width={80}>Waist</Th>
                     <Th align="right" width={80}>Qty</Th>
                     <Th width={50}>UOM</Th>
-                    <Th align="right" width={90}>Target Prc</Th>
+                    <Th align="right" width={90}>Trgt Cost</Th>
                     <Th>Comments</Th>
                   </tr>
                 </thead>

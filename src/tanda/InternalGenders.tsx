@@ -13,6 +13,15 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const GENDERS_TABLE_KEY = "tangerine:genders:columns";
+const GENDER_COLUMNS: ColumnDef[] = [
+  { key: "code",       label: "Code" },
+  { key: "label",      label: "Label" },
+  { key: "sort_order", label: "Sort" },
+  { key: "is_active",  label: "Active" },
+];
 
 type Gender = {
   id: string;
@@ -62,6 +71,12 @@ export default function InternalGenders() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Gender | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    GENDERS_TABLE_KEY,
+    GENDER_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<Gender>({
     onRowClick: (r) => setEditing(r),
@@ -131,6 +146,13 @@ export default function InternalGenders() {
             { key: "is_active",  header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={GENDERS_TABLE_KEY}
+          columns={GENDER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -148,10 +170,10 @@ export default function InternalGenders() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Label</th>
-                <th style={{ ...th, textAlign: "right" }}>Sort</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("label")}>Label</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -164,10 +186,10 @@ export default function InternalGenders() {
                   {...getRowProps(g)}
                   style={!g.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{g.code}</td>
-                  <td style={td}>{g.label}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{g.sort_order}</td>
-                  <td style={td}>{g.is_active ? "yes" : "no"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{g.code}</td>
+                  <td style={td} hidden={!isVisible("label")}>{g.label}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{g.sort_order}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{g.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(g); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(g); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
@@ -201,6 +223,28 @@ function GenderFormModal({ mode, gender, onClose, onSaved }: ModalProps) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // On the Add form, the CODE field auto-fills from the LABEL's first letter
+  // (Men→M, Women→W, …) — but only as a default. Once the operator edits CODE
+  // by hand, codeIsAuto flips false and we stop clobbering their value.
+  const [codeIsAuto, setCodeIsAuto] = useState(mode === "add");
+
+  function onLabelChange(label: string) {
+    setForm((f) => {
+      const next = { ...f, label };
+      // Only auto-fill CODE on the Add form, and only while it's still
+      // operator-untouched (auto). Uppercased first letter of the label.
+      if (mode === "add" && codeIsAuto) {
+        next.code = (label.trim().charAt(0) || "").toUpperCase();
+      }
+      return next;
+    });
+  }
+
+  function onCodeChange(value: string) {
+    // Any manual edit to CODE makes the operator's value stick.
+    setCodeIsAuto(false);
+    setForm((f) => ({ ...f, code: value.toUpperCase() }));
+  }
 
   async function submit() {
     setSubmitting(true);
@@ -236,13 +280,13 @@ function GenderFormModal({ mode, gender, onClose, onSaved }: ModalProps) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Code *">
             {mode === "add" ? (
-              <input type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} style={inputStyle} placeholder="M" autoFocus maxLength={8} />
+              <input type="text" value={form.code} onChange={(e) => onCodeChange(e.target.value)} style={inputStyle} placeholder="M" maxLength={8} />
             ) : (
               <input type="text" value={form.code} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
           </Field>
           <Field label="Label *">
-            <input type="text" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} style={inputStyle} placeholder="Men" />
+            <input type="text" value={form.label} onChange={(e) => onLabelChange(e.target.value)} style={inputStyle} placeholder="Men" autoFocus={mode === "add"} />
           </Field>
           <Field label="Sort order">
             <input type="number" min="0" step="1" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} style={inputStyle} placeholder="0" />

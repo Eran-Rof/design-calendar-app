@@ -675,7 +675,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                       onChange={(e) => updateLine(idx, { subledger_type: e.target.value, subledger_id: "" })}
                       style={inputStyle as React.CSSProperties}
                     >
-                      <option value="">(none)</option>
+                      <option value="">(select)</option>
                       <option value="vendor">vendor</option>
                       <option value="customer">customer</option>
                       <option value="item">item</option>

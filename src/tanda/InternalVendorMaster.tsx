@@ -427,7 +427,7 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
 
   // GL account picker options — postable accounts formatted as "{code} — {name}".
   const glAccountOptions = useMemo(() => [
-    { value: "", label: "(none)" },
+    { value: "", label: "(select)" },
     ...glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
   ], [glAccounts]);
 
@@ -627,7 +627,7 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
               value={form.default_gl_ap_account_id || ""}
               onChange={(v) => setForm({ ...form, default_gl_ap_account_id: v })}
               options={glAccountOptions}
-              placeholder="(none)"
+              placeholder="(select)"
               emptyText="No matching accounts"
             />
           </Field>
@@ -636,7 +636,7 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
               value={form.default_gl_expense_account_id || ""}
               onChange={(v) => setForm({ ...form, default_gl_expense_account_id: v })}
               options={glAccountOptions}
-              placeholder="(none)"
+              placeholder="(select)"
               emptyText="No matching accounts"
             />
           </Field>

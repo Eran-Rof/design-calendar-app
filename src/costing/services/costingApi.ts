@@ -340,6 +340,54 @@ export async function searchScales(signal?: AbortSignal): Promise<ScaleHit[]> {
   return out.rows || [];
 }
 
+// ── Tangerine Size-Scale master (size_scales) ───────────────────────────────
+// Task 4 — the Scale cell now sources from the Tangerine size_scales master
+// (not the legacy scale_master). The handler at /api/internal/size-scales
+// returns a bare array of rows (NOT { rows }) and authenticates via the
+// default-entity (ROF) scope, no internal token needed.
+
+export interface SizeScaleHit {
+  id: string;
+  entity_id: string;
+  code: string;
+  name: string;
+  sizes: string[] | null;
+  sort_order: number | null;
+  is_active: boolean | null;
+}
+
+export async function searchSizeScales(q?: string, signal?: AbortSignal): Promise<SizeScaleHit[]> {
+  const sp = new URLSearchParams();
+  if (q && q.trim()) sp.set("q", q.trim());
+  const qs = sp.toString();
+  const res = await fetch(`/api/internal/size-scales${qs ? `?${qs}` : ""}`, { signal });
+  // size-scales returns a bare array, not { rows }.
+  return json<SizeScaleHit[]>(res);
+}
+
+// ── Tangerine Payment Terms master (payment_terms) ──────────────────────────
+// Task 10 — project-level Payment Terms dropdown. /api/internal/payment-terms
+// returns a bare array of rows, authenticated via the default-entity scope.
+
+export interface PaymentTermHit {
+  id: string;
+  entity_id: string;
+  code: string;
+  name: string;
+  due_days: number | null;
+  discount_pct: number | null;
+  discount_days: number | null;
+  is_active: boolean | null;
+}
+
+export async function listPaymentTerms(q?: string, signal?: AbortSignal): Promise<PaymentTermHit[]> {
+  const sp = new URLSearchParams();
+  if (q && q.trim()) sp.set("q", q.trim());
+  const qs = sp.toString();
+  const res = await fetch(`/api/internal/payment-terms${qs ? `?${qs}` : ""}`, { signal });
+  return json<PaymentTermHit[]>(res);
+}
+
 export interface CustomerHit {
   id: string;
   entity_id: string | null;

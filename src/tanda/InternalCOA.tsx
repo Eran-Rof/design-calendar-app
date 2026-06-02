@@ -18,6 +18,20 @@ import RowHistory from "./components/RowHistory";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const COA_TABLE_KEY = "tangerine:coa:columns";
+const COA_COLUMNS: ColumnDef[] = [
+  { key: "code",            label: "Code" },
+  { key: "name",            label: "Name" },
+  { key: "account_type",    label: "Type" },
+  { key: "account_subtype", label: "Subtype" },
+  { key: "normal_balance",  label: "Normal" },
+  { key: "balance",         label: "Balance" },
+  { key: "status",          label: "Status" },
+  { key: "is_postable",     label: "Postable" },
+  { key: "is_control",      label: "Control" },
+];
 
 type Account = {
   id: string;
@@ -122,6 +136,11 @@ export default function InternalCOA() {
   // row (except interactive children: Edit/Delete buttons, the Balance
   // link to GL Detail) to open the edit modal.
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    COA_TABLE_KEY,
+    COA_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
   const { getRowProps } = useRowClickEdit<Account>({
     onRowClick: (a) => setEditing(a),
     onBeforeRowClick: (id) => setHighlightedId(id),
@@ -210,6 +229,13 @@ export default function InternalCOA() {
             { key: "updated_at",            header: "Updated",      format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={COA_TABLE_KEY}
+          columns={COA_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -229,18 +255,18 @@ export default function InternalCOA() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Type</th>
-                <th style={th}>Subtype</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("account_type")}>Type</th>
+                <th style={th} hidden={!isVisible("account_subtype")}>Subtype</th>
                 {/* Operator ask #15: was "Balance" (showing DEBIT/CREDIT label),
                     renamed to "Normal" so it doesn't collide with the new
                     money-balance column to its right. */}
-                <th style={th}>Normal</th>
-                <th style={{ ...th, textAlign: "right" }}>Balance</th>
-                <th style={th}>Status</th>
-                <th style={{ ...th, textAlign: "center" }}>Postable</th>
-                <th style={{ ...th, textAlign: "center" }}>Control</th>
+                <th style={th} hidden={!isVisible("normal_balance")}>Normal</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("balance")}>Balance</th>
+                <th style={th} hidden={!isVisible("status")}>Status</th>
+                <th style={{ ...th, textAlign: "center" }} hidden={!isVisible("is_postable")}>Postable</th>
+                <th style={{ ...th, textAlign: "center" }} hidden={!isVisible("is_control")}>Control</th>
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
@@ -259,12 +285,12 @@ export default function InternalCOA() {
                     {...getRowProps(a)}
                     style={a.status === "inactive" ? { opacity: 0.5 } : undefined}
                   >
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{a.code}</td>
-                    <td style={td}>{a.name}</td>
-                    <td style={td}>{a.account_type}</td>
-                    <td style={td}>{a.account_subtype || "—"}</td>
-                    <td style={td}>{a.normal_balance}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{a.code}</td>
+                    <td style={td} hidden={!isVisible("name")}>{a.name}</td>
+                    <td style={td} hidden={!isVisible("account_type")}>{a.account_type}</td>
+                    <td style={td} hidden={!isVisible("account_subtype")}>{a.account_subtype || "—"}</td>
+                    <td style={td} hidden={!isVisible("normal_balance")}>{a.normal_balance}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("balance")}>
                       <a
                         href={buildGLDetailHref(a.id)}
                         title={`Open GL Detail for ${a.code} — ${a.name} (last 90 days)`}
@@ -287,9 +313,9 @@ export default function InternalCOA() {
                         {balText}
                       </a>
                     </td>
-                    <td style={td}>{a.status}</td>
-                    <td style={{ ...td, textAlign: "center" }}>{a.is_postable ? "✓" : "✗"}</td>
-                    <td style={{ ...td, textAlign: "center" }}>{a.is_control ? "✓" : "✗"}</td>
+                    <td style={td} hidden={!isVisible("status")}>{a.status}</td>
+                    <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("is_postable")}>{a.is_postable ? "✓" : "✗"}</td>
+                    <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("is_control")}>{a.is_control ? "✓" : "✗"}</td>
                     <td style={{ ...td, textAlign: "right" }}>
                       <button onClick={(e) => { e.stopPropagation(); setEditing(a); }} style={btnSecondary}>Edit</button>
                       <button onClick={(e) => { e.stopPropagation(); void del(a); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
@@ -460,13 +486,13 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
               value={form.account_subtype || null}
               onChange={(v) => setForm({ ...form, account_subtype: v })}
               options={(() => {
-                const opts = [{ value: "", label: "(none)" }, ...subtypeOptionsFor(form.account_type)];
+                const opts = [{ value: "", label: "(select)" }, ...subtypeOptionsFor(form.account_type)];
                 if (form.account_subtype && !opts.some((o) => o.value === form.account_subtype)) {
                   opts.push({ value: form.account_subtype, label: `${form.account_subtype} (custom)` });
                 }
                 return opts;
               })()}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Parent account">
@@ -474,10 +500,10 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
               value={form.parent_account_id || null}
               onChange={(v) => setForm({ ...form, parent_account_id: v })}
               options={[
-                { value: "", label: "(none)" },
+                { value: "", label: "(select)" },
                 ...parentOptions.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })),
               ]}
-              placeholder="(none)"
+              placeholder="(select)"
             />
           </Field>
           <Field label="Status">

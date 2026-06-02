@@ -12,7 +12,7 @@ export const config = { maxDuration: 20 };
 const LINE_FIELDS = [
   "sort_order",
   "style_master_id", "style_code", "style_name", "description", "picture_url",
-  "size_scale_id", "size_scale_label", "fabric_code", "fit", "color",
+  "size_scale_id", "size_scale_label", "fabric_code", "fabric_codes", "fit", "color",
   "bottom_closure", "waist_type", "waste_type",
   "category_id", "sub_category_id", "style_state",
   "comment", "remarks",

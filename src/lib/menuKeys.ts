@@ -183,6 +183,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/ap-payments", label: "AP Payments",      app: "tanda", route: "/tangerine?m=ap_payments",       group: "Accounting", icon: "💸" },
   { key: "tanda/accounting/ar-invoices", label: "AR Invoices",      app: "tanda", route: "/tangerine?m=ar_invoices",       group: "Customers – Accts Rec", icon: "🧮" },
   { key: "tanda/sales/sales-orders",  label: "Sales Orders",        app: "tanda", route: "/tangerine?m=sales_orders",      group: "Sales", icon: "🛒" },
+  { key: "tanda/sales/allocations",   label: "Allocations",         app: "tanda", route: "/tangerine?m=sales_allocations", group: "Sales", icon: "📊" },
   { key: "tanda/accounting/ar-receipts", label: "AR Receipts",      app: "tanda", route: "/tangerine?m=ar_receipts",       group: "Customers – Accts Rec", icon: "💵" },
   { key: "tanda/accounting/ar-aging",   label: "AR Aging",          app: "tanda", route: "/tangerine?m=ar_aging",          group: "Customers – Accts Rec", icon: "📅" },
   { key: "tanda/accounting/ar-backfill", label: "AR Backfill",      app: "tanda", route: "/tangerine?m=ar_backfill",       group: "Customers – Accts Rec", icon: "🗄️" },
@@ -199,13 +200,17 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/crm/pipeline-report",   label: "Pipeline Report",   app: "tanda", route: "/tangerine?m=crm_pipeline_report", group: "CRM", icon: "📊" },
   // Reports
   { key: "tanda/reports/ap-aging",      label: "AP Aging",          app: "tanda", route: "/tangerine?m=ap_aging",          group: "Reports", icon: "📅" },
-  { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Reports", icon: "🧑‍💼" },
-  { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Reports", icon: "🤝" },
+  // Nav reorg: Sales by Rep moved to the Sales section; Sales by Customer to Customers.
+  { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Sales", icon: "🧑‍💼" },
+  { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Customers", icon: "🤝" },
   { key: "tanda/reports/gl-detail",     label: "GL Detail",         app: "tanda", route: "/tangerine?m=gl_detail",         group: "Reports", icon: "🔍" },
+  // Scorecards — nav-reachable entry points under Vendors / Customers.
+  { key: "tanda/vendors/scorecard",     label: "Vendor Scorecard",   app: "tanda", route: "/tangerine?m=vendor_scorecard",   group: "Vendors", icon: "📊" },
+  { key: "tanda/customers/scorecard",   label: "Customer Scorecard", app: "tanda", route: "/tangerine?m=customer_scorecard", group: "Customers", icon: "📊" },
   // Inventory
-  { key: "tanda/inventory/on-hand",      label: "On-Hand by Pool",   app: "tanda", route: "/tangerine?m=inventory_on_hand",  group: "Inventory", icon: "📦" },
   { key: "tanda/procurement/purchase-orders", label: "Purchase Orders", app: "tanda", route: "/tangerine?m=purchase_orders", group: "Inventory", icon: "📦" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
+  { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Inventory", icon: "📦" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tangerine?m=inventory_transfers", group: "Inventory", icon: "🔁" },
   { key: "tanda/inventory/adjustments", label: "Inventory Adjustments", app: "tanda", route: "/tangerine?m=inventory_adjustments", group: "Inventory", icon: "📐" },
   { key: "tanda/inventory/cycle-counts", label: "Cycle Counts",     app: "tanda", route: "/tangerine?m=cycle_counts",      group: "Inventory", icon: "📋" },
@@ -278,4 +283,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 7;
+export const MENU_KEYS_VERSION = 9;

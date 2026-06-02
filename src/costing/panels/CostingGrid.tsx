@@ -22,6 +22,7 @@ import ScalePickerCell from "./ScalePickerCell";
 import FabricPickerCell from "./FabricPickerCell";
 import HistoricalCostCell from "./HistoricalCostCell";
 import ColumnsButton from "./ColumnsButton";
+import DateRangePresets from "../../tanda/components/DateRangePresets";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
@@ -71,7 +72,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "fabric_code",    label: "Fabric",   width: 110 },
   { key: "fit",            label: "Fit",      width: 90 },
   { key: "color",          label: "Color",    width: 100 },
-  { key: "bottom_closure", label: "Closure",  width: 100 },
+  { key: "bottom_closure", label: "Closures", width: 100 },
   { key: "waist_type",     label: "Waist",    width: 90 },
   { key: "comment",        label: "Comment",  width: 160 },
   { key: "target_qty",     label: "Qty",      width: 80,  align: "right", numeric: true },
@@ -126,14 +127,39 @@ export default function CostingGrid() {
   // COLUMNS minus the hidden set; visibleWidth keeps header/body/footer
   // minWidth in lockstep so nothing drifts when columns toggle.
   const { hiddenColumns, toggleColumn, resetColumns, setHiddenColumns } = usePersistedHiddenColumns("costing_grid_hidden_columns");
-  const visibleColumns = COLUMNS.filter((c) => !hiddenColumns.has(c.key));
+
+  // Task 10 — DDP payment terms hide the cost-component columns (the vendor
+  // quotes a delivered-duty-paid price, so FOB/Duty/Freight/Insurance/Landed/
+  // Other are not entered separately) and rename "Tgt Cost" → "Trgt DDP".
+  // Match /DDP/i against the project's payment_terms_name snapshot so "DDP",
+  // "DDP 30", "DDP 60" etc. all trigger it.
+  const isDdp = !!project?.payment_terms_name && /DDP/i.test(project.payment_terms_name);
+  const DDP_HIDDEN = new Set(["fob_cost", "duty_rate", "freight", "insurance", "other_costs", "_landed"]);
+  const displayColumns = COLUMNS
+    .filter((c) => !(isDdp && DDP_HIDDEN.has(c.key)))
+    .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Trgt DDP" } : c));
+
+  const visibleColumns = displayColumns.filter((c) => !hiddenColumns.has(c.key));
   const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
-  const toggleableColumns = COLUMNS.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
+  const toggleableColumns = displayColumns.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
 
   // Row-selection checkboxes drive the "Generate Vendor RFQs" button.
   // Local Set so toggling is O(1) and we don't pollute the global store.
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
+
+  // Comp-period local draft. Holds a half-filled range so picking ONE date
+  // no longer collapses the input back to empty (the old bug: onChange set
+  // compPeriod=null whenever the other end was blank, immediately wiping the
+  // value just typed). compPeriod (the store) is only set once BOTH ends are
+  // filled — that's what compService needs. Seeded from any existing store value.
+  const [compFrom, setCompFrom] = useState<string>(compPeriod?.from || "");
+  const [compTo, setCompTo] = useState<string>(compPeriod?.to || "");
+  const applyCompRange = (from: string, to: string) => {
+    setCompFrom(from);
+    setCompTo(to);
+    setCompPeriod(from && to ? { from, to } : null);
+  };
   const toggleRow = (id: string) => {
     setSelectedRowIds((prev) => {
       const next = new Set(prev);
@@ -260,6 +286,7 @@ export default function CostingGrid() {
       description: style.description,
       category_id: style.category_id,
       fabric_code: style.base_fabric, // fuzzy; user can change
+      fabric_codes: style.base_fabric ? [style.base_fabric] : [], // seed multi-select
     };
     // Seed target_cost via the resolveCost cascade. We pull one SKU under
     // the style + its avg cost from ip_item_avg_cost and feed them in as
@@ -355,18 +382,18 @@ export default function CostingGrid() {
         </button>
         {/* Comp period from/to — drives /comp/ly + /comp/t3 windows.
             Empty = endpoint defaults (LY: trailing 365d shifted -12mo;
-            T3: trailing 3 months). Each end stamped together — both
-            need values for the override to apply. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
+            T3: trailing 3 months). Both ends need values for the override to
+            apply, but each end can be picked independently — local draft state
+            holds a half-filled range so picking one date no longer wipes it.
+
+            Tangerine T7 <DateRangePresets/> chips (LY / This Month / Last
+            Month / …) feed the same draft. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Comp period</span>
           <input
             type="date"
-            value={compPeriod?.from || ""}
-            onChange={(e) => {
-              const from = e.target.value || "";
-              const to = compPeriod?.to || "";
-              setCompPeriod(from && to ? { from, to } : null);
-            }}
+            value={compFrom}
+            onChange={(e) => applyCompRange(e.target.value, compTo)}
             title="Comp period FROM — LY shifts back 12 months from this window"
             style={{
               background: "#0F172A", color: "#E2E8F0",
@@ -378,12 +405,8 @@ export default function CostingGrid() {
           <span style={{ color: "#64748B", fontSize: 11 }}>→</span>
           <input
             type="date"
-            value={compPeriod?.to || ""}
-            onChange={(e) => {
-              const to = e.target.value || "";
-              const from = compPeriod?.from || "";
-              setCompPeriod(from && to ? { from, to } : null);
-            }}
+            value={compTo}
+            onChange={(e) => applyCompRange(compFrom, e.target.value)}
             title="Comp period TO"
             style={{
               background: "#0F172A", color: "#E2E8F0",
@@ -392,10 +415,10 @@ export default function CostingGrid() {
               colorScheme: "dark",
             }}
           />
-          {compPeriod && (
+          {(compFrom || compTo) && (
             <button
               type="button"
-              onClick={() => setCompPeriod(null)}
+              onClick={() => { setCompFrom(""); setCompTo(""); setCompPeriod(null); }}
               title="Reset to endpoint defaults"
               style={{
                 background: "transparent", color: "#F87171",
@@ -404,6 +427,16 @@ export default function CostingGrid() {
               }}
             >reset</button>
           )}
+          <DateRangePresets
+            from={compFrom}
+            to={compTo}
+            onChange={(from, to) => {
+              // "Custom…" returns empty strings — clear and let the operator
+              // pick manually; otherwise apply the computed range.
+              if (!from && !to) { setCompFrom(""); setCompTo(""); setCompPeriod(null); return; }
+              applyCompRange(from, to);
+            }}
+          />
         </div>
         <div style={{ marginLeft: "auto" }}>
           <ColumnsButton
@@ -694,6 +727,10 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <input
+                        // key tied to the numeric value so the uncontrolled
+                        // input remounts after a commit and re-displays the
+                        // thousands-separated defaultValue (e.g. 12,000).
+                        key={`${c.key}_${v == null ? "" : String(v)}`}
                         defaultValue={display === "" ? "" : String(display)}
                         type="text"
                         onBlur={(e) => {
@@ -737,13 +774,22 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Fabric — autocomplete from fabric_codes.
+                // Fabric — multi-select autocomplete from Tangerine fabric_codes.
+                // Stores the array in fabric_codes; mirrors the first element into
+                // the legacy single fabric_code column for RFQ generation +
+                // back-compat readers.
                 if (c.key === "fabric_code") {
+                  const codes = Array.isArray(line.fabric_codes) && line.fabric_codes.length > 0
+                    ? line.fabric_codes
+                    : (line.fabric_code ? [line.fabric_code] : []);
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <FabricPickerCell
-                        value={line.fabric_code}
-                        onChange={(v) => updateLine(line.id, { fabric_code: v })}
+                        value={codes}
+                        onChange={(next) => updateLine(line.id, {
+                          fabric_codes: next,
+                          fabric_code: next.length > 0 ? next[0] : null,
+                        })}
                       />
                     </div>
                   );

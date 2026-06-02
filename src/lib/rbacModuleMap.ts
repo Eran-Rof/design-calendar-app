@@ -19,6 +19,9 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   pim_catalog: "product_master",
   vendor_master: "vendor_master",
   customer_master: "customer_master",
+  // Scorecards reuse the underlying master module for RBAC gating.
+  vendor_scorecard: "vendor_master",
+  customer_scorecard: "customer_master",
   // Accounting — core
   gl_accounts: "coa",
   gl_periods: "gl_periods",
@@ -44,7 +47,6 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   // Procurement
   purchase_orders: "procurement",
   // Inventory / ops
-  inventory_on_hand: "inventory",
   inventory_transfers: "inventory",
   inventory_adjustments: "inventory",
   cycle_counts: "inventory",

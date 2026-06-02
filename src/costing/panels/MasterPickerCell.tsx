@@ -47,9 +47,14 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
     return () => window.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Guard against a malformed master entry (missing/non-string name) — the
+  // old native-select MasterSelectCell tolerated it, so MasterPickerCell must
+  // too. One bad entry calling .toLowerCase() on a non-string would otherwise
+  // throw and blank EVERY grid cell that renders a MasterPickerCell.
+  const list = (entries || []).filter((m) => m && typeof m.name === "string");
   const lowerText = text.trim().toLowerCase();
-  const matches = entries.filter((m) => !lowerText || m.name.toLowerCase().includes(lowerText));
-  const existsExact = entries.some((m) => m.name.toLowerCase() === lowerText);
+  const matches = list.filter((m) => !lowerText || m.name.toLowerCase().includes(lowerText));
+  const existsExact = list.some((m) => m.name.toLowerCase() === lowerText);
   const canAdd = lowerText.length > 0 && !existsExact;
 
   const onCommit = (next: string | null) => {

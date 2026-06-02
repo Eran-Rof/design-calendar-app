@@ -87,6 +87,7 @@ export default async function handler(req, res) {
       sales_rep_id, customer_id,
       request_date, due_date, projected_delivery_date,
       notes, status, grid_state, user_id, created_by_user_id,
+      payment_terms_id, payment_terms_name,
     } = body || {};
 
     if (!project_name || !String(project_name).trim()) {
@@ -123,6 +124,8 @@ export default async function handler(req, res) {
       grid_state: grid_state || {},
       user_id: user_id || null,
       created_by_user_id: created_by_user_id || null,
+      payment_terms_id: payment_terms_id || null,
+      payment_terms_name: payment_terms_name || null,
     };
 
     const { data, error } = await admin.from("costing_projects").insert(insert).select("*").single();

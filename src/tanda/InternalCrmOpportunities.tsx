@@ -12,6 +12,21 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const CRM_OPPS_TABLE_KEY = "tangerine:crmopportunities:columns";
+const CRM_OPP_COLUMNS: ColumnDef[] = [
+  { key: "opp_number",     label: "Opp #" },
+  { key: "title",          label: "Title" },
+  { key: "customer",       label: "Customer" },
+  { key: "stage",          label: "Stage" },
+  { key: "probability",    label: "Prob %" },
+  { key: "expected",       label: "Expected" },
+  { key: "expected_close", label: "Expected Close" },
+  { key: "owner",          label: "Owner" },
+  { key: "created",        label: "Created" },
+];
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
 
@@ -163,6 +178,13 @@ export default function InternalCrmOpportunities() {
 
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
 
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CRM_OPPS_TABLE_KEY,
+    CRM_OPP_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -302,6 +324,15 @@ export default function InternalCrmOpportunities() {
             style={inputStyle}
           />
         </div>
+        <div style={{ paddingTop: 18 }}>
+          <TablePrefsButton
+            tableKey={CRM_OPPS_TABLE_KEY}
+            columns={CRM_OPP_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
+        </div>
       </div>
 
       {err && (
@@ -320,15 +351,15 @@ export default function InternalCrmOpportunities() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Opp #</th>
-              <th style={th}>Title</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Stage</th>
-              <th style={th}>Prob %</th>
-              <th style={th}>Expected</th>
-              <th style={th}>Expected Close</th>
-              <th style={th}>Owner</th>
-              <th style={th}>Created</th>
+              <th style={th} hidden={!isVisible("opp_number")}>Opp #</th>
+              <th style={th} hidden={!isVisible("title")}>Title</th>
+              <th style={th} hidden={!isVisible("customer")}>Customer</th>
+              <th style={th} hidden={!isVisible("stage")}>Stage</th>
+              <th style={th} hidden={!isVisible("probability")}>Prob %</th>
+              <th style={th} hidden={!isVisible("expected")}>Expected</th>
+              <th style={th} hidden={!isVisible("expected_close")}>Expected Close</th>
+              <th style={th} hidden={!isVisible("owner")}>Owner</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
             </tr>
           </thead>
           <tbody>
@@ -346,17 +377,17 @@ export default function InternalCrmOpportunities() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#0b1220"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
               >
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: C.textSub }}>{r.opportunity_number}</td>
-                <td style={td}>{truncate(r.title, 60)}</td>
-                <td style={td}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : "—"}</td>
-                <td style={td}><span style={pill(STAGE_COLOR[r.stage])}>{r.stage}</span></td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }}>{r.probability_pct}</td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }}>{fmtMoney(r.expected_cents)}</td>
-                <td style={{ ...td, fontSize: 12 }}>{fmtDateOnly(r.expected_close_date)}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: C.textSub }} hidden={!isVisible("opp_number")}>{r.opportunity_number}</td>
+                <td style={td} hidden={!isVisible("title")}>{truncate(r.title, 60)}</td>
+                <td style={td} hidden={!isVisible("customer")}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : "—"}</td>
+                <td style={td} hidden={!isVisible("stage")}><span style={pill(STAGE_COLOR[r.stage])}>{r.stage}</span></td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("probability")}>{r.probability_pct}</td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("expected")}>{fmtMoney(r.expected_cents)}</td>
+                <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("expected_close")}>{fmtDateOnly(r.expected_close_date)}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("owner")}>
                   {r.owner_user_id ? truncate(r.owner_user_id, 12) : "—"}
                 </td>
-                <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{fmtDate(r.created_at)}</td>
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("created")}>{fmtDate(r.created_at)}</td>
               </tr>
             ))}
           </tbody>
@@ -624,7 +655,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
                 value={customerId || null}
                 onChange={(v) => setCustomerId(v)}
                 options={[
-                  { value: "", label: "(none)" },
+                  { value: "", label: "(select)" },
                   ...customers.map((c) => ({
                     value: c.id,
                     label: (c.code ? `${c.code} — ` : "") + c.name,
@@ -633,7 +664,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
                     ? [{ value: customerId, label: customerId }]
                     : []),
                 ]}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="Expected close">
@@ -867,10 +898,10 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
             value={customerId || null}
             onChange={(v) => setCustomerId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
         <Field label="Stage">

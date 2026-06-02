@@ -11,6 +11,18 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.ar_aging";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "customer", label: "Customer" },
+  { key: "current",  label: "Current" },
+  { key: "b30",      label: "1-30" },
+  { key: "b60",      label: "31-60" },
+  { key: "b90",      label: "61-90" },
+  { key: "b120plus", label: "91-120+" },
+  { key: "total",    label: "Total Open" },
+];
 
 type AgingRow = {
   entity_id: string;
@@ -82,6 +94,7 @@ export default function InternalARAging() {
   const [asOf, setAsOf] = useState<string>(todayISO());
   const [customerFilter, setCustomerFilter] = useState<string>("");
   const [mode, setMode] = useState<string>("current");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true);
@@ -193,6 +206,14 @@ export default function InternalARAging() {
             { key: "total_open_cents",     header: "Total Open", format: "currency_cents" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && (
@@ -210,19 +231,19 @@ export default function InternalARAging() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }}>Current</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b30 }}>1-30</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b60 }}>31-60</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b90 }}>61-90</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b120plus }}>91-120+</th>
-                <th style={{ ...th, textAlign: "right" }}>Total Open</th>
+                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("current")}>Current</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b30 }} hidden={!visibleColumns.has("b30")}>1-30</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b60 }} hidden={!visibleColumns.has("b60")}>31-60</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b90 }} hidden={!visibleColumns.has("b90")}>61-90</th>
+                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b120plus }} hidden={!visibleColumns.has("b120plus")}>91-120+</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total")}>Total Open</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.customer_id}>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("customer")}>
                     <strong>{r.customer_name || r.customer_code || r.customer_id}</strong>
                     {r.customer_code && r.customer_name && (
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>
@@ -230,24 +251,24 @@ export default function InternalARAging() {
                       </span>
                     )}
                   </td>
-                  <td style={tdNum}>{fmtCents(r.bucket_current_cents)}</td>
-                  <td style={{ ...tdNum, color: Number(r.bucket_30_cents) > 0 ? BUCKET_COLOR.b30 : C.textMuted }}>{fmtCents(r.bucket_30_cents)}</td>
-                  <td style={{ ...tdNum, color: Number(r.bucket_60_cents) > 0 ? BUCKET_COLOR.b60 : C.textMuted }}>{fmtCents(r.bucket_60_cents)}</td>
-                  <td style={{ ...tdNum, color: Number(r.bucket_90_cents) > 0 ? BUCKET_COLOR.b90 : C.textMuted }}>{fmtCents(r.bucket_90_cents)}</td>
-                  <td style={{ ...tdNum, color: Number(r.bucket_120plus_cents) > 0 ? BUCKET_COLOR.b120plus : C.textMuted, fontWeight: Number(r.bucket_120plus_cents) > 0 ? 700 : 400 }}>{fmtCents(r.bucket_120plus_cents)}</td>
-                  <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(r.total_open_cents)}</td>
+                  <td style={tdNum} hidden={!visibleColumns.has("current")}>{fmtCents(r.bucket_current_cents)}</td>
+                  <td style={{ ...tdNum, color: Number(r.bucket_30_cents) > 0 ? BUCKET_COLOR.b30 : C.textMuted }} hidden={!visibleColumns.has("b30")}>{fmtCents(r.bucket_30_cents)}</td>
+                  <td style={{ ...tdNum, color: Number(r.bucket_60_cents) > 0 ? BUCKET_COLOR.b60 : C.textMuted }} hidden={!visibleColumns.has("b60")}>{fmtCents(r.bucket_60_cents)}</td>
+                  <td style={{ ...tdNum, color: Number(r.bucket_90_cents) > 0 ? BUCKET_COLOR.b90 : C.textMuted }} hidden={!visibleColumns.has("b90")}>{fmtCents(r.bucket_90_cents)}</td>
+                  <td style={{ ...tdNum, color: Number(r.bucket_120plus_cents) > 0 ? BUCKET_COLOR.b120plus : C.textMuted, fontWeight: Number(r.bucket_120plus_cents) > 0 ? 700 : 400 }} hidden={!visibleColumns.has("b120plus")}>{fmtCents(r.bucket_120plus_cents)}</td>
+                  <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("total")}>{fmtCents(r.total_open_cents)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
-                <td style={{ ...td, fontWeight: 700, color: C.textSub }}>TOTAL ({filtered.length})</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.current)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b30 }}>{fmtCents(totals.b30)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b60 }}>{fmtCents(totals.b60)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b90 }}>{fmtCents(totals.b90)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b120plus }}>{fmtCents(totals.b120plus)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.total)}</td>
+                <td style={{ ...td, fontWeight: 700, color: C.textSub }} hidden={!visibleColumns.has("customer")}>TOTAL ({filtered.length})</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("current")}>{fmtCents(totals.current)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b30 }} hidden={!visibleColumns.has("b30")}>{fmtCents(totals.b30)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b60 }} hidden={!visibleColumns.has("b60")}>{fmtCents(totals.b60)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b90 }} hidden={!visibleColumns.has("b90")}>{fmtCents(totals.b90)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b120plus }} hidden={!visibleColumns.has("b120plus")}>{fmtCents(totals.b120plus)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("total")}>{fmtCents(totals.total)}</td>
               </tr>
             </tfoot>
           </table>

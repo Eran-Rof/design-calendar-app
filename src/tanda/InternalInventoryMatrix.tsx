@@ -63,6 +63,17 @@ type MatrixPayload = {
   rises: string[];
   warehouses?: string[];
   skus: MatrixSku[];
+  // Additive — present only when fetched with explode_ppk=true.
+  explode?: ExplodeInfo;
+};
+
+type ExplodeCell = { color: string; size: string; qty: number; by_wh?: Record<string, number> };
+type ExplodeInfo = {
+  enabled: boolean;
+  cells: ExplodeCell[];
+  packs_exploded: number;
+  packs_unmatched: Array<{ ppk_style_code: string; color: string | null; pack_token: string | null; qty: number }>;
+  ppk_styles: string[];
 };
 
 type SizeScale = { id: string; name: string };
@@ -149,6 +160,7 @@ export default function InternalInventoryMatrix() {
   const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
+  const [explodePpk, setExplodePpk] = useState(false); // off by default; folds PPK packs → sized eaches
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
 
@@ -181,15 +193,17 @@ export default function InternalInventoryMatrix() {
       .catch(() => {/* non-fatal; brand filter just stays empty */});
   }, []);
 
-  // Fetch the matrix payload when a style is picked.
+  // Fetch the matrix payload when a style is picked (or the explode toggle
+  // flips — the explode folds in on the server). The rise/warehouse resets only
+  // run on a style change, not on every explode toggle, so the operator keeps
+  // their warehouse filter when turning Explode on/off.
   useEffect(() => {
     if (!styleId) { setPayload(null); setRiseFilter([]); return; }
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    setRiseFilter([]);
-    setWarehouse(ALL_WAREHOUSES);
-    fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`)
+    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}`;
+    fetch(url)
       .then(async (r) => {
         if (!r.ok) {
           const detail = await r.json().catch(() => ({}));
@@ -203,6 +217,12 @@ export default function InternalInventoryMatrix() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [styleId, explodePpk]);
+
+  // Reset rise + warehouse filters on a STYLE change only (not on explode toggle).
+  useEffect(() => {
+    setRiseFilter([]);
+    setWarehouse(ALL_WAREHOUSES);
   }, [styleId]);
 
   // Brand picker options (blank = all brands). Label prefers code, falls back to name.
@@ -279,6 +299,12 @@ export default function InternalInventoryMatrix() {
     return num(s.on_hand_qty);
   };
 
+  // qty for one exploded cell under the active warehouse filter.
+  const cellQty = (c: ExplodeCell) => {
+    if (whActive) return num((c.by_wh || {})[warehouse]);
+    return num(c.qty);
+  };
+
   // Group SKUs into matrix rows: one row per color (× rise when the style
   // spans >1 rise). Each row carries a size→qty map, a blended avg cost
   // (qty-weighted across the row's SKUs), the row's total qty, total cost,
@@ -318,6 +344,29 @@ export default function InternalInventoryMatrix() {
         row.lastReceived = s.last_received;
       }
     }
+
+    // Fold exploded PPK eaches into the matrix (additive). Explode cells carry
+    // no rise dimension (a pack is rise-agnostic), so when the style spans >1
+    // rise they land on a rise-less "(prepack)" row per color rather than being
+    // attributed to a specific rise. When rise filtering is active we still show
+    // them (a rise-less bucket is never excluded by a rise filter). They add to
+    // qty/sizes only — there is no per-each cost on a pack.
+    if (payload.explode?.enabled) {
+      for (const c of payload.explode.cells) {
+        const qty = cellQty(c);
+        if (!qty) continue;
+        const color = c.color || "—";
+        const key = showRise ? `${color}|` : color; // rise-less bucket
+        let row = map.get(key);
+        if (!row) {
+          row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, lastReceived: null };
+          map.set(key, row);
+        }
+        if (c.size) row.sizes[c.size] = (row.sizes[c.size] || 0) + qty;
+        row.totalQty += qty;
+      }
+    }
+
     // Blended avg cost = totalCost / totalQty (cents). When a row has qty but
     // no cost data, leave avg null; when qty is 0 fall back to a simple mean of
     // the SKUs' avg_cost so a cost still shows for zero-on-hand colors.
@@ -467,6 +516,8 @@ export default function InternalInventoryMatrix() {
             </button>
             <a
               href="/ats"
+              target="_blank"
+              rel="noopener noreferrer"
               style={atsLinkStyle}
               title="Open the ATS app for available-to-sell"
             >
@@ -509,6 +560,21 @@ export default function InternalInventoryMatrix() {
             </button>
             <button type="button" style={btnToggle(!hideZeros)} onClick={() => setHideZeros(false)}>
               Show All
+            </button>
+          </div>
+        </div>
+
+        {/* Explode-PPK toggle (default OFF). When ON, the picked style's PPK
+            sibling packs on-hand are converted to sized eaches via the Prepack
+            Matrix master and folded into the grid. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Prepacks
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" style={btnToggle(!explodePpk)} onClick={() => setExplodePpk(false)}>
+              Off
+            </button>
+            <button type="button" style={btnToggle(explodePpk)} onClick={() => setExplodePpk(true)} title="Convert PPK packs on-hand into sized eaches using the Prepack Matrix master">
+              Explode PPK
             </button>
           </div>
         </div>
@@ -556,6 +622,33 @@ export default function InternalInventoryMatrix() {
             {"  ·  On-hand qty"}
             {whActive ? `  ·  Warehouse: ${warehouse}` : "  ·  All warehouses"}
           </span>
+        </div>
+      )}
+
+      {/* Explode-PPK indicator — shown only when the toggle is ON and a style is
+          loaded. Reports how many packs were exploded and any PPK styles that
+          had no matrix in the Prepack Matrix master (those are NOT exploded). */}
+      {explodePpk && payload?.explode?.enabled && (
+        <div style={{
+          marginBottom: 12, padding: "8px 12px", borderRadius: 6, fontSize: 12,
+          background: "rgba(245,158,11,0.12)", border: `1px solid ${C.warn}`, color: "#FCD34D",
+        }}>
+          <strong>📦 Exploded packs included.</strong>{" "}
+          {payload.explode.packs_exploded > 0
+            ? `${payload.explode.packs_exploded} prepack SKU${payload.explode.packs_exploded === 1 ? "" : "s"} converted to sized eaches via the Prepack Matrix master.`
+            : `No prepack SKUs on-hand were exploded.`}
+          {payload.explode.packs_unmatched.length > 0 && (
+            <div style={{ marginTop: 6, color: "#FECACA" }}>
+              ⚠ {payload.explode.packs_unmatched.length} pack SKU{payload.explode.packs_unmatched.length === 1 ? "" : "s"} have on-hand but no matrix defined — NOT exploded:{" "}
+              {payload.explode.packs_unmatched.slice(0, 6).map((u, i) => (
+                <span key={`${u.ppk_style_code}-${u.color}-${i}`} style={{ fontFamily: "monospace" }}>
+                  {u.ppk_style_code}{u.color ? `/${u.color}` : ""} ({u.qty}){i < Math.min(6, payload!.explode!.packs_unmatched.length) - 1 ? ", " : ""}
+                </span>
+              ))}
+              {payload.explode.packs_unmatched.length > 6 ? " …" : ""}
+              {" "}— add them in <strong>Prepack Matrices</strong>.
+            </div>
+          )}
         </div>
       )}
 

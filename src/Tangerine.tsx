@@ -36,6 +36,7 @@ import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
+import InternalAllocations        from "./tanda/InternalAllocations";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
@@ -59,8 +60,8 @@ import InternalNotificationPreferences from "./tanda/InternalNotificationPrefere
 import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalEmployeeTitles          from "./tanda/InternalEmployeeTitles";
 import InternalEmployeeDepartments     from "./tanda/InternalEmployeeDepartments";
-import InternalInventoryOnHand          from "./tanda/InternalInventoryOnHand";
 import InternalInventoryMatrix          from "./tanda/InternalInventoryMatrix";
+import InternalPrepackMatrix            from "./tanda/InternalPrepackMatrix";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
@@ -92,9 +93,11 @@ import BrandChannelSwitcher from "./components/BrandChannelSwitcher";
 // Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
-import InternalSalesReps               from "./tanda/InternalSalesReps";
 import InternalCommissionAccruals      from "./tanda/InternalCommissionAccruals";
 import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
+// Nav-reachable scorecard entry points (wrap the existing drill-through modals).
+import InternalVendorScorecard         from "./tanda/InternalVendorScorecard";
+import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -144,6 +147,7 @@ type ModuleKey =
   | "ar_invoices"
   | "ar_receipts"
   | "sales_orders"
+  | "sales_allocations"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -160,8 +164,8 @@ type ModuleKey =
   | "employees"
   | "employee_titles"
   | "employee_departments"
-  | "inventory_on_hand"
   | "inventory_matrix"
+  | "prepack_matrices"
   | "purchase_orders"
   | "inventory_transfers"
   | "inventory_adjustments"
@@ -186,7 +190,8 @@ type ModuleKey =
   | "marketplace_status"
   // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit).
   | "audit_log"
-  | "sales_reps"
+  | "vendor_scorecard"
+  | "customer_scorecard"
   | "commission_accruals"
   | "commission_payouts"
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
@@ -271,6 +276,8 @@ const MODULES: ModuleDef[] = [
   { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Customers – Accts Rec" },
   // P16/M10 — native Sales Order entry.
   { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
+  // P16/M18 — Allocations Workbench (cross-SO allocation).
+  { key: "sales_allocations", label: "Allocations",       emoji: "📊", group: "Sales" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
@@ -289,8 +296,9 @@ const MODULES: ModuleDef[] = [
   { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "🏦", group: "Accounting" },
   // P6-6: Per (bank_account, period) reconciliation report.
   { key: "bank_recon_report", label: "Recon Report",      emoji: "⚖️", group: "Accounting" },
-  // P7-6: M44 Sales Reps master + Commission Accruals + Commission Payouts.
-  { key: "sales_reps",            label: "Sales Reps",            emoji: "🧑‍💼", group: "Accounting" },
+  // P7-6: M44 Commission Accruals + Commission Payouts. (Sales Reps master
+  // removed — reps are managed as Employees; commission panels read the
+  // sales_reps table directly via /api/internal/sales-reps GET.)
   { key: "commission_accruals",   label: "Commission Accruals",   emoji: "💰", group: "Accounting" },
   { key: "commission_payouts",    label: "Commission Payouts",    emoji: "📜", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
@@ -301,10 +309,11 @@ const MODULES: ModuleDef[] = [
   // P16 — Employee Title + Department reference masters.
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
-  { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
   { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
+  // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
+  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -315,8 +324,9 @@ const MODULES: ModuleDef[] = [
   // Customer + GL Detail). AR items (incl. AR Aging) now live under the
   // "Customers – Accts Rec" group; the Reports menu group hosts these reports.
   { key: "ap_aging",          label: "AP Aging (report)", emoji: "📅", group: "Vendors" },
-  { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Reports" },
-  { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Reports" },
+  // Nav reorg: Sales by Rep → Sales section; Sales by Customer → Customers section.
+  { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Sales" },
+  { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Customers" },
   { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
   // P8-3 — M25 CRM panels under new 🤝 CRM nav group.
   { key: "crm_opportunities",   label: "Opportunities",     emoji: "💼", group: "CRM" },
@@ -333,6 +343,9 @@ const MODULES: ModuleDef[] = [
   { key: "audit_log",           label: "Audit Log",         emoji: "🕒", group: "Audit" },
   // P14-3b — RBAC User Access (role matrix + per-cell overrides).
   { key: "user_access",         label: "User Access",       emoji: "🔐", group: "Admin" },
+  // Nav-reachable scorecard entry points (also opened by the 📊 row buttons).
+  { key: "vendor_scorecard",    label: "Vendor Scorecard",   emoji: "📊", group: "Vendors" },
+  { key: "customer_scorecard",  label: "Customer Scorecard", emoji: "📊", group: "Customers" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -563,6 +576,7 @@ export default function Tangerine() {
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
+        {activeModule === "sales_allocations" && <InternalAllocations />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
@@ -580,8 +594,8 @@ export default function Tangerine() {
         {activeModule === "employees"          && <InternalEmployees />}
         {activeModule === "employee_titles"      && <InternalEmployeeTitles />}
         {activeModule === "employee_departments" && <InternalEmployeeDepartments />}
-        {activeModule === "inventory_on_hand"    && <InternalInventoryOnHand />}
         {activeModule === "inventory_matrix"     && <InternalInventoryMatrix />}
+        {activeModule === "prepack_matrices"     && <InternalPrepackMatrix />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
@@ -605,9 +619,10 @@ export default function Tangerine() {
         {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
         {/* Cross-cutter T11-3 — Universal audit log admin panel */}
         {activeModule === "audit_log"           && <InternalAuditLog />}
-        {activeModule === "sales_reps"            && <InternalSalesReps />}
         {activeModule === "commission_accruals"   && <InternalCommissionAccruals />}
         {activeModule === "commission_payouts"    && <InternalCommissionPayouts />}
+        {activeModule === "vendor_scorecard"      && <InternalVendorScorecard />}
+        {activeModule === "customer_scorecard"    && <InternalCustomerScorecard />}
         {/* P14-3b — RBAC User Access admin panel */}
         {activeModule === "user_access"            && <InternalUserAccess />}
       </main>
@@ -1277,6 +1292,9 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Vendors">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+          {/* External vendor-facing portal (separate Supabase auth) — open in a new tab. */}
+          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="🌐" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="📝" sublabel="External · new tab" />
         </div>
       </Section>
 
@@ -1402,5 +1420,40 @@ function ModuleCard({ module, onClick }: { module: ModuleDef; onClick: () => voi
       <div style={{ fontSize: 15, fontWeight: 600 }}>{module.label}</div>
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{module.group}</div>
     </button>
+  );
+}
+
+// External-link variant of ModuleCard: navigates to another app/route in a
+// NEW TAB (mirrors the ATS link added to the Inventory Matrix). Used for the
+// Vendor Portal + Vendor Onboarding entries, which live in the isolated
+// /vendor app (separate Supabase auth) and so must open standalone.
+function ExternalLinkCard({ href, label, emoji, sublabel }: { href: string; label: string; emoji: string; sublabel: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`${label} — opens in a new tab`}
+      style={{
+        background: C.card,
+        border: `1px solid ${C.cardBdr}`,
+        borderRadius: 10,
+        padding: 16,
+        textAlign: "left",
+        color: C.text,
+        cursor: "pointer",
+        textDecoration: "none",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        transition: "border-color 0.15s, transform 0.05s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.tangerine; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.cardBdr; }}
+    >
+      <div style={{ fontSize: 32 }}>{emoji}</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{label} <span style={{ fontSize: 12, color: C.textMuted }}>↗</span></div>
+      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{sublabel}</div>
+    </a>
   );
 }
