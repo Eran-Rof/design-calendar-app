@@ -156,18 +156,30 @@ export default async function handler(req, res) {
     // ip_customer_master is missing a row for some new code).
     const customerName = rawCustomerName ? rawCustomerName.replace(/^EXCEL:/i, "") : null;
     const lineItems = itemsByRfq.get(r.id) || [];
-    // Target cost = Σ(target_price × quantity) across line items. Null when
-    // no line carries a numeric target_price (vs. 0, which would imply a
-    // priced-at-zero RFQ).
-    let targetCost = 0;
+    // Target cost = the PER-UNIT target the vendor quotes against (operator:
+    // NOT the extended total — that's already shown as Est Budget). Weighted
+    // average per unit = Σ(target_price × qty) / Σ(qty); falls back to a plain
+    // average of line target prices when quantities are absent. Null when no
+    // line carries a numeric target_price (vs. 0 = priced-at-zero RFQ).
+    let targetExtended = 0;
+    let totalQty = 0;
+    let targetPriceSum = 0;
+    let targetPriceCount = 0;
     let anyTargetPriced = false;
     for (const it of lineItems) {
       if (typeof it.target_price === "number") {
         anyTargetPriced = true;
         const qty = typeof it.quantity === "number" ? it.quantity : 0;
-        targetCost += it.target_price * qty;
+        targetExtended += it.target_price * qty;
+        totalQty += qty;
+        targetPriceSum += it.target_price;
+        targetPriceCount += 1;
       }
     }
+    const targetCost = !anyTargetPriced ? null
+      : totalQty > 0 ? targetExtended / totalQty
+      : targetPriceCount > 0 ? targetPriceSum / targetPriceCount
+      : null;
     return {
       ...r,
       vendor_id: firstInv?.vendor_id || null,
@@ -177,7 +189,7 @@ export default async function handler(req, res) {
       customer_name: customerName,
       project_name: project?.project_name || null,
       line_count: lineItems.length,
-      target_cost: anyTargetPriced ? targetCost : null,
+      target_cost: targetCost,
       // First 3 line descriptions (for the style-search match preview).
       preview_lines: lineItems.slice(0, 3).map((i) => i.description),
     };
