@@ -15,7 +15,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
-import { getRfq, updateRfq } from "../services/costingApi";
+import { getRfq, updateRfq, publishRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
 import { useCostingStore } from "../store/costingStore";
 import type { RfqDetail, RfqListRow, RfqPatch, RfqStatus, RfqLineItem, RfqInvitation } from "../types";
@@ -37,6 +37,7 @@ export default function RfqEditView() {
   const [paymentTerms, setPaymentTerms] = useState<Array<{ id: string; code: string | null; name: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Undo stack — capped at UNDO_LIMIT. Each snapshot is the form state
   // BEFORE the change that pushed it.
@@ -118,6 +119,33 @@ export default function RfqEditView() {
     });
   }, []);
 
+  // "Send to Vendor" — publish + notify every invited vendor. Idempotent on
+  // the server, so this doubles as the "Re-send" path once already published.
+  const onSendToVendor = useCallback(async () => {
+    if (!id || !detail) return;
+    const vendorLabel =
+      (detail.invitations || [])
+        .map((i) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id)
+        .join(", ") || "the vendor";
+    setPublishing(true);
+    try {
+      const result = await publishRfq(id);
+      // Reflect status='published' locally + keep the form in sync so the
+      // status dropdown + button state update without a full reload.
+      setDetail((prev) => prev ? { ...prev, rfq: { ...prev.rfq, status: "published" } } : prev);
+      setForm((prev) => ({ ...prev, status: "published" }));
+      const n = result.notified;
+      setNotice(
+        `RFQ sent to ${vendorLabel} — ${n === 0 ? "no invited vendors to notify yet" : `${n} ${n === 1 ? "vendor has" : "vendors have"} been notified`}.`,
+        "info",
+      );
+    } catch (e) {
+      setNotice(`Could not send to vendor: ${(e as Error).message}`, "error");
+    } finally {
+      setPublishing(false);
+    }
+  }, [id, detail, setNotice]);
+
   const onUndo = () => {
     setUndoStack((stack) => {
       if (stack.length === 0) return stack;
@@ -171,6 +199,38 @@ export default function RfqEditView() {
           }}>
             {saving ? "Saving…" : dirty ? "Unsaved" : "✓ Saved"}
           </span>
+          {detail && (() => {
+            const isDraft = (detail.rfq.status || "draft") === "draft";
+            const canSend = detail.rfq.status === "draft" || detail.rfq.status === "published";
+            if (!canSend) {
+              // closed / awarded — publish is rejected server-side; show state only.
+              return (
+                <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+                  {detail.rfq.status}
+                </span>
+              );
+            }
+            return (
+              <button
+                onClick={onSendToVendor}
+                disabled={publishing}
+                title={isDraft
+                  ? "Publish this RFQ and notify the invited vendor(s)"
+                  : "Already sent — re-notify the invited vendor(s)"}
+                style={{
+                  background: isDraft ? "#1D4ED8" : "transparent",
+                  color: isDraft ? "#FFFFFF" : "#60A5FA",
+                  border: `1px solid ${isDraft ? "#1D4ED8" : "#1D4ED8"}`,
+                  padding: "6px 14px", borderRadius: 4,
+                  cursor: publishing ? "wait" : "pointer",
+                  fontSize: 13, fontWeight: 600,
+                  opacity: publishing ? 0.6 : 1,
+                }}
+              >
+                {publishing ? "Sending…" : isDraft ? "Send to Vendor" : "✓ Sent · Re-send"}
+              </button>
+            );
+          })()}
           <button
             onClick={onUndo}
             disabled={undoStack.length === 0}
