@@ -14,7 +14,7 @@ import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
 import { usePlanFlow } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
-import MasterSelectCell from "./MasterSelectCell";
+import MasterPickerCell from "./MasterPickerCell";
 import ColorPickerCell from "./ColorPickerCell";
 import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
@@ -716,7 +716,7 @@ export default function CostingGrid() {
                   const kind = c.key === "fit" ? "fit" : c.key === "bottom_closure" ? "closure" : c.key === "waist_type" ? "waist" : "comment";
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
-                      <MasterSelectCell
+                      <MasterPickerCell
                         kind={kind as "fit" | "closure" | "waist" | "comment"}
                         value={(line[c.key as keyof CostingLine] as string | null) ?? null}
                         onChange={(v) => updateLine(line.id, { [c.key]: v } as Partial<CostingLine>)}
