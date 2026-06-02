@@ -38,6 +38,11 @@ export interface CostingProject {
   projected_delivery_date: string | null;
   status: CostingStatus;
   notes: string | null;
+  /** FK to payment_terms(id) — Tangerine Payment Terms master. NULL until set. */
+  payment_terms_id: string | null;
+  /** Denormalized snapshot of the selected term name (e.g. "DDP 30"). Grid
+   *  matches /DDP/i against this to hide cost-component cols + rename Tgt Cost. */
+  payment_terms_name: string | null;
   grid_state: Record<string, unknown>;
   user_id: string | null;
   created_at: string;
@@ -61,6 +66,10 @@ export interface CostingLine {
   size_scale_id: string | null;
   size_scale_label: string | null;
   fabric_code: string | null;
+  /** Multi-select fabric codes (Tangerine fabric_codes.code). Authoritative
+   *  multi-fabric store; fabric_code stays in sync as the first element for
+   *  RFQ generation + back-compat readers. */
+  fabric_codes: string[] | null;
   fit: string | null;
   color: string | null;
   bottom_closure: string | null;
@@ -152,6 +161,8 @@ export interface CostingProjectDraft {
   projected_delivery_date?: string | null;
   status?: CostingStatus;
   notes?: string | null;
+  payment_terms_id?: string | null;
+  payment_terms_name?: string | null;
 }
 
 export interface CostingProjectPatch extends Partial<CostingProjectDraft> {

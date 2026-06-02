@@ -11,10 +11,13 @@ import { appConfirm } from "../../utils/theme";
 
 const SECTIONS: { kind: MasterKind; title: string; description: string; placeholder: string }[] = [
   { kind: "fit",     title: "Fit",     description: "Fit options for the grid (Standard, Relaxed, Slim, …).", placeholder: "e.g. Relaxed" },
-  { kind: "closure", title: "Bottom Closure", description: "Closure options (Jogger, Open Bottom, Drawstring, …).", placeholder: "e.g. Jogger" },
+  { kind: "closure", title: "Closures", description: "Closure options (Jogger, Open Bottom, Drawstring, …).", placeholder: "e.g. Jogger" },
   { kind: "waist",   title: "Waist Type", description: "Waist construction (E-Waist, Fixed, Drawstring, …).", placeholder: "e.g. E-Waist" },
   { kind: "comment",    title: "Comment Templates", description: "Reusable comment snippets the operator can insert into a line.", placeholder: 'e.g. "Please make E/W"' },
-  { kind: "fabric",     title: "Fabric",     description: "Fabric codes managed by costing. Tangerine's fabric_codes will be merged in later — entries here show up in the grid alongside Tangerine's master.", placeholder: 'e.g. "16X16+70D 97%COTTON 3%SPANDEX"' },
+  // Fabric is no longer a costing-owned master — the grid's Fabric cell now
+  // sources exclusively from Tangerine fabric_codes (multi-select + free-add).
+  // The Fabric master card was removed so operators aren't editing a list that
+  // no longer feeds the grid.
   { kind: "compliance", title: "Compliance Codes", description: "Requirement codes the grid Compliance dropdown offers (CPSIA, PROP65, FLAMMABILITY, etc.). Auto-seeded the first time the master loads empty.", placeholder: "e.g. CALIFORNIA_PROP65" },
 ];
 
