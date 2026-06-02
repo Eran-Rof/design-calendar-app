@@ -10,6 +10,7 @@ import { arPaymentReceived } from "../accounting/posting/rules/arPaymentReceived
 import { inventoryReceipt } from "../accounting/posting/rules/inventoryReceipt.js";
 import { inventoryAdjustment } from "../accounting/posting/rules/inventoryAdjustment.js";
 import { apInvoiceGrirMatch } from "../accounting/posting/rules/apInvoiceGrirMatch.js";
+import { landedCostRevaluation } from "../accounting/posting/rules/landedCostRevaluation.js";
 
 const ENTITY = "00000000-0000-0000-0000-000000000001";
 
@@ -229,6 +230,39 @@ describe("apInvoiceGrirMatch", () => {
     expect(() => apInvoiceGrirMatch({ kind: "ap_invoice_grir_match", entity_id: ENTITY,
       data: { ...base, variance_account_id: undefined, received_amount: "100.00", total_amount: "103.00" } }))
       .toThrow(/variance_account_id/);
+  });
+});
+
+describe("landedCostRevaluation", () => {
+  const base = {
+    invoice_id: "binv-1", vendor_id: "broker-1", invoice_number: "BRK-1", invoice_date: "2026-05-25",
+    ap_account_id: "ap1", inventory_account_id: "inv1", variance_account_id: "lcv1",
+  };
+  it("all in stock: DR inventory per item / CR AP, no variance line", () => {
+    const r = landedCostRevaluation({ kind: "landed_cost_revaluation", entity_id: ENTITY,
+      data: { ...base, inventory_lines: [{ item_id: "i-1", amount: "30.00" }, { item_id: "i-2", amount: "20.00" }],
+        consumed_variance_amount: "0.00", total_amount: "50.00" } });
+    expect(r.cash).toBeNull();
+    expect(r.accrual.lines).toHaveLength(3);
+    expect(r.accrual.lines[0].account_id).toBe("inv1");
+    expect(r.accrual.lines[0].subledger_type).toBe("item");
+    expect(r.accrual.lines[2].account_id).toBe("ap1");
+    expect(r.accrual.lines[2].credit).toBe("50.00");
+  });
+  it("partly sold: DR inventory + DR 5150 variance / CR AP (balanced)", () => {
+    const r = landedCostRevaluation({ kind: "landed_cost_revaluation", entity_id: ENTITY,
+      data: { ...base, inventory_lines: [{ item_id: "i-1", amount: "30.00" }],
+        consumed_variance_amount: "20.00", total_amount: "50.00" } });
+    expect(r.accrual.lines).toHaveLength(3);
+    expect(r.accrual.lines[0].debit).toBe("30.00");   // inventory uplift
+    expect(r.accrual.lines[1].account_id).toBe("lcv1");
+    expect(r.accrual.lines[1].debit).toBe("20.00");   // consumed variance
+    expect(r.accrual.lines[2].credit).toBe("50.00");  // AP
+  });
+  it("rejects when uplift + consumed != total", () => {
+    expect(() => landedCostRevaluation({ kind: "landed_cost_revaluation", entity_id: ENTITY,
+      data: { ...base, inventory_lines: [{ item_id: "i-1", amount: "30.00" }],
+        consumed_variance_amount: "10.00", total_amount: "50.00" } })).toThrow(/!= broker total/);
   });
 });
 
