@@ -114,6 +114,14 @@ export function canSeeCostingTabFromSession(): boolean {
   return u.permissions?.costing?.access !== false;
 }
 
+// True when the current session user may open the standalone Costing app
+// (launcher card + the /costing route guard in main.tsx). Same permission
+// key as the Tech Packs Costing tab above. Default-true when no session /
+// no permission entry, so pre-existing users keep working.
+export function canAccessCostingFromSession(): boolean {
+  return canSeeCostingTabFromSession();
+}
+
 // True when the Vendor Portal card should render on the PLM dashboard for
 // the given user. Admins always see it; regular users need
 // permissions.vendor.access === true.

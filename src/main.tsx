@@ -5,6 +5,7 @@ import WithNotifications from "./components/notifications/WithNotifications";
 import PlanningShell from "./inventory-planning/shared/components/PlanningShell";
 import { appConfig } from "./config/env";
 import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/planningAccess";
+import { canAccessCostingFromSession } from "./permissions";
 import { installInternalApiAuth } from "./utils/internalApiAuth";
 import { installIdleLogout } from "./utils/installIdleLogout";
 
@@ -54,6 +55,36 @@ function PlanningBlocked() {
       <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
       <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>Inventory Planning</h1>
       <p style={{ margin: "10px 0 24px", maxWidth: 360 }}>{reason}</p>
+      <a href="/" style={{ color: "#CC2200", fontSize: 14, textDecoration: "none" }}>
+        ← Back to launcher
+      </a>
+    </div>
+  );
+}
+
+// Shown when a user without permissions.costing.access navigates directly to
+// /costing (the launcher card is already hidden for them in PLM.tsx, but the
+// route itself must refuse too — the card gate is not a security boundary).
+function CostingBlocked() {
+  return (
+    <div
+      style={{
+        display:        "flex",
+        flexDirection:  "column",
+        alignItems:     "center",
+        justifyContent: "center",
+        height:         "100vh",
+        fontFamily:     "system-ui, -apple-system, sans-serif",
+        color:          "#6B7280",
+        textAlign:      "center",
+        padding:        "0 24px",
+      }}
+    >
+      <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+      <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>Costing</h1>
+      <p style={{ margin: "10px 0 24px", maxWidth: 360 }}>
+        Your account does not have access to the Costing app.
+      </p>
       <a href="/" style={{ color: "#CC2200", fontSize: 14, textDecoration: "none" }}>
         ← Back to launcher
       </a>
@@ -125,8 +156,12 @@ async function mount() {
     root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><GS1 /></ErrorBoundary></StrictMode>);
 
   } else if (path.startsWith("/costing")) {
-    const { default: Costing } = await import("./Costing");
-    root.render(<StrictMode><ErrorBoundary appName="Costing"><Costing /></ErrorBoundary></StrictMode>);
+    if (!canAccessCostingFromSession()) {
+      root.render(<StrictMode><ErrorBoundary appName="Costing"><CostingBlocked /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: Costing } = await import("./Costing");
+      root.render(<StrictMode><ErrorBoundary appName="Costing"><Costing /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/planning")) {
     // ── Planning gate ─────────────────────────────────────────────────────

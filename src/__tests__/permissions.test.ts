@@ -15,6 +15,7 @@ import {
   ATS_REPORT_KEYS,
   ADMIN_PERMISSION,
   DEFAULT_PERMISSION,
+  canAccessCostingFromSession,
   canSeeCostingTabFromSession,
   canSeeVendorPortalCard,
   getAppPermission,
@@ -212,6 +213,35 @@ describe("permissions — session-backed gates", () => {
     it("returns true when the session blob can't be parsed", () => {
       sessionStorage.setItem("plm_user", "{not valid JSON");
       expect(canSeeCostingTabFromSession()).toBe(true);
+    });
+  });
+
+  // The standalone Costing app gate (launcher card + /costing route) shares
+  // the exact same permission key as the Tech Packs Costing tab.
+  describe("canAccessCostingFromSession", () => {
+    it("returns true with no session", () => {
+      expect(canAccessCostingFromSession()).toBe(true);
+    });
+
+    it("returns true for admins regardless of stored config", () => {
+      setSessionUser({
+        role: "admin",
+        permissions: { costing: { access: false, readOnly: false, seeOthersData: false } },
+      });
+      expect(canAccessCostingFromSession()).toBe(true);
+    });
+
+    it("returns false for non-admins explicitly opted out", () => {
+      setSessionUser({
+        role: "user",
+        permissions: { costing: { access: false, readOnly: false, seeOthersData: false } },
+      });
+      expect(canAccessCostingFromSession()).toBe(false);
+    });
+
+    it("returns true for non-admins with no costing entry (default-true)", () => {
+      setSessionUser({ role: "user", permissions: {} });
+      expect(canAccessCostingFromSession()).toBe(true);
     });
   });
 });
