@@ -92,7 +92,7 @@ export default async function handler(req, res) {
       .select("rfq_id, vendor_id, status, vendors(id, code, name, legal_name)")
       .in("rfq_id", rfqIds),
     admin.from("rfq_line_items")
-      .select("rfq_id, description")
+      .select("rfq_id, description, target_price, quantity")
       .in("rfq_id", rfqIds),
     (async () => {
       const projectIds = rfqs
@@ -156,6 +156,18 @@ export default async function handler(req, res) {
     // ip_customer_master is missing a row for some new code).
     const customerName = rawCustomerName ? rawCustomerName.replace(/^EXCEL:/i, "") : null;
     const lineItems = itemsByRfq.get(r.id) || [];
+    // Target cost = Σ(target_price × quantity) across line items. Null when
+    // no line carries a numeric target_price (vs. 0, which would imply a
+    // priced-at-zero RFQ).
+    let targetCost = 0;
+    let anyTargetPriced = false;
+    for (const it of lineItems) {
+      if (typeof it.target_price === "number") {
+        anyTargetPriced = true;
+        const qty = typeof it.quantity === "number" ? it.quantity : 0;
+        targetCost += it.target_price * qty;
+      }
+    }
     return {
       ...r,
       vendor_id: firstInv?.vendor_id || null,
@@ -165,6 +177,7 @@ export default async function handler(req, res) {
       customer_name: customerName,
       project_name: project?.project_name || null,
       line_count: lineItems.length,
+      target_cost: anyTargetPriced ? targetCost : null,
       // First 3 line descriptions (for the style-search match preview).
       preview_lines: lineItems.slice(0, 3).map((i) => i.description),
     };
