@@ -59,9 +59,47 @@ export default function CostingNavBar() {
           Masters
         </button>
       </div>
+
+      {/* Vendor portal links — open the standalone /vendor app in a new tab
+          (separate Supabase Auth session, so it must not replace the costing
+          tab). */}
+      <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
+        <a
+          href="/vendor"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={linkBtn}
+          title="Open the vendor portal in a new tab"
+        >
+          Vendor Portal ↗
+        </a>
+        <a
+          href="/vendor/onboarding"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={linkBtn}
+          title="Open vendor onboarding in a new tab"
+        >
+          Vendor Onboarding ↗
+        </a>
+      </div>
     </div>
   );
 }
+
+const linkBtn: React.CSSProperties = {
+  background: "transparent",
+  color: "rgba(255,255,255,0.75)",
+  border: "1px solid rgba(255,255,255,0.25)",
+  borderRadius: 6,
+  padding: "6px 14px",
+  fontSize: 13,
+  fontWeight: 400,
+  cursor: "pointer",
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+  transition: "all 0.15s",
+};
 
 function navBtn(active: boolean): React.CSSProperties {
   return {
