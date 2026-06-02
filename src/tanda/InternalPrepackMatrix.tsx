@@ -11,7 +11,9 @@
 //
 // Populated either by hand (add/edit modal) or via the Excel template:
 //   • Download template → an .xlsx with a header row + one example, columns:
-//       PPK Style Code | Matrix Name | Pack Token | Size | Qty Per Pack
+//       PPK Style Code | Matrix Name | Pack Token | Size | Inner Pack Qty | Qty Per Box
+//     (Pack Token e.g. PPK24 = carton contents; carton = Σ Qty Per Box, made up
+//      of inner packs = Σ Inner Pack Qty.)
 //   • Upload Excel → parse the rows, group by PPK Style Code, and idempotently
 //     UPSERT each matrix (matrix POST upserts by ppk_style_code).
 //
@@ -37,7 +39,8 @@ const COLUMNS: ColumnDef[] = [
   { key: "is_active",      label: "Active" },
 ];
 
-type SizeRow = { size: string; qty_per_pack: number; sort_order?: number };
+// qty_per_pack = Qty Per Box (carton units for the size); inner_pack_qty = # inner packs of that size.
+type SizeRow = { size: string; qty_per_pack: number; inner_pack_qty?: number; sort_order?: number };
 type PrepackMatrix = {
   id: string;
   entity_id: string;
@@ -52,6 +55,7 @@ type PrepackMatrix = {
   updated_at: string;
   sizes: SizeRow[];
   pack_total_computed: number;
+  inner_packs_computed?: number;
 };
 
 const C = {
@@ -93,26 +97,29 @@ const chipStyle: React.CSSProperties = {
 };
 
 // Template columns (canonical headers the upload parser also accepts).
-const TPL_COLS = ["PPK Style Code", "Matrix Name", "Pack Token", "Size", "Qty Per Pack"] as const;
+const TPL_COLS = ["PPK Style Code", "Matrix Name", "Pack Token", "Size", "Inner Pack Qty", "Qty Per Box"] as const;
 
 function compositionLabel(sizes: SizeRow[]): string {
   if (!Array.isArray(sizes) || sizes.length === 0) return "—";
-  return sizes.map((s) => `${s.size}×${s.qty_per_pack}`).join("  ");
+  // size: boxQty (innerPacks pk) — e.g. "32: 6 (2 pk)"
+  return sizes.map((s) => `${s.size}:${s.qty_per_pack}${s.inner_pack_qty ? ` (${s.inner_pack_qty}pk)` : ""}`).join("  ");
 }
 
-// Generate + download the Excel template (header + one illustrative example).
+// Generate + download the Excel template (header + the filled inner-pack example).
+// Pack Token (e.g. PPK24) = carton contents (24 units); the carton is made up of
+// inner packs. Per size: Inner Pack Qty = # inner packs; Qty Per Box = carton units.
 function downloadTemplate() {
   const example = [
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "30", "Qty Per Pack": 2 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "32", "Qty Per Pack": 4 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "34", "Qty Per Pack": 4 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "36", "Qty Per Pack": 4 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "38", "Qty Per Pack": 4 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "31", "Qty Per Pack": 3 },
-    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "33", "Qty Per Pack": 3 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "30", "Inner Pack Qty": 1, "Qty Per Box": 3 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "31", "Inner Pack Qty": 1, "Qty Per Box": 3 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "32", "Inner Pack Qty": 2, "Qty Per Box": 6 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "33", "Inner Pack Qty": 1, "Qty Per Box": 3 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "34", "Inner Pack Qty": 2, "Qty Per Box": 6 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "36", "Inner Pack Qty": 1, "Qty Per Box": 3 },
+    { "PPK Style Code": "RYB059430PPK", "Matrix Name": "RYB059430 Pack of 24", "Pack Token": "PPK24", "Size": "38", "Inner Pack Qty": 0, "Qty Per Box": 0 },
   ];
   const ws = XLSX.utils.json_to_sheet(example, { header: TPL_COLS as unknown as string[] });
-  ws["!cols"] = [{ wch: 18 }, { wch: 26 }, { wch: 12 }, { wch: 10 }, { wch: 14 }];
+  ws["!cols"] = [{ wch: 18 }, { wch: 26 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Prepack Matrices");
   XLSX.writeFile(wb, "prepack-matrix-template.xlsx");
@@ -138,12 +145,15 @@ function parseWorkbook(buffer: ArrayBuffer): { matrices: ParsedMatrix[]; errors:
   rows.forEach((r, i) => {
     const style = pick(r, ["PPK Style Code", "ppk_style_code", "Style", "Style Code"]);
     const size = pick(r, ["Size", "size"]);
-    const qtyRaw = pick(r, ["Qty Per Pack", "qty_per_pack", "Qty", "Quantity"]);
-    if (!style && !size && !qtyRaw) return; // blank row
+    const qtyRaw = pick(r, ["Qty Per Box", "Qty Per Pack", "qty_per_box", "qty_per_pack", "Qty", "Quantity"]);
+    const innerRaw = pick(r, ["Inner Pack Qty", "inner_pack_qty", "Inner Packs", "Inner"]);
+    if (!style && !size && !qtyRaw && !innerRaw) return; // blank row
     if (!style) { errors.push(`Row ${i + 2}: missing PPK Style Code`); return; }
     if (!size) { errors.push(`Row ${i + 2}: missing Size`); return; }
     const qty = parseInt(qtyRaw, 10);
-    if (!Number.isInteger(qty) || qty < 0) { errors.push(`Row ${i + 2}: Qty Per Pack must be a non-negative integer (got "${qtyRaw}")`); return; }
+    if (!Number.isInteger(qty) || qty < 0) { errors.push(`Row ${i + 2}: Qty Per Box must be a non-negative integer (got "${qtyRaw}")`); return; }
+    const inner = innerRaw === "" ? 0 : parseInt(innerRaw, 10);
+    if (!Number.isInteger(inner) || inner < 0) { errors.push(`Row ${i + 2}: Inner Pack Qty must be a non-negative integer (got "${innerRaw}")`); return; }
 
     const key = style.toLowerCase();
     let m = byStyle.get(key);
@@ -156,7 +166,7 @@ function parseWorkbook(buffer: ArrayBuffer): { matrices: ParsedMatrix[]; errors:
       };
       byStyle.set(key, m);
     }
-    if (qty > 0) m.sizes.push({ size, qty_per_pack: qty });
+    if (qty > 0) m.sizes.push({ size, qty_per_pack: qty, inner_pack_qty: inner });
   });
 
   const matrices = [...byStyle.values()].filter((m) => {
@@ -310,7 +320,8 @@ export default function InternalPrepackMatrix() {
             { key: "ppk_style_code", header: "PPK Style Code" },
             { key: "pack_token",     header: "Pack Token" },
             { key: "composition",    header: "Composition" },
-            { key: "pack_total_computed", header: "Pack Total (Σ sizes)", format: "number" },
+            { key: "pack_total_computed", header: "Carton Total (Σ box)", format: "number" },
+            { key: "inner_packs_computed", header: "Inner Packs (Σ)", format: "number" },
             { key: "is_active",      header: "Active" },
             { key: "updated_at",     header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
@@ -396,20 +407,30 @@ interface ModalProps {
   onSaved: () => void;
 }
 
-// Sizes editor uses the same comma-pair text shape as the rest of the app:
-// "<size>:<qty>" pairs, comma-separated, e.g. "30:2, 32:4, 34:4".
+// Sizes editor text shape: "<size>:<innerPacks>:<qtyPerBox>" triples,
+// comma-separated, e.g. "30:1:3, 32:2:6". A 2-part "<size>:<qtyPerBox>" (no
+// inner) is still accepted (inner packs = 0).
 function sizesToText(sizes: SizeRow[]): string {
-  return (sizes || []).map((s) => `${s.size}:${s.qty_per_pack}`).join(", ");
+  return (sizes || []).map((s) => (s.inner_pack_qty ? `${s.size}:${s.inner_pack_qty}:${s.qty_per_pack}` : `${s.size}:${s.qty_per_pack}`)).join(", ");
 }
 function parseSizesText(raw: string): { sizes: SizeRow[]; error: string | null } {
   const out: SizeRow[] = [];
   for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
-    const m = part.match(/^(.+?)\s*[:×x]\s*(\d+)$/i);
-    if (!m) return { sizes: [], error: `Could not parse "${part}". Use size:qty, e.g. 32:4` };
-    const size = m[1].trim();
-    const qty = parseInt(m[2], 10);
-    if (!size) return { sizes: [], error: `Empty size in "${part}"` };
-    if (qty > 0) out.push({ size, qty_per_pack: qty });
+    const m3 = part.match(/^(.+?)\s*[:×x]\s*(\d+)\s*[:×x]\s*(\d+)$/i);
+    const m2 = part.match(/^(.+?)\s*[:×x]\s*(\d+)$/i);
+    if (m3) {
+      const size = m3[1].trim();
+      if (!size) return { sizes: [], error: `Empty size in "${part}"` };
+      const inner = parseInt(m3[2], 10); const box = parseInt(m3[3], 10);
+      if (box > 0) out.push({ size, qty_per_pack: box, inner_pack_qty: inner });
+    } else if (m2) {
+      const size = m2[1].trim();
+      if (!size) return { sizes: [], error: `Empty size in "${part}"` };
+      const box = parseInt(m2[2], 10);
+      if (box > 0) out.push({ size, qty_per_pack: box, inner_pack_qty: 0 });
+    } else {
+      return { sizes: [], error: `Could not parse "${part}". Use size:innerPacks:qtyPerBox (e.g. 32:2:6) or size:qtyPerBox (e.g. 32:6)` };
+    }
   }
   return { sizes: out, error: null };
 }
@@ -428,13 +449,14 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
 
   const parsed = parseSizesText(form.sizesText);
   const packTotal = parsed.sizes.reduce((a, s) => a + s.qty_per_pack, 0);
+  const innerTotal = parsed.sizes.reduce((a, s) => a + (s.inner_pack_qty || 0), 0);
 
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
       if (parsed.error) throw new Error(parsed.error);
-      if (parsed.sizes.length === 0) throw new Error("Add at least one size:qty pair");
+      if (parsed.sizes.length === 0) throw new Error("Add at least one size (size:innerPacks:qtyPerBox)");
       const body: Record<string, unknown> = {
         name: form.name.trim(),
         ppk_style_code: form.ppk_style_code.trim() || null,
@@ -489,21 +511,21 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <Field label="Composition (size:qty pairs, comma-separated) *">
-            <input type="text" value={form.sizesText} onChange={(e) => setForm({ ...form, sizesText: e.target.value })} style={inputStyle} placeholder="30:2, 32:4, 34:4, 36:4, 38:4" />
+          <Field label="Composition (size:innerPacks:qtyPerBox, comma-separated) *">
+            <input type="text" value={form.sizesText} onChange={(e) => setForm({ ...form, sizesText: e.target.value })} style={inputStyle} placeholder="30:1:3, 31:1:3, 32:2:6, 33:1:3, 34:2:6, 36:1:3" />
           </Field>
         </div>
 
         <div style={{ marginTop: 14, padding: "10px 12px", background: "#0b1220", border: `1px dashed ${C.cardBdr}`, borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
           <div style={{ marginBottom: 6 }}>
-            Preview ({parsed.sizes.length} size{parsed.sizes.length === 1 ? "" : "s"}, pack total = <strong style={{ color: C.warn }}>{packTotal}</strong>):
+            Preview ({parsed.sizes.length} size{parsed.sizes.length === 1 ? "" : "s"}, carton total = <strong style={{ color: C.warn }}>{packTotal}</strong>, inner packs = <strong style={{ color: C.warn }}>{innerTotal}</strong>):
           </div>
           {parsed.error ? (
             <span style={{ color: C.danger }}>{parsed.error}</span>
           ) : parsed.sizes.length === 0 ? (
-            <span style={{ fontStyle: "italic" }}>Type size:qty pairs above to preview the pack composition.</span>
+            <span style={{ fontStyle: "italic" }}>Type size:innerPacks:qtyPerBox above (e.g. 32:2:6) to preview the carton composition.</span>
           ) : (
-            <div>{parsed.sizes.map((s) => <span key={s.size} style={chipStyle}>{s.size} × {s.qty_per_pack}</span>)}</div>
+            <div>{parsed.sizes.map((s) => <span key={s.size} style={chipStyle}>{s.size}: {s.qty_per_pack}{s.inner_pack_qty ? ` (${s.inner_pack_qty} pk)` : ""}</span>)}</div>
           )}
         </div>
 
