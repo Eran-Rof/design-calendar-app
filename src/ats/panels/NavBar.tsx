@@ -21,31 +21,7 @@ import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCan
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
-
-// ── ATS Reports permission gate ───────────────────────────────────────────────
-// Internal staff live in sessionStorage.plm_user (NOT Supabase Auth — see
-// project_internal_auth_pattern.md). We read the user blob here and resolve
-// permissions.ats.reports with default-true semantics: any missing/undefined
-// key means the report is accessible, matching the data-model contract
-// documented in PLM.tsx (getAtsReportsPermissions). Admins see every report.
-const ATS_REPORT_KEYS = ["exportExcel", "negInven", "agedInven", "noMrgnData", "stockVsSo", "salesComps"] as const;
-export type AtsReportKey = typeof ATS_REPORT_KEYS[number];
-export function getAtsReportPermissionsFromSession(): Record<AtsReportKey, boolean> {
-  const allOn: Record<AtsReportKey, boolean> = { exportExcel: true, negInven: true, agedInven: true, noMrgnData: true, stockVsSo: true, salesComps: true };
-  if (typeof window === "undefined") return allOn;
-  try {
-    const raw = sessionStorage.getItem("plm_user");
-    if (!raw) return allOn;
-    const u = JSON.parse(raw) as { role?: string; permissions?: { ats?: { reports?: Partial<Record<AtsReportKey, boolean>> } } };
-    if (u.role === "admin") return allOn;
-    const reports = u.permissions?.ats?.reports ?? {};
-    const resolved = {} as Record<AtsReportKey, boolean>;
-    for (const k of ATS_REPORT_KEYS) resolved[k] = reports[k] !== false;
-    return resolved;
-  } catch {
-    return allOn;
-  }
-}
+import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a

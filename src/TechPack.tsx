@@ -125,23 +125,9 @@ import { TemplatesModal } from "./techpack/modals/TemplatesModal";
 
 // sb helper moved to ./techpack/supabase
 
-// ── Costing tab permission gate ───────────────────────────────────────────────
-// Internal staff live in sessionStorage.plm_user (see
-// project_internal_auth_pattern.md). The Costing tab inside each Tech Pack
-// is gated by permissions.costing.access (default-true when missing so
-// existing users keep their current view). Admins always see it.
-function canSeeCostingTab(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const raw = sessionStorage.getItem("plm_user");
-    if (!raw) return true;
-    const u = JSON.parse(raw) as { role?: string; permissions?: { costing?: { access?: boolean } } };
-    if (u.role === "admin") return true;
-    return u.permissions?.costing?.access !== false;
-  } catch {
-    return true;
-  }
-}
+// Costing tab gate lives in src/permissions.ts (canSeeCostingTabFromSession).
+// Local alias keeps the call sites short.
+import { canSeeCostingTabFromSession as canSeeCostingTab } from "./permissions";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT

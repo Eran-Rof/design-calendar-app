@@ -7,35 +7,30 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
+import {
+  ATS_REPORT_KEYS,
+  type AtsReportKey,
+  type AppPermission as PermAppPermission,
+  type AtsPermission as PermAtsPermission,
+  type AtsReportsPermission as PermAtsReportsPermission,
+  type PermissionAppId as PermPermissionAppId,
+  DEFAULT_PERMISSION as SHARED_DEFAULT_PERMISSION,
+  ADMIN_PERMISSION as SHARED_ADMIN_PERMISSION,
+  getAppPermission as sharedGetAppPermission,
+  canSeeVendorPortalCard,
+} from "./permissions";
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "plm_user";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface AppPermission {
-  access: boolean;        // can access the app at all
-  readOnly: boolean;      // true = read only, false = read/write
-  seeOthersData: boolean; // can see other users' data
-}
-
-// ATS reports gate (per-report on/off). Missing/undefined entries default to
-// true at the read-side helper (see getAtsReportsPermissions). This keeps
-// existing users with ATS access fully working while letting admins opt-out
-// specific reports.
-interface AtsReportsPermission {
-  exportExcel?: boolean;
-  negInven?: boolean;
-  agedInven?: boolean;
-  noMrgnData?: boolean;
-  stockVsSo?: boolean;
-  salesComps?: boolean;
-}
-
-interface AtsPermission extends AppPermission {
-  reports?: AtsReportsPermission;
-}
-
-type PermissionAppId = "design" | "tanda" | "techpack" | "ats" | "costing" | "vendor";
+// Permission model lives in ./permissions.ts so it can be unit-tested
+// without booting the PLM React shell. The aliases below preserve the
+// historical names used throughout this file.
+type AppPermission = PermAppPermission;
+type AtsPermission = PermAtsPermission;
+type AtsReportsPermission = PermAtsReportsPermission;
+type PermissionAppId = PermPermissionAppId;
 
 interface User {
   id: string;
@@ -55,30 +50,11 @@ interface User {
   };
 }
 
-const DEFAULT_PERMISSION: AppPermission = { access: true, readOnly: false, seeOthersData: false };
-const ADMIN_PERMISSION: AppPermission   = { access: true, readOnly: false, seeOthersData: true  };
-
-const ATS_REPORT_KEYS = ["exportExcel", "negInven", "agedInven", "noMrgnData", "stockVsSo", "salesComps"] as const;
-type AtsReportKey = typeof ATS_REPORT_KEYS[number];
-
-// Resolve report permissions with default-true semantics: when a user has
-// ATS access but no explicit reports object (or a missing per-report key),
-// all reports are accessible. Admins see every report.
-function getAtsReportsPermissions(user: User): Record<AtsReportKey, boolean> {
-  if (user.role === "admin") {
-    return { exportExcel: true, negInven: true, agedInven: true, noMrgnData: true, stockVsSo: true, salesComps: true };
-  }
-  const reports = (user.permissions?.ats as AtsPermission | undefined)?.reports ?? {};
-  const resolved = {} as Record<AtsReportKey, boolean>;
-  for (const k of ATS_REPORT_KEYS) {
-    resolved[k] = reports[k] !== false; // missing or true → true
-  }
-  return resolved;
-}
+const DEFAULT_PERMISSION = SHARED_DEFAULT_PERMISSION;
+const ADMIN_PERMISSION   = SHARED_ADMIN_PERMISSION;
 
 function getPermission(user: User, app: PermissionAppId): AppPermission {
-  if (user.role === "admin") return ADMIN_PERMISSION;
-  return user.permissions?.[app] ?? DEFAULT_PERMISSION;
+  return sharedGetAppPermission(user, app);
 }
 
 // ── Load users from Supabase app_data ─────────────────────────────────────────
@@ -370,12 +346,11 @@ export default function PLMApp() {
             if (appConfig.demoMode && (app.id === "techpack" || app.id === "gs1")) return false;
             if (app.id === "planning" && !appConfig.inventoryPlanningEnabled) return false;
             // Vendor Portal card is gated by the per-user permission. Admins
-            // always see it (ADMIN_PERMISSION grants access in getPermission).
-            // Regular users without permissions.vendor.access do NOT see the
-            // card at all — different from other apps which show a 🔒 locked
-            // tile, because the vendor portal isn't a discoverable app for
-            // most internal staff.
-            if (app.id === "vendor" && !getPermission(user, "vendor").access) return false;
+            // always see it. Regular users without permissions.vendor.access
+            // do NOT see the card at all — different from other apps which
+            // show a 🔒 locked tile, because the vendor portal isn't a
+            // discoverable app for most internal staff.
+            if (app.id === "vendor" && !canSeeVendorPortalCard(user)) return false;
             return true;
           }).map(app => {
             // Only the original four apps have per-user permissions today.
