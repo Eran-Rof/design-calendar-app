@@ -313,7 +313,11 @@ async function makeProdAdmin() {
 // `manifest` carries everything needed to REVERSE this one style:
 //   { style_code, style_id, snapshot_date, zeroed_opening_balance_layers:[{id,original_qty,remaining_qty}],
 //     inserted_xoro_rest_size_total, all_style_sku_ids }
-async function applyStyle(admin, styleCode, snapshotDate) {
+// `styleIdHint` (optional): a pre-resolved style_master.id (the batch path
+// resolves ALL style_ids in ONE query up front, so it skips the slow per-style
+// `supabase db query` CLI spawn). When omitted (the --apply path), we resolve
+// via the admin client (also fast — no CLI).
+async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   // Store-grain cells for the EXACT style only, nonzero qty.
   const cells = Array.from(cellStoreMap.values()).filter(
     (c) => c.bp === styleCode && Number(c.qty) !== 0,
@@ -327,14 +331,17 @@ async function applyStyle(admin, styleCode, snapshotDate) {
   console.log(`# (color,size,store) cells: ${cells.length}   REST total: ${restTotal}   per-warehouse: ${JSON.stringify(whTotals)}`);
 
   // Resolve the style_id from prod (must exist; do NOT create styles here).
-  const styleRows = await runSql(
-    `SELECT id::text AS id FROM style_master
-      WHERE style_code = ${sqlLit(styleCode)} AND entity_id = ${sqlLit(ROF_ENTITY_ID)};`,
-  );
-  if (styleRows.length !== 1) {
-    return { ok: false, error: `expected exactly 1 style_master row for ${styleCode} in ROF entity, got ${styleRows.length}`, code: 3 };
+  let styleId = styleIdHint || null;
+  if (!styleId) {
+    const { data: srows, error: sErr } = await admin
+      .from("style_master").select("id")
+      .eq("style_code", styleCode).eq("entity_id", ROF_ENTITY_ID);
+    if (sErr) return { ok: false, error: `resolve style_id: ${sErr.message}`, code: 3 };
+    if (!srows || srows.length !== 1) {
+      return { ok: false, error: `expected exactly 1 style_master row for ${styleCode} in ROF entity, got ${srows ? srows.length : 0}`, code: 3 };
+    }
+    styleId = srows[0].id;
   }
-  const styleId = styleRows[0].id;
   console.log(`# style_id:      ${styleId}`);
 
   // 1. Find-or-create per-size SKU per (color,size). Store is NOT part of the
@@ -621,14 +628,17 @@ async function runBatch() {
   const candidateBps = allBps.filter((bp) => !PPK_RE.test(bp));
 
   // Resolve which candidates exactly match a ROF style_code (case-sensitive,
-  // EXACT — matches the dry-run reconciliation join semantics).
+  // EXACT — matches the dry-run reconciliation join semantics). ONE query
+  // resolves BOTH the matched set AND every style_id, so the per-style loop
+  // never has to do its own (slow) style_id lookup.
   const litList = candidateBps.map(sqlLit).join(",");
   const matchRows = litList
-    ? await runSql(`SELECT style_code FROM style_master
+    ? await runSql(`SELECT id::text AS id, style_code FROM style_master
                     WHERE entity_id = ${sqlLit(ROF_ENTITY_ID)}
                       AND style_code IN (${litList});`)
     : [];
   const matchedSet = new Set(matchRows.map((r) => r.style_code));
+  const styleIdByCode = new Map(matchRows.map((r) => [r.style_code, r.id]));
   const unmatchedSkipped = candidateBps.filter((bp) => !matchedSet.has(bp));
 
   // Final work-list: matched, non-PPK, excluding RYB0412 (pilot — verify+skip),
@@ -701,7 +711,7 @@ async function runBatch() {
       console.log(`\n# [${idx}/${workList.length}] ${bp}  (REST ${restStyle})`);
       let res;
       try {
-        res = await applyStyle(admin, bp, snapshotDate);
+        res = await applyStyle(admin, bp, snapshotDate, styleIdByCode.get(bp));
       } catch (e) {
         res = { ok: false, error: `exception: ${e.message}`, code: 99 };
       }
