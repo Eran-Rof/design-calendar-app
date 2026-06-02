@@ -32,6 +32,7 @@ export default function RfqListView() {
   const [status, setStatus] = useState<RfqStatus | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Debounced search — wait 200ms after the last keystroke before firing.
   useEffect(() => {
@@ -50,6 +51,26 @@ export default function RfqListView() {
     return () => { window.clearTimeout(t); ctrl.abort(); };
   }, [q, status]);
 
+  // Prune selection to ids still present after a re-filter so a stale id
+  // can't slip into a bulk delete.
+  useEffect(() => {
+    setSelected((prev) => {
+      const ids = new Set(rows.map((r) => r.id));
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows]);
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
+
   const onOpen = (id: string) => navigate("rfq-edit", id);
   const setNotice = useCostingStore((s) => s.setNotice);
   const onDelete = (r: RfqListRow) => {
@@ -64,6 +85,31 @@ export default function RfqListView() {
           setNotice(`Deleted RFQ "${label}".`, "info");
         } catch (e) {
           setNotice(`Could not delete RFQ: ${(e as Error).message}`, "error");
+        }
+      },
+    );
+  };
+
+  const onBulkDelete = () => {
+    const ids = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+    if (ids.length === 0) return;
+    appConfirm(
+      `Delete ${ids.length} RFQ${ids.length === 1 ? "" : "s"}? This permanently removes each header + all line items + invitations + quotes. Cannot be undone.`,
+      `Delete ${ids.length}`,
+      async () => {
+        const failed: string[] = [];
+        await Promise.all(
+          ids.map(async (id) => {
+            try { await deleteRfq(id); } catch { failed.push(id); }
+          }),
+        );
+        const deleted = new Set(ids.filter((id) => !failed.includes(id)));
+        setRows((prev) => prev.filter((x) => !deleted.has(x.id)));
+        setSelected(new Set());
+        if (failed.length === 0) {
+          setNotice(`Deleted ${ids.length} RFQ${ids.length === 1 ? "" : "s"}.`, "info");
+        } else {
+          setNotice(`Deleted ${deleted.size} of ${ids.length}; ${failed.length} failed.`, "error");
         }
       },
     );
@@ -98,7 +144,20 @@ export default function RfqListView() {
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "#94A3B8" }}>
+        {selected.size > 0 && (
+          <button
+            onClick={onBulkDelete}
+            title="Delete all selected RFQs (with confirmation)"
+            style={{
+              marginLeft: "auto",
+              background: "#7F1D1D", color: "#FEE2E2",
+              border: "1px solid #B91C1C", borderRadius: 4,
+              padding: "6px 12px", fontSize: 12, fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >Delete {selected.size} selected</button>
+        )}
+        <span style={{ marginLeft: selected.size > 0 ? 0 : "auto", fontSize: 11, color: "#94A3B8" }}>
           {loading ? "Searching…" : `${rows.length} RFQ${rows.length === 1 ? "" : "s"}`}
         </span>
       </div>
@@ -113,6 +172,15 @@ export default function RfqListView() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead style={{ background: "#0F172A" }}>
             <tr>
+              <Th align="center">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  title={allSelected ? "Clear selection" : "Select all"}
+                  style={{ cursor: "pointer", accentColor: "#60A5FA" }}
+                />
+              </Th>
               <Th>Title</Th>
               <Th>Vendor</Th>
               <Th>Customer</Th>
@@ -128,7 +196,7 @@ export default function RfqListView() {
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={11} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+              <tr><td colSpan={12} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
                 {q || status ? "No RFQs match the filter." : "No RFQs yet — generate one from a Costing project."}
               </td></tr>
             )}
@@ -143,6 +211,16 @@ export default function RfqListView() {
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   title="Click to view + edit"
                 >
+                  <Td align="center">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleOne(r.id)}
+                      title="Select for bulk delete"
+                      style={{ cursor: "pointer", accentColor: "#60A5FA" }}
+                    />
+                  </Td>
                   <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.title || "(untitled)"}</span></Td>
                   <Td>{r.vendor_name || "—"}</Td>
                   <Td>{r.customer_name || "—"}</Td>
