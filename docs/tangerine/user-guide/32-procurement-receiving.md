@@ -1,6 +1,6 @@
 # 32. Procurement — Receiving & Bookkeeper Approval (P13)
 
-> **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), C1 Receiving + Bookkeeper Approval (#801), **Wave C (#802): QC Inspections, Customs Entries, Broker Invoices, 3-Way Match**. **Ahead:** C5 reconciliation inbox + open-commitments report + close pre-flight. This chapter covers the **💲 Procurement** nav group.
+> **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), C1 Receiving + Bookkeeper Approval (#801), **Wave C (#804): QC Inspections, Customs Entries, Broker Invoices, 3-Way Match**. **Ahead:** C5 reconciliation inbox + open-commitments report + close pre-flight. This chapter covers the **💲 Procurement** nav group.
 
 ## 32.4 QC Inspections (`Procurement → 🔍 QC Inspections`)
 Inspect a **posted** receipt: record pass/partial/fail with an overall pass-rate and per-finding detail (category, severity minor/major/critical, qty affected, description). Optionally adjust the receipt lines' accepted/rejected qty. *(The vendor-RMA / credit / write-off / rework disposition workflow with its GL effects is a later chunk — QC currently records the inspection only.)*
