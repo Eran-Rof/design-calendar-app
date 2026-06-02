@@ -35,12 +35,21 @@ export default async function handler(req, res) {
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
-  const styleId = (url.searchParams.get("style_id") || "").trim();
+  let styleId = (url.searchParams.get("style_id") || "").trim();
+  const itemId = (url.searchParams.get("item_id") || "").trim();
   const customerId = (url.searchParams.get("customer_id") || "").trim();
   const date = (url.searchParams.get("date") || "").trim();
   let qty = Number(url.searchParams.get("qty") || "1");
   if (!Number.isFinite(qty) || qty <= 0) qty = 1;
-  if (!UUID_RE.test(styleId)) return res.status(400).json({ error: "style_id (uuid) required" });
+
+  // Accept a size-level SKU (item_id) and resolve its style — SO/AR lines carry
+  // inventory_item_id, while the engine prices at the style level.
+  if (!UUID_RE.test(styleId) && UUID_RE.test(itemId)) {
+    const { data: item } = await admin.from("ip_item_master").select("style_id").eq("id", itemId).maybeSingle();
+    if (!item?.style_id) return res.status(200).json({ price_cents: null });
+    styleId = item.style_id;
+  }
+  if (!UUID_RE.test(styleId)) return res.status(400).json({ error: "style_id or item_id (uuid) required" });
 
   try {
     const r = await resolvePrice(admin, {

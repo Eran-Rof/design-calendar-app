@@ -245,6 +245,27 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   function addLine() { setLines((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]); }
   function removeLine(idx: number) { setLines((p) => p.filter((_, i) => i !== idx)); }
 
+  // M43 — suggest a unit price from the Pricing Engine for the line's SKU +
+  // customer + qty. Prefills only when the price box is empty (manual entry/edits
+  // are preserved); `force` overwrites (the ↻ button). Records the source list
+  // for the hint. The engine prices at style level; the endpoint resolves the
+  // SKU's style itself.
+  const [priceSrc, setPriceSrc] = useState<Record<number, string>>({});
+  async function suggestPrice(lineKey: number, itemId: string, qtyStr: string, force: boolean) {
+    if (!itemId || !customerId) return;
+    try {
+      const p = new URLSearchParams({ customer_id: customerId, item_id: itemId });
+      const qn = Number(qtyStr); if (Number.isFinite(qn) && qn > 0) p.set("qty", String(qn));
+      const r = await fetch(`/api/internal/pricing/resolve?${p.toString()}`);
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j?.price_cents == null) { if (force) notify("No price found for this style/customer.", "info"); return; }
+      const dollars = (Number(j.price_cents) / 100).toFixed(2);
+      setLines((prev) => prev.map((l) => l.key === lineKey ? (force || !l.unit_price_dollars ? { ...l, unit_price_dollars: dollars } : l) : l));
+      if (j.source_list_code) setPriceSrc((m) => ({ ...m, [lineKey]: j.source_list_code }));
+    } catch { /* non-fatal — operator can type the price */ }
+  }
+
   // MX-SO — append lines produced by the matrix size-grid sub-panel. Each add
   // is a resolved SKU id + qty + (optional) per-row unit price. If a line for
   // that SKU already exists, fold the qty into it; otherwise append a new line.
@@ -540,12 +561,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 <tr key={l.key}>
                   <td style={td}>{idx + 1}</td>
                   <td style={td}>
-                    <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateLine(idx, { inventory_item_id: v })}
+                    <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => { updateLine(idx, { inventory_item_id: v }); if (v) void suggestPrice(l.key, v, l.qty_ordered, false); }}
                       options={[{ value: "", label: "(select)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
                       placeholder="(pick style…)" disabled={!editable} />
                   </td>
                   <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateLine(idx, { qty_ordered: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0" style={numInputStyle} /></td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0.00" style={numInputStyle} /></td>
+                  <td style={td}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0.00" style={numInputStyle} />
+                      {editable && l.inventory_item_id && customerId && <button type="button" title="Suggest price from the pricing engine" onClick={() => void suggestPrice(l.key, l.inventory_item_id, l.qty_ordered, true)} style={{ ...btnSecondary, padding: "2px 6px", fontSize: 12 }}>↻</button>}
+                    </div>
+                    {priceSrc[l.key] && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>from {priceSrc[l.key]}</div>}
+                  </td>
                   <td style={td}>{editable && lines.length > 1 && <button type="button" onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}</td>
                 </tr>
               ))}

@@ -1,6 +1,6 @@
 # M43 — Pricing Engine architecture
 
-**Status:** Chunk A (backend) shipped #792. Chunk B (admin UI: Price Lists + Promotions panels + customer assignment, h579–h584) shipped #793. Chunk C (SO/AR auto-fill) ahead.
+**Status:** ✅ COMPLETE. A (backend) #792 · B (admin UI: Price Lists + Promotions panels + customer assignment, h579–h584) #793 · C (internal Sales-Order line price auto-fill — resolve endpoint accepts a SKU `item_id`→style; prefills the unit price, editable, with a ↻ re-pull + source-list hint) #794. AR-invoice auto-fill + matrix-entry auto-fill remain fast-follows.
 
 ## Why
 Internal SO/AR prices were 100% manual typing; the only structured prices lived in the interim, style-level `b2b_price_list` (#719, *"placeholder until M43"*), used only by the B2B portal. M43 makes pricing real and unifies staff + portal on one engine.
