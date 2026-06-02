@@ -42,14 +42,25 @@ export default function SettingsView() {
 
 function MasterCard({ kind, title, description, placeholder, entries }: { kind: MasterKind; title: string; description: string; placeholder: string; entries: MasterEntry[] }) {
   const add    = useCostingStore((s) => s.addMaster);
+  const update = useCostingStore((s) => s.updateMaster);
   const remove = useCostingStore((s) => s.deleteMaster);
   const [draft, setDraft] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
   const onAdd = async () => {
     const v = draft.trim();
     if (!v) return;
     await add(kind, v);
     setDraft("");
+  };
+
+  const startEdit = (e: MasterEntry) => { setEditId(e.id); setEditText(e.name); };
+  const cancelEdit = () => { setEditId(null); setEditText(""); };
+  const saveEdit = async () => {
+    const v = editText.trim();
+    if (v && editId) await update(kind, editId, v);
+    cancelEdit();
   };
 
   return (
@@ -89,18 +100,70 @@ function MasterCard({ kind, title, description, placeholder, entries }: { kind: 
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {entries.map((e) => (
           <div key={e.id} style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
             background: "#0F172A", border: "1px solid #1F2937", borderRadius: 4, padding: "5px 8px",
           }}>
-            <span style={{ fontSize: 12, color: "#E2E8F0" }}>{e.name}</span>
-            <button
-              onClick={() => appConfirm(`Remove "${e.name}"?`, "Remove", () => remove(kind, e.id))}
-              style={{
-                background: "transparent", color: "#EF4444",
-                border: "1px solid #EF4444", borderRadius: 3,
-                padding: "1px 8px", cursor: "pointer", fontSize: 11,
-              }}
-            >×</button>
+            {editId === e.id ? (
+              <>
+                <input
+                  autoFocus
+                  value={editText}
+                  onChange={(ev) => setEditText(ev.target.value)}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter") saveEdit();
+                    if (ev.key === "Escape") cancelEdit();
+                  }}
+                  style={{
+                    flex: 1, background: "#0F172A", color: "#E2E8F0",
+                    border: "1px solid #334155", borderRadius: 4, padding: "3px 6px",
+                    fontSize: 12, outline: "none",
+                  }}
+                />
+                <button
+                  onClick={saveEdit}
+                  disabled={!editText.trim()}
+                  style={{
+                    background: "#10B981", color: "#fff", border: "none",
+                    borderRadius: 3, padding: "2px 8px",
+                    cursor: editText.trim() ? "pointer" : "not-allowed",
+                    fontSize: 11, fontWeight: 600, opacity: editText.trim() ? 1 : 0.55,
+                  }}
+                >Save</button>
+                <button
+                  onClick={cancelEdit}
+                  style={{
+                    background: "transparent", color: "#94A3B8",
+                    border: "1px solid #334155", borderRadius: 3,
+                    padding: "2px 8px", cursor: "pointer", fontSize: 11,
+                  }}
+                >Cancel</button>
+              </>
+            ) : (
+              <>
+                <span
+                  onClick={() => startEdit(e)}
+                  title="Click to edit"
+                  style={{ flex: 1, fontSize: 12, color: "#E2E8F0", cursor: "pointer" }}
+                >{e.name}</span>
+                <button
+                  onClick={() => startEdit(e)}
+                  title="Edit"
+                  style={{
+                    background: "transparent", color: "#60A5FA",
+                    border: "1px solid #60A5FA", borderRadius: 3,
+                    padding: "1px 8px", cursor: "pointer", fontSize: 11,
+                  }}
+                >Edit</button>
+                <button
+                  onClick={() => appConfirm(`Remove "${e.name}"?`, "Remove", () => remove(kind, e.id))}
+                  style={{
+                    background: "transparent", color: "#EF4444",
+                    border: "1px solid #EF4444", borderRadius: 3,
+                    padding: "1px 8px", cursor: "pointer", fontSize: 11,
+                  }}
+                >×</button>
+              </>
+            )}
           </div>
         ))}
       </div>
