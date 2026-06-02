@@ -1,6 +1,6 @@
 # 31. Pricing Engine — Price Lists & Promotions (M43)
 
-> **M43 status (2026-06-02):** engine + B2B unify shipped #792; admin UI (this chapter) shipped #793. Internal Sales-Order / AR price **auto-fill** lands in a follow-up (Chunk C). The engine replaces the interim B2B price list — staff pricing and the B2B portal now resolve through **one** engine.
+> **M43 status (2026-06-02):** ✅ shipped — engine + B2B unify (#792), admin UI (#793), and **Sales-Order line price auto-fill** (#794). The engine replaces the interim B2B price list — staff pricing and the B2B portal now resolve through **one** engine.
 
 The Pricing Engine answers a single question everywhere a price is needed: **"what does this customer pay for this style, at this quantity, on this date?"** You manage it from two panels under the new **💲 Pricing** nav group.
 
@@ -43,9 +43,9 @@ Customer Master → edit a customer → **Reps & Defaults** tab → **Price list
 ## 31.5 Where it's used today
 
 - **B2B portal** — the catalog and order-create already resolve through this engine (no change for buyers; prices now come from your price lists instead of the old B2B price-list table).
-- **Internal Sales Orders / AR** — a follow-up chunk will pre-fill the suggested unit price on each line from this engine (still editable). Until then, the engine powers the B2B portal and the `GET /api/internal/pricing/resolve` check endpoint.
+- **Internal Sales Orders** — picking a style on an SO line now **auto-fills the suggested unit price** from the engine (using the line's customer + SKU + quantity). It only fills an empty price box, so your manual entries/edits are never overwritten; the **↻** button beside the price re-pulls on demand, and a small "from <list>" hint shows which list the price came from.
 
 ## What's NOT yet usable
-- **SO/AR auto-fill** — ships in Chunk C; until then staff still type SO/AR line prices manually.
+- **AR-invoice auto-fill** and **matrix-entry auto-fill** — fast-follows; AR lines + the size-grid SO entry still take a typed price (use ↻ on the resulting SO lines).
 - **Size-level prices, multi-currency, promotion stacking, cost-plus auto-pricing** — out of scope for v1 (see `../M43-pricing-engine-architecture.md`).
 - Setting a customer's price list on the **create** screen isn't persisted yet — create the customer first, then edit to assign the list.
