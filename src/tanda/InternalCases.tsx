@@ -677,13 +677,13 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
             value={customerId || null}
             onChange={(v) => setCustomerId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...customers.map((c) => ({
                 value: c.id,
                 label: (c.code ? `${c.code} — ` : "") + c.name,
               })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
         <Field label="Severity">

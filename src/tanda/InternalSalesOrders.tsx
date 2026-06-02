@@ -407,8 +407,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </Field>
           <Field label="Ship-to location">
             <SearchableSelect value={shipToLocationId || null} onChange={(v) => setShipToLocationId(v)}
-              options={[{ value: "", label: "(none — default)" }, ...shipTos.map((s) => ({ value: s.id, label: s.code ? `${s.code} — ${s.name}` : s.name }))]}
-              placeholder={customerId ? "(none — default)" : "(pick customer first)"} disabled={!editable || !customerId} />
+              options={[{ value: "", label: "(select)" }, ...shipTos.map((s) => ({ value: s.id, label: s.code ? `${s.code} — ${s.name}` : s.name }))]}
+              placeholder={customerId ? "(select)" : "(pick customer first)"} disabled={!editable || !customerId} />
           </Field>
           <Field label="SO number"><input type="text" value={so?.so_number || ""} readOnly disabled placeholder="(assigned on confirm)" style={{ ...inputStyle, opacity: 0.6 }} /></Field>
         </div>
@@ -430,7 +430,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </Field>
           <Field label="Channel">
             <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v)}
-              options={[{ value: "", label: "(none)" }, ...channels.map((c) => ({ value: c.id, label: c.code ? `${c.code} — ${c.name}` : c.name }))]} placeholder="(none)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.code ? `${c.code} — ${c.name}` : c.name }))]} placeholder="(select)" disabled={!editable} />
           </Field>
         </div>
 
@@ -517,7 +517,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                   <td style={td}>{idx + 1}</td>
                   <td style={td}>
                     <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateLine(idx, { inventory_item_id: v })}
-                      options={[{ value: "", label: "(none)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
+                      options={[{ value: "", label: "(select)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
                       placeholder="(pick style…)" disabled={!editable} />
                   </td>
                   <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateLine(idx, { qty_ordered: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0" style={numInputStyle} /></td>

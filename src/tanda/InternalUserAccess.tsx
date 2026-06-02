@@ -275,7 +275,7 @@ export default function InternalUserAccess() {
                       value={selected.role_id || ""}
                       onChange={(e) => void changeRole(e.target.value)}
                     >
-                      {!selected.role_id && <option value="">(none)</option>}
+                      {!selected.role_id && <option value="">(select)</option>}
                       {data.roles.map((r) => (
                         <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
