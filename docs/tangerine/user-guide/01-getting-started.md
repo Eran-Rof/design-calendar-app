@@ -108,8 +108,9 @@ flowchart LR
 - **Top-left:** Tangerine logo + "ERP" subtitle. Click anywhere on the logo to return to the home landing.
 - **Center:** 7 group buttons. Click a group to expand a dropdown of its modules. The group whose currently-active module you're on is highlighted. Click outside or press <kbd>Esc</kbd> to close without selecting.
 - **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Vendor Portal). Clicking any link navigates the browser to that app's URL in the same tab.
+- **📈 Planning (M31):** the standalone Inventory Planning app (forecasting, supply reconciliation, scenarios, accuracy, execution) is surfaced as a first-class **📈 Planning** link in the top nav and as a **Planning (M31)** section on the home landing that deep-links each screen (Wholesale / Ecom / Supply / Scenarios / Accuracy / Execution) — opening in a new tab. It appears only for users with the shared **planning** access permission. Note: Planning still reads its own Xoro/Shopify-backed data; it is not yet wired to live Tangerine sales/inventory/PO data.
 
-**Home landing** (when no module is selected, e.g. just after login): shows module cards organized by the same group structure (Master Data / Accounting / Inventory / etc.), plus a "Other apps in the suite" grid at the bottom.
+**Home landing** (when no module is selected, e.g. just after login): shows module cards organized by the same group structure (Master Data / Accounting / Inventory / Planning / etc.), plus a "Other apps in the suite" grid at the bottom.
 
 ![Tangerine top nav and home landing](screenshots/01-tangerine-home.png)
 <!-- screenshot needed: /tangerine landing page showing top nav + module cards + apps grid -->
