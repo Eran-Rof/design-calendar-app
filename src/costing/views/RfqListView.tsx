@@ -188,6 +188,7 @@ export default function RfqListView() {
               <Th align="right">Lines</Th>
               <Th align="right">Est Qty</Th>
               <Th align="right">Est Budget</Th>
+              <Th align="right">Target Cost</Th>
               <Th>Status</Th>
               <Th>Due</Th>
               <Th>Created</Th>
@@ -196,7 +197,7 @@ export default function RfqListView() {
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={12} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+              <tr><td colSpan={13} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
                 {q || status ? "No RFQs match the filter." : "No RFQs yet — generate one from a Costing project."}
               </td></tr>
             )}
@@ -228,6 +229,7 @@ export default function RfqListView() {
                   <Td align="right">{r.line_count}</Td>
                   <Td align="right">{typeof r.estimated_quantity === "number" ? fmtQty.format(r.estimated_quantity) : "—"}</Td>
                   <Td align="right">{typeof r.estimated_budget === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.estimated_budget)}` : "—"}</Td>
+                  <Td align="right">{typeof r.target_cost === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.target_cost)}` : "—"}</Td>
                   <Td>
                     <span style={{ background: sc.bg, color: sc.fg, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
                       {r.status}
