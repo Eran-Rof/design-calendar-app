@@ -3,7 +3,15 @@
 > **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), C1 Receiving + Bookkeeper Approval (#801), **Wave C (#804): QC Inspections, Customs Entries, Broker Invoices, 3-Way Match**. C5 Reconciliation inbox + open-commitments report + close pre-flight (#805). P13 build complete; remaining = operator per-vendor cutover. This chapter covers the **💲 Procurement** nav group.
 
 ## 32.4 QC Inspections (`Procurement → 🔍 QC Inspections`)
-Inspect a **posted** receipt: record pass/partial/fail with an overall pass-rate and per-finding detail (category, severity minor/major/critical, qty affected, description). Optionally adjust the receipt lines' accepted/rejected qty. *(The vendor-RMA / credit / write-off / rework disposition workflow with its GL effects is a later chunk — QC currently records the inspection only.)*
+Inspect a **posted** receipt: record pass/partial/fail with an overall pass-rate and per-finding detail (category, severity minor/major/critical, qty affected, description). Optionally adjust the receipt lines' accepted/rejected qty.
+
+**Dispositions** (in the inspection editor, **⚖️ Record disposition** — pick the receipt line, qty, and reason):
+- **Write-off** → posts **DR Inventory Write-off (6420) / CR Inventory** and draws the units from FIFO stock (via an `inventory_adjustments` write-off row).
+- **Vendor credit only** → FIFO-consumes the units, creates a `vendor_credit_memo` AP invoice, and posts **DR AP (vendor) / CR Inventory** at the units' FIFO cost.
+- **Vendor RMA** → recorded only (goods returned; the AP credit is settled when the vendor processes the RMA — no GL here).
+- **Rework in-house** → recorded only (units move to rework; no GL value change).
+
+Recorded dispositions list under the findings with their GL status.
 
 ## 32.5 Customs Entries (`Procurement → 🛃 Customs Entries`)
 Record a CBP entry (entry #, date, port, broker) with per-line HTS code, country of origin, entered value, duty rate/amount, §301, MPF/HMF. Header money totals are auto-summed from the lines. Duty is capitalized into FIFO layers when you post the linked **broker invoice** (§32.6) — link the customs entry to the broker invoice so its `revaluation_je_id` is stamped.
@@ -66,11 +74,15 @@ A read-only dashboard of the procurement states that block a clean period close:
 
 The **period-close pre-flight** (Periods → Run checks, and the close itself) now enforces the same: unresolved 3-way matches and stale customs **block** the close; failed QC is a warning. All counts are zero until procurement data exists.
 
+## P13 GL posting program — ✅ COMPLETE
+All four deferred procurement journal entries now post:
+- **C1 (Receipt GRNI JE)** — receiving posts DR Inventory / CR GR/IR-goods (2050) / CR Accrued-Landed (2150) (§32.2).
+- **C2 (Matched vendor AP clears GR/IR)** — a within-tolerance 3-way match auto-posts DR GR/IR (2050) / DR-CR PO Variance (6320) / CR AP, with no second inventory layer (§32.7).
+- **C4 (Landed-cost revaluation)** — posting a broker invoice revalues the receipt's remaining FIFO layers up + expenses the sold-units' share to Landed Cost Variance (5150), booking the broker AP bill (§32.6).
+- **C3 (QC dispositions)** — write-off (6420), vendor credit memo, RMA, rework (§32.4).
+
+Today native POs = 0, so there is no live impact; during the parallel run, P9 reconciliation covers variances.
+
 ## What's NOT yet usable (deferred to later P13 chunks)
 - **Receiving against mirrored Xoro POs** — C1 is native-PO only.
-- **GL Chunk 1 (Receipt GRNI JE) ✅ shipped** — receiving posts the GR/IR journal entry (§32.2).
-- **GL Chunk 2 (Matched vendor AP clears GR/IR) ✅ shipped** — a within-tolerance 3-way match auto-posts DR GR/IR (2050) / DR-CR PO Variance (6320) / CR AP, with no second inventory layer (§32.7).
-- **GL Chunk 4 (Landed-cost revaluation) ✅ shipped** — posting a broker invoice capitalizes its cost onto the receipt's remaining FIFO layers + expenses the sold-units' share to Landed Cost Variance (5150), booking the broker AP bill (§32.6). Remaining GL follow-up:
-  - **QC disposition GL effects** — write-off (6420), vendor credit memo, rework move — **GL Chunk 3** (in progress).
-  - Today native POs = 0, so there is no live double-count; during the parallel run, P9 reconciliation covers variances.
 - **OCR vendor-invoice ingestion** — manual entry first (per D14).

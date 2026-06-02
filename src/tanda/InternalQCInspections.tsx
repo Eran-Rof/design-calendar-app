@@ -39,6 +39,8 @@ type Inspection = {
   findings_count?: number;
 };
 type Receipt = { id: string; purchase_order_id: string | null; receipt_date: string; status: string; purchase_order?: { po_number: string | null } | null };
+type Disp = { id: string; disposition: string; qty: number; reason: string; je_id: string | null; status: string };
+type ReceiptLine = { id: string; qty_accepted: number | string; purchase_order_line?: { description: string | null; inventory_item_id: string | null } | null };
 type PO = { id: string; po_number: string | null };
 type Employee = { id: string; name?: string; full_name?: string; first_name?: string; last_name?: string };
 type Finding = { id?: string; category: string; severity: string; qty_affected: number | string; description: string; resolution: string | null };
@@ -180,6 +182,8 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
   const [passRate, setPassRate] = useState(inspection?.overall_pass_rate != null && inspection?.overall_pass_rate !== "" ? (Number(inspection.overall_pass_rate) * 100).toFixed(2) : "");
   const [notes, setNotes] = useState(inspection?.notes || "");
   const [findings, setFindings] = useState<FRow[]>([]);
+  const [dispositions, setDispositions] = useState<Disp[]>([]);
+  const [dispOpen, setDispOpen] = useState(false);
 
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -212,7 +216,16 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
         resolution: f.resolution || "",
       })));
     }).catch(() => {});
+    void loadDispositions();
   }, [isNew, inspection]);
+
+  function loadDispositions() {
+    if (!savedId) return Promise.resolve();
+    return fetch(`/api/internal/procurement/qc/dispositions?inspection_id=${savedId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((a) => setDispositions(Array.isArray(a) ? a as Disp[] : []))
+      .catch(() => {});
+  }
 
   function addFinding() { setFindings((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, category: "", severity: "minor", qty_affected: "0", description: "", resolution: "" }]); }
   function updateFinding(idx: number, patch: Partial<FRow>) { setFindings((p) => p.map((f, i) => i === idx ? { ...f, ...patch } : f)); }
@@ -370,11 +383,34 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
           </div>
         </div>
 
-        {/* Future-chunk note — disposition workflow is out of scope here. */}
-        <div style={{ border: `1px dashed ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12, color: C.textMuted }}>
-          Disposition workflow (vendor RMA / credit / write-off / rework) + write-off/credit GL posting: future chunk.
-          This panel records QC results only and posts no journal entries.
-        </div>
+        {/* Dispositions — act on a QC fail with its GL effect. */}
+        {savedId && receiptId && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Dispositions</div>
+              <button onClick={() => setDispOpen(true)} style={btnSecondary}>⚖️ Record disposition</button>
+            </div>
+            {dispositions.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.textMuted }}>
+                None yet. <b>Write-off</b> posts DR Inventory Write-off (6420) / CR Inventory; <b>vendor credit</b> posts DR AP / CR Inventory + a credit memo; <b>RMA</b> &amp; <b>rework</b> are recorded only.
+              </div>
+            ) : (
+              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", fontSize: 12 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={th}>Disposition</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={th}>Reason</th><th style={th}>GL</th></tr></thead>
+                  <tbody>{dispositions.map((d) => (
+                    <tr key={d.id}>
+                      <td style={td}>{d.disposition}</td>
+                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{d.qty}</td>
+                      <td style={td}>{d.reason}</td>
+                      <td style={td}>{d.je_id ? <span style={{ color: C.success }}>posted</span> : d.status}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
@@ -386,6 +422,93 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
             <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
             <button onClick={() => void saveInspection()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : (savedId ? "Save inspection" : "Create inspection")}</button>
           </div>
+        </div>
+      </div>
+      {dispOpen && savedId && (
+        <DispositionModal
+          inspectionId={savedId}
+          receiptId={receiptId}
+          onClose={() => setDispOpen(false)}
+          onPosted={() => { setDispOpen(false); void loadDispositions(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const DISPOSITIONS = [
+  { value: "write_off", label: "Write-off (DR 6420 / CR Inventory)" },
+  { value: "vendor_credit_only", label: "Vendor credit (DR AP / CR Inventory)" },
+  { value: "vendor_rma", label: "Vendor RMA (record only)" },
+  { value: "rework_inhouse", label: "Rework in-house (record only)" },
+];
+
+function DispositionModal({ inspectionId, receiptId, onClose, onPosted }: { inspectionId: string; receiptId: string; onClose: () => void; onPosted: () => void }) {
+  const [lines, setLines] = useState<ReceiptLine[]>([]);
+  const [receiptLineId, setReceiptLineId] = useState("");
+  const [disposition, setDisposition] = useState("write_off");
+  const [qty, setQty] = useState("");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/internal/procurement/receipts/${receiptId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((full) => setLines(full && Array.isArray(full.lines) ? full.lines as ReceiptLine[] : []))
+      .catch(() => {});
+  }, [receiptId]);
+
+  async function post() {
+    if (!receiptLineId) { setErr("Pick the receipt line (SKU) being disposed."); return; }
+    const q = Math.round(Number(qty));
+    if (!Number.isFinite(q) || q <= 0) { setErr("Qty must be a positive integer."); return; }
+    if (!reason.trim()) { setErr("A reason is required."); return; }
+    setSubmitting(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/procurement/qc/dispositions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspection_id: inspectionId, receipt_line_id: receiptLineId, disposition, qty: q, reason: reason.trim() }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify("Disposition recorded.", "success");
+      onPosted();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  function lineLabel(l: ReceiptLine): string {
+    const desc = l.purchase_order_line?.description || `Line ${String(l.id).slice(0, 8)}`;
+    return `${desc} · accepted ${l.qty_accepted}`;
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Record disposition</h3>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
+          Write-off and vendor-credit post a journal entry immediately and draw the units from FIFO stock; RMA and rework are recorded only.
+        </div>
+        <div style={{ display: "grid", gap: 10 }}>
+          <Field label="Receipt line (SKU)">
+            <select value={receiptLineId} onChange={(e) => setReceiptLineId(e.target.value)} style={inputStyle}>
+              <option value="">— pick a line —</option>
+              {lines.map((l) => <option key={l.id} value={l.id}>{lineLabel(l)}</option>)}
+            </select>
+          </Field>
+          <Field label="Disposition">
+            <select value={disposition} onChange={(e) => setDisposition(e.target.value)} style={inputStyle}>
+              {DISPOSITIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Qty"><input type="text" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="units" style={inputStyle} /></Field>
+          <Field label="Reason"><input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="why these units failed" style={inputStyle} /></Field>
+        </div>
+        {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "12px 0", fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void post()} style={btnPrimary} disabled={submitting}>{submitting ? "Recording…" : "Record disposition"}</button>
         </div>
       </div>
     </div>

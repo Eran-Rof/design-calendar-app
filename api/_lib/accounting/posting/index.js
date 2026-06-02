@@ -29,6 +29,7 @@ import { inventoryReceipt } from "./rules/inventoryReceipt.js";
 import { inventoryAdjustment } from "./rules/inventoryAdjustment.js";
 import { apInvoiceGrirMatch } from "./rules/apInvoiceGrirMatch.js";
 import { landedCostRevaluation } from "./rules/landedCostRevaluation.js";
+import { qcVendorCredit } from "./rules/qcVendorCredit.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -56,6 +57,7 @@ const RULE_BY_KIND = {
   inventory_adjustment:  inventoryAdjustment,
   ap_invoice_grir_match: apInvoiceGrirMatch,
   landed_cost_revaluation: landedCostRevaluation,
+  qc_vendor_credit:      qcVendorCredit,
 };
 
 export class PostingError extends Error {
