@@ -1,6 +1,6 @@
 # 32. Procurement — Receiving & Bookkeeper Approval (P13)
 
-> **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), **C1 Receiving + Bookkeeper Approval (#800)**. **Ahead:** QC (C2), Customs/broker/landed-cost (C3), vendor-invoice 3-way match (C4), reconciliation inbox + close pre-flight (C5). This chapter covers the **💲 Procurement** nav group as it stands after C1.
+> **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), **C1 Receiving + Bookkeeper Approval (#801)**. **Ahead:** QC (C2), Customs/broker/landed-cost (C3), vendor-invoice 3-way match (C4), reconciliation inbox + close pre-flight (C5). This chapter covers the **💲 Procurement** nav group as it stands after C1.
 
 ## What P13 is
 P13 moves purchasing **into** Tangerine so Xoro's PO side can eventually be retired. Two PO models coexist during the parallel run:
