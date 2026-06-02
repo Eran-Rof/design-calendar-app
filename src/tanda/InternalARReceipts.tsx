@@ -25,6 +25,19 @@ import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.ar_receipts";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "date",      label: "Date" },
+  { key: "customer",  label: "Customer" },
+  { key: "amount",    label: "Amount" },
+  { key: "applied",   label: "Applied" },
+  { key: "unapplied", label: "Unapplied" },
+  { key: "method",    label: "Method" },
+  { key: "bank",      label: "Bank" },
+  { key: "status",    label: "Status" },
+];
 
 type ARReceipt = {
   id: string;
@@ -180,6 +193,7 @@ export default function InternalARReceipts() {
   const [addOpen, setAddOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const { getRowProps } = useRowClickEdit<ARReceipt>({
     onRowClick: (r) => setDetailId(r.id),
@@ -346,6 +360,14 @@ export default function InternalARReceipts() {
             { key: "source",          header: "Source" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <div style={{ marginLeft: "auto", fontSize: 12, color: C.textMuted }}>
           Active total: <strong style={{ color: C.text, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{fmtCents(totalCents.toString())}</strong>
         </div>
@@ -366,14 +388,14 @@ export default function InternalARReceipts() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Date</th>
-                <th style={th}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }}>Amount</th>
-                <th style={{ ...th, textAlign: "right" }}>Applied</th>
-                <th style={{ ...th, textAlign: "right" }}>Unapplied</th>
-                <th style={th}>Method</th>
-                <th style={th}>Bank</th>
-                <th style={th}>Status</th>
+                <th style={th} hidden={!visibleColumns.has("date")}>Date</th>
+                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("amount")}>Amount</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("applied")}>Applied</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unapplied")}>Unapplied</th>
+                <th style={th} hidden={!visibleColumns.has("method")}>Method</th>
+                <th style={th} hidden={!visibleColumns.has("bank")}>Bank</th>
+                <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
                 <th style={th}></th>
               </tr>
             </thead>
@@ -389,21 +411,21 @@ export default function InternalARReceipts() {
                     highlightedRowId={highlightedId}
                     {...getRowProps(r)}
                   >
-                    <td style={td}>{r.receipt_date}</td>
-                    <td style={td}>
+                    <td style={td} hidden={!visibleColumns.has("date")}>{r.receipt_date}</td>
+                    <td style={td} hidden={!visibleColumns.has("customer")}>
                       {cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : <span style={{ color: C.textMuted }}>—</span>}
                       <SourceBadge source={r.source} />
                     </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.amount_cents)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>{fmtCents(r.applied_cents || "0")}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: BigInt(r.unapplied_cents || "0") > 0n ? C.warn : C.textMuted }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }} hidden={!visibleColumns.has("amount")}>{fmtCents(r.amount_cents)}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }} hidden={!visibleColumns.has("applied")}>{fmtCents(r.applied_cents || "0")}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: BigInt(r.unapplied_cents || "0") > 0n ? C.warn : C.textMuted }} hidden={!visibleColumns.has("unapplied")}>
                       {fmtCents(r.unapplied_cents || "0")}
                     </td>
-                    <td style={td}>{r.customer_payment_method}</td>
-                    <td style={{ ...td, fontSize: 12, color: C.textSub }}>
+                    <td style={td} hidden={!visibleColumns.has("method")}>{r.customer_payment_method}</td>
+                    <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!visibleColumns.has("bank")}>
                       {bank ? `${bank.code} — ${bank.name}` : <span style={{ color: C.textMuted }}>—</span>}
                     </td>
-                    <td style={td}>
+                    <td style={td} hidden={!visibleColumns.has("status")}>
                       <span style={{ color: st.color, fontWeight: 500, fontSize: 12 }}>{st.label}</span>
                     </td>
                     <td style={td}>
