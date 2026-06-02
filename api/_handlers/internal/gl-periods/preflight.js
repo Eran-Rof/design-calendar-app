@@ -163,6 +163,52 @@ export function buildMarketplaceDepositsRow(snapshot) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// P13/C5 — Procurement close blockers (D16)
+// ─────────────────────────────────────────────────────────────────────────
+// Three procurement states that must be clean before a period closes:
+//   • unresolved vendor-invoice 3-way matches (variance / exception)
+//   • customs entries > 60d old with no broker invoice (landed cost unsettled)
+//   • QC inspections still failed (warning — disposition workflow is later)
+// Counted in JS (no migration); resilient to missing tables (treated as zero).
+// All entity-scoped. Returns an array of preflight rows.
+export async function buildProcurementRows(admin, period) {
+  const rows = [];
+  const safeCount = async (build) => {
+    try { const { count, error } = await build(); if (error) return 0; return typeof count === "number" ? count : 0; }
+    catch { return 0; }
+  };
+  const variances = await safeCount(() => admin.from("vendor_invoice_drafts")
+    .select("id", { count: "exact", head: true }).eq("entity_id", period.entity_id)
+    .in("three_way_match_status", ["variance", "exception"]));
+  rows.push(variances === 0
+    ? { check_name: "procurement_three_way_unresolved", status: "pass", detail: "No unresolved vendor-invoice 3-way matches", blocking: true }
+    : { check_name: "procurement_three_way_unresolved", status: "fail", detail: `${variances} vendor invoice(s) in variance/exception — resolve in 3-Way Match before close.`, blocking: true });
+
+  // Stale customs: > 60d old, no broker invoice. Two queries (resilient).
+  let staleCustoms = 0;
+  try {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 60);
+    const { data: ce } = await admin.from("customs_entries").select("id")
+      .eq("entity_id", period.entity_id).lt("entry_date", cutoff.toISOString().slice(0, 10));
+    if (ce && ce.length) {
+      const { data: bi } = await admin.from("broker_invoices").select("customs_entry_id").in("customs_entry_id", ce.map((x) => x.id));
+      const have = new Set((bi || []).map((b) => b.customs_entry_id));
+      staleCustoms = ce.filter((x) => !have.has(x.id)).length;
+    }
+  } catch { staleCustoms = 0; }
+  rows.push(staleCustoms === 0
+    ? { check_name: "procurement_stale_customs", status: "pass", detail: "No customs entries >60d awaiting a broker invoice", blocking: true }
+    : { check_name: "procurement_stale_customs", status: "fail", detail: `${staleCustoms} customs entr${staleCustoms === 1 ? "y" : "ies"} >60d old with no broker invoice (landed cost unsettled).`, blocking: true });
+
+  const qcFails = await safeCount(() => admin.from("tanda_po_qc_inspections")
+    .select("id", { count: "exact", head: true }).eq("entity_id", period.entity_id).eq("status", "failed"));
+  rows.push(qcFails === 0
+    ? { check_name: "procurement_qc_failed", status: "pass", detail: "No failed QC inspections awaiting disposition", blocking: false }
+    : { check_name: "procurement_qc_failed", status: "fail", detail: `${qcFails} failed QC inspection(s) awaiting disposition.`, blocking: false });
+  return rows;
+}
+
 // End-to-end: run the SQL RPC, then augment with the marketplace deposit
 // row. Returns the full row list plus the summary. Used both by this
 // handler and by the close handler.
@@ -182,6 +228,9 @@ export async function runPreflight(admin, period) {
     const snapshot = await countUnmatchedMarketplaceDeposits(admin, period);
     rows.push(buildMarketplaceDepositsRow(snapshot));
   }
+
+  // P13/C5 — procurement close blockers (D16).
+  try { rows.push(...(await buildProcurementRows(admin, period))); } catch { /* resilient */ }
 
   return { rows, summary: summarize(rows) };
 }

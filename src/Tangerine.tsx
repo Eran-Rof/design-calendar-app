@@ -45,6 +45,7 @@ import InternalQCInspections      from "./tanda/InternalQCInspections";
 import InternalCustomsEntries     from "./tanda/InternalCustomsEntries";
 import InternalBrokerInvoices     from "./tanda/InternalBrokerInvoices";
 import InternalThreeWayMatch      from "./tanda/InternalThreeWayMatch";
+import InternalProcurementRecon   from "./tanda/InternalProcurementRecon";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
@@ -181,6 +182,7 @@ type ModuleKey =
   | "customs_entries"
   | "broker_invoices"
   | "three_way_match"
+  | "procurement_recon"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -335,6 +337,7 @@ const MODULES: ModuleDef[] = [
   { key: "customs_entries",     label: "Customs Entries",   emoji: "🛃", group: "Procurement" },
   { key: "broker_invoices",     label: "Broker Invoices",   emoji: "🚢", group: "Procurement" },
   { key: "three_way_match",     label: "3-Way Match",       emoji: "⚖️", group: "Procurement" },
+  { key: "procurement_recon",   label: "Procurement Recon", emoji: "🧮", group: "Procurement" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
   { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
@@ -609,6 +612,7 @@ export default function Tangerine() {
         {activeModule === "customs_entries"   && <InternalCustomsEntries />}
         {activeModule === "broker_invoices"   && <InternalBrokerInvoices />}
         {activeModule === "three_way_match"   && <InternalThreeWayMatch />}
+        {activeModule === "procurement_recon" && <InternalProcurementRecon />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}

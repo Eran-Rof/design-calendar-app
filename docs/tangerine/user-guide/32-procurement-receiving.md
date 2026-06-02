@@ -1,6 +1,6 @@
 # 32. Procurement — Receiving & Bookkeeper Approval (P13)
 
-> **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), C1 Receiving + Bookkeeper Approval (#801), **Wave C (#804): QC Inspections, Customs Entries, Broker Invoices, 3-Way Match**. **Ahead:** C5 reconciliation inbox + open-commitments report + close pre-flight. This chapter covers the **💲 Procurement** nav group.
+> **Status (2026-06-02):** P13 completion program in flight. **Shipped:** C0 PO reconcile (#799), C1 Receiving + Bookkeeper Approval (#801), **Wave C (#804): QC Inspections, Customs Entries, Broker Invoices, 3-Way Match**. C5 Reconciliation inbox + open-commitments report + close pre-flight (#805). P13 build complete; remaining = operator per-vendor cutover. This chapter covers the **💲 Procurement** nav group.
 
 ## 32.4 QC Inspections (`Procurement → 🔍 QC Inspections`)
 Inspect a **posted** receipt: record pass/partial/fail with an overall pass-rate and per-finding detail (category, severity minor/major/critical, qty affected, description). Optionally adjust the receipt lines' accepted/rejected qty. *(The vendor-RMA / credit / write-off / rework disposition workflow with its GL effects is a later chunk — QC currently records the inspection only.)*
@@ -36,6 +36,15 @@ Records goods arriving against an **issued / in-transit** PO.
 Lists the rollup AP invoices (freight / duty / broker) created by receiving, held in `pending_bookkeeper_approval`.
 - **Approve** → releases the invoice to the normal **AP Invoices** workflow, where you post it to the GL with the existing (proven) AP posting flow. *(One-click approve-and-post is a planned enhancement.)*
 - **Reject** → requires a reason; voids the draft.
+
+## 32.8 Procurement Reconciliation (`Procurement → 🧮 Procurement Recon`)
+A read-only dashboard of the procurement states that block a clean period close:
+- **Open commitments by vendor** — remaining $ on issued POs not yet fully received (exportable).
+- **Unresolved 3-way matches** — vendor invoices in variance/exception.
+- **Stale customs entries** — entries >60 days old with no broker invoice (landed cost unsettled).
+- **Failed QC inspections.**
+
+The **period-close pre-flight** (Periods → Run checks, and the close itself) now enforces the same: unresolved 3-way matches and stale customs **block** the close; failed QC is a warning. All counts are zero until procurement data exists.
 
 ## What's NOT yet usable (deferred to later P13 chunks)
 - **Receiving against mirrored Xoro POs** — C1 is native-PO only.
