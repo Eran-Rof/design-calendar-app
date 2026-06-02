@@ -579,6 +579,19 @@ import h577 from "./internal/allocations/preview.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
+// M43 — Pricing admin: price lists, their items (qty breaks), promotions.
+//   h579 = GET/POST            /api/internal/price-lists
+//   h580 = GET/PATCH/DELETE    /api/internal/price-lists/:id
+//   h581 = GET/POST            /api/internal/price-list-items
+//   h582 = PATCH/DELETE        /api/internal/price-list-items/:id
+//   h583 = GET/POST            /api/internal/price-promotions
+//   h584 = GET/PATCH/DELETE    /api/internal/price-promotions/:id
+import h579 from "./internal/price-lists/index.js";
+import h580 from "./internal/price-lists/[id].js";
+import h581 from "./internal/price-list-items/index.js";
+import h582 from "./internal/price-list-items/[id].js";
+import h583 from "./internal/price-promotions/index.js";
+import h584 from "./internal/price-promotions/[id].js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -974,6 +987,13 @@ export const ROUTES = [
   { pattern: "/api/internal/allocations",                     handler: h576 },
   // M43 — Pricing Engine resolve (suggested unit price).
   { pattern: "/api/internal/pricing/resolve",                 handler: h578 },
+  // M43 — Pricing admin (:id before bare collection).
+  { pattern: "/api/internal/price-lists/:id",                 handler: h580 },
+  { pattern: "/api/internal/price-lists",                     handler: h579 },
+  { pattern: "/api/internal/price-list-items/:id",            handler: h582 },
+  { pattern: "/api/internal/price-list-items",                handler: h581 },
+  { pattern: "/api/internal/price-promotions/:id",            handler: h584 },
+  { pattern: "/api/internal/price-promotions",                handler: h583 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },

@@ -24,7 +24,8 @@ import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalSizeScales         from "./tanda/InternalSizeScales";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
-import InternalB2BPriceList       from "./tanda/InternalB2BPriceList";
+import InternalPriceLists         from "./tanda/InternalPriceLists";
+import InternalPromotions         from "./tanda/InternalPromotions";
 import InternalCountries          from "./tanda/InternalCountries";
 import InternalGenders            from "./tanda/InternalGenders";
 import InternalStyleClassifications from "./tanda/InternalStyleClassifications";
@@ -139,6 +140,7 @@ type ModuleKey =
   // P18-F — internal B2B admin (buyers + wholesale price list).
   | "b2b_accounts"
   | "b2b_price_list"
+  | "pricing_promotions"
   | "gl_accounts"
   | "gl_periods"
   | "journal_entries"
@@ -264,7 +266,9 @@ const MODULES: ModuleDef[] = [
   { key: "size_scales",          label: "Size Scales",        emoji: "📏", group: "Master Data" },
   // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
   { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
-  { key: "b2b_price_list", label: "B2B Price List", emoji: "🏷️", group: "Customers" },
+  // M43 — Pricing Engine admin (price lists supersede the interim B2B price list).
+  { key: "b2b_price_list",     label: "Price Lists", emoji: "🏷️", group: "Pricing" },
+  { key: "pricing_promotions", label: "Promotions",  emoji: "🎁", group: "Pricing" },
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
   { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
@@ -567,7 +571,8 @@ export default function Tangerine() {
         {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "size_scales"          && <InternalSizeScales />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
-        {activeModule === "b2b_price_list"       && <InternalB2BPriceList />}
+        {activeModule === "b2b_price_list"       && <InternalPriceLists />}
+        {activeModule === "pricing_promotions"   && <InternalPromotions />}
         {activeModule === "gl_accounts"       && <InternalCOA />}
         {activeModule === "gl_periods"        && <InternalPeriods />}
         {activeModule === "journal_entries"   && <InternalJournalEntry />}
