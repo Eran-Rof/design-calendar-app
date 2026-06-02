@@ -27,7 +27,7 @@ Brand/channel scoping (`applyBrandScope`), entity scoping, T11 audit (`audit_row
 ## Out of scope (later phases)
 SO demand → Planning is **P17** (consumes SO via ATS). EDI order intake is **P22**. B2B self-service order placement is **P18**.
 
-## M18 Allocations Workbench (#778)
+## M18 Allocations Workbench (#788)
 Standalone `Sales → Allocations` screen (`src/tanda/InternalAllocations.tsx`) — the cross-SO allocation surface the per-SO `📦 Allocate stock` button (#725) couldn't provide.
 
 - **Data (`v_allocation_demand`):** one row per manageable open SO line (confirmed/allocated/fulfilling, not split-parent, not fully shipped), carrying `is_factored` / `has_card` + factor fields. The GET handler joins it with `v_inventory_available` (on-hand / reserved / available per item). The grid groups **style/color rollup → SKU (size) → competing SO lines**; the rollup is a *view* only — allocation always resolves at size-level SKU, so a style/color target can never allocate sizes with zero stock.
