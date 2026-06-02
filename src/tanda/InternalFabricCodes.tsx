@@ -298,7 +298,7 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
   // picker can render the current selection.
   const countryOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...countries.map((c) => ({
         value: c.iso2,
         label: `${c.iso2} — ${c.name}`,
@@ -427,7 +427,7 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
               onChange={(e) => setForm({ ...form, default_vendor_id: e.target.value })}
               style={inputStyle as React.CSSProperties}
             >
-              <option value="">(none)</option>
+              <option value="">(select)</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </Field>

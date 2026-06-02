@@ -338,7 +338,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                   <td style={td}>{idx + 1}</td>
                   <td style={td}>
                     <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateLine(idx, { inventory_item_id: v })}
-                      options={[{ value: "", label: "(none)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
+                      options={[{ value: "", label: "(select)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
                       placeholder="(pick style…)" disabled={!editable} />
                   </td>
                   <td style={td}><input type="text" value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} disabled={!editable} placeholder="optional" style={inputStyle} /></td>

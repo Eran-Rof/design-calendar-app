@@ -585,10 +585,10 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
                 value={customerId || null}
                 onChange={(v) => setCustomerId(v)}
                 options={[
-                  { value: "", label: "(none)" },
+                  { value: "", label: "(select)" },
                   ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
                 ]}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="Opportunity">
@@ -596,10 +596,10 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
                 value={oppId || null}
                 onChange={(v) => setOppId(v)}
                 options={[
-                  { value: "", label: "(none)" },
+                  { value: "", label: "(select)" },
                   ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
                 ]}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
           </div>
@@ -712,10 +712,10 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
             value={customerId || null}
             onChange={(v) => setCustomerId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
         <Field label="Opportunity">
@@ -723,10 +723,10 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
             value={oppId || null}
             onChange={(v) => setOppId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
       </div>
