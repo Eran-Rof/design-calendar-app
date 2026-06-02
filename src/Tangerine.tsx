@@ -59,7 +59,6 @@ import InternalNotificationPreferences from "./tanda/InternalNotificationPrefere
 import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalEmployeeTitles          from "./tanda/InternalEmployeeTitles";
 import InternalEmployeeDepartments     from "./tanda/InternalEmployeeDepartments";
-import InternalInventoryOnHand          from "./tanda/InternalInventoryOnHand";
 import InternalInventoryMatrix          from "./tanda/InternalInventoryMatrix";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
@@ -92,9 +91,11 @@ import BrandChannelSwitcher from "./components/BrandChannelSwitcher";
 // Cross-cutter T4-4 — Auto-landing redirect to operator's home_route.
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
-import InternalSalesReps               from "./tanda/InternalSalesReps";
 import InternalCommissionAccruals      from "./tanda/InternalCommissionAccruals";
 import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
+// Nav-reachable scorecard entry points (wrap the existing drill-through modals).
+import InternalVendorScorecard         from "./tanda/InternalVendorScorecard";
+import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -160,7 +161,6 @@ type ModuleKey =
   | "employees"
   | "employee_titles"
   | "employee_departments"
-  | "inventory_on_hand"
   | "inventory_matrix"
   | "purchase_orders"
   | "inventory_transfers"
@@ -186,7 +186,8 @@ type ModuleKey =
   | "marketplace_status"
   // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit).
   | "audit_log"
-  | "sales_reps"
+  | "vendor_scorecard"
+  | "customer_scorecard"
   | "commission_accruals"
   | "commission_payouts"
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
@@ -289,8 +290,9 @@ const MODULES: ModuleDef[] = [
   { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "🏦", group: "Accounting" },
   // P6-6: Per (bank_account, period) reconciliation report.
   { key: "bank_recon_report", label: "Recon Report",      emoji: "⚖️", group: "Accounting" },
-  // P7-6: M44 Sales Reps master + Commission Accruals + Commission Payouts.
-  { key: "sales_reps",            label: "Sales Reps",            emoji: "🧑‍💼", group: "Accounting" },
+  // P7-6: M44 Commission Accruals + Commission Payouts. (Sales Reps master
+  // removed — reps are managed as Employees; commission panels read the
+  // sales_reps table directly via /api/internal/sales-reps GET.)
   { key: "commission_accruals",   label: "Commission Accruals",   emoji: "💰", group: "Accounting" },
   { key: "commission_payouts",    label: "Commission Payouts",    emoji: "📜", group: "Accounting" },
   { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
@@ -301,7 +303,6 @@ const MODULES: ModuleDef[] = [
   // P16 — Employee Title + Department reference masters.
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
-  { key: "inventory_on_hand",   label: "On-Hand by Pool",   emoji: "📦", group: "Inventory" },
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
   { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
@@ -315,8 +316,9 @@ const MODULES: ModuleDef[] = [
   // Customer + GL Detail). AR items (incl. AR Aging) now live under the
   // "Customers – Accts Rec" group; the Reports menu group hosts these reports.
   { key: "ap_aging",          label: "AP Aging (report)", emoji: "📅", group: "Vendors" },
-  { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Reports" },
-  { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Reports" },
+  // Nav reorg: Sales by Rep → Sales section; Sales by Customer → Customers section.
+  { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Sales" },
+  { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Customers" },
   { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
   // P8-3 — M25 CRM panels under new 🤝 CRM nav group.
   { key: "crm_opportunities",   label: "Opportunities",     emoji: "💼", group: "CRM" },
@@ -333,6 +335,9 @@ const MODULES: ModuleDef[] = [
   { key: "audit_log",           label: "Audit Log",         emoji: "🕒", group: "Audit" },
   // P14-3b — RBAC User Access (role matrix + per-cell overrides).
   { key: "user_access",         label: "User Access",       emoji: "🔐", group: "Admin" },
+  // Nav-reachable scorecard entry points (also opened by the 📊 row buttons).
+  { key: "vendor_scorecard",    label: "Vendor Scorecard",   emoji: "📊", group: "Vendors" },
+  { key: "customer_scorecard",  label: "Customer Scorecard", emoji: "📊", group: "Customers" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -580,7 +585,6 @@ export default function Tangerine() {
         {activeModule === "employees"          && <InternalEmployees />}
         {activeModule === "employee_titles"      && <InternalEmployeeTitles />}
         {activeModule === "employee_departments" && <InternalEmployeeDepartments />}
-        {activeModule === "inventory_on_hand"    && <InternalInventoryOnHand />}
         {activeModule === "inventory_matrix"     && <InternalInventoryMatrix />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
@@ -605,9 +609,10 @@ export default function Tangerine() {
         {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
         {/* Cross-cutter T11-3 — Universal audit log admin panel */}
         {activeModule === "audit_log"           && <InternalAuditLog />}
-        {activeModule === "sales_reps"            && <InternalSalesReps />}
         {activeModule === "commission_accruals"   && <InternalCommissionAccruals />}
         {activeModule === "commission_payouts"    && <InternalCommissionPayouts />}
+        {activeModule === "vendor_scorecard"      && <InternalVendorScorecard />}
+        {activeModule === "customer_scorecard"    && <InternalCustomerScorecard />}
         {/* P14-3b — RBAC User Access admin panel */}
         {activeModule === "user_access"            && <InternalUserAccess />}
       </main>

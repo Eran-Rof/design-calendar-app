@@ -199,11 +199,14 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/crm/pipeline-report",   label: "Pipeline Report",   app: "tanda", route: "/tangerine?m=crm_pipeline_report", group: "CRM", icon: "📊" },
   // Reports
   { key: "tanda/reports/ap-aging",      label: "AP Aging",          app: "tanda", route: "/tangerine?m=ap_aging",          group: "Reports", icon: "📅" },
-  { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Reports", icon: "🧑‍💼" },
-  { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Reports", icon: "🤝" },
+  // Nav reorg: Sales by Rep moved to the Sales section; Sales by Customer to Customers.
+  { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Sales", icon: "🧑‍💼" },
+  { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Customers", icon: "🤝" },
   { key: "tanda/reports/gl-detail",     label: "GL Detail",         app: "tanda", route: "/tangerine?m=gl_detail",         group: "Reports", icon: "🔍" },
+  // Scorecards — nav-reachable entry points under Vendors / Customers.
+  { key: "tanda/vendors/scorecard",     label: "Vendor Scorecard",   app: "tanda", route: "/tangerine?m=vendor_scorecard",   group: "Vendors", icon: "📊" },
+  { key: "tanda/customers/scorecard",   label: "Customer Scorecard", app: "tanda", route: "/tangerine?m=customer_scorecard", group: "Customers", icon: "📊" },
   // Inventory
-  { key: "tanda/inventory/on-hand",      label: "On-Hand by Pool",   app: "tanda", route: "/tangerine?m=inventory_on_hand",  group: "Inventory", icon: "📦" },
   { key: "tanda/procurement/purchase-orders", label: "Purchase Orders", app: "tanda", route: "/tangerine?m=purchase_orders", group: "Inventory", icon: "📦" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tangerine?m=inventory_transfers", group: "Inventory", icon: "🔁" },
@@ -278,4 +281,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 7;
+export const MENU_KEYS_VERSION = 8;
