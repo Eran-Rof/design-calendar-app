@@ -13,6 +13,15 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const GENDERS_TABLE_KEY = "tangerine:genders:columns";
+const GENDER_COLUMNS: ColumnDef[] = [
+  { key: "code",       label: "Code" },
+  { key: "label",      label: "Label" },
+  { key: "sort_order", label: "Sort" },
+  { key: "is_active",  label: "Active" },
+];
 
 type Gender = {
   id: string;
@@ -62,6 +71,12 @@ export default function InternalGenders() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Gender | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    GENDERS_TABLE_KEY,
+    GENDER_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<Gender>({
     onRowClick: (r) => setEditing(r),
@@ -131,6 +146,13 @@ export default function InternalGenders() {
             { key: "is_active",  header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={GENDERS_TABLE_KEY}
+          columns={GENDER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -148,10 +170,10 @@ export default function InternalGenders() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Label</th>
-                <th style={{ ...th, textAlign: "right" }}>Sort</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("label")}>Label</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -164,10 +186,10 @@ export default function InternalGenders() {
                   {...getRowProps(g)}
                   style={!g.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{g.code}</td>
-                  <td style={td}>{g.label}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{g.sort_order}</td>
-                  <td style={td}>{g.is_active ? "yes" : "no"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{g.code}</td>
+                  <td style={td} hidden={!isVisible("label")}>{g.label}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{g.sort_order}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{g.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(g); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(g); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>

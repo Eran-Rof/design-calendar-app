@@ -1282,6 +1282,9 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       <Section title="Vendors">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
+          {/* External vendor-facing portal (separate Supabase auth) — open in a new tab. */}
+          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="🌐" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="📝" sublabel="External · new tab" />
         </div>
       </Section>
 
@@ -1407,5 +1410,40 @@ function ModuleCard({ module, onClick }: { module: ModuleDef; onClick: () => voi
       <div style={{ fontSize: 15, fontWeight: 600 }}>{module.label}</div>
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{module.group}</div>
     </button>
+  );
+}
+
+// External-link variant of ModuleCard: navigates to another app/route in a
+// NEW TAB (mirrors the ATS link added to the Inventory Matrix). Used for the
+// Vendor Portal + Vendor Onboarding entries, which live in the isolated
+// /vendor app (separate Supabase auth) and so must open standalone.
+function ExternalLinkCard({ href, label, emoji, sublabel }: { href: string; label: string; emoji: string; sublabel: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`${label} — opens in a new tab`}
+      style={{
+        background: C.card,
+        border: `1px solid ${C.cardBdr}`,
+        borderRadius: 10,
+        padding: 16,
+        textAlign: "left",
+        color: C.text,
+        cursor: "pointer",
+        textDecoration: "none",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        transition: "border-color 0.15s, transform 0.05s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.tangerine; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.cardBdr; }}
+    >
+      <div style={{ fontSize: 32 }}>{emoji}</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{label} <span style={{ fontSize: 12, color: C.textMuted }}>↗</span></div>
+      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{sublabel}</div>
+    </a>
   );
 }

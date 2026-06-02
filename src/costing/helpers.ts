@@ -16,15 +16,17 @@ const STATUS_LABEL: Record<CostingStatus, string> = {
   cancelled:   "Cancelled",
 };
 
-// Palette mirrors STATUS_CONFIG in src/utils/constants.ts so badges match
-// the visual language of ATS / Tanda / Design Calendar.
+// Dark-slate palette tuned for the ATS / Tanda / Tangerine app shell
+// (bg #0F172A, card #1E293B). Light-mode pastels were unreadable on the
+// dark background, so each status uses a translucent dark fill + a bright
+// foreground that reads against #0F172A / #1E293B.
 const STATUS_COLOR: Record<CostingStatus, { bg: string; fg: string; border: string }> = {
-  draft:       { bg: "#F3F4F6", fg: "#6B7280", border: "#D1D5DB" }, // Not Started gray
-  in_progress: { bg: "#FFFBEB", fg: "#B45309", border: "#FCD34D" }, // In Progress amber
-  quoted:      { bg: "#F5F3FF", fg: "#6D28D9", border: "#C4B5FD" }, // Review purple
-  awarded:     { bg: "#ECFDF5", fg: "#065F46", border: "#6EE7B7" }, // Approved green
-  closed:      { bg: "#D1FAE5", fg: "#047857", border: "#34D399" }, // Complete green
-  cancelled:   { bg: "#FEF2F2", fg: "#B91C1C", border: "#FCA5A5" }, // Delayed red
+  draft:       { bg: "#334155", fg: "#CBD5E1", border: "#475569" }, // Not Started slate
+  in_progress: { bg: "#78350F33", fg: "#FBBF24", border: "#B45309" }, // In Progress amber
+  quoted:      { bg: "#4C1D9533", fg: "#C4B5FD", border: "#6D28D9" }, // Review purple
+  awarded:     { bg: "#064E3B33", fg: "#6EE7B7", border: "#047857" }, // Approved green
+  closed:      { bg: "#065F4633", fg: "#34D399", border: "#059669" }, // Complete green
+  cancelled:   { bg: "#7F1D1D33", fg: "#FCA5A5", border: "#B91C1C" }, // Delayed red
 };
 
 export function statusLabel(s: CostingStatus): string { return STATUS_LABEL[s] || s; }

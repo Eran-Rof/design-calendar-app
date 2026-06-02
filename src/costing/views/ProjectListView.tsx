@@ -7,11 +7,17 @@
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates } from "../helpers";
-import { appConfirm, TH } from "../../utils/theme";
-import { Modal } from "../../components/Modal";
+import { appConfirm } from "../../utils/theme";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { stripExcelPrefix } from "../services/costingApi";
 import type { CostingProject } from "../types";
+
+// Canonical dark-slate palette (matches the Tangerine Internal* modals).
+const C = {
+  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
+  primary: "#3B82F6", inputBg: "#0b1220",
+};
 
 export default function ProjectListView() {
   const projects = useCostingStore((s) => s.projects);
@@ -151,48 +157,74 @@ export default function ProjectListView() {
       </div>
 
       {newModalOpen && (
-        <Modal title="New costing project" onClose={() => setNewModalOpen(false)}>
-          <div style={{ padding: "18px 32px 26px" }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: TH.textSub, marginBottom: 6, letterSpacing: ".04em", textTransform: "uppercase" }}>
-              Project name
-            </label>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) submitNew(); }}
-              placeholder='e.g. "BOYS 7/1 DDP QTN"'
-              autoFocus
-              style={{
-                width: "100%", padding: "9px 12px", fontSize: 14,
-                border: `1px solid ${TH.border}`, borderRadius: 6, outline: "none",
-                fontFamily: "inherit", color: TH.text, background: TH.surface,
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+        <div
+          onClick={() => { if (!creating) setNewModalOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: C.card, border: `1px solid ${C.cardBdr}`,
+              borderRadius: 10, padding: 0, width: "100%", maxWidth: 480,
+              color: C.text, boxShadow: "0 24px 60px rgba(0,0,0,0.55)",
+            }}
+          >
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "16px 20px", borderBottom: `1px solid ${C.cardBdr}`,
+            }}>
+              <span style={{ fontSize: 17, fontWeight: 700, color: C.text }}>New costing project</span>
               <button
-                onClick={() => setNewModalOpen(false)}
-                disabled={creating}
+                onClick={() => { if (!creating) setNewModalOpen(false); }}
+                style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 24, lineHeight: 1, padding: 2 }}
+              >×</button>
+            </div>
+            <div style={{ padding: "18px 20px 22px" }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 6, letterSpacing: ".06em", textTransform: "uppercase" }}>
+                Project name
+              </label>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) submitNew(); }}
+                placeholder='e.g. "BOYS 7/1 DDP QTN"'
+                autoFocus
                 style={{
-                  background: "transparent", color: TH.textSub,
-                  border: `1px solid ${TH.border}`, padding: "7px 18px",
-                  borderRadius: 6, cursor: creating ? "not-allowed" : "pointer",
-                  fontSize: 13, fontWeight: 500, fontFamily: "inherit",
+                  width: "100%", padding: "9px 12px", fontSize: 14, boxSizing: "border-box",
+                  border: `1px solid ${C.cardBdr}`, borderRadius: 6, outline: "none",
+                  fontFamily: "inherit", color: C.text, background: C.inputBg,
                 }}
-              >Cancel</button>
-              <button
-                onClick={submitNew}
-                disabled={!newName.trim() || creating}
-                style={{
-                  background: TH.primary, color: "#fff",
-                  border: "none", padding: "7px 18px",
-                  borderRadius: 6, cursor: (!newName.trim() || creating) ? "not-allowed" : "pointer",
-                  fontSize: 13, fontWeight: 600, fontFamily: "inherit",
-                  opacity: (!newName.trim() || creating) ? 0.55 : 1,
-                }}
-              >{creating ? "Creating…" : "Create"}</button>
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+                <button
+                  onClick={() => setNewModalOpen(false)}
+                  disabled={creating}
+                  style={{
+                    background: "transparent", color: C.textSub,
+                    border: `1px solid ${C.cardBdr}`, padding: "7px 18px",
+                    borderRadius: 6, cursor: creating ? "not-allowed" : "pointer",
+                    fontSize: 13, fontWeight: 500, fontFamily: "inherit",
+                  }}
+                >Cancel</button>
+                <button
+                  onClick={submitNew}
+                  disabled={!newName.trim() || creating}
+                  style={{
+                    background: C.primary, color: "#fff",
+                    border: "none", padding: "7px 18px",
+                    borderRadius: 6, cursor: (!newName.trim() || creating) ? "not-allowed" : "pointer",
+                    fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+                    opacity: (!newName.trim() || creating) ? 0.55 : 1,
+                  }}
+                >{creating ? "Creating…" : "Create"}</button>
+              </div>
             </div>
           </div>
-        </Modal>
+        </div>
       )}
     </div>
   );

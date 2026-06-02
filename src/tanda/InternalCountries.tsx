@@ -14,6 +14,15 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const COUNTRIES_TABLE_KEY = "tangerine:countries:columns";
+const COUNTRY_COLUMNS: ColumnDef[] = [
+  { key: "iso2",       label: "ISO2" },
+  { key: "name",       label: "Name" },
+  { key: "sort_order", label: "Sort" },
+  { key: "is_active",  label: "Active" },
+];
 
 type Country = {
   id: string;
@@ -63,6 +72,12 @@ export default function InternalCountries() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Country | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    COUNTRIES_TABLE_KEY,
+    COUNTRY_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<Country>({
     onRowClick: (r) => setEditing(r),
@@ -132,6 +147,13 @@ export default function InternalCountries() {
             { key: "is_active",  header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={COUNTRIES_TABLE_KEY}
+          columns={COUNTRY_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -149,10 +171,10 @@ export default function InternalCountries() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>ISO2</th>
-                <th style={th}>Name</th>
-                <th style={{ ...th, textAlign: "right" }}>Sort</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("iso2")}>ISO2</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -165,10 +187,10 @@ export default function InternalCountries() {
                   {...getRowProps(c)}
                   style={!c.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{c.iso2}</td>
-                  <td style={td}>{c.name}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{c.sort_order}</td>
-                  <td style={td}>{c.is_active ? "yes" : "no"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("iso2")}>{c.iso2}</td>
+                  <td style={td} hidden={!isVisible("name")}>{c.name}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{c.sort_order}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{c.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(c); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(c); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
