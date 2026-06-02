@@ -6,10 +6,13 @@
 // is rendered in the primary/active style — sticky visual feedback
 // across remounts.
 //
-// All math lives in ./dateRangePresets.ts (pure, unit-tested).
+// All math lives in ./dateRangePresetsMath.ts (pure, unit-tested).
+// NOTE: the math module is intentionally NOT named dateRangePresets.ts —
+// that differs from this file only by case and breaks vite/rollup on the
+// operator's case-insensitive (Windows) filesystem.
 
 import React from "react";
-import { DEFAULT_PRESETS, type Preset } from "./dateRangePresets.ts";
+import { DEFAULT_PRESETS, type Preset } from "./dateRangePresetsMath";
 
 type Props = {
   /** Current "from" value as YYYY-MM-DD (or empty). */

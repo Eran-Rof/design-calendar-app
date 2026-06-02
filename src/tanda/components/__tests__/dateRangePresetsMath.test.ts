@@ -13,7 +13,7 @@ import {
   startOfQuarter,
   endOfQuarter,
   DEFAULT_PRESETS,
-} from "../dateRangePresets";
+} from "../dateRangePresetsMath";
 
 // Anchor for most tests — Thu 2026-05-28 (Q2).
 const TODAY = new Date(2026, 4, 28); // month is 0-indexed; 4 = May
