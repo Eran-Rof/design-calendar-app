@@ -44,6 +44,10 @@ export default function VendorOnboarding() {
   const [wf, setWf] = useState<WorkflowResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Which step the operator is currently looking at. null = "follow the
+  // workflow's current step". Set when they click a completed/current step
+  // pill to go back and review (and optionally edit) previously entered data.
+  const [viewStep, setViewStep] = useState<StepName | null>(null);
 
   async function load() {
     setLoading(true);
@@ -77,6 +81,9 @@ export default function VendorOnboarding() {
       body: JSON.stringify(body),
     });
     await load();
+    // Saving snaps the view back to the workflow's (possibly advanced) current
+    // step so the operator resumes the natural flow after editing a past step.
+    setViewStep(null);
     return res;
   }
 
@@ -95,6 +102,15 @@ export default function VendorOnboarding() {
   const allDone = completedSet.size === ORDER.length;
   const progressPct = Math.round((completedSet.size / ORDER.length) * 100);
 
+  // Step-pill navigation: while the workflow is still editable, the operator
+  // can click any completed step (or the active current step) to go back and
+  // review/edit the data they entered. Steps they haven't reached yet stay
+  // locked — the server enforces the sequential rule anyway.
+  const editable = workflow.status !== "approved" && workflow.status !== "pending_review";
+  const canView = (name: StepName) => editable && (completedSet.has(name) || name === currentStepName);
+  const activeStep: StepName = viewStep && canView(viewStep) ? viewStep : currentStepName;
+  const reviewingPast = activeStep !== currentStepName;
+
   return (
     <div style={{ maxWidth: 900 }}>
       <h2 style={{ color: "#FFFFFF", fontSize: 22, margin: "0 0 6px" }}>Vendor onboarding</h2>
@@ -110,16 +126,34 @@ export default function VendorOnboarding() {
         {completedSet.size} of {ORDER.length} steps complete ({progressPct}%)
       </div>
 
-      {/* Step indicator */}
+      {/* Step indicator — click a completed/current pill to review that step. */}
       <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
         {ORDER.map((name, i) => {
           const done = completedSet.has(name);
           const current = name === currentStepName && !done && workflow.status !== "approved";
+          const clickable = canView(name);
+          const viewing = name === activeStep && editable;
           const bg = done ? "#047857" : current ? TH.primary : "rgba(255,255,255,0.12)";
           return (
-            <div key={name} style={{ padding: "6px 10px", borderRadius: 6, background: bg, color: "#FFFFFF", fontSize: 12, fontWeight: 600 }}>
+            <button
+              key={name}
+              type="button"
+              onClick={clickable ? () => setViewStep(name) : undefined}
+              disabled={!clickable}
+              aria-current={viewing ? "step" : undefined}
+              title={clickable ? `Review ${LABELS[name]}` : `${LABELS[name]} — not available yet`}
+              style={{
+                padding: "6px 10px", borderRadius: 6, background: bg, color: "#FFFFFF",
+                fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                // A constant-width transparent border keeps layout stable; the
+                // viewed pill gets a white ring so the operator sees where they are.
+                border: viewing ? "2px solid #FFFFFF" : "2px solid transparent",
+                cursor: clickable ? "pointer" : "default",
+                opacity: clickable ? 1 : 0.8,
+              }}
+            >
               {done ? "✓ " : `${i + 1}. `}{LABELS[name]}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -141,17 +175,30 @@ export default function VendorOnboarding() {
         </div>
       )}
 
-      {/* Current step form */}
-      {workflow.status !== "approved" && !allDone && (
-        <StepForm
-          stepName={currentStepName}
-          initial={(steps.find((s) => s.step_name === currentStepName)?.data || null) as Record<string, unknown> | null}
-          onSubmit={(payload) => submitStep(currentStepName, payload)}
-        />
+      {/* Active step form — the workflow's current step, or a completed step
+          the operator clicked back to. `key` forces a remount so each step's
+          form re-seeds from its own saved data. */}
+      {editable && ((viewStep && canView(viewStep)) || (!viewStep && !allDone)) && (
+        <>
+          {reviewingPast && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "rgba(255,255,255,0.06)", border: `1px solid ${TH.border}`, borderRadius: 8, marginBottom: 12, fontSize: 13, color: "rgba(255,255,255,0.85)" }}>
+              <span>Reviewing a completed step — saving here updates your submission.</span>
+              <button type="button" onClick={() => setViewStep(null)} style={{ ...btnSecondary, marginLeft: "auto", whiteSpace: "nowrap" }}>
+                Back to current step →
+              </button>
+            </div>
+          )}
+          <StepForm
+            key={activeStep}
+            stepName={activeStep}
+            initial={(steps.find((s) => s.step_name === activeStep)?.data || null) as Record<string, unknown> | null}
+            onSubmit={(payload) => submitStep(activeStep, payload)}
+          />
+        </>
       )}
 
-      {/* Submit-for-review button */}
-      {workflow.status !== "approved" && workflow.status !== "pending_review" && allDone && (
+      {/* Submit-for-review button (natural flow only, not while reviewing a past step) */}
+      {editable && allDone && !viewStep && (
         <div style={{ marginTop: 16 }}>
           <button onClick={() => void submitReview()} style={btnPrimary}>Submit for review</button>
         </div>

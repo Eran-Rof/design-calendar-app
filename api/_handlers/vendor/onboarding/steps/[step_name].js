@@ -178,8 +178,14 @@ export default async function handler(req, res) {
   const nextIdx = Math.min(stepIdx + 1, ALL_STEPS.length);
   const allDone = completedSteps.length === ALL_STEPS.length;
 
+  // current_step tracks the furthest point reached, so never let it regress.
+  // The portal lets a vendor click back to a completed step to edit it; without
+  // this guard, re-submitting an earlier step would bounce their progress
+  // marker back to just after that step.
+  const currentStep = Math.max(Number(workflow.current_step) || 0, nextIdx);
+
   const updates = {
-    current_step: nextIdx,
+    current_step: currentStep,
     completed_steps: completedSteps,
     updated_at: nowIso,
   };
