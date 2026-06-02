@@ -60,9 +60,21 @@ export default function VendorOnboarding() {
   useEffect(() => { void load(); }, []);
 
   async function submitStep(stepName: StepName, data: Record<string, unknown>) {
+    // The step API expects `skip` / `skip_reason` at the TOP LEVEL of the body
+    // (siblings of `data`), not nested inside it. The compliance-docs "I
+    // currently do not have any" affordance passes them through onSubmit
+    // alongside the step data, so hoist them out here — otherwise the server
+    // never sees skip:true, runs the required-docs check, and rejects with
+    // "N required compliance document(s) still need to be uploaded".
+    const { skip, skip_reason, ...stepData } = data || {};
+    const body: Record<string, unknown> = { data: stepData };
+    if (skip) {
+      body.skip = true;
+      if (skip_reason !== undefined) body.skip_reason = skip_reason;
+    }
     const res = await api<{ ok: boolean; workflow_status: string }>(`/api/vendor/onboarding/steps/${stepName}`, {
       method: "PUT",
-      body: JSON.stringify({ data }),
+      body: JSON.stringify(body),
     });
     await load();
     return res;
