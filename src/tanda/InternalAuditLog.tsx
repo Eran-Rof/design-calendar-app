@@ -21,6 +21,18 @@ import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.audit_log";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "time",      label: "Time" },
+  { key: "actor",     label: "Actor" },
+  { key: "entity",    label: "Entity" },
+  { key: "operation", label: "Operation" },
+  { key: "row_id",    label: "Row ID" },
+  { key: "reason",    label: "Reason" },
+  { key: "source",    label: "Source" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -230,6 +242,8 @@ export default function InternalAuditLog() {
 
   // Side panel
   const [selected, setSelected] = useState<Change | null>(null);
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   // Load employees once for the actor filter dropdown.
   useEffect(() => {
@@ -505,6 +519,14 @@ export default function InternalAuditLog() {
             { key: "correlation_id", header: "Correlation ID" },
           ]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
           <button
             type="button"
@@ -561,13 +583,13 @@ export default function InternalAuditLog() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Time</th>
-                <th style={th}>Actor</th>
-                <th style={th}>Entity</th>
-                <th style={th}>Operation</th>
-                <th style={th}>Row ID</th>
-                <th style={th}>Reason</th>
-                <th style={th}>Source</th>
+                <th style={th} hidden={!visibleColumns.has("time")}>Time</th>
+                <th style={th} hidden={!visibleColumns.has("actor")}>Actor</th>
+                <th style={th} hidden={!visibleColumns.has("entity")}>Entity</th>
+                <th style={th} hidden={!visibleColumns.has("operation")}>Operation</th>
+                <th style={th} hidden={!visibleColumns.has("row_id")}>Row ID</th>
+                <th style={th} hidden={!visibleColumns.has("reason")}>Reason</th>
+                <th style={th} hidden={!visibleColumns.has("source")}>Source</th>
               </tr>
             </thead>
             <tbody>
@@ -579,14 +601,14 @@ export default function InternalAuditLog() {
                   data-testid="audit-row"
                   data-row-id={r.id}
                 >
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("time")}>
                     <span title={r.changed_at}>{new Date(r.changed_at).toLocaleString()}</span>
                   </td>
-                  <td style={td}>{r.actor_display_name || "—"}</td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
+                  <td style={td} hidden={!visibleColumns.has("actor")}>{r.actor_display_name || "—"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }} hidden={!visibleColumns.has("entity")}>
                     {r.source_table}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("operation")}>
                     <span
                       style={{
                         background: opColor(r.operation),
@@ -601,13 +623,13 @@ export default function InternalAuditLog() {
                       {r.operation}
                     </span>
                   </td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11, color: C.textMuted }}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("row_id")}>
                     {r.source_id ? `${r.source_id.slice(0, 8)}…` : ""}
                   </td>
-                  <td style={{ ...td, fontStyle: r.reason ? "italic" : "normal", color: r.reason ? C.textSub : C.textMuted }}>
+                  <td style={{ ...td, fontStyle: r.reason ? "italic" : "normal", color: r.reason ? C.textSub : C.textMuted }} hidden={!visibleColumns.has("reason")}>
                     {r.reason || "—"}
                   </td>
-                  <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{r.source || "—"}</td>
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("source")}>{r.source || "—"}</td>
                 </tr>
               ))}
             </tbody>

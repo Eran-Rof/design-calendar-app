@@ -18,6 +18,17 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const PERIODS_TABLE_KEY = "tangerine:periods:columns";
+const PERIOD_COLUMNS: ColumnDef[] = [
+  { key: "period",     label: "Period" },
+  { key: "starts",     label: "Starts" },
+  { key: "ends",       label: "Ends" },
+  { key: "posted_jes", label: "Posted JEs" },
+  { key: "status",     label: "Status" },
+];
 
 type PeriodStatus = "open" | "soft_close" | "closed" | "closed_with_closing_jes";
 
@@ -83,6 +94,13 @@ export default function InternalPeriods() {
   // bootstrapped fiscal years on the operator. Switch to "All" via the dropdown.
   const [fyFilter, setFyFilter] = useState(String(new Date().getFullYear()));
   const [statusFilter, setStatusFilter] = useState("");
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    PERIODS_TABLE_KEY,
+    PERIOD_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -228,6 +246,13 @@ export default function InternalPeriods() {
             { key: "closed_at",       header: "Closed",      format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={PERIODS_TABLE_KEY}
+          columns={PERIOD_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -245,6 +270,7 @@ export default function InternalPeriods() {
           key={year}
           year={year}
           periods={list}
+          isVisible={isVisible}
           onSoftClose={softClose}
           onHardClose={hardClose}
           onReopen={reopen}
@@ -268,6 +294,7 @@ export default function InternalPeriods() {
 type YearCardProps = {
   year: number;
   periods: Period[];
+  isVisible: (k: string) => boolean;
   onSoftClose: (p: Period) => void;
   onHardClose: (p: Period) => void;
   onReopen:    (p: Period) => void;
@@ -282,7 +309,7 @@ const btnAction: React.CSSProperties = {
 const btnActionDanger: React.CSSProperties = { ...btnAction, color: C.danger, borderColor: "#7f1d1d" };
 const btnActionWarn: React.CSSProperties = { ...btnAction, color: C.warn, borderColor: "#78350f" };
 
-function YearCard({ year, periods, onSoftClose, onHardClose, onReopen, onRunChecks }: YearCardProps) {
+function YearCard({ year, periods, isVisible, onSoftClose, onHardClose, onReopen, onRunChecks }: YearCardProps) {
   const summary = useMemo(() => {
     let open = 0, soft = 0, closed = 0, terminal = 0;
     for (const p of periods) {
@@ -312,11 +339,11 @@ function YearCard({ year, periods, onSoftClose, onHardClose, onReopen, onRunChec
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={th}>Period</th>
-            <th style={th}>Starts</th>
-            <th style={th}>Ends</th>
-            <th style={th}>Posted JEs</th>
-            <th style={th}>Status</th>
+            <th style={th} hidden={!isVisible("period")}>Period</th>
+            <th style={th} hidden={!isVisible("starts")}>Starts</th>
+            <th style={th} hidden={!isVisible("ends")}>Ends</th>
+            <th style={th} hidden={!isVisible("posted_jes")}>Posted JEs</th>
+            <th style={th} hidden={!isVisible("status")}>Status</th>
             <th style={{ ...th, width: 320 }}>Actions</th>
           </tr>
         </thead>
@@ -325,11 +352,11 @@ function YearCard({ year, periods, onSoftClose, onHardClose, onReopen, onRunChec
             const isTerminal = p.status === "closed_with_closing_jes";
             return (
               <tr key={p.id}>
-                <td style={td}>{p.period_number} — {MONTH_LABELS[p.period_number - 1]}</td>
-                <td style={td}>{p.starts_on}</td>
-                <td style={td}>{p.ends_on}</td>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{p.posted_je_count ?? 0}</td>
-                <td style={td}>
+                <td style={td} hidden={!isVisible("period")}>{p.period_number} — {MONTH_LABELS[p.period_number - 1]}</td>
+                <td style={td} hidden={!isVisible("starts")}>{p.starts_on}</td>
+                <td style={td} hidden={!isVisible("ends")}>{p.ends_on}</td>
+                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("posted_jes")}>{p.posted_je_count ?? 0}</td>
+                <td style={td} hidden={!isVisible("status")}>
                   <span style={{ color: STATUS_COLORS[p.status], fontWeight: 600 }}>● {p.status}</span>
                 </td>
                 <td style={td}>
