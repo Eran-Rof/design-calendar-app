@@ -15,6 +15,14 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const EMPLOYEE_TITLES_TABLE_KEY = "tangerine:employeetitles:columns";
+const EMPLOYEE_TITLE_COLUMNS: ColumnDef[] = [
+  { key: "name",          label: "Title" },
+  { key: "is_sales_role", label: "Sales role" },
+  { key: "sort_order",    label: "Sort" },
+];
 
 type EmployeeTitle = {
   id: string;
@@ -63,6 +71,12 @@ export default function InternalEmployeeTitles() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<EmployeeTitle | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    EMPLOYEE_TITLES_TABLE_KEY,
+    EMPLOYEE_TITLE_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<EmployeeTitle>({
     onRowClick: (r) => setEditing(r),
@@ -128,6 +142,13 @@ export default function InternalEmployeeTitles() {
             { key: "updated_at",    header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={EMPLOYEE_TITLES_TABLE_KEY}
+          columns={EMPLOYEE_TITLE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -147,9 +168,9 @@ export default function InternalEmployeeTitles() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Title</th>
-                <th style={th}>Sales role</th>
-                <th style={{ ...th, textAlign: "right" }}>Sort</th>
+                <th style={th} hidden={!isVisible("name")}>Title</th>
+                <th style={th} hidden={!isVisible("is_sales_role")}>Sales role</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -161,9 +182,9 @@ export default function InternalEmployeeTitles() {
                   highlightedRowId={highlightedId}
                   {...getRowProps(t)}
                 >
-                  <td style={td}>{t.name}</td>
-                  <td style={td}>{t.is_sales_role ? "🟢 yes" : "—"}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{t.sort_order}</td>
+                  <td style={td} hidden={!isVisible("name")}>{t.name}</td>
+                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "🟢 yes" : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{t.sort_order}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(t); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>

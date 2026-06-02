@@ -16,6 +16,17 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const PAYMENT_TERMS_TABLE_KEY = "tangerine:paymentterms:columns";
+const PAYMENT_TERM_COLUMNS: ColumnDef[] = [
+  { key: "code",          label: "Code" },
+  { key: "name",          label: "Name" },
+  { key: "due_days",      label: "Due days" },
+  { key: "discount_pct",  label: "Disc. %" },
+  { key: "discount_days", label: "Disc. days" },
+  { key: "is_active",     label: "Active" },
+];
 
 type PaymentTerm = {
   id: string;
@@ -93,6 +104,12 @@ export default function InternalPaymentTerms() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentTerm | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    PAYMENT_TERMS_TABLE_KEY,
+    PAYMENT_TERM_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<PaymentTerm>({
     onRowClick: (r) => setEditing(r),
@@ -178,6 +195,13 @@ export default function InternalPaymentTerms() {
             { key: "updated_at",    header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={PAYMENT_TERMS_TABLE_KEY}
+          columns={PAYMENT_TERM_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -198,12 +222,12 @@ export default function InternalPaymentTerms() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={{ ...th, textAlign: "right" }}>Due days</th>
-                <th style={{ ...th, textAlign: "right" }}>Disc. %</th>
-                <th style={{ ...th, textAlign: "right" }}>Disc. days</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("due_days")}>Due days</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_pct")}>Disc. %</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_days")}>Disc. days</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -216,12 +240,12 @@ export default function InternalPaymentTerms() {
                   {...getRowProps(pt)}
                   style={!pt.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{pt.code}</td>
-                  <td style={td}>{pt.name}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pt.due_days}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPct(pt.discount_pct)}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pt.discount_days || "—"}</td>
-                  <td style={td}>{pt.is_active ? "yes" : "no"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{pt.code}</td>
+                  <td style={td} hidden={!isVisible("name")}>{pt.name}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("due_days")}>{pt.due_days}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("discount_pct")}>{formatPct(pt.discount_pct)}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("discount_days")}>{pt.discount_days || "—"}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{pt.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(pt); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(pt); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>

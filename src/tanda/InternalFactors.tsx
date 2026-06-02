@@ -15,6 +15,18 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const FACTORS_TABLE_KEY = "tangerine:factors:columns";
+const FACTOR_COLUMNS: ColumnDef[] = [
+  { key: "code",         label: "Code" },
+  { key: "name",         label: "Name" },
+  { key: "contact_name", label: "Contact" },
+  { key: "phone",        label: "Phone" },
+  { key: "email",        label: "Email" },
+  { key: "api_enabled",  label: "API" },
+  { key: "is_active",    label: "Active" },
+];
 import AddressFields, { type Address } from "./components/AddressFields";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
@@ -83,6 +95,12 @@ export default function InternalFactors() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Factor | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    FACTORS_TABLE_KEY,
+    FACTOR_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<Factor>({
     onRowClick: (r) => setEditing(r),
@@ -160,6 +178,13 @@ export default function InternalFactors() {
             { key: "is_active",    header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={FACTORS_TABLE_KEY}
+          columns={FACTOR_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -177,13 +202,13 @@ export default function InternalFactors() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Contact</th>
-                <th style={th}>Phone</th>
-                <th style={th}>Email</th>
-                <th style={th}>API</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("contact_name")}>Contact</th>
+                <th style={th} hidden={!isVisible("phone")}>Phone</th>
+                <th style={th} hidden={!isVisible("email")}>Email</th>
+                <th style={th} hidden={!isVisible("api_enabled")}>API</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -196,13 +221,13 @@ export default function InternalFactors() {
                   {...getRowProps(f)}
                   style={!f.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{f.code}</td>
-                  <td style={td}>{f.name}</td>
-                  <td style={td}>{f.contact_name || "—"}</td>
-                  <td style={td}>{f.phone || "—"}</td>
-                  <td style={td}>{f.email || "—"}</td>
-                  <td style={td}>{f.api_enabled ? "yes" : "no"}</td>
-                  <td style={td}>{f.is_active ? "yes" : "no"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{f.code}</td>
+                  <td style={td} hidden={!isVisible("name")}>{f.name}</td>
+                  <td style={td} hidden={!isVisible("contact_name")}>{f.contact_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("phone")}>{f.phone || "—"}</td>
+                  <td style={td} hidden={!isVisible("email")}>{f.email || "—"}</td>
+                  <td style={td} hidden={!isVisible("api_enabled")}>{f.api_enabled ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{f.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(f); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(f); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
