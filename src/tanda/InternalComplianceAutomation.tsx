@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface DocType { id: string; name: string; code: string }
 interface Entity { id: string; name: string }
@@ -73,16 +76,16 @@ export default function InternalComplianceAutomation() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: !rule.is_active }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
   async function runNow() {
-    if (!confirm("Run the compliance automation job now?")) return;
+    if (!(await confirmDialog("Run the compliance automation job now?"))) return;
     const r = await fetch("/api/cron/compliance-automation", { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const d = await r.json();
-    alert(`Requests sent: ${d.requests_sent} · Escalations: ${d.escalations_sent}`);
+    notify(`Requests sent: ${d.requests_sent} · Escalations: ${d.escalations_sent}`, "success");
     await load();
   }
 
@@ -98,6 +101,19 @@ export default function InternalComplianceAutomation() {
             {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
           <button onClick={() => void runNow()} style={btnSecondary}>Run now</button>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="compliance-automation-rules"
+            sheetName="Automation Rules"
+            columns={[
+              { key: "document_type_id",      header: "Document Type ID" },
+              { key: "trigger_type",          header: "Trigger" },
+              { key: "days_before_expiry",    header: "Days Before",   format: "number" },
+              { key: "auto_request",          header: "Auto Request" },
+              { key: "escalation_after_days", header: "Escalate After", format: "number" },
+              { key: "is_active",             header: "Active" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New rule</button>
         </div>
       </div>
@@ -163,7 +179,7 @@ function CreateRuleModal({ entityId, types, onClose, onCreated }: { entityId: st
   useEffect(() => { if (!docTypeId && types.length) setDocTypeId(types[0].id); }, [types]);
 
   async function save() {
-    if (!docTypeId) { alert("Choose a document type."); return; }
+    if (!docTypeId) { notify("Choose a document type.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/compliance/automation-rules", {
@@ -178,7 +194,7 @@ function CreateRuleModal({ entityId, types, onClose, onCreated }: { entityId: st
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Execution {
   id: string;
@@ -45,7 +48,7 @@ export default function InternalWorkflowExecutions() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
   async function reject(id: string) {
@@ -56,7 +59,7 @@ export default function InternalWorkflowExecutions() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reviewer, rejection_reason: reason }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -67,13 +70,28 @@ export default function InternalWorkflowExecutions() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Pending approvals</h2>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={selectSt}>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="auto_approved">Auto approved</option>
-          <option value="all">All</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={selectSt}>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="auto_approved">Auto approved</option>
+            <option value="all">All</option>
+          </select>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="workflow-executions"
+            sheetName="Workflow Executions"
+            columns={[
+              { key: "triggered_at",        header: "Triggered",   format: "datetime" },
+              { key: "trigger_entity_type", header: "Entity Type" },
+              { key: "trigger_entity_id",   header: "Entity ID" },
+              { key: "status",              header: "Status" },
+              { key: "current_approver",    header: "Approver" },
+              { key: "rule_id",             header: "Rule ID" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>

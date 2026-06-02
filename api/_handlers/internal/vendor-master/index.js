@@ -5,22 +5,32 @@
 //        CLAUDE.md security rules — never return in API responses).
 //        Query: ?q=<search> matches name/code; ?include_inactive=true; ?limit=N
 // POST — create a vendor. Body: { name, code?, legal_name?, country?,
-//        payment_terms?, default_currency?, is_1099_vendor?, status?, address? }
+//        payment_terms?, default_currency?, is_1099_vendor?, status?, address?,
+//        contact?, contact_title?, email?, phone?, website?, wechat_id?,
+//        default_gl_ap_account_id?, default_gl_expense_account_id? }
 //        tax_id/bank_account_encrypted MUST be set via a separate PII-aware
 //        endpoint (TBD) — they are rejected here.
 //
 // Tangerine P1 Chunk 7b. Mirrors style-master handler shape.
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
 
+// Chunk M — vendor codes are server-generated + read-only (operator item 14).
+// vendors.code is a GLOBAL identifier (per-entity overrides live in
+// entity_vendors.vendor_code), so the sequence is counted across all vendors,
+// not scoped to an entity.
+const CODE_PREFIX = "VEND-";
 const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
 // Columns safe to return — explicitly omits tax_id, bank_account_encrypted.
+// payment_terms_id (P3-9) is the new structured FK; the legacy free-text
+// payment_terms column is retained read-only for backward-compat display.
 const SAFE_SELECT =
-  "id, code, name, legal_name, country, transit_days, categories, contact, email, moq, " +
-  "payment_terms, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
+  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, website, wechat_id, moq, " +
+  "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
 function corsHeaders(res) {
@@ -73,13 +83,14 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const { data, error } = await admin
-      .from("vendors")
-      .insert(v.data)
-      .select(SAFE_SELECT)
-      .single();
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const { data, error } = await insertWithAutoCode(
+      admin, "vendors", "code", CODE_PREFIX,
+      (code) => ({ ...v.data, code }),
+      { select: SAFE_SELECT },
+    );
     if (error) {
-      if (error.code === "23505") return res.status(409).json({ error: "A vendor with that name or code already exists" });
+      if (error.code === "23505") return res.status(409).json({ error: "Could not allocate a unique vendor code; please retry" });
       return res.status(500).json({ error: error.message });
     }
     return res.status(201).json(data);
@@ -116,22 +127,47 @@ export function validateInsert(body) {
     if (!Number.isFinite(n) || n < 0) return { error: "moq must be a non-negative integer" };
     body.moq = n;
   }
+  // P3-9: payment_terms_id is the new structured FK. Validate it's a UUID
+  // when provided; empty string normalizes to null.
+  if (body.payment_terms_id != null && body.payment_terms_id !== "") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.payment_terms_id))) {
+      return { error: "payment_terms_id must be a valid UUID" };
+    }
+  }
+  // GL account FK fields — empty string normalizes to null.
+  if (body.default_gl_ap_account_id != null && body.default_gl_ap_account_id !== "") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.default_gl_ap_account_id))) {
+      return { error: "default_gl_ap_account_id must be a valid UUID" };
+    }
+  }
+  if (body.default_gl_expense_account_id != null && body.default_gl_expense_account_id !== "") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.default_gl_expense_account_id))) {
+      return { error: "default_gl_expense_account_id must be a valid UUID" };
+    }
+  }
   return {
     data: {
-      name:             String(body.name).trim(),
-      code:             body.code ? String(body.code).trim().toUpperCase() : null,
-      legal_name:       body.legal_name ? String(body.legal_name).trim() : null,
-      country:          body.country ? String(body.country).trim() : null,
-      transit_days:     body.transit_days ?? null,
-      categories:       Array.isArray(body.categories) ? body.categories : [],
-      contact:          body.contact ?? null,
-      email:            body.email ?? null,
-      moq:              body.moq ?? null,
-      payment_terms:    body.payment_terms ?? null,
-      default_currency: body.default_currency || "USD",
-      status:           body.status || "active",
-      is_1099_vendor:   body.is_1099_vendor === true,
-      address:          body.address && typeof body.address === "object" ? body.address : {},
+      name:                        String(body.name).trim(),
+      code:                        body.code ? String(body.code).trim().toUpperCase() : null,
+      legal_name:                  body.legal_name ? String(body.legal_name).trim() : null,
+      country:                     body.country ? String(body.country).trim() : null,
+      transit_days:                body.transit_days ?? null,
+      categories:                  Array.isArray(body.categories) ? body.categories : [],
+      contact:                     body.contact ?? null,
+      contact_title:               body.contact_title ?? null,
+      email:                       body.email ?? null,
+      phone:                       body.phone ?? null,
+      website:                     body.website ?? null,
+      wechat_id:                   body.wechat_id ?? null,
+      moq:                         body.moq ?? null,
+      payment_terms:               body.payment_terms ?? null,
+      payment_terms_id:            body.payment_terms_id || null,
+      default_currency:            body.default_currency || "USD",
+      default_gl_ap_account_id:    body.default_gl_ap_account_id || null,
+      default_gl_expense_account_id: body.default_gl_expense_account_id || null,
+      status:                      body.status || "active",
+      is_1099_vendor:              body.is_1099_vendor === true,
+      address:                     body.address && typeof body.address === "object" ? body.address : {},
     },
   };
 }

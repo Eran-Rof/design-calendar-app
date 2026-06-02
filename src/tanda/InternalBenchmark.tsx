@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Row {
   id: string;
@@ -74,11 +76,28 @@ export default function InternalBenchmark() {
           <h2 style={{ margin: 0, fontSize: 22 }}>Market benchmarks</h2>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Percentiles across the vendor base. Computed monthly from ≥ 5 vendors per category to protect individual data.</div>
         </div>
-        <select value={metric} onChange={(e) => setMetric(e.target.value as "unit_price" | "lead_time" | "on_time_pct")} style={selectSt}>
-          <option value="unit_price">Unit price</option>
-          <option value="lead_time">Lead time</option>
-          <option value="on_time_pct">On-time %</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={metric} onChange={(e) => setMetric(e.target.value as "unit_price" | "lead_time" | "on_time_pct")} style={selectSt}>
+            <option value="unit_price">Unit price</option>
+            <option value="lead_time">Lead time</option>
+            <option value="on_time_pct">On-time %</option>
+          </select>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename={`market-benchmark-${metric}`}
+            sheetName="Benchmark"
+            columns={[
+              { key: "category",       header: "Category" },
+              { key: "percentile_25",  header: "P25", format: "number" },
+              { key: "percentile_50",  header: "P50", format: "number" },
+              { key: "percentile_75",  header: "P75", format: "number" },
+              { key: "percentile_90",  header: "P90", format: "number" },
+              { key: "sample_size",    header: "n",   format: "number" },
+              { key: "period_start",   header: "Period Start", format: "date" },
+              { key: "period_end",     header: "Period End",   format: "date" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>

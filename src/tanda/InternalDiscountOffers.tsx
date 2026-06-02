@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Offer {
   id: string;
@@ -74,14 +77,14 @@ export default function InternalDiscountOffers() {
   useEffect(() => { void load(); }, [entityId, status]);
 
   async function runJob() {
-    if (!confirm("Run the discount offer generator now for this entity?")) return;
+    if (!(await confirmDialog("Run the discount offer generator now for this entity?"))) return;
     const r = await fetch("/api/internal/discount-offers/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ entity_id: entityId }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const d = await r.json() as { created: Offer[]; skipped: { invoice_id: string; reason: string }[] };
-    alert(`Created ${d.created.length} offers. Skipped ${d.skipped.length}.`);
+    notify(`Created ${d.created.length} offers. Skipped ${d.skipped.length}.`, "success");
     await load();
   }
 
@@ -105,6 +108,29 @@ export default function InternalDiscountOffers() {
             <option value="paid">Paid</option>
           </select>
           <button onClick={() => void runJob()} style={btnPrimary}>Generate now</button>
+          <ExportButton
+            rows={offers.map((o) => ({
+              ...o,
+              vendor_name: o.vendor?.name || o.vendor_id,
+              invoice_number: o.invoice?.invoice_number || null,
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="discount-offers"
+            sheetName="Discount Offers"
+            columns={[
+              { key: "vendor_name",              header: "Vendor" },
+              { key: "invoice_number",           header: "Invoice #" },
+              { key: "original_due_date",        header: "Original Due",  format: "date" },
+              { key: "early_payment_date",       header: "Early Pay",     format: "date" },
+              { key: "days_early",               header: "Days Early",    format: "number" },
+              { key: "discount_pct",             header: "Discount %",    format: "number" },
+              { key: "discount_amount",          header: "Discount $",    format: "number" },
+              { key: "net_payment_amount",       header: "Net Payment",   format: "number" },
+              { key: "annualized_return_pct",    header: "APR %",         format: "number" },
+              { key: "status",                   header: "Status" },
+              { key: "offered_at",               header: "Offered",       format: "datetime" },
+              { key: "expires_at",               header: "Expires",       format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 
@@ -137,8 +163,8 @@ export default function InternalDiscountOffers() {
           {offers.map((o) => (
             <div key={o.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px 120px 100px 100px 100px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{o.vendor?.name || o.vendor_id}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {o.invoice?.invoice_number || o.invoice_id.slice(0, 8)}</div>
+                <div style={{ fontWeight: 600 }}>{o.vendor?.name || "—"}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {o.invoice?.invoice_number || "—"}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{o.early_payment_date}</div>
               <div style={{ color: C.textMuted }}>{o.days_early ?? "—"}</div>

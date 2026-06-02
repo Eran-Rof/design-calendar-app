@@ -8,6 +8,13 @@ import { SB_URL, SB_KEY, SB_HEADERS, supabaseClient } from "./utils/supabase";
 import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+// Cross-cutter T4-5 — Personalization: favorites drawer + click telemetry.
+import FavoritesMenu from "./components/FavoritesMenu";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "./components/EntitySwitcher";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { techpackViewToMenuKey } from "./lib/techpackViewToMenuKey";
 import { sb, appDataSave } from "./techpack/supabase";
 import { graphGet, graphPost, type GraphSession } from "./techpack/msGraph";
 import { EMAIL_COLORS, FolderIcon } from "./techpack/emailStyles";
@@ -148,7 +155,19 @@ export default function TechPackApp() {
   }, []);
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setViewRaw] = useState<View>("dashboard");
+  // Cross-cutter T4-5 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  // setView wraps the raw setter with fire-and-forget menu-click telemetry.
+  // Mapped views (top nav) hit /api/internal/users/me/menu-click; unmapped
+  // views (e.g. "detail" — instance route reached by row click) silently
+  // skip via the null-returning mapper.
+  const { logClick: logTechpackMenuClick } = usePersonalization();
+  const setView = (v: View) => {
+    const mk = techpackViewToMenuKey(v);
+    if (mk) logTechpackMenuClick(mk);
+    setViewRaw(v);
+  };
   const unreadTechpackNotifs = useAppUnreadCount({
     supabase: supabaseClient,
     userId: (() => { try { const u = sessionStorage.getItem("plm_user"); return u ? (JSON.parse(u) as { id?: string }).id || null : null; } catch { return null; } })(),
@@ -1449,6 +1468,8 @@ export default function TechPackApp() {
           <span style={S.navSub}>Product Specs & BOM</span>
         </div>
         <div style={S.navRight}>
+          {/* Favorites — first action icon (consistent across all apps). */}
+          <FavoritesMenu />
           <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
           <button style={view === "list" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All Packs</button>
           <button style={view === "libraries" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("libraries"); }}>Libraries</button>
@@ -1726,6 +1747,10 @@ export default function TechPackApp() {
           appFilter="techpack"
         />
       )}
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
     </div>
   );
 

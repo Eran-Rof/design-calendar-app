@@ -10,7 +10,13 @@
          everywhere else in the suite (panels at #1E293B, borders at
          #334155, deep bg at #0F172A). Applies to all scrollable
          elements: page, modals, the ATS grid, etc. */
-      html, body { margin: 0; padding: 0; height: 100%; }
+      html, body { margin: 0; padding: 0; height: 100%; background: #0F172A; }
+      /* App-wide fix for the recurring "fields overlap their column" bug:
+         form controls used width:100% with padding but content-box sizing, so
+         they rendered wider than their grid/table cell and bled into the next
+         one. border-box keeps width:100% INSIDE the cell. Targeted to form
+         controls so it can't disturb other layout. */
+      input, select, textarea, button { box-sizing: border-box; }
       /* Body scroll stays available for app-level scroll on small
          screens; the ATS grid uses its own height-locked scroll
          container (S.tableWrap) so its horizontal bar lives at the

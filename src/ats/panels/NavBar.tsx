@@ -3,8 +3,6 @@ import S from "../styles";
 import { fmtDateDisplay } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
 import { computeGridTotals } from "../computeTotals";
-import { XoroSyncOverlay, type XoroSyncProgress } from "./StatusOverlays";
-import { normalizeXoroSos, type XoroSoRecord } from "../normalizeXoroSos";
 import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
@@ -22,6 +20,8 @@ import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
 import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
+import { usePersonalization } from "../../hooks/usePersonalization";
+import FavoritesMenu from "../../components/FavoritesMenu";
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -191,237 +191,6 @@ async function fetchAvgCostBySkuCodes(skus: string[]): Promise<Map<string, numbe
   return out;
 }
 
-// Sync architecture (rewritten 2026-05-06 after discovering Xoro's
-// pagination overlaps — same SOs appear on multiple pages, and the
-// reported `TotalPages` truncates the walk before all unique SOs have
-// been seen). The Xoro Excel export said 2,449 unique Released SOs;
-// the original page-bounded walk got only 1,600 unique (65%).
-//
-// New approach — saturation-based walk per status:
-//   1. For each requested status, walk pages 1..N until either Xoro
-//      returns an empty page OR we've seen N consecutive pages with
-//      ZERO new unique OrderNumbers (= the dataset has been fully
-//      sampled despite pagination shuffle).
-//   2. Dedupe across all statuses by OrderNumber — a SO that flips
-//      from Released → Partially Shipped mid-walk is counted once.
-//   3. Failed pages within a status are retried in passes 2..5 like
-//      before.
-//
-// Why "consecutive pages with zero new" instead of trusting empty
-// pages alone: Xoro's pagination skips and repeats records (we saw
-// 1,200 duplicates across 2,800 fetched headers). An empty page
-// might just mean "this slice is all duplicates" rather than "end
-// of dataset", but extending the saturation threshold to N=3 makes
-// the heuristic robust enough.
-
-const STATUSES_TO_SYNC = ["Released", "Open", "Partially Shipped"];
-// Stop walking a status after this many consecutive pages added zero
-// new unique SOs. Gives Xoro's overlapping pagination room to deliver
-// late-arriving unique records before declaring the status saturated.
-const SATURATION_THRESHOLD = 3;
-// Hard ceiling on pages walked per status so a pathological dataset
-// can't grind forever. ~2,500 SOs / ~100 per page × 2x duplication
-// margin = ~50 pages typical; 100 leaves room for outliers.
-const MAX_PAGES_PER_STATUS = 100;
-
-interface SyncResult {
-  ok: boolean;
-  downloaded: number;             // unique SOs across all statuses
-  pages: number;                  // total pages walked across all statuses
-  message: string;
-  records: XoroSoRecord[];
-  failedPages: number[];          // (status:page) IDs that never succeeded
-}
-
-const MAX_PASSES = 5;
-const PASS_DELAYS_MS = [0, 5_000, 15_000, 30_000, 60_000];
-
-// Fetch a single page for a specific status. Returns the records on
-// success, null on failure. Pass status through so the server-side
-// handler hits Xoro with the right filter.
-async function fetchOnePage(status: string, pageNum: number): Promise<XoroSoRecord[] | null> {
-  let resp: Response;
-  try {
-    resp = await fetch(`/api/xoro/open-sos?status=${encodeURIComponent(status)}&page_start=${pageNum}&max_pages=1`, { method: "GET" });
-  } catch {
-    return null;
-  }
-  let body: any;
-  try { body = await resp.json(); } catch { return null; }
-  if (!body?.ok) return null;
-  const block = (body.per_status ?? [])[0];
-  return Array.isArray(block?.records) ? block.records : [];
-}
-
-// Walk one Xoro status until saturated. Returns the unique records
-// collected for this status plus any pages that failed (tagged with
-// the status so the retry pass can re-fetch them with the right filter).
-async function walkStatusToSaturation(
-  status: string,
-  seenOrderNumbers: Set<string>,
-  records: XoroSoRecord[],
-  onProgress: (p: XoroSyncProgress) => void,
-  cancelRef: React.MutableRefObject<boolean>,
-  totalUniqueSoFar: () => number,
-  totalPagesSoFar: () => number,
-): Promise<{ failedPages: Array<{ status: string; page: number }>; pagesWalked: number; saturatedAt: number | null; }> {
-  const failedPages: Array<{ status: string; page: number }> = [];
-  let consecutiveZeroNew = 0;
-  let pagesWalked = 0;
-  let duplicates = 0;
-  let saturatedAt: number | null = null;
-
-  for (let page = 1; page <= MAX_PAGES_PER_STATUS; page++) {
-    if (cancelRef.current) break;
-    if (page > 1) await new Promise((r) => setTimeout(r, 250));
-
-    onProgress({
-      step: `Walking ${status} — page ${page}…`,
-      pct: 0, // indeterminate until we know how many we'll walk
-      downloaded: totalUniqueSoFar(),
-      pagesDone: totalPagesSoFar() + page,
-      totalPages: 0,
-      pass: 1, maxPasses: MAX_PASSES,
-      duplicatesSeen: duplicates,
-    });
-
-    const pageRecords = await fetchOnePage(status, page);
-    pagesWalked++;
-    if (pageRecords === null) {
-      failedPages.push({ status, page });
-      continue;
-    }
-    if (pageRecords.length === 0) {
-      // Genuinely empty page = end of this status's dataset.
-      saturatedAt = page;
-      break;
-    }
-
-    // Count new unique OrderNumbers added by this page.
-    let newOrders = 0;
-    for (const rec of pageRecords) {
-      const orderNum = rec?.SoEstimateHeader?.OrderNumber;
-      if (orderNum && !seenOrderNumbers.has(orderNum)) {
-        seenOrderNumbers.add(orderNum);
-        records.push(rec);
-        newOrders++;
-      } else if (orderNum) {
-        duplicates++;
-      }
-    }
-
-    if (newOrders === 0) {
-      consecutiveZeroNew++;
-      if (consecutiveZeroNew >= SATURATION_THRESHOLD) {
-        saturatedAt = page;
-        break;
-      }
-    } else {
-      consecutiveZeroNew = 0;
-    }
-  }
-
-  return { failedPages, pagesWalked, saturatedAt };
-}
-
-async function runOpenSosSync(
-  onProgress: (p: XoroSyncProgress) => void,
-  cancelRef: React.MutableRefObject<boolean>,
-): Promise<SyncResult> {
-  // Single source of truth: a Set of OrderNumbers we've already seen,
-  // and the deduped records array. Both updated by walkStatusToSaturation
-  // as it processes each page. Cross-status dedup falls out for free —
-  // a SO whose status flips during the walk is counted once.
-  const seenOrderNumbers = new Set<string>();
-  const records: XoroSoRecord[] = [];
-  const allFailedPages: Array<{ status: string; page: number }> = [];
-  let totalPagesWalked = 0;
-
-  onProgress({
-    step: "Starting…", pct: 0, downloaded: 0,
-    pagesDone: 0, totalPages: 0, pass: 1, maxPasses: MAX_PASSES,
-  });
-
-  // ── Pass 1: walk each status to saturation ──────────────────────────
-  for (const status of STATUSES_TO_SYNC) {
-    if (cancelRef.current) {
-      return {
-        ok: false, downloaded: seenOrderNumbers.size, pages: totalPagesWalked,
-        message: "Cancelled by user", records,
-        failedPages: allFailedPages.map((f) => f.page),
-      };
-    }
-    const result = await walkStatusToSaturation(
-      status, seenOrderNumbers, records,
-      onProgress, cancelRef,
-      () => seenOrderNumbers.size,
-      () => totalPagesWalked,
-    );
-    totalPagesWalked += result.pagesWalked;
-    allFailedPages.push(...result.failedPages);
-  }
-
-  // ── Pass 2..MAX_PASSES: retry pages that failed in pass 1 ───────────
-  // Per-page, per-status: each failed page is retried with the same
-  // status filter. Successful retries go through the same dedup path
-  // so we don't double-count.
-  for (let pass = 2; pass <= MAX_PASSES; pass++) {
-    if (allFailedPages.length === 0) break;
-    if (cancelRef.current) break;
-
-    const delay = PASS_DELAYS_MS[pass - 1] ?? 60_000;
-    if (delay > 0) {
-      onProgress({
-        step: `Pausing ${Math.round(delay / 1000)}s before retry pass…`,
-        pct: 100, downloaded: seenOrderNumbers.size, pagesDone: totalPagesWalked, totalPages: 0,
-        pass, maxPasses: MAX_PASSES, retryingCount: allFailedPages.length,
-      });
-      await new Promise((r) => setTimeout(r, delay));
-    }
-
-    const stillFailing: Array<{ status: string; page: number }> = [];
-    for (let i = 0; i < allFailedPages.length; i++) {
-      const fp = allFailedPages[i];
-      if (cancelRef.current) {
-        stillFailing.push(...allFailedPages.slice(i));
-        break;
-      }
-      onProgress({
-        step: `Retrying ${fp.status} page ${fp.page}…`,
-        pct: Math.round((i / allFailedPages.length) * 100),
-        downloaded: seenOrderNumbers.size, pagesDone: totalPagesWalked, totalPages: 0,
-        pass, maxPasses: MAX_PASSES, retryingCount: allFailedPages.length - i,
-      });
-      await new Promise((r) => setTimeout(r, 250));
-      const recs = await fetchOnePage(fp.status, fp.page);
-      if (recs === null) {
-        stillFailing.push(fp);
-        continue;
-      }
-      for (const rec of recs) {
-        const orderNum = rec?.SoEstimateHeader?.OrderNumber;
-        if (orderNum && !seenOrderNumbers.has(orderNum)) {
-          seenOrderNumbers.add(orderNum);
-          records.push(rec);
-        }
-      }
-    }
-    allFailedPages.length = 0;
-    allFailedPages.push(...stillFailing);
-  }
-
-  const downloaded = seenOrderNumbers.size;
-  const ok = allFailedPages.length === 0;
-  const failedPageNumbers = allFailedPages.map((f) => `${f.status}:${f.page}`);
-  const message = ok
-    ? `Synced ${downloaded.toLocaleString()} unique SOs across ${STATUSES_TO_SYNC.join(" + ")}`
-    : `Synced ${downloaded.toLocaleString()} SOs — ${allFailedPages.length} page${allFailedPages.length > 1 ? "s" : ""} (${failedPageNumbers.join(", ")}) failed all ${MAX_PASSES} passes`;
-  return {
-    ok, downloaded, pages: totalPagesWalked, message, records,
-    failedPages: allFailedPages.map((f) => f.page),
-  };
-}
-
 interface NavBarProps {
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
   undoLastMerge: () => void;
@@ -434,13 +203,13 @@ interface NavBarProps {
   exportToExcel: (
     rows: ATSRow[],
     periods: Array<{ endDate: string; label: string }>,
-    atShip: boolean,
     hiddenColumns: string[],
     totals?: import("../computeTotals").GridTotals | null,
     options?: ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: SalesFetchResult,
     explodePpk?: boolean,
+    customerSoMap?: Map<string, { qty: number; soPrice: number }>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -471,7 +240,6 @@ interface NavBarProps {
   // computeGridTotals. The exporter itself only needs endDate + label,
   // so we ship the wider shape and let each consumer pick.
   displayPeriods: Array<{ key: string; periodStart: string; endDate: string; label: string }>;
-  atShip: boolean;
   hiddenColumns: string[];
   // When TOTALS toggle is on, the export drops the right-side Total
   // column + simple bottom Total row and emits a 5-row Cost/Sale/Mrgn
@@ -535,7 +303,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, atShip, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, subCategories, styles, STORES, filterCategory,
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
@@ -545,6 +313,12 @@ export const NavBar: React.FC<NavBarProps> = ({
   gridStart, gridEnd,
 }) => {
   const [aiOpen, setAiOpen] = useState(false);
+  // Cross-cutter T4-5 — personalization. Fire-and-forget menu-click
+  // telemetry for the Reports popover entries. Each report's menu_key
+  // is static (it's the same entry in the registry regardless of which
+  // operator opens it), so we log here rather than in the report's own
+  // handler.
+  const { logClick: logReportClick } = usePersonalization();
   // PR 4/4: draft input pushed in from outside (e.g. right-click on a
   // grid row dispatching an "ask AI" event). Consumed by AskAIPanel
   // on next render then cleared by the onDraftInputConsumed callback.
@@ -632,57 +406,6 @@ export const NavBar: React.FC<NavBarProps> = ({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [reportsOpen]);
 
-  // Open-SOs sync state. The centered overlay is the primary UX while
-  // the sync runs; the success/error toast appears briefly afterward.
-  const [syncProgress, setSyncProgress] = useState<XoroSyncProgress | null>(null);
-  const [syncSosToast, setSyncSosToast] = useState<{ ok: boolean; message: string } | null>(null);
-  const cancelRef = useRef<boolean>(false);
-  const syncing = syncProgress !== null;
-
-  const handleSyncOpenSos = async () => {
-    if (syncing) return;
-    cancelRef.current = false;
-    setSyncSosToast(null);
-    setSyncProgress({ step: "Starting…", pct: 0, downloaded: 0, pagesDone: 0, totalPages: 0, pass: 1, maxPasses: MAX_PASSES });
-    const result = await runOpenSosSync((p) => setSyncProgress(p), cancelRef);
-
-    // Normalize whatever records made it back — even a partial walk
-    // (e.g. failed at page 19 of 26) still gives us most of the data.
-    // Per user direction: replace excelData.sos wholesale, keep
-    // skus/pos from the Excel upload.
-    if (result.records.length > 0) {
-      const { events, skipped } = normalizeXoroSos(result.records);
-      const skipNote = (skipped.noSku + skipped.noDate + skipped.zeroQty) > 0
-        ? ` (skipped ${skipped.noSku} no-SKU, ${skipped.noDate} no-date, ${skipped.zeroQty} zero-qty)`
-        : "";
-
-      setExcelData((prev) => {
-        const nowIso = new Date().toISOString();
-        if (prev) return { ...prev, sos: events, syncedAt: nowIso };
-        return null;
-      });
-
-      // Toast wording depends on whether the walk completed cleanly
-      // or died partway through. Stay visible 8s so the user has time
-      // to read the partial-failure context (vs 5s for a clean run).
-      const baseMsg = excelData
-        ? `${events.length.toLocaleString()} SOs now driving the grid${skipNote}`
-        : `${events.length.toLocaleString()} SOs synced — upload Excel to seed inventory + POs`;
-      const finalMsg = result.ok
-        ? baseMsg
-        : `Partial sync: ${baseMsg}. ${result.message}`;
-      setSyncProgress(null);
-      setSyncSosToast({ ok: result.ok, message: finalMsg });
-      setTimeout(() => setSyncSosToast(null), result.ok ? 6000 : 12000);
-      return;
-    }
-
-    // Total failure — no records made it back at all.
-    setSyncProgress(null);
-    setSyncSosToast({ ok: false, message: result.message });
-    setTimeout(() => setSyncSosToast(null), 10000);
-  };
-  const handleCancelSync = () => { cancelRef.current = true; };
 
   // Shared pre-flight for both Export and View. Drops collapsed rows,
   // optionally builds GridTotals, and fetches sales aggregates from the
@@ -783,7 +506,6 @@ export const NavBar: React.FC<NavBarProps> = ({
       ? computeGridTotals({
           filtered: rowsForExport,
           displayPeriods,
-          atShip,
           viewMode,
           eventIndex,
           generalMarginPct,
@@ -792,7 +514,15 @@ export const NavBar: React.FC<NavBarProps> = ({
 
     let salesAggregates: SalesFetchResult | undefined;
     let finalRows = rowsForExport;
-    if (opts.trailing3 || opts.spLY) {
+    // Sls Prc Mrgn % column needs T3-by-style (always) + customer-last-
+    // price (only when a customer is selected). Both ride on the same
+    // sales-history scan, so toggling Sls Prc @ extends the fetch trigger
+    // even when neither T3 nor LY column is checked.
+    const customerSelected = Array.isArray(opts.customer)
+      ? opts.customer.length > 0
+      : !!opts.customer && opts.customer.trim().length > 0;
+    const needMrgnPctFetch = !!opts.slsPrcAtMrgn;
+    if (opts.trailing3 || opts.spLY || needMrgnPctFetch) {
       // Reset the cancel flag at the start of each export attempt so a
       // prior cancel doesn't poison the next run.
       exportCancelledRef.current = false;
@@ -802,6 +532,8 @@ export const NavBar: React.FC<NavBarProps> = ({
           rows: rowsForExport,
           needT3: opts.trailing3,
           needLY: opts.spLY,
+          needT3ByStyle: needMrgnPctFetch,
+          needLastCustomerPriceBySku: needMrgnPctFetch && customerSelected,
           customer: opts.customer,
           // Honour the grid's store filter so T3/LY revenue matches
           // the visible-row scope. Without this, ROF wholesale sales
@@ -1048,6 +780,7 @@ export const NavBar: React.FC<NavBarProps> = ({
             const filteredSynthetic = filterRows(dedupedSynthetic, {
               ...exportFilterOpts,
               customerSkuSet: null,
+              displayPeriods,
             });
             finalRows = [...rowsForExport, ...filteredSynthetic];
             console.info(`[ATS export] cross-grid: added ${filteredSynthetic.length} synthetic rows (of ${synthetic.length} candidates) by (style, color) from ${salesAggregates.extraBySkuId.size} unmapped sku_ids (${unresolved} unresolved, ${synthetic.length - filteredSynthetic.length} dropped by grid filters)`);
@@ -1074,7 +807,58 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates };
+    // Customer-narrowed SO summary per (sku, store). Built only when a
+    // customer is selected; passed to the export so the On Order column
+    // shows ONLY this customer's SO qty and the inserted "SO Prc" column
+    // shows the qty-weighted avg unit price from those SOs.
+    //
+    // GRAIN CONVERSION (critical):
+    // Xoro stores SO qty + unitPrice in PACK grain for prepack SKUs
+    // (so.qty=10 means 10 packs of a PPK60 → 600 units; so.unitPrice is
+    // per-pack). compute.ts already multiplies r.onOrder by mult to land
+    // at unit-grain, so our customerSoMap.qty must also be unit-grain or
+    // the body's `qty / qtyDiv` display would silently render pack-grain
+    // when explodePpk=true. Symmetric divide for unitPrice → per-unit
+    // price. Then exportExcel applies costMul on display so pack mode
+    // gets pack-grain price back.
+    let customerSoMap: Map<string, { qty: number; soPrice: number }> | undefined;
+    if (customerSelected && excelData?.sos?.length) {
+      const wantedNames = Array.isArray(opts.customer)
+        ? new Set(opts.customer.map((s) => s.trim()).filter(Boolean))
+        : new Set([opts.customer.trim()].filter(Boolean));
+      // (sku, store) → ppkMult lookup, sourced from the row set since
+      // each row already has the resolved mult from compute.ts.
+      const multByKey = new Map<string, number>();
+      for (const r of finalRows) {
+        const k = `${r.sku}::${r.store ?? "ROF"}`;
+        const m = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+        if (!multByKey.has(k)) multByKey.set(k, m);
+      }
+      const acc = new Map<string, { qty: number; rev: number }>();
+      for (const so of excelData.sos) {
+        if (!wantedNames.has(so.customerName)) continue;
+        const key = `${so.sku}::${so.store ?? "ROF"}`;
+        const mult = multByKey.get(key) ?? 1;
+        const qtyRaw = so.qty ?? 0;
+        if (qtyRaw <= 0) continue;
+        const unitPackPrice = so.unitPrice ?? (so.totalPrice ?? 0) / qtyRaw;
+        // PACK qty → UNIT qty (multiply); per-PACK price → per-UNIT price
+        // (divide). For non-prepack rows (mult=1) both are no-ops.
+        const qtyUnit = qtyRaw * mult;
+        const perUnitPrice = mult > 0 ? unitPackPrice / mult : unitPackPrice;
+        const cur = acc.get(key);
+        if (cur) { cur.qty += qtyUnit; cur.rev += perUnitPrice * qtyUnit; }
+        else acc.set(key, { qty: qtyUnit, rev: perUnitPrice * qtyUnit });
+      }
+      if (acc.size > 0) {
+        customerSoMap = new Map();
+        for (const [key, v] of acc) {
+          customerSoMap.set(key, { qty: v.qty, soPrice: v.qty > 0 ? v.rev / v.qty : 0 });
+        }
+      }
+    }
+
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap };
   }
 
   return (
@@ -1105,6 +889,8 @@ export const NavBar: React.FC<NavBarProps> = ({
       </span>
     </div>
     <div style={S.navRight}>
+      {/* Favorites — first action icon (consistent across all apps). */}
+      <FavoritesMenu />
       {mergeHistory?.length > 0 && (
         <button
           style={{ ...S.navBtn, background: "#7C3AED", border: "1px solid #5B21B6", color: "#fff", fontWeight: 600 }}
@@ -1121,24 +907,6 @@ export const NavBar: React.FC<NavBarProps> = ({
             {[invFile, ordFile].filter(Boolean).length}/2{purFile ? "+PO" : ""}
           </span>
         )}
-      </button>
-      <button
-        style={{
-          ...S.navBtn,
-          background: "#1E293B",
-          border: "1px solid #334155",
-          color: "#64748B",
-          fontWeight: 600,
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          opacity: 0.55,
-          cursor: "not-allowed",
-        }}
-        disabled={true}
-        title="Disabled — Xoro's salesorder API caps at ~65% coverage of Released SOs. Use the daily Excel upload (All Orders Report) for 100% data. Re-enable when Xoro support provides a bulk endpoint."
-      >
-        ↓ Sync Open SOs (disabled)
       </button>
       <div ref={reportsRef} style={{ position: "relative" }}>
         <button
@@ -1182,12 +950,14 @@ export const NavBar: React.FC<NavBarProps> = ({
             {([
               {
                 key: "exportExcel",
+                menuKey: "ats/reports/export-excel",
                 label: "Export Excel…",
                 sub: "Pick subtotals / cost / trailing options, then view + download",
                 onClick: () => { setExportOptsOpen(true); setReportsOpen(false); },
               },
               {
                 key: "negInven",
+                menuKey: "ats/reports/neg-inven",
                 label: "Neg Inven",
                 sub: "Preview the negative-inventory report, then download",
                 onClick: () => {
@@ -1201,12 +971,14 @@ export const NavBar: React.FC<NavBarProps> = ({
               },
               {
                 key: "agedInven",
+                menuKey: "ats/reports/aged-inven",
                 label: "Aged Inven…",
                 sub: "Pick a days threshold + category, then view + download",
                 onClick: () => { setAgedCategory(filterCategory); setAgedEmpty(false); setAgedOpen(true); },
               },
               {
                 key: "noMrgnData",
+                menuKey: "ats/reports/no-mrgn",
                 label: "NO Mrgn Data",
                 sub: "Styles with no open SO, no avg cost, no PO cost (the red Mrgn:* asterisks)",
                 onClick: () => {
@@ -1216,6 +988,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               },
               {
                 key: "stockVsSo",
+                menuKey: "ats/reports/stock-vs-so",
                 label: "Stock Vs SO",
                 sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
                 onClick: () => {
@@ -1233,6 +1006,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               },
               {
                 key: "salesComps",
+                menuKey: "ats/reports/sales-comps",
                 label: "Sales Comps…",
                 sub: "TY vs same-period-LY for the date range + filters you pick",
                 onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
@@ -1246,7 +1020,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               .map((item) => (
               <button
                 key={item.key}
-                onClick={() => { item.onClick(); setReportsOpen(false); }}
+                onClick={() => { logReportClick(item.menuKey); item.onClick(); setReportsOpen(false); }}
                 title={item.sub}
                 style={{
                   width: "100%",
@@ -1335,35 +1109,6 @@ export const NavBar: React.FC<NavBarProps> = ({
       />
     )}
 
-    {/* Sync Open SOs centered progress modal — matches UploadProgressOverlay format */}
-    <XoroSyncOverlay progress={syncProgress} onCancel={handleCancelSync} />
-
-    {/* Sync Open SOs toast — auto-dismisses after 5s, click to dismiss sooner */}
-    {syncSosToast && (
-      <div
-        onClick={() => setSyncSosToast(null)}
-        style={{
-          position: "fixed",
-          top: 70,
-          right: 24,
-          zIndex: 400,
-          minWidth: 280,
-          maxWidth: 420,
-          padding: "10px 16px",
-          borderRadius: 8,
-          background: syncSosToast.ok ? "rgba(16,185,129,0.95)" : "rgba(239,68,68,0.95)",
-          color: "#fff",
-          fontSize: 13,
-          fontWeight: 600,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-          cursor: "pointer",
-          border: `1px solid ${syncSosToast.ok ? "#047857" : "#991B1B"}`,
-        }}
-      >
-        {syncSosToast.ok ? "✓ " : "✕ "}{syncSosToast.message}
-      </div>
-    )}
-
     {/* Aged Inventory days modal */}
     {agedOpen && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
@@ -1426,13 +1171,13 @@ export const NavBar: React.FC<NavBarProps> = ({
         exportToExcel(
           prep.rowsForExport,
           prep.periods,
-          atShip,
           hiddenColumns,
           prep.totals,
           opts,
           eventIndex,
           prep.salesAggregates,
           explodePpk,
+          prep.customerSoMap,
         );
         setExportOptsOpen(false);
       }}
@@ -1442,13 +1187,13 @@ export const NavBar: React.FC<NavBarProps> = ({
         const payload = buildExportPayload(
           prep.rowsForExport,
           prep.periods,
-          atShip,
           hiddenColumns,
           prep.totals,
           opts,
           eventIndex,
           prep.salesAggregates,
           explodePpk,
+          prep.customerSoMap,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's
@@ -1529,30 +1274,3 @@ export const NavBar: React.FC<NavBarProps> = ({
   );
 };
 
-interface SyncProgressBannerProps {
-  syncProgress: { step: string; pct: number; log: string[] } | null;
-}
-
-export const SyncProgressBanner: React.FC<SyncProgressBannerProps> = ({ syncProgress }) => {
-  if (!syncProgress) return null;
-  return (
-    <div style={{ background: "#1E293B", borderBottom: "1px solid #334155", padding: "12px 24px" }}>
-      <div style={{ maxWidth: 1600, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: "#F1F5F9", fontWeight: 600 }}>{syncProgress.step}</span>
-          <span style={{ fontSize: 12, color: "#60A5FA", fontFamily: "monospace", fontWeight: 700 }}>{syncProgress.pct}%</span>
-        </div>
-        <div style={{ height: 8, borderRadius: 4, background: "#0F172A", overflow: "hidden", marginBottom: 8 }}>
-          <div style={{ width: `${syncProgress.pct}%`, height: "100%", background: syncProgress.pct === 100 ? "linear-gradient(90deg, #6EE7B7, #047857)" : "linear-gradient(90deg, #93C5FD, #1D4ED8)", borderRadius: 4, transition: "width 0.3s" }} />
-        </div>
-        {syncProgress.log.length > 0 && (
-          <div style={{ maxHeight: 120, overflowY: "auto", background: "#0F172A", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: "monospace", color: "#94A3B8", lineHeight: 1.6 }}>
-            {syncProgress.log.map((l, i) => (
-              <div key={i} style={{ color: l.includes("ERROR") ? "#EF4444" : l.includes("✅") ? "#10B981" : l.includes("FAILED") ? "#F59E0B" : "#94A3B8" }}>{l}</div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};

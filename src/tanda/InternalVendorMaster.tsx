@@ -9,8 +9,35 @@
 // They are stored on the vendors table but flow through dedicated PII-aware
 // endpoints (TBD). The admin handlers we wrap explicitly omit them from
 // every SELECT and reject them on insert/patch.
+//
+// Wave 5 adoption sweep (2026-05-30):
+//   • TablePrefs           — per-user column show/hide; gear button next to search.
+//   • Row-click + Scroll-highlight — click anywhere on a row to open the edit
+//                            modal; fades a translucent blue bg on the row.
+//   • DynamicSearchInput   — type-as-you-go debounced search; replaces the
+//                            old text input + explicit Search button.
+//   • SearchableSelect     — payment_terms picker in the modal (list grows
+//                            past the 7-option adoption threshold once finance
+//                            wires the full term catalog).
+//   The status select stays a native <select> (3 fixed options).
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+// Cross-cutter T11-3 — audit-trail drop-in for the vendor detail modal.
+import RowHistory from "./components/RowHistory";
+import AddressFields, { type Address } from "./components/AddressFields";
+// Wave 5 universal primitives.
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import SearchableSelect from "./components/SearchableSelect";
+// Chunk E — per-row drill-through scorecard (opened by the 📊 button).
+import VendorScorecard from "./VendorScorecard";
 
 type Vendor = {
   id: string;
@@ -21,9 +48,14 @@ type Vendor = {
   transit_days: number | null;
   categories: string[] | null;
   contact: string | null;
+  contact_title: string | null;
   email: string | null;
+  phone: string | null;
+  website: string | null;
+  wechat_id: string | null;
   moq: number | null;
-  payment_terms: string | null;
+  payment_terms: string | null;       // legacy free-text (read-only display)
+  payment_terms_id: string | null;    // P3-9 structured FK
   default_currency: string;
   default_gl_ap_account_id: string | null;
   default_gl_expense_account_id: string | null;
@@ -35,6 +67,22 @@ type Vendor = {
   updated_at: string;
 };
 
+type GlAccount = {
+  id: string;
+  code: string;
+  name: string;
+  is_postable: boolean;
+  status: string;
+};
+
+type PaymentTermOption = {
+  id: string;
+  code: string;
+  name: string;
+  due_days: number;
+  is_active: boolean;
+};
+
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
@@ -42,6 +90,17 @@ const C = {
 };
 
 const STATUS_OPTIONS = ["active", "on_hold", "inactive"];
+
+// Wave 5 — TablePrefs registry. Action column is fixed (always visible).
+const VENDOR_MASTER_TABLE_KEY = "tangerine:vendormaster:columns";
+const VENDOR_MASTER_COLUMNS: ColumnDef[] = [
+  { key: "code",          label: "Code" },
+  { key: "name",          label: "Name" },
+  { key: "country",       label: "Country" },
+  { key: "status",        label: "Status" },
+  { key: "is_1099_vendor", label: "1099" },
+  { key: "payment_terms", label: "Payment terms" },
+];
 
 const btnPrimary: React.CSSProperties = {
   background: C.primary, color: "white", border: 0, padding: "8px 14px",
@@ -57,6 +116,13 @@ const btnDanger: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+};
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -90,40 +156,76 @@ function statusBadge(status: string): React.CSSProperties {
 
 export default function InternalVendorMaster() {
   const [rows, setRows] = useState<Vendor[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  // Wave 5 — DynamicSearchInput. Sync `q` binds to the input so typing is
+  // instant; `qDebounced` (200ms) is what drives the fetch.
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Vendor | null>(null);
+  // Chunk E — vendor whose scorecard drawer is open (null = closed).
+  const [scorecardId, setScorecardId] = useState<string | null>(null);
 
-  async function load() {
+  // Wave 5 — universal row-click primitive. Click anywhere on a row (except
+  // Edit / Inactivate buttons) to open the edit modal. Soft-deleted vendors
+  // are non-interactive.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<Vendor>({
+    onRowClick: (v) => setEditing(v),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (v) => `Edit vendor ${v.code ? `${v.code} ` : ""}${v.name}`,
+    disabled: (v) => !!v.deleted_at,
+  });
+
+  // Wave 5 — universal column visibility. Gear-icon next to search; choices
+  // persist per-user via user_preferences (key='table_visibility').
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    VENDOR_MASTER_TABLE_KEY,
+    VENDOR_MASTER_COLUMNS,
+  );
+  const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
-      const r = await fetch(`/api/internal/vendor-master?${params.toString()}`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as Vendor[]);
+      const [vendorRes, ptRes] = await Promise.all([
+        fetch(`/api/internal/vendor-master?${params.toString()}`),
+        fetch(`/api/internal/payment-terms`),
+      ]);
+      if (!vendorRes.ok) throw new Error((await vendorRes.json().catch(() => ({}))).error || `HTTP ${vendorRes.status}`);
+      setRows(await vendorRes.json() as Vendor[]);
+      if (ptRes.ok) {
+        setPaymentTerms(await ptRes.json() as PaymentTermOption[]);
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }
+  }, [qDebounced, includeInactive]);
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [load]);
+
+  // Build a quick lookup map for showing the term label in the list.
+  const termById = useMemo(
+    () => new Map(paymentTerms.map((t) => [t.id, t])),
+    [paymentTerms],
+  );
 
   async function softDelete(id: string) {
-    if (!confirm("Inactivate this vendor?")) return;
+    if (!(await confirmDialog("Inactivate this vendor?"))) return;
     try {
       const r = await fetch(`/api/internal/vendor-master/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Inactivate failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Inactivate failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -134,16 +236,14 @@ export default function InternalVendorMaster() {
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add vendor</button>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Search name, code, or legal name…"
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <DynamicSearchInput
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
-          style={{ ...inputStyle, maxWidth: 360 }}
+          onChange={setQ}
+          placeholder="Search name, code, or legal name…"
+          ariaLabel="Search vendors"
+          wrapperStyle={{ maxWidth: 360 }}
         />
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input
             type="checkbox"
@@ -152,6 +252,34 @@ export default function InternalVendorMaster() {
           />
           Show inactive
         </label>
+        <TablePrefsButton
+          tableKey={VENDOR_MASTER_TABLE_KEY}
+          columns={VENDOR_MASTER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="vendors"
+          sheetName="Vendors"
+          columns={[
+            { key: "code",             header: "Code" },
+            { key: "name",             header: "Name" },
+            { key: "legal_name",       header: "Legal Name" },
+            { key: "country",          header: "Country" },
+            { key: "status",           header: "Status" },
+            { key: "is_1099_vendor",   header: "1099" },
+            { key: "default_currency", header: "Currency" },
+            { key: "payment_terms",    header: "Payment Terms" },
+            { key: "transit_days",     header: "Transit Days", format: "number" },
+            { key: "moq",              header: "MOQ", format: "number" },
+            { key: "contact",          header: "Contact" },
+            { key: "email",            header: "Email" },
+            { key: "created_at",       header: "Created", format: "datetime" },
+            { key: "updated_at",       header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (
@@ -169,22 +297,28 @@ export default function InternalVendorMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Country</th>
-                <th style={th}>Status</th>
-                <th style={th}>1099</th>
-                <th style={th}>Payment terms</th>
-                <th style={{ ...th, width: 140 }}></th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("country")}>Country</th>
+                <th style={th} hidden={!isVisible("status")}>Status</th>
+                <th style={th} hidden={!isVisible("is_1099_vendor")}>1099</th>
+                <th style={th} hidden={!isVisible("payment_terms")}>Payment terms</th>
+                <th style={{ ...th, width: 200 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} style={r.deleted_at ? { opacity: 0.4 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                <ScrollHighlightRow
+                  key={r.id}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
+                  style={r.deleted_at ? { opacity: 0.4 } : undefined}
+                >
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>
                     {r.code || "—"}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("name")}>
                     <div>{r.name}</div>
                     {r.legal_name && r.legal_name !== r.name && (
                       <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
@@ -192,27 +326,42 @@ export default function InternalVendorMaster() {
                       </div>
                     )}
                   </td>
-                  <td style={td}>{r.country || "—"}</td>
-                  <td style={td}><span style={statusBadge(r.status)}>{r.status}</span></td>
-                  <td style={td}>{r.is_1099_vendor ? "yes" : "no"}</td>
-                  <td style={td}>{r.payment_terms || "—"}</td>
+                  <td style={td} hidden={!isVisible("country")}>{r.country || "—"}</td>
+                  <td style={td} hidden={!isVisible("status")}><span style={statusBadge(r.status)}>{r.status}</span></td>
+                  <td style={td} hidden={!isVisible("is_1099_vendor")}>{r.is_1099_vendor ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("payment_terms")}>
+                    {r.payment_terms_id ? (
+                      termById.get(r.payment_terms_id)?.code || "—"
+                    ) : r.payment_terms ? (
+                      <span style={{ color: C.textMuted, fontStyle: "italic" }} title="Legacy free-text — edit to migrate to structured term">{r.payment_terms}</span>
+                    ) : "—"}
+                  </td>
                   <td style={{ ...td, textAlign: "right" }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
+                      title="Open vendor scorecard (lead time, on-time %, purchases, invoices, POs)"
+                      aria-label={`Open scorecard for ${r.name}`}
+                    >
+                      📊 Scorecard
+                    </button>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
-                        <button onClick={() => void softDelete(r.id)} style={{ ...btnDanger, marginLeft: 6 }}>Inactivate</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); void softDelete(r.id); }} style={{ ...btnDanger, marginLeft: 6 }}>Inactivate</button>
                       </>
                     )}
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>
         )}
       </div>
 
-      {addOpen && <VendorFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
-      {editing && <VendorFormModal mode="edit" vendor={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {addOpen && <VendorFormModal mode="add" paymentTerms={paymentTerms} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+      {editing && <VendorFormModal mode="edit" vendor={editing} paymentTerms={paymentTerms} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {scorecardId && <VendorScorecard vendorId={scorecardId} onClose={() => setScorecardId(null)} />}
     </div>
   );
 }
@@ -220,37 +369,92 @@ export default function InternalVendorMaster() {
 interface ModalProps {
   mode: "add" | "edit";
   vendor?: Vendor;
+  paymentTerms: PaymentTermOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
+function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    name:             vendor?.name             ?? "",
-    code:             vendor?.code             ?? "",
-    legal_name:       vendor?.legal_name       ?? "",
-    country:          vendor?.country          ?? "",
-    payment_terms:    vendor?.payment_terms    ?? "",
-    default_currency: vendor?.default_currency ?? "USD",
-    is_1099_vendor:   vendor?.is_1099_vendor   ?? false,
-    status:           vendor?.status           ?? "active",
+    name:                          vendor?.name                          ?? "",
+    code:                          vendor?.code                          ?? "",
+    legal_name:                    vendor?.legal_name                    ?? "",
+    country:                       vendor?.country                       ?? "",
+    contact:                       vendor?.contact                       ?? "",
+    contact_title:                 vendor?.contact_title                 ?? "",
+    email:                         vendor?.email                         ?? "",
+    phone:                         vendor?.phone                         ?? "",
+    address:                       (typeof vendor?.address === "object" && vendor.address !== null
+                                     ? vendor.address
+                                     : {}) as Address,
+    website:                       vendor?.website                       ?? "",
+    wechat_id:                     vendor?.wechat_id                     ?? "",
+    payment_terms_id:              vendor?.payment_terms_id              ?? "",
+    default_currency:              vendor?.default_currency              ?? "USD",
+    default_gl_ap_account_id:      vendor?.default_gl_ap_account_id      ?? "",
+    default_gl_expense_account_id: vendor?.default_gl_expense_account_id ?? "",
+    is_1099_vendor:                vendor?.is_1099_vendor                ?? false,
+    status:                        vendor?.status                        ?? "active",
   });
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Load postable GL accounts for the AP + expense account pickers.
+  useEffect(() => {
+    fetch("/api/internal/gl-accounts?limit=1000")
+      .then((r) => r.json())
+      .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active" && a.is_postable) : []))
+      .catch(() => {});
+  }, []);
+
+  // Wave 5 — payment-terms picker via SearchableSelect. We include inactive
+  // terms only if they are the currently-selected term (so editing an old
+  // vendor doesn't silently drop their previous term off the list).
+  const paymentTermOptions = useMemo(() => {
+    const opts = [
+      { value: "", label: "(select)" },
+      ...paymentTerms
+        .filter((t) => t.is_active || t.id === form.payment_terms_id)
+        .map((t) => ({
+          value: t.id,
+          label: `${t.code} — ${t.name} (${t.due_days}d)`,
+          searchHaystack: `${t.code} ${t.name} ${t.due_days}d`,
+        })),
+    ];
+    return opts;
+  }, [paymentTerms, form.payment_terms_id]);
+
+  // GL account picker options — postable accounts formatted as "{code} — {name}".
+  const glAccountOptions = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+  ], [glAccounts]);
 
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
       const body: Record<string, unknown> = {
-        name:             form.name.trim(),
-        code:             form.code.trim() ? form.code.trim().toUpperCase() : null,
-        legal_name:       form.legal_name.trim() || null,
-        country:          form.country.trim() || null,
-        payment_terms:    form.payment_terms.trim() || null,
-        default_currency: (form.default_currency || "USD").toUpperCase(),
-        is_1099_vendor:   form.is_1099_vendor,
-        status:           form.status,
+        name:                          form.name.trim(),
+        // Chunk M — code is server-generated; never sent from the client.
+        legal_name:                    form.legal_name.trim() || null,
+        country:                       form.country.trim() || null,
+        contact:                       form.contact.trim() || null,
+        contact_title:                 form.contact_title.trim() || null,
+        email:                         form.email.trim() || null,
+        phone:                         form.phone.trim() || null,
+        address:                       form.address,
+        website:                       form.website.trim() || null,
+        wechat_id:                     form.wechat_id.trim() || null,
+        // P3-9: write the structured FK, leave the legacy text column untouched
+        // (it stays read-only and can be displayed for backward-compat).
+        payment_terms_id:              form.payment_terms_id || null,
+        default_currency:              (form.default_currency || "USD").toUpperCase(),
+        default_gl_ap_account_id:      form.default_gl_ap_account_id || null,
+        default_gl_expense_account_id: form.default_gl_expense_account_id || null,
+        is_1099_vendor:                form.is_1099_vendor,
+        status:                        form.status,
       };
       let url: string;
       let method: string;
@@ -300,13 +504,12 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
             />
           </Field>
           <Field label="Code">
-            <input
-              type="text"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              style={inputStyle}
-              placeholder="Short code (e.g. ACME01)"
-            />
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (vendor?.code || "—")}
+            </div>
           </Field>
           <Field label="Legal name">
             <input
@@ -326,14 +529,73 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
               placeholder="e.g. US, CN, VN"
             />
           </Field>
-          <Field label="Payment terms">
+          <Field label="Contact name">
             <input
               type="text"
-              value={form.payment_terms}
-              onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}
+              value={form.contact}
+              onChange={(e) => setForm({ ...form, contact: e.target.value })}
               style={inputStyle}
-              placeholder="e.g. NET 30"
+              placeholder="Primary contact person"
             />
+          </Field>
+          <Field label="Contact title">
+            <input
+              type="text"
+              value={form.contact_title}
+              onChange={(e) => setForm({ ...form, contact_title: e.target.value })}
+              style={inputStyle}
+              placeholder="e.g. Account Manager"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              style={inputStyle}
+              placeholder="vendor@example.com"
+            />
+          </Field>
+          <Field label="Phone">
+            <input
+              type="text"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              style={inputStyle}
+              placeholder="+1 212 555 0100"
+            />
+          </Field>
+          <Field label="Website">
+            <input
+              type="text"
+              value={form.website}
+              onChange={(e) => setForm({ ...form, website: e.target.value })}
+              style={inputStyle}
+              placeholder="https://example.com"
+            />
+          </Field>
+          <Field label="WeChat ID">
+            <input
+              type="text"
+              value={form.wechat_id}
+              onChange={(e) => setForm({ ...form, wechat_id: e.target.value })}
+              style={inputStyle}
+              placeholder="WeChat / 微信"
+            />
+          </Field>
+          <Field label="Payment terms">
+            <SearchableSelect
+              value={form.payment_terms_id || ""}
+              onChange={(v) => setForm({ ...form, payment_terms_id: v })}
+              options={paymentTermOptions}
+              placeholder="(select)"
+              emptyText="No matching terms"
+            />
+            {mode === "edit" && vendor?.payment_terms && !form.payment_terms_id && (
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
+                Legacy free-text: &quot;{vendor.payment_terms}&quot; — pick from list to migrate.
+              </div>
+            )}
           </Field>
           <Field label="Default currency">
             <input
@@ -360,6 +622,27 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
               Yes (issue 1099-MISC at year-end)
             </label>
           </Field>
+          <Field label="Default AP account">
+            <SearchableSelect
+              value={form.default_gl_ap_account_id || ""}
+              onChange={(v) => setForm({ ...form, default_gl_ap_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(select)"
+              emptyText="No matching accounts"
+            />
+          </Field>
+          <Field label="Default expense account">
+            <SearchableSelect
+              value={form.default_gl_expense_account_id || ""}
+              onChange={(v) => setForm({ ...form, default_gl_expense_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(select)"
+              emptyText="No matching accounts"
+            />
+          </Field>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <AddressFields label="Address" value={form.address} onChange={(a) => setForm({ ...form, address: a })} />
+          </div>
         </div>
 
         <div style={{
@@ -382,6 +665,21 @@ function VendorFormModal({ mode, vendor, onClose, onSaved }: ModalProps) {
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
+
+        {mode === "edit" && vendor && (
+          <div style={{ marginTop: 16 }}>
+            <DocumentAttachmentList
+              contextTable="vendors"
+              contextId={vendor.id}
+              kinds={["contract", "w9", "coa", "insurance", "other"]}
+            />
+          </div>
+        )}
+
+        {/* Cross-cutter T11-3 — audit trail timeline */}
+        {mode === "edit" && vendor && (
+          <RowHistory source_table="vendors" source_id={vendor.id} />
+        )}
       </div>
     </div>
   );

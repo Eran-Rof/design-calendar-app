@@ -1,0 +1,350 @@
+// api/_lib/styleMatrix.js
+//
+// Shared helpers for the size-matrix surfaces (inventory view, SO entry,
+// inventory adjustments, PO entry). One source of truth so every surface
+// renders the same color × size (× inseam) grid for a style.
+//
+//   enumerateStyleMatrix(admin, entityId, styleId)
+//     → { style, sizes, colors, inseams, rises,
+//         skus:[{id,sku_code,color,size,inseam,length,fit,rise,on_hand_qty,available_qty,avg_cost_cents,last_received}] }
+//     `sizes` comes from the style's size_scale (ordered); falls back to the
+//     distinct sizes on existing SKUs when the style has no scale.
+//
+//   resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam })
+//     → { id, created }  — finds the sized SKU for (style,color,size,inseam) or
+//     creates it (matrix cells auto-materialize SKUs on first use).
+
+const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+// Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
+// (color-grain opening_balance layers predate the by-size warehouse cutover).
+const WH_UNASSIGNED = "(unassigned)";
+
+// PPK stem: strip a trailing PPK token (optionally dash-prefixed, optional
+// trailing digits) from a style_code so a SIZED style and its PPK sibling land
+// on the same stem. Mirrors src/ats/salesCompsGrain.ts siblingKeyFor().
+//   "RYB059430PPK" → "RYB059430"   "RJO0639-PPK" → "RJO0639"
+function ppkStem(styleCode) {
+  return String(styleCode ?? "").trim().replace(/-?PPK\d*$/i, "").toUpperCase();
+}
+// Is this style_code a PPK (pack-grain) style? Canonical PPK gate: contains PPK.
+function isPpkStyle(styleCode) {
+  return /PPK/i.test(String(styleCode ?? ""));
+}
+
+/**
+ * Build the matrix payload for one style.
+ *
+ * @param {object}  admin
+ * @param {string}  entityId
+ * @param {string}  styleId
+ * @param {object}  [opts]
+ * @param {boolean} [opts.explodePpk=false]  when true, find this SIZED style's
+ *        PPK sibling(s), read their pack on-hand, look up each pack's per-size
+ *        composition from the prepack_matrices master, and fold the exploded
+ *        eaches into the matrix. Adds `explode` metadata to the payload. When a
+ *        pack has no matrix defined it is SKIPPED (reported, not guessed). The
+ *        un-exploded fields stay exactly as before (backward-compatible).
+ */
+export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) {
+  const explodePpk = opts.explodePpk === true;
+  const { data: style } = await admin
+    .from("style_master")
+    .select("id, style_code, style_name, description, size_scale_id, brand_id, gender_code")
+    .eq("id", styleId)
+    .maybeSingle();
+  if (!style) return null;
+
+  // Size columns from the scale (ordered); fallback to distinct SKU sizes.
+  let sizes = [];
+  if (style.size_scale_id) {
+    const { data: scale } = await admin.from("size_scales").select("sizes").eq("id", style.size_scale_id).maybeSingle();
+    if (Array.isArray(scale?.sizes)) sizes = scale.sizes.filter(Boolean);
+  }
+
+  // Existing sized SKUs for this style.
+  const { data: skuRows } = await admin
+    .from("ip_item_master")
+    .select("id, sku_code, color, size, inseam, length, fit, rise")
+    .eq("entity_id", entityId)
+    .eq("style_id", styleId);
+  const skus = skuRows || [];
+
+  if (sizes.length === 0) {
+    const seen = new Set();
+    for (const s of skus) { if (s.size && !seen.has(s.size)) { seen.add(s.size); sizes.push(s.size); } }
+  }
+  const colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
+  const inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
+  const rises = [...new Set(skus.map((s) => s.rise).filter(Boolean))];
+
+  // On-hand (Σ remaining_qty) + available (M18 view) + last-received per item.
+  // Per-warehouse on-hand breakdown (additive, backward-compatible): the by-size
+  // cutover (RYB0412) tags each layer's warehouse in `notes` as `…:wh=<Store>`
+  // (e.g. `wh=ROF Main`, `wh=ROF - ECOM`). Layers with no `wh=` token (e.g.
+  // color-grain opening_balance) bucket under WH_UNASSIGNED. `on_hand_qty` stays
+  // the FULL sum across all warehouses so existing consumers are unaffected; the
+  // breakdown is exposed as the new per-SKU `on_hand_by_wh` map.
+  const ids = skus.map((s) => s.id);
+  const onHand = new Map();
+  const onHandByWh = new Map(); // item_id → { [wh]: qty }
+  const whSeen = new Set();
+  const avail = new Map();
+  const lastReceived = new Map();
+  if (ids.length > 0) {
+    const { data: layers } = await admin
+      .from("inventory_layers")
+      .select("item_id, remaining_qty, received_at, notes")
+      .in("item_id", ids);
+    for (const l of layers || []) {
+      const q = Number(l.remaining_qty);
+      if (q > 0) {
+        onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + q);
+        const m = (l.notes || "").match(/wh=(.+)$/);
+        const wh = m ? m[1].trim() : WH_UNASSIGNED;
+        whSeen.add(wh);
+        let byWh = onHandByWh.get(l.item_id);
+        if (!byWh) { byWh = {}; onHandByWh.set(l.item_id, byWh); }
+        byWh[wh] = (byWh[wh] || 0) + q;
+      }
+      if (l.received_at) {
+        const prev = lastReceived.get(l.item_id);
+        if (!prev || l.received_at > prev) lastReceived.set(l.item_id, l.received_at);
+      }
+    }
+    const { data: av } = await admin.from("v_inventory_available").select("item_id, available_qty").in("item_id", ids);
+    for (const a of av || []) avail.set(a.item_id, Number(a.available_qty));
+  }
+
+  // Avg cost: ip_item_avg_cost is keyed by sku_code, storing dollars in avg_cost.
+  // Convert to integer cents (×100 round). Degrade silently if table absent.
+  const avgCostCentsBySku = new Map();
+  const skuCodes = [...new Set(skus.map((s) => s.sku_code).filter(Boolean))];
+  if (skuCodes.length > 0) {
+    const { data: avgRows, error: avgErr } = await admin
+      .from("ip_item_avg_cost")
+      .select("sku_code, avg_cost")
+      .in("sku_code", skuCodes);
+    if (!avgErr) {
+      for (const r of avgRows || []) {
+        if (r.avg_cost != null) avgCostCentsBySku.set(r.sku_code, Math.round(Number(r.avg_cost) * 100));
+      }
+    }
+  }
+
+  // Warehouses present on this style's layers, in a stable order: known stores
+  // alphabetically first, then the unassigned bucket last. Exposed so the UI can
+  // build a warehouse filter without re-deriving it from every SKU.
+  const whSeenAll = new Set(whSeen);
+
+  // ── Explode PPK (additive, opt-in) ─────────────────────────────────────────
+  // The provided style is a SIZED style. Find its PPK sibling style(s) — same
+  // stem, style_code contains PPK — read each PPK SKU's pack on-hand per
+  // warehouse, look up the pack's per-size composition from prepack_matrices,
+  // and emit exploded eaches. Folds into the sized matrix as synthetic cells
+  // keyed by (color, size); the UI sums them on top of the real on-hand.
+  let explode = null;
+  if (explodePpk && !isPpkStyle(style.style_code)) {
+    explode = await computePpkExplode(admin, entityId, style, whSeenAll);
+  }
+
+  const warehouses = [...whSeenAll].filter((w) => w !== WH_UNASSIGNED).sort((a, b) => a.localeCompare(b));
+  if (whSeenAll.has(WH_UNASSIGNED)) warehouses.push(WH_UNASSIGNED);
+
+  // When exploding, surface any newly-introduced sizes (e.g. a pack composition
+  // references a garment size that has no sized SKU yet) so the grid renders a
+  // column for it. Append after the scale-ordered sizes, preserving order.
+  let outSizes = sizes;
+  if (explode && explode.extraSizes.length) {
+    outSizes = [...sizes];
+    for (const sz of explode.extraSizes) if (!outSizes.includes(sz)) outSizes.push(sz);
+  }
+  let outColors = colors;
+  if (explode && explode.extraColors.length) {
+    outColors = [...colors];
+    for (const c of explode.extraColors) if (!outColors.includes(c)) outColors.push(c);
+  }
+
+  return {
+    style: { id: style.id, style_code: style.style_code, style_name: style.style_name, description: style.description, size_scale_id: style.size_scale_id, brand_id: style.brand_id, gender_code: style.gender_code },
+    sizes: outSizes,
+    colors: outColors,
+    inseams,
+    rises,
+    warehouses,
+    // Additive: present only when explodePpk was requested. UI folds
+    // explode.cells into the matrix and shows the indicator/unmatched note.
+    explode: explode ? {
+      enabled: true,
+      cells: explode.cells,                 // [{ color, size, qty, by_wh:{wh:qty} }]
+      packs_exploded: explode.packsExploded, // # of PPK SKUs with a matrix
+      packs_unmatched: explode.unmatched,    // [{ ppk_style_code, color, pack_token, qty }]
+      ppk_styles: explode.ppkStyles,         // distinct PPK sibling style_codes found
+    } : (explodePpk ? { enabled: true, cells: [], packs_exploded: 0, packs_unmatched: [], ppk_styles: [] } : undefined),
+    skus: skus.map((s) => ({
+      ...s,
+      on_hand_qty: onHand.get(s.id) || 0,
+      on_hand_by_wh: onHandByWh.get(s.id) || {},
+      available_qty: avail.has(s.id) ? avail.get(s.id) : null,
+      avg_cost_cents: s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null,
+      last_received: lastReceived.has(s.id) ? lastReceived.get(s.id) : null,
+    })),
+  };
+}
+
+/**
+ * Compute the exploded per-size eaches contributed by a SIZED style's PPK
+ * sibling packs. Returns { cells, packsExploded, unmatched, ppkStyles,
+ * extraSizes, extraColors } and mutates `whSeenAll` to register any new
+ * warehouses the PPK layers introduce (so the matrix warehouse filter shows
+ * them). Packs whose PPK style_code has no matrix in prepack_matrices are
+ * reported in `unmatched` and NOT exploded.
+ */
+async function computePpkExplode(admin, entityId, style, whSeenAll) {
+  const stem = ppkStem(style.style_code);
+  const empty = { cells: [], packsExploded: 0, unmatched: [], ppkStyles: [], extraSizes: [], extraColors: [] };
+  if (!stem) return empty;
+
+  // PPK sibling SKUs: same stem, style_code contains PPK. We can't ILIKE on a
+  // computed stem, so fetch PPK-token SKUs whose style_code starts with the stem
+  // and filter precisely in JS (handles "RYB059430PPK", "RJO0639-PPK").
+  const { data: cand } = await admin
+    .from("ip_item_master")
+    .select("id, sku_code, style_code, color, size")
+    .eq("entity_id", entityId)
+    .ilike("style_code", `${stem}%`);
+  const ppkSkus = (cand || []).filter(
+    (r) => isPpkStyle(r.style_code) && ppkStem(r.style_code) === stem,
+  );
+  if (ppkSkus.length === 0) return empty;
+
+  // Pack on-hand per PPK SKU, broken down by warehouse (same notes `wh=` parse).
+  const ppkIds = ppkSkus.map((s) => s.id);
+  const packOnHand = new Map();    // ppk item_id → { total, byWh:{wh:qty} }
+  {
+    const { data: layers } = await admin
+      .from("inventory_layers")
+      .select("item_id, remaining_qty, notes")
+      .in("item_id", ppkIds);
+    for (const l of layers || []) {
+      const q = Number(l.remaining_qty);
+      if (!(q > 0)) continue;
+      let rec = packOnHand.get(l.item_id);
+      if (!rec) { rec = { total: 0, byWh: {} }; packOnHand.set(l.item_id, rec); }
+      rec.total += q;
+      const m = (l.notes || "").match(/wh=(.+)$/);
+      const wh = m ? m[1].trim() : WH_UNASSIGNED;
+      rec.byWh[wh] = (rec.byWh[wh] || 0) + q;
+    }
+  }
+
+  // Look up matrices for the distinct PPK sibling style_codes. The master keys
+  // on ppk_style_code (case-insensitive); fetch all then index by lowercased.
+  const ppkStyleCodes = [...new Set(ppkSkus.map((s) => s.style_code).filter(Boolean))];
+  const matrixByStyle = new Map(); // lower(ppk_style_code) → [{size, qty_per_pack}]
+  if (ppkStyleCodes.length > 0) {
+    const { data: matrices } = await admin
+      .from("prepack_matrices")
+      .select("id, ppk_style_code, is_active")
+      .eq("entity_id", entityId)
+      .eq("is_active", true)
+      .not("ppk_style_code", "is", null);
+    const wanted = new Set(ppkStyleCodes.map((c) => c.toLowerCase()));
+    const matchIds = (matrices || []).filter((m) => wanted.has(String(m.ppk_style_code).toLowerCase()));
+    if (matchIds.length > 0) {
+      const { data: comp } = await admin
+        .from("prepack_matrix_sizes")
+        .select("matrix_id, size, qty_per_pack")
+        .in("matrix_id", matchIds.map((m) => m.id));
+      const compByMatrix = new Map();
+      for (const r of comp || []) {
+        const arr = compByMatrix.get(r.matrix_id) || [];
+        arr.push({ size: String(r.size), qty_per_pack: Number(r.qty_per_pack) || 0 });
+        compByMatrix.set(r.matrix_id, arr);
+      }
+      for (const m of matchIds) {
+        matrixByStyle.set(String(m.ppk_style_code).toLowerCase(), compByMatrix.get(m.id) || []);
+      }
+    }
+  }
+
+  // Explode each PPK SKU's packs by its matrix composition.
+  const cellMap = new Map(); // `${color}|${size}` → { color, size, qty, by_wh:{} }
+  const unmatched = [];
+  const extraSizes = new Set();
+  const extraColors = new Set();
+  let packsExploded = 0;
+
+  for (const ppk of ppkSkus) {
+    const oh = packOnHand.get(ppk.id);
+    if (!oh || oh.total <= 0) continue; // no packs on hand → nothing to explode
+    const comp = matrixByStyle.get(String(ppk.style_code).toLowerCase());
+    if (!comp || comp.length === 0) {
+      unmatched.push({ ppk_style_code: ppk.style_code, color: ppk.color || null, pack_token: ppk.size || null, qty: oh.total });
+      continue;
+    }
+    packsExploded += 1;
+    const color = ppk.color || "—";
+    extraColors.add(color);
+    for (const { size, qty_per_pack } of comp) {
+      if (!size || !(qty_per_pack > 0)) continue;
+      extraSizes.add(size);
+      const key = `${color}|${size}`;
+      let cell = cellMap.get(key);
+      if (!cell) { cell = { color, size, qty: 0, by_wh: {} }; cellMap.set(key, cell); }
+      cell.qty += oh.total * qty_per_pack;
+      for (const [wh, packs] of Object.entries(oh.byWh)) {
+        whSeenAll.add(wh);
+        cell.by_wh[wh] = (cell.by_wh[wh] || 0) + packs * qty_per_pack;
+      }
+    }
+  }
+
+  return {
+    cells: [...cellMap.values()],
+    packsExploded,
+    unmatched,
+    ppkStyles: ppkStyleCodes,
+    extraSizes: [...extraSizes],
+    extraColors: [...extraColors],
+  };
+}
+
+/** Find (or create) the ip_item_master SKU for one matrix cell. */
+export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }) {
+  if (!style_id || !size) return { error: "style_id and size required" };
+  const colorVal = color ? String(color).trim() : null;
+  const sizeVal = String(size).trim();
+  const inseamVal = inseam ? String(inseam).trim() : null;
+
+  // Find existing (style, color, size, inseam).
+  let q = admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("style_id", style_id).eq("size", sizeVal);
+  q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
+  q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
+  const { data: existing } = await q.maybeSingle();
+  if (existing?.id) return { id: existing.id, created: false };
+
+  // Need the style_code if not supplied.
+  let sc = style_code;
+  if (!sc) {
+    const { data: st } = await admin.from("style_master").select("style_code").eq("id", style_id).maybeSingle();
+    sc = st?.style_code || null;
+  }
+
+  const base = [SKU_SAFE(sc), SKU_SAFE(colorVal), SKU_SAFE(sizeVal), inseamVal ? SKU_SAFE(inseamVal) : ""].filter(Boolean).join("-");
+  // sku_code is globally UNIQUE — retry with a numeric suffix on collision.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const skuCode = attempt === 0 ? base : `${base}-${attempt}`;
+    const { data: created, error } = await admin
+      .from("ip_item_master")
+      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: sizeVal, inseam: inseamVal, is_apparel: true })
+      .select("id")
+      .single();
+    if (!error && created) return { id: created.id, created: true };
+    if (error && error.code !== "23505") return { error: error.message };
+    // 23505 → sku_code collided; if it's the same combo that raced in, re-find.
+    const { data: again } = await admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("style_id", style_id).eq("size", sizeVal).eq("sku_code", skuCode).maybeSingle();
+    if (again?.id) return { id: again.id, created: false };
+  }
+  return { error: "could not allocate a unique sku_code" };
+}

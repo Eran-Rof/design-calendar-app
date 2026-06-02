@@ -22,6 +22,7 @@
 import { manualEntry } from "./rules/manualEntry.js";
 import { apInvoiceReceived } from "./rules/apInvoiceReceived.js";
 import { apInvoicePaid } from "./rules/apInvoicePaid.js";
+import { apInvoiceVoided } from "./rules/apInvoiceVoided.js";
 import { arInvoiceSent } from "./rules/arInvoiceSent.js";
 import { arPaymentReceived } from "./rules/arPaymentReceived.js";
 import { inventoryReceipt } from "./rules/inventoryReceipt.js";
@@ -34,6 +35,11 @@ import { checkAccountPostable } from "./guards/accountPostable.js";
 import { checkAccountExistsInEntity } from "./guards/accountExistsInEntity.js";
 
 import { persistRuleOutput } from "./persist.js";
+import { reverseJournalEntry } from "./reverse.js";
+import {
+  createLayer as createInventoryLayer,
+  consume as consumeInventory,
+} from "../../inventory/fifo.js";
 
 export { reverseJournalEntry } from "./reverse.js";
 
@@ -41,6 +47,7 @@ const RULE_BY_KIND = {
   manual:                manualEntry,
   ap_invoice_received:   apInvoiceReceived,
   ap_invoice_paid:       apInvoicePaid,
+  ap_invoice_voided:     apInvoiceVoided,
   ar_invoice_sent:       arInvoiceSent,
   ar_payment_received:   arPaymentReceived,
   inventory_receipt:     inventoryReceipt,
@@ -76,8 +83,25 @@ export async function postEvent(supabase, event) {
     throw new PostingError("unknown_kind", `Unknown posting event kind: ${event.kind}`);
   }
 
-  // 1. Rule → { accrual, cash } candidates
+  // 1. Rule → { accrual, cash } candidates  (or { reversals: [je_id, ...] } for voids)
   const ruleOutput = rule(event);
+
+  // Reversal-shape output: { accrual:null, cash:null, reversals:[...] }
+  // No new candidates to balance-check — short-circuit through reverseJournalEntry.
+  if (Array.isArray(ruleOutput.reversals)) {
+    const reversedJeIds = [];
+    for (const jeId of ruleOutput.reversals) {
+      const newId = await reverseJournalEntry(supabase, jeId, {
+        created_by_user_id: event.created_by_user_id ?? null,
+      });
+      reversedJeIds.push(newId);
+    }
+    return {
+      accrual_je_id: null,
+      cash_je_id: null,
+      reversed_je_ids: reversedJeIds,
+    };
+  }
 
   if (!ruleOutput.accrual && !ruleOutput.cash) {
     throw new PostingError(
@@ -86,7 +110,127 @@ export async function postEvent(supabase, event) {
     );
   }
 
-  // 2. Run guards on each non-null candidate
+  // 2a. consumePlan drain — two modes:
+  //
+  //   LEGACY 2-LINE MODE (P3-5 — M37 negative inventory adjustments):
+  //     The rule emits a consumePlan whose entries have NO line-index hints.
+  //     The candidate has exactly two lines (DR counter / CR inventory). We
+  //     sum cogs_cents across all plan entries and rewrite line[0].debit +
+  //     line[1].credit. This is the inventoryAdjustment shape.
+  //
+  //   INDEXED MODE (P4-3 — arInvoiceSent + future multi-line consumers):
+  //     Each plan entry carries `dr_line_ix` + `cr_line_ix` pointing at the
+  //     sentinel COGS pair in the candidate's line array. The rule may also
+  //     emit non-COGS lines (e.g. DR AR / CR revenue) that we must NOT touch.
+  //     We rewrite per-entry (each entry's cogs_cents goes to its OWN pair),
+  //     and a 0-cogs entry causes its sentinel pair to be DROPPED cleanly
+  //     (so we never persist a {debit:0, credit:0} no-op pair). Lines are
+  //     renumbered (line_number = i+1) after any drops.
+  //
+  //   Both modes share the same consume() per-entry call and the same
+  //   side-effect semantics: consume() mutates inventory_layers +
+  //   inserts inventory_consumption BEFORE the JE persists. If JE persist
+  //   fails downstream, the FIFO ledger leads the GL by one event. This
+  //   asymmetry is accepted (see P3-5 docs); P4 inherits it for AR.
+  //
+  //   consumer_kind whitelist: `ar_invoice`, `adjustment_decrease`,
+  //   `transfer_out`, `write_off`. Enforced in fifo.js consume() AND in the
+  //   SQL CHECK constraint on inventory_consumption.consumer_kind (P3-3
+  //   migration). No widening needed here — the drain is consumer-kind
+  //   agnostic; it relays whatever the rule emitted.
+  let consumePlanResults = [];
+  if (Array.isArray(ruleOutput.consumePlan) && ruleOutput.consumePlan.length > 0) {
+    // Detect mode: if ANY plan entry carries dr_line_ix/cr_line_ix, treat
+    // the whole plan as indexed-mode (mixed plans are not supported — a
+    // single rule output must commit to one mode).
+    const isIndexed = ruleOutput.consumePlan.some(
+      (p) => p.dr_line_ix != null || p.cr_line_ix != null,
+    );
+
+    // Execute consume() for each plan entry, in declared order.
+    const perEntryCogs = []; // bigint per plan-entry
+    let totalCogs = 0n;
+    for (const plan of ruleOutput.consumePlan) {
+      const { cogs_cents } = await consumeInventory(supabase, {
+        entity_id: event.entity_id,
+        item_id: plan.item_id,
+        qty: plan.qty,
+        consumer_kind: plan.consumer_kind,
+        consumer_ref_id: plan.consumer_ref_id,
+        partition_id: plan.partition_id || null, // P15 — draw from the sale's brand pool (gated)
+        user_id: event.created_by_user_id || null,
+      });
+      perEntryCogs.push(cogs_cents);
+      consumePlanResults.push({
+        item_id: plan.item_id,
+        qty: plan.qty,
+        cogs_cents,
+        // P4-3: expose target_line_id when the rule supplied it. The handler
+        // uses this to write cogs_cents back onto ar_invoice_lines.cogs_cents
+        // after postEvent returns.
+        target_line_id: plan.target_line_id || null,
+      });
+      totalCogs += cogs_cents;
+    }
+
+    if (isIndexed) {
+      // INDEXED MODE — per-entry rewrite + drop zero-cogs sentinel pairs.
+      for (const side of ["accrual", "cash"]) {
+        const cand = ruleOutput[side];
+        if (!cand || !Array.isArray(cand.lines)) continue;
+        const linesToDrop = new Set();
+        ruleOutput.consumePlan.forEach((plan, i) => {
+          const cogs = perEntryCogs[i];
+          if (plan.dr_line_ix == null || plan.cr_line_ix == null) {
+            throw new PostingError(
+              "consume_plan_shape",
+              `indexed consumePlan entry ${i} missing dr_line_ix/cr_line_ix`,
+            );
+          }
+          if (plan.dr_line_ix >= cand.lines.length || plan.cr_line_ix >= cand.lines.length) {
+            throw new PostingError(
+              "consume_plan_shape",
+              `indexed consumePlan entry ${i} line index out of range (${plan.dr_line_ix}/${plan.cr_line_ix}; lines=${cand.lines.length})`,
+            );
+          }
+          if (cogs === 0n) {
+            // Drop the sentinel pair — no real COGS to record.
+            linesToDrop.add(plan.dr_line_ix);
+            linesToDrop.add(plan.cr_line_ix);
+            return;
+          }
+          const amountStr = bigintCentsToDecimal(cogs);
+          cand.lines[plan.dr_line_ix].debit = amountStr;
+          cand.lines[plan.cr_line_ix].credit = amountStr;
+        });
+        if (linesToDrop.size > 0) {
+          cand.lines = cand.lines.filter((_, ix) => !linesToDrop.has(ix));
+          // Renumber 1..N after drops so persistRuleOutput sees contiguous
+          // line_numbers (the RPC tolerates gaps but downstream JE viewers
+          // assume 1..N).
+          cand.lines.forEach((l, i) => { l.line_number = i + 1; });
+        }
+      }
+    } else {
+      // LEGACY 2-LINE MODE — sum cogs across plan, rewrite line[0]/line[1].
+      const amountStr = bigintCentsToDecimal(totalCogs);
+      for (const side of ["accrual", "cash"]) {
+        const cand = ruleOutput[side];
+        if (!cand) continue;
+        if (!Array.isArray(cand.lines) || cand.lines.length < 2) {
+          throw new PostingError(
+            "consume_plan_shape",
+            `consumePlan path expects 2-line ${side} candidate (got ${cand.lines?.length ?? 0})`,
+          );
+        }
+        // line 1 is DR counter; line 2 is CR inventory. Rewrite both.
+        cand.lines[0].debit = amountStr;
+        cand.lines[1].credit = amountStr;
+      }
+    }
+  }
+
+  // 2b. Run guards on each non-null candidate
   const ctx = { supabase, entity_id: event.entity_id };
 
   for (const side of ["accrual", "cash"]) {
@@ -96,7 +240,79 @@ export async function postEvent(supabase, event) {
   }
 
   // 3. Persist transactionally
-  return persistRuleOutput(supabase, ruleOutput);
+  const result = await persistRuleOutput(supabase, ruleOutput);
+
+  // 3a. Expose consume results on the result (M37 audit trail + P4-3 AR
+  //     write-back). target_line_id is null on legacy 2-line mode (M37) and
+  //     set on indexed mode (AR send time — handler writes cogs_cents back
+  //     onto ar_invoice_lines.cogs_cents after postEvent returns).
+  if (consumePlanResults.length > 0) {
+    result.consume_results = consumePlanResults.map((c) => ({
+      item_id: c.item_id,
+      qty: c.qty,
+      cogs_cents: c.cogs_cents.toString(), // serialize bigint as string
+      target_line_id: c.target_line_id ?? null,
+    }));
+  }
+
+  // 4. P3-4 (arch §4.5): after the JE persists, create one inventory_layers
+  //    row per pending layer. This fires AFTER the JE so a failed JE does NOT
+  //    leave orphan layers. The reverse risk — JE posts but layer-create fails
+  //    — is logged + surfaced on the result (`inventory_layer_errors`); the
+  //    operator can backfill manually. We deliberately do NOT roll back the JE
+  //    on layer failure because the GL truth (DR inventory / CR AP) is already
+  //    correct; the FIFO ledger is a downstream audit trail that can be
+  //    reconciled out-of-band.
+  if (Array.isArray(ruleOutput.inventoryLayers) && ruleOutput.inventoryLayers.length > 0) {
+    const layerIds = [];
+    const layerErrors = [];
+    for (const pending of ruleOutput.inventoryLayers) {
+      // P3-5: source_kind defaults to 'ap_invoice' for back-compat with P3-4
+      // (apInvoiceReceived). Positive inventoryAdjustment supplies
+      // source_kind='adjustment' + source_adjustment_id.
+      const sourceKind = pending.source_kind || "ap_invoice";
+      try {
+        const { layer } = await createInventoryLayer(supabase, {
+          entity_id: event.entity_id,
+          item_id: pending.item_id,
+          qty: pending.qty,
+          unit_cost_cents: pending.unit_cost_cents,
+          source_kind: sourceKind,
+          source_invoice_id: pending.source_invoice_id || null,
+          source_adjustment_id: pending.source_adjustment_id || null,
+          partition_id: pending.partition_id || null, // P15 brand stock pool
+          received_at: pending.received_at || null,
+          notes: pending.notes || null,
+          created_by_user_id: event.created_by_user_id ?? null,
+        });
+        layerIds.push(layer?.id);
+      } catch (err) {
+        const message = err?.message || String(err);
+        // eslint-disable-next-line no-console
+        console.error(
+          `[posting] ${event.kind}: FIFO layer create failed for item ${pending.item_id}: ${message}`,
+        );
+        layerErrors.push({ item_id: pending.item_id, error: message });
+      }
+    }
+    result.inventory_layer_ids = layerIds;
+    if (layerErrors.length > 0) {
+      result.inventory_layer_errors = layerErrors;
+    }
+  }
+
+  return result;
+}
+
+// cents (bigint) → decimal-string ("123.45"). Shared with rules; kept here so
+// the consumePlan drain doesn't have to import from a sibling rule.
+function bigintCentsToDecimal(cents) {
+  const neg = cents < 0n;
+  const abs = neg ? -cents : cents;
+  const whole = abs / 100n;
+  const frac = abs % 100n;
+  const fracStr = frac.toString().padStart(2, "0");
+  return `${neg ? "-" : ""}${whole.toString()}.${fracStr}`;
 }
 
 async function runGuards(candidate, ctx, side) {

@@ -26,6 +26,16 @@ interface MilestoneOpsDeps {
   acceptedBlocked: Set<string>;
 }
 
+// Supabase / PostgREST silently caps every response at db-max-rows=1000
+// regardless of `limit=N`. With ~20 milestone rows per PO across all active
+// + archived POs we sit well past the cap (38k+ rows in prod), so a single
+// `select id,data` returned only the first 1000 — and any milestone whose
+// row fell past position 1000 silently disappeared on every page reload,
+// even when the upsert had landed correctly in the DB. Symptom: status
+// edit shows in the grid, persists in DB, but reverts to blank on F5.
+// Mirror the fetchAllTandaPos pattern from usePOWIPSync.ts (PR #307).
+const MS_PAGE_SIZE = 1000;
+
 export function useMilestoneOps(deps: MilestoneOpsDeps) {
   const { sb, addHistory, setConfirmModal, setCollapsedCats, acceptedBlocked } = deps;
   const generatingRef = useRef<Set<string>>(new Set());
@@ -33,6 +43,27 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   const getState = () => useTandaStore.getState();
   const store = getState();
+
+  async function fetchAllMilestoneRows(): Promise<Array<{ id: string; data: any }>> {
+    const out: Array<{ id: string; data: any }> = [];
+    // No ORDER BY: PR #448's `order=id.asc&offset=N` triggered Supabase's
+    // 8-second statement_timeout on the FIRST page (text-id sort + ~10kB
+    // JSONB per row was too heavy for the planner). Postgres's natural
+    // heap order is deterministic enough across consecutive paginated
+    // calls when no writers are racing the read — and the in-memory merge
+    // dedupes by PO grouping anyway, so an occasional duplicate doesn't
+    // affect rendering.
+    for (let offset = 0; ; offset += MS_PAGE_SIZE) {
+      const filter = `limit=${MS_PAGE_SIZE}&offset=${offset}`;
+      const { data, error } = await sb.from("tanda_milestones").select("id,data", filter);
+      if (error) throw new Error(`tanda_milestones fetch failed at offset ${offset}: ${JSON.stringify(error)}`);
+      const chunk = Array.isArray(data) ? data : [];
+      out.push(...chunk);
+      if (chunk.length < MS_PAGE_SIZE) break;
+      if (offset > 500_000) break; // hard safety cap
+    }
+    return out;
+  }
 
   function getVendorTemplates(vendorName?: string): WipTemplate[] {
     const { wipTemplates } = getState();
@@ -48,8 +79,8 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   async function loadAllMilestones() {
     try {
-      const { data } = await sb.from("tanda_milestones").select("id,data");
-      if (data && Array.isArray(data)) {
+      const data = await fetchAllMilestoneRows();
+      if (data.length > 0) {
         const grouped: Record<string, Milestone[]> = {};
         data.forEach((row: any) => {
           const m = row.data as Milestone;
@@ -106,9 +137,15 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
 
   async function loadMilestones(poNumber: string): Promise<Milestone[]> {
     try {
-      const { data } = await sb.from("tanda_milestones").select("id,data");
-      if (!data) return [];
-      return (data as any[])
+      // The expression index `idx_tanda_milestones_po_number` from the
+      // migration may not exist in prod (table predates the migration
+      // which is IF NOT EXISTS) — server-side `data->>po_number=eq.X`
+      // filter was timing out at the 8-sec statement_timeout because the
+      // planner fell back to a seqscan + JSONB extraction over 38k rows.
+      // Pull all rows via the paginated fetch (which IS safe) and filter
+      // client-side. Slower per-call but doesn't time out.
+      const all = await fetchAllMilestoneRows();
+      return (all as any[])
         .map(row => row.data as Milestone)
         .filter(m => m.po_number === poNumber)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -193,7 +230,11 @@ export function useMilestoneOps(deps: MilestoneOpsDeps) {
         return; // Don't save yet — modal callbacks handle it
       }
     }
-    await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+    const { error: upErr } = await sb.from("tanda_milestones").upsert({ id: m.id, data: m }, { onConflict: "id" });
+    if (upErr) {
+      console.error("[MS] saveMilestone DB error:", upErr);
+      throw new Error((upErr as any)?.message || "saveMilestone failed");
+    }
     store.updateMilestone(m.po_number, m.id, m);
     // Clear collapsed overrides for this PO so auto-collapse/expand recalculates
     if (!skipHistory) {

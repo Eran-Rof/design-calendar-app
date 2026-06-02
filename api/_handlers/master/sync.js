@@ -191,21 +191,83 @@ export default async function handler(req, res) {
   }
   counts.deduped_to_unique_skus = candidates.size;
 
-  // Bulk upsert. ignoreDuplicates: false makes existing rows go through
-  // ON CONFLICT DO UPDATE, but the SET clause only touches columns
-  // included in the payload — unit_cost / unit_price (not passed) stay
-  // under the Excel uploader's authority.
-  const rows = Array.from(candidates.values());
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
+  // Split candidates by existence so we can apply different policies:
+  //   - INSERTs need is_apparel:false in the payload, otherwise the column
+  //     DEFAULT true combined with our missing size/inseam/length/fit trips
+  //     the apparel_dims_required CHECK. (Merchandiser flips is_apparel back
+  //     to true via the admin UI once they finish backfilling dims — same
+  //     flow Tangerine P1 Chunk 4.5 already established.)
+  //   - UPDATEs must NOT include is_apparel, or every existing merchandiser-
+  //     curated bottoms row would get demoted to is_apparel=false.
+  // Same authority model as unit_cost / unit_price exclusion above.
+  const allSkus = Array.from(candidates.keys());
+  const existingSkus = new Set();
+  for (let i = 0; i < allSkus.length; i += CHUNK) {
+    const chunk = allSkus.slice(i, i + CHUNK);
+    const { data, error } = await admin
+      .from("ip_item_master")
+      .select("sku_code")
+      .in("sku_code", chunk);
+    if (error) {
+      counts.errors.push(`pre-fetch chunk ${i}: ${error.message}`);
+      continue;
+    }
+    for (const r of (data || [])) existingSkus.add(r.sku_code);
+  }
+
+  const newRows = [];
+  const updateRows = [];
+  for (const cand of candidates.values()) {
+    if (existingSkus.has(cand.sku_code)) {
+      // Update path: narrow to the two fields Xoro is the authoritative source
+      // for (description + attributes). Color/style_code/etc. are excluded so
+      // an empty REST Option1Value can't NULL-out an existing apparel row's
+      // color and trip apparel_dims_required. Same authority model the
+      // header docstring describes: "existing rows with populated values
+      // are left alone."
+      updateRows.push({
+        sku_code: cand.sku_code,
+        description: cand.description,
+        attributes: cand.attributes,
+      });
+    } else {
+      newRows.push({ ...cand, is_apparel: false });
+    }
+  }
+  counts.new_rows = newRows.length;
+  counts.updated_rows = updateRows.length;
+
+  // NEW-row path: plain INSERT (via upsert with ignoreDuplicates so a race
+  // doesn't error). is_apparel:false in the payload satisfies
+  // apparel_dims_required on the proposed row.
+  for (let i = 0; i < newRows.length; i += CHUNK) {
+    const chunk = newRows.slice(i, i + CHUNK);
     const { error } = await admin
       .from("ip_item_master")
-      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
+      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true });
     if (error) {
-      counts.errors.push(`upsert chunk ${i}: ${error.message}`);
+      counts.errors.push(`upsert new chunk ${i}: ${error.message}`);
       continue;
     }
     counts.upserted += chunk.length;
+  }
+  // UPDATE-row path: call the bulk_refresh RPC instead of upsert. PostgREST
+  // upsert builds INSERT...ON CONFLICT, and PG evaluates CHECK on the
+  // proposed INSERT row BEFORE the conflict resolves — apparel_dims_required
+  // fails immediately because the payload's is_apparel defaults to true with
+  // size/inseam/length/fit NULL. The RPC does a true UPDATE FROM jsonb input,
+  // skipping the INSERT path entirely. Migration 20260713050000.
+  for (let i = 0; i < updateRows.length; i += CHUNK) {
+    const chunk = updateRows.slice(i, i + CHUNK);
+    const { data, error } = await admin.rpc(
+      "bulk_refresh_item_master_descriptions",
+      { payload: chunk }
+    );
+    if (error) {
+      counts.errors.push(`rpc update chunk ${i}: ${error.message}`);
+      continue;
+    }
+    counts.upserted += (typeof data === "number") ? data : chunk.length;
   }
 
   return res.status(200).json({ processed: true, ...counts });

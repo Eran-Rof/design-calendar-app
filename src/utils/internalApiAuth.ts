@@ -13,12 +13,61 @@
 // secret against a determined user — that's an accepted limitation
 // of the stop-gap. Real per-user auth replaces this later.
 //
+// P10-5 — Same interceptor also injects the X-Entity-ID header on
+// every /api/internal/** call when sessionStorage["x-tangerine-
+// entity-id"] is set. <EntitySwitcher /> writes that key on switch.
+// The server-side helper api/_lib/auth/resolve-entity.js (P10-4)
+// validates the header against entity_users and rejects unknown
+// memberships.
+//
 // Idempotent — installing twice is a no-op.
 
 const TOKEN = (import.meta as ImportMeta & { env?: Record<string, string> })
   .env?.VITE_INTERNAL_API_TOKEN ?? "";
 
 const INTERNAL_PATH_RE = /^\/api\/internal\//;
+
+// MUST stay in lockstep with ENTITY_SESSION_KEY in src/hooks/useEntities.ts
+// and with the alias accepted by api/_lib/auth/resolve-entity.js.
+const ENTITY_SESSION_KEY = "x-tangerine-entity-id";
+
+function readEntitySessionId(): string | null {
+  return readSessionKey(ENTITY_SESSION_KEY);
+}
+
+// Generic per-tab sessionStorage reader (P15 brand/channel + entity).
+function readSessionKey(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.sessionStorage.getItem(key);
+    return v && v.trim().length > 0 ? v.trim() : null;
+  } catch { return null; }
+}
+
+// P14-4 — the cached auth.users.id (set by the MS-OAuth provision bridge).
+// MUST stay in lockstep with NEW_KEY/LEGACY_KEY in src/utils/tangerineAuthUser.ts.
+// Injected so the per-user endpoints (e.g. users-access/me, which drives menu
+// hiding) can identify the caller without a Supabase JWT. This is UX-only —
+// the server still enforces every action via rbacEnforce.
+function readAuthUserId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem("tangerine.auth_user_id")
+      || window.localStorage.getItem("tangerine.notifications.user_id");
+    return v && v.trim().length > 0 ? v.trim() : null;
+  } catch { return null; }
+}
+
+// P14 JWT phase — the per-user access token minted by the provision bridge
+// (only present once SUPABASE_JWT_SECRET is set server-side). MUST stay in
+// lockstep with JWT_KEY in src/utils/tangerineAuthUser.ts.
+function readAuthJwt(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem("tangerine.auth_jwt");
+    return v && v.trim().length > 0 ? v.trim() : null;
+  } catch { return null; }
+}
 
 let installed = false;
 
@@ -29,11 +78,12 @@ export function installInternalApiAuth(): void {
     // No token configured at build time. The server may still be
     // fail-open (matching) or strict; surface a console.warn once so
     // a frontend deploy without VITE_INTERNAL_API_TOKEN doesn't
-    // silently 401.
+    // silently 401. We still install the wrapper below so that
+    // X-Entity-ID injection works even when the bearer token is
+    // unconfigured (e.g. local dev).
     if (typeof console !== "undefined") {
       console.warn("[internal-api] VITE_INTERNAL_API_TOKEN not set at build — internal API calls will not include the bearer header");
     }
-    return;
   }
   installed = true;
   const original = window.fetch.bind(window);
@@ -46,8 +96,36 @@ export function installInternalApiAuth(): void {
     }
     if (url && INTERNAL_PATH_RE.test(url)) {
       const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+      // P14 JWT phase — Authorization: Bearer carries the PER-USER token when we
+      // have one (so authenticateCaller resolves the real user + RBAC enforces).
+      // The static deploy token moves to X-Internal-Token, where
+      // authenticateInternalCaller still accepts it. Backward compatible: with
+      // no user JWT, Bearer falls back to the static token exactly as before.
+      const userJwt = readAuthJwt();
       if (!headers.has("Authorization") && !headers.has("authorization")) {
-        headers.set("Authorization", `Bearer ${TOKEN}`);
+        if (userJwt) headers.set("Authorization", `Bearer ${userJwt}`);
+        else if (TOKEN) headers.set("Authorization", `Bearer ${TOKEN}`);
+      }
+      if (TOKEN && !headers.has("X-Internal-Token") && !headers.has("x-internal-token")) {
+        headers.set("X-Internal-Token", TOKEN);
+      }
+      const entityId = readEntitySessionId();
+      if (entityId && !headers.has("X-Entity-ID") && !headers.has("x-entity-id")) {
+        headers.set("X-Entity-ID", entityId);
+      }
+      const authUserId = readAuthUserId();
+      if (authUserId && !headers.has("X-Auth-User-Id") && !headers.has("x-auth-user-id")) {
+        headers.set("X-Auth-User-Id", authUserId);
+      }
+      // P15 Brand Master C2 — per-tab brand/channel selection (the global
+      // switchers). "All" = key absent = no header = no filter.
+      const brandId = readSessionKey("x-tangerine-brand-id");
+      if (brandId && !headers.has("X-Brand-ID") && !headers.has("x-brand-id")) {
+        headers.set("X-Brand-ID", brandId);
+      }
+      const channelId = readSessionKey("x-tangerine-channel-id");
+      if (channelId && !headers.has("X-Channel-ID") && !headers.has("x-channel-id")) {
+        headers.set("X-Channel-ID", channelId);
       }
       return original(input, { ...(init || {}), headers });
     }

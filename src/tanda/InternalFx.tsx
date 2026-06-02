@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Rate {
   id: string;
@@ -43,11 +46,11 @@ export default function InternalFx() {
   useEffect(() => { void load(); }, []);
 
   async function syncNow() {
-    if (!confirm("Fetch fresh FX rates now?")) return;
+    if (!(await confirmDialog("Fetch fresh FX rates now?"))) return;
     const r = await fetch("/api/cron/fx-rate-sync", { method: "POST" });
-    if (!r.ok && r.status !== 207) { alert(await r.text()); return; }
+    if (!r.ok && r.status !== 207) { notify(await r.text(), "error"); return; }
     const d = await r.json();
-    alert(`Inserted ${d.inserted} rates. Errors: ${d.errors.length}`);
+    notify(`Inserted ${d.inserted} rates. Errors: ${d.errors.length}`, "success");
     await load();
   }
 
@@ -58,7 +61,21 @@ export default function InternalFx() {
           <h2 style={{ margin: 0, fontSize: 22 }}>FX rates</h2>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Synced every 4 hours from the configured provider (set via <code>FX_PROVIDER</code>).</div>
         </div>
-        <button onClick={() => void syncNow()} style={btnPrimary}>Sync now</button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            rows={rates as unknown as Array<Record<string, unknown>>}
+            filename="fx-rates"
+            sheetName="FX Rates"
+            columns={[
+              { key: "from_currency",   header: "From" },
+              { key: "to_currency",     header: "To" },
+              { key: "rate",            header: "Rate",       format: "number" },
+              { key: "source",          header: "Source" },
+              { key: "snapshotted_at",  header: "Snapshot",   format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+          <button onClick={() => void syncNow()} style={btnPrimary}>Sync now</button>
+        </div>
       </div>
 
       {analytics && (

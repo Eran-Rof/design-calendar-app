@@ -14,6 +14,8 @@
 
 import { ROUTES, compileRoutes } from "./_handlers/routes.js";
 import { demoEarlyExit, demoStubKind } from "./_lib/demoGuard.js";
+import { rbacObserve, rbacEnforce, rbacMode } from "./_lib/rbac/index.js";
+import { brandObserve } from "./_lib/brandContext.js";
 
 // Bumped from 60s → 300s. Several inner handlers (parse-excel,
 // xoro-proxy, ats-supply-sync, tanda-pos-sync, xoro-sales-sync,
@@ -51,6 +53,21 @@ export default async function handler(req, res) {
       params[route.params[i]] = decodeURIComponent(match[i + 1]);
     }
     req.query = { ...(req.query || {}), ...params };
+
+    // P14 RBAC. Default (RBAC_MODE unset) = no-op. `log` = observe + warn on a
+    // would-deny (chunk 2). `enforce` = reject with 403 when an authenticated
+    // caller lacks the permission (chunk 3); fail-open + never blocks the
+    // anon-key/unauthenticated surface. All paths are internally wrapped.
+    const _rbacMode = rbacMode();
+    if (_rbacMode === "enforce") {
+      if (await rbacEnforce(req, res, pathname, req.method)) return; // 403 already sent
+    } else if (_rbacMode === "log") {
+      await rbacObserve(req, pathname, req.method).catch(() => {});
+    }
+
+    // P15 Brand Master C2 — silent-log brand/channel context observability.
+    // No-op unless BRAND_SCOPE_MODE is set; never filters/blocks (chunk 2).
+    brandObserve(req, pathname, req.method);
 
     try {
       return await route.handler(req, res);

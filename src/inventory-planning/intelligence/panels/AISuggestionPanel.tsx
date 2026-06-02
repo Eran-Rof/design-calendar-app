@@ -70,7 +70,7 @@ export default function AISuggestionPanel({ suggestions, skuCodeById, onAccept, 
                   color: SUGGESTION_COLOR[s.suggestion_type] ?? PAL.accent,
                 }}>{s.suggestion_type.replace(/_/g, " ")}</span>
                 <span style={{ fontFamily: "monospace", color: PAL.accent }}>
-                  {skuCodeById.get(s.sku_id) ?? s.sku_id.slice(0, 8)}
+                  {skuCodeById.get(s.sku_id) ?? "(unknown sku)"}
                 </span>
                 <span style={{ color: PAL.textDim, fontSize: 12 }}>· {formatPeriodCode(s.period_code)}</span>
                 <span style={{ marginLeft: "auto", color: PAL.textMuted, fontSize: 12 }}>

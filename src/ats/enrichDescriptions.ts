@@ -1,6 +1,6 @@
 import type { ExcelData } from "./types";
-import { SB_URL, SB_KEY, SB_HEADERS } from "../utils/supabase";
 import { xoroSkuToExcel, normalizeSku } from "./helpers";
+import { fetchAllTandaPos } from "./hooks/usePOWIPSync";
 
 /** Fill in blank descriptions from PO WIP data (tanda_pos).
  *  Tries exact match first, then normalized match. */
@@ -18,10 +18,11 @@ export async function enrichDescriptions(data: ExcelData): Promise<ExcelData> {
 
   const descMap: Record<string, string> = {};
 
-  // Try PO WIP data (tanda_pos has full Xoro item details with Description field)
+  // Try PO WIP data (tanda_pos has full Xoro item details with Description field).
+  // Paginated via fetchAllTandaPos so the description backfill sees every PO
+  // line, not just the first 1000 PostgREST returns by default.
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/tanda_pos?select=data`, { headers: SB_HEADERS });
-    const rows = await res.json();
+    const rows = await fetchAllTandaPos();
     if (Array.isArray(rows)) {
       for (const row of rows) {
         const items = row.data?.Items || row.data?.PoLineArr || [];

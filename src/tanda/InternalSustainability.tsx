@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Report {
   id: string;
@@ -56,10 +59,10 @@ export default function InternalSustainability() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: action, notes, reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const result = await r.json();
     if (action === "approved" && result?.esg) {
-      alert(`Approved. ESG overall score: ${Math.round(result.esg.overall || 0)}`);
+      notify(`Approved. ESG overall score: ${Math.round(result.esg.overall || 0)}`, "success");
     }
     setSelected(null);
     await load();
@@ -74,13 +77,36 @@ export default function InternalSustainability() {
           <h2 style={{ margin: 0, fontSize: 22 }}>Sustainability reports</h2>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Review vendor submissions. Approval triggers ESG score calculation.</div>
         </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-          <option value="submitted">Submitted</option>
-          <option value="under_review">Under review</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="">All</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
+            <option value="submitted">Submitted</option>
+            <option value="under_review">Under review</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <ExportButton
+            rows={rows.map((r) => ({ ...r, vendor_name: r.vendor?.name || r.vendor_id, certifications_list: (r.certifications || []).join("; ") })) as unknown as Array<Record<string, unknown>>}
+            filename="sustainability-reports"
+            sheetName="Sustainability"
+            columns={[
+              { key: "vendor_name",              header: "Vendor" },
+              { key: "reporting_period_start",   header: "Period Start",      format: "date" },
+              { key: "reporting_period_end",     header: "Period End",        format: "date" },
+              { key: "status",                   header: "Status" },
+              { key: "scope1_emissions",         header: "Scope 1 (tCO2e)",   format: "number" },
+              { key: "scope2_emissions",         header: "Scope 2 (tCO2e)",   format: "number" },
+              { key: "scope3_emissions",         header: "Scope 3 (tCO2e)",   format: "number" },
+              { key: "renewable_energy_pct",     header: "Renewable %",       format: "number" },
+              { key: "waste_diverted_pct",       header: "Waste diverted %",  format: "number" },
+              { key: "water_usage_liters",       header: "Water (L)",         format: "number" },
+              { key: "certifications_list",      header: "Certifications" },
+              { key: "submitted_at",             header: "Submitted",         format: "datetime" },
+              { key: "reviewed_at",              header: "Reviewed",          format: "datetime" },
+              { key: "rejection_reason",         header: "Rejection reason" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>

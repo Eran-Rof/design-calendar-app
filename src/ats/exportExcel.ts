@@ -11,10 +11,16 @@ type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoE
 const EMPTY_AGG: SalesAggregate = { qty: 0, totalPrice: 0, marginAmount: 0 };
 // Autofit non-spacer cols: max(len(value)) + 2, capped at 80.
 // No frozen panes, no autofilter, no merged cells.
+// Per-row customer-narrowed SO summary built by the export prep when a
+// customer is selected. Keyed by `${sku}::${store}` to match the row's
+// in-memory identity. Used to override the On Order column display + to
+// populate the new "SO Prc" column inserted between On Order and On PO.
+export interface CustomerSoEntry { qty: number; soPrice: number }
+export type CustomerSoMap = Map<string, CustomerSoEntry>;
+
 export function exportToExcel(
   rows: ATSRow[],
   periods: Array<{ endDate: string; label: string }>,
-  atShip = false,
   // Kept for signature compatibility with the existing call sites.
   // The fixed 18-col layout doesn't honor hiddenColumns — drop the
   // arg if the planner's intent shifts.
@@ -36,8 +42,14 @@ export function exportToExcel(
   // mirrors the grid so what the operator sees on screen is what the
   // download (and View preview) shows.
   explodePpk?: boolean,
+  // Per-row customer-narrowed SO totals (qty + qty-weighted avg
+  // unit price). Provided only when a customer is selected upstream.
+  // When present, the On Order column displays the customer's qty
+  // (instead of the row's full onOrder) AND a new "SO Prc" column
+  // is inserted between On Order and On PO.
+  customerSoMap?: CustomerSoMap,
 ) {
-  const payload = buildExportPayload(rows, periods, atShip, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk);
+  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap);
   if (!payload) return;
   triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -70,7 +82,6 @@ export interface ExportPayload {
 export function buildExportPayload(
   rows: ATSRow[],
   periods: Array<{ endDate: string; label: string }>,
-  atShip = false,
   _hiddenColumns: string[] = [],
   _totals: GridTotals | null = null,
   options?: ExportOptions,
@@ -78,6 +89,7 @@ export function buildExportPayload(
   _eventIndex?: EventIndex | null,
   salesAggregates?: SalesFetchResult,
   explodePpk: boolean = true,
+  customerSoMap?: CustomerSoMap,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -150,15 +162,18 @@ export function buildExportPayload(
     return (a.sku ?? "").localeCompare(b.sku ?? "");
   });
   // Skip rows whose availability is zero across every visible period.
-  // Negatives (shortages) and positives are kept. Uses periodAvail so
-  // the "any availability" test honors the same delta-when-atShip
-  // semantic the cells render with — a row whose only non-zero free is
-  // carried-over (no new receipts) still counts as having availability
-  // because period-0 is cumulative under that helper.
+  // Two complementary signals — keep the row when EITHER fires:
+  //   • periodAvail — non-zero in any period catches new receipts
+  //     arriving and the period-0 cumulative free-to-sell.
+  //   • row.dates (raw cumulative ATS) — catches rows whose on-hand
+  //     stock is FULLY RESERVED for future SOs (freeMap=0 everywhere,
+  //     so periodAvail returns 0 in delta mode) but who still have
+  //     real inventory the planner expects to see in the export.
   const hasAnyAvailability = (r: ATSRow): boolean => {
     for (let i = 0; i < periods.length; i++) {
-      const v = periodAvail(r, periods, i, atShip);
-      if (v !== 0) return true;
+      if (periodAvail(r, periods, i) !== 0) return true;
+      const v = r.dates[periods[i].endDate];
+      if (typeof v === "number" && v !== 0) return true;
     }
     return false;
   };
@@ -223,19 +238,35 @@ export function buildExportPayload(
     onHand:      nextCol++,
     spacerH:     nextCol++,
     onOrder:     nextCol++,
+  } as Record<string, number>;
+  // SO Prc column inserted BETWEEN On Order and the spacer-J / On PO band
+  // when a customer is selected AND at least one visible row has a
+  // customer-narrowed SO. Operator request: see the per-row contracted
+  // unit price for the selected customer's SOs of this (BP, color).
+  const willHaveSoPrcCol = !!customerSoMap && customerSoMap.size > 0;
+  const COL_SO_PRC: number | undefined = willHaveSoPrcCol ? nextCol++ : undefined;
+  Object.assign(COL, {
     spacerJ:     nextCol++,
     onPO:        nextCol++,
     spacerL:     nextCol++,
     firstPeriod: nextCol,
     lastPeriod:  nextCol + numPeriods - 1,
     total:       nextCol + numPeriods,
-  } as Record<string, number>;
+  });
   nextCol = (COL.total as number) + 1;
   // Optional extra columns. Each is either a 1-based col index or
   // undefined (column not present).
   const COL_AVG_COST:    number | undefined = opts.avgCost      ? nextCol++ : undefined;
   const COL_TOT_COST:    number | undefined = opts.avgCost      ? nextCol++ : undefined;
   const COL_SLS_PRC:     number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
+  // Mrgn % column ships alongside Sls Prc @. Math priority:
+  //   1. Customer selected + customer bought this SKU within 12mo →
+  //      use that price, RED font.
+  //   2. Style has T3 sales (any customer; respects customer filter when
+  //      one is set upstream) → use style-level avg unit price, BLUE font.
+  //   3. Fall through to formula Sls Prc = avgCost / (1 - margin) →
+  //      margin equals operator-typed slsMarginPct, default font.
+  const COL_SLS_MRGN_PCT: number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
   const COL_T3_QTY:      number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_PRICE:    number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_TTL_SLS:  number | undefined = opts.trailing3    ? nextCol++ : undefined;
@@ -392,6 +423,7 @@ export function buildExportPayload(
   headerRow[COL.spacerL - 1] = headerCell("", HDR_TEXT_FILL, "center");
   headerRow[COL.onHand  - 1] = headerCell("On Hand",  HDR_ONHAND_FILL, "center");
   headerRow[COL.onOrder - 1] = headerCell("On Order", HDR_DARK_FILL, "center");
+  if (COL_SO_PRC) headerRow[COL_SO_PRC - 1] = headerCell("SO Prc", HDR_DARK_FILL, "center");
   headerRow[COL.onPO    - 1] = headerCell("On PO",    HDR_DARK_FILL, "center");
   for (let i = 0; i < numPeriods; i++) {
     const ci = COL.firstPeriod + i;
@@ -405,6 +437,7 @@ export function buildExportPayload(
   if (COL_AVG_COST) headerRow[COL_AVG_COST - 1] = headerCell("Avg Cost",   HDR_ONHAND_FILL, "center");
   if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = headerCell("Total Cost", HDR_ONHAND_FILL, "center");
   if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = headerCell(`Sls Prc @ ${opts.slsMarginPct}%`, HDR_ONHAND_FILL, "center");
+  if (COL_SLS_MRGN_PCT) headerRow[COL_SLS_MRGN_PCT - 1] = headerCell("Mrgn %", HDR_ONHAND_FILL, "center");
   // T3/LY column labels reflect the customer narrowing AND, when the
   // operator picked a custom date range via Hide ATS data, the actual
   // window the aggregates were computed over. Format examples:
@@ -457,15 +490,53 @@ export function buildExportPayload(
   const lyMap = salesAggregates?.ly ?? new Map<string, SalesAggregate>();
   const t3Of = (sku: string): SalesAggregate => t3Map.get(sku) ?? EMPTY_AGG;
   const lyOf = (sku: string): SalesAggregate => lyMap.get(sku) ?? EMPTY_AGG;
+  const t3ByStyleMap = salesAggregates?.t3ByStyle;
+  const lastCustPriceMap = salesAggregates?.lastCustomerPriceBySku;
+  // Hex colors for the Mrgn % cell font. Blue matches the existing
+  // dark-header palette (1F497D); red matches the existing T3-vs-LY
+  // negative-diff color (C00000).
+  const MRGN_BLUE = "1F497D";
+  const MRGN_RED  = "C00000";
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  // Index-aware accessor — periodAvail handles the atShip=delta case
-  // (cumulative free at period 0; per-period new-receipt delta after).
+  // Index-aware accessor — periodAvail returns cumulative free at
+  // period 0 and per-period new-receipt delta after.
   const periodValueOf = (r: ATSRow, i: number): number => {
-    return periodAvail(r, periods, i, atShip);
+    return periodAvail(r, periods, i);
   };
-  const sumStartLetter = colLetter(COL.spacerL);   // L (empty spacer)
-  const sumEndLetter = colLetter(COL.lastPeriod);  // last period letter
+  // SUM range covers ONLY the period columns. Old code started from
+  // the spacer at COL.spacerL — the spacer is empty so the cached
+  // value was correct, but after hide-zero column drops reflowed the
+  // layout, the literal "L:lastPeriod" Excel range over-reached into
+  // the Total column itself (Total moves leftward into what was the
+  // lastPeriod letter, so the formula now circularly references its
+  // own cell). Narrowing the range to firstPeriod:lastPeriod removes
+  // that whole class of bug.
+  const sumStartLetter = colLetter(COL.firstPeriod);
+  const sumEndLetter   = colLetter(COL.lastPeriod);
+
+  // ── BP-level (style_code) max Sls Prc ─────────────────────────────────
+  // Operator rule: all variants of the same BP must show the same
+  // Sls Prc — pick the HIGHEST formula-derived price across the BP's
+  // rows so the most expensive variant doesn't get under-priced.
+  // Mirrors the per-row formula (including the explodePpk grain
+  // conversion and round-up-to-$0.05). Rows with no master_style or
+  // non-positive avgCost are skipped here AND fall through to the
+  // per-row formula at body time.
+  const bpMaxSlsPrc = new Map<string, number>();
+  if (COL_SLS_PRC || COL_SLS_MRGN_PCT) {
+    for (const r of rows) {
+      const styleKey = r.master_style ?? "";
+      if (!styleKey) continue;
+      const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+      const rCostMul = (explodePpk ?? true) ? 1 : rMult;
+      const rAvgCost = (r.avgCost ?? 0) * rCostMul;
+      if (rAvgCost <= 0 || slsMargin >= 1) continue;
+      const rPrice = Math.ceil((rAvgCost / (1 - slsMargin)) * 20) / 20;
+      const cur = bpMaxSlsPrc.get(styleKey);
+      if (cur === undefined || rPrice > cur) bpMaxSlsPrc.set(styleKey, rPrice);
+    }
+  }
 
   // ── Data rows ──────────────────────────────────────────────────────────
   // Each input row → one qty data row. Prepack rows ALSO produce a
@@ -475,7 +546,16 @@ export function buildExportPayload(
   // the pair so the qty value sits vertically centered in the taller
   // merged cell. Matches the planner's reference image exactly.
   const dataRows: any[][] = [];
-  let nextExcelRow = 2; // header is row 1
+  // Title row gets prepended to the AOA when the operator narrows by customer
+  // OR picks a custom date range. Both signals are knowable now, well before
+  // the title-row block actually constructs the cell. The per-row Total has
+  // a `SUM(L<r>:Q<r>)` formula keyed off this row counter — if we start at 2
+  // when the title shifts data down by 1, every row's Total formula refers
+  // to the row above it (View shows correct static `v:`; Excel opens the
+  // file and recalculates → wrong totals).
+  const willHaveTitleRow = !!customerFilter
+    || !!(opts.customSalesRangeEnabled && salesAggregates?.windows);
+  let nextExcelRow = willHaveTitleRow ? 3 : 2;
   // Merge ranges accumulated as we emit prepack pairs.
   const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = [];
   // Cols that get merged across the qty+PPK pair when the input row
@@ -486,7 +566,8 @@ export function buildExportPayload(
     COL.spacerF, COL.onHand, COL.spacerH, COL.onOrder, COL.spacerJ, COL.onPO, COL.spacerL,
     COL.total,
     ...([
-      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC,
+      COL_SO_PRC,
+      COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT,
       COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN,
       COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN,
       COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN,
@@ -620,8 +701,27 @@ export function buildExportPayload(
       border:    BORDER_BODY,
     };
     const onH = group.reduce((a, x) => a + (x.onHand ?? 0), 0);
-    const onO = group.reduce((a, x) => a + (x.onOrder ?? 0), 0);
+    // On Order subtotal mirrors the per-row override: when a customer
+    // is selected, sum only that customer's SO qty across the group.
+    const onO = customerSoMap !== undefined
+      ? group.reduce((a, x) => a + (customerSoMap.get(`${x.sku}::${x.store ?? "ROF"}`)?.qty ?? 0), 0)
+      : group.reduce((a, x) => a + (x.onOrder ?? 0), 0);
     const onP = group.reduce((a, x) => a + (x.onPO ?? 0), 0);
+    // SO Prc subtotal = qty-weighted avg of the group's customer SO
+    // unit prices. Only emit when the SO Prc column is allocated AND
+    // some row in the group has customer SOs.
+    let soPrcSub = 0;
+    if (COL_SO_PRC && customerSoMap) {
+      let totalQty = 0;
+      let totalRev = 0;
+      for (const x of group) {
+        const e = customerSoMap.get(`${x.sku}::${x.store ?? "ROF"}`);
+        if (!e || e.qty <= 0 || e.soPrice <= 0) continue;
+        totalQty += e.qty;
+        totalRev += e.qty * e.soPrice;
+      }
+      soPrcSub = totalQty > 0 ? totalRev / totalQty : 0;
+    }
     const perPeriod = periods.map((_p, i) => group.reduce((a, x) => a + periodValueOf(x, i), 0));
     const grand = perPeriod.reduce((a, b) => a + b, 0);
 
@@ -641,6 +741,11 @@ export function buildExportPayload(
       : { v, t: "n" as const, s: subNumStyle };
     r2[COL.onHand  - 1] = subCell(onH);
     r2[COL.onOrder - 1] = subCell(onO);
+    if (COL_SO_PRC) {
+      r2[COL_SO_PRC - 1] = soPrcSub === 0
+        ? { v: "", t: "s" as const, s: { ...subNumStyle, numFmt: "$#,##0.00" } }
+        : { v: soPrcSub, t: "n" as const, s: { ...subNumStyle, numFmt: "$#,##0.00" } };
+    }
     r2[COL.onPO    - 1] = subCell(onP);
     for (let i = 0; i < numPeriods; i++) {
       const ci = COL.firstPeriod + i;
@@ -659,7 +764,7 @@ export function buildExportPayload(
     // For avg cost / sls price, weighted-avg across the group (cost
     // weighted by Total qty; sls price is unweighted avg of avgCost-
     // derived prices — there's no qty multiplier on the implied price).
-    if (COL_AVG_COST || COL_TOT_COST || COL_SLS_PRC) {
+    if (COL_AVG_COST || COL_TOT_COST || COL_SLS_PRC || COL_SLS_MRGN_PCT) {
       let totalQtyForCost = 0;
       let totalCostSum = 0;
       for (const x of group) {
@@ -671,12 +776,48 @@ export function buildExportPayload(
         totalCostSum += xAvg * xRowTotal;
       }
       const weightedAvgCost = totalQtyForCost > 0 ? totalCostSum / totalQtyForCost : 0;
-      const slsPrcW = (weightedAvgCost > 0 && slsMargin < 1)
-        ? weightedAvgCost / (1 - slsMargin)
-        : 0;
+      // Subtotal Sls Prc: when every row in the group belongs to the
+      // same BP (style-level subtotal), match the per-row priority:
+      //   1. Customer-T3 BP price when customer is selected and that
+      //      BP has customer T3 sales.
+      //   2. BP-max formula otherwise.
+      // For mixed-BP groups (Category / Sub Category subtotals) fall
+      // back to the weighted-avg-derived formula price.
+      let groupSlsPrcOverride: number | undefined;
+      if (group.length > 0) {
+        const firstStyle = group[0].master_style ?? "";
+        if (firstStyle && group.every(x => (x.master_style ?? "") === firstStyle)) {
+          if (customerFilter) {
+            const sAgg = t3ByStyleMap?.get(firstStyle);
+            if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
+              groupSlsPrcOverride = sAgg.totalPrice / sAgg.qty;
+            }
+          }
+          if (groupSlsPrcOverride === undefined) {
+            groupSlsPrcOverride = bpMaxSlsPrc.get(firstStyle);
+          }
+        }
+      }
+      // Round UP to the nearest $0.05 to match the per-row Sls Prc rule
+      // (only when falling through to the formula path; customer-T3 and
+      // BP-max are already at their canonical values).
+      const slsPrcW = groupSlsPrcOverride !== undefined
+        ? groupSlsPrcOverride
+        : ((weightedAvgCost > 0 && slsMargin < 1)
+            ? Math.ceil((weightedAvgCost / (1 - slsMargin)) * 20) / 20
+            : 0);
       if (COL_AVG_COST) r2[COL_AVG_COST - 1] = subCurr(weightedAvgCost);
       if (COL_TOT_COST) r2[COL_TOT_COST - 1] = subCurr(totalCostSum);
       if (COL_SLS_PRC)  r2[COL_SLS_PRC  - 1] = subCurr(slsPrcW);
+      // Subtotal Mrgn % uses the formula-derived weighted price — keeps
+      // the subtotal grain-clean. Per-row color overrides aren't carried
+      // up because subtotals can mix red/blue/default sources.
+      if (COL_SLS_MRGN_PCT) {
+        const subMrgn = (weightedAvgCost > 0 && slsPrcW > 0)
+          ? (slsPrcW - weightedAvgCost) / slsPrcW
+          : 0;
+        r2[COL_SLS_MRGN_PCT - 1] = subPct(subMrgn);
+      }
     }
 
     // Subtotal T3 / LY: sales qty is now at unit grain in the DB
@@ -820,11 +961,33 @@ export function buildExportPayload(
     // cluttering quantity columns). Style stays so borders / fills
     // remain consistent.
     const onHandV  = (r.onHand  ?? 0) / qtyDiv;
-    const onOrderV = (r.onOrder ?? 0) / qtyDiv;
+    // On Order display:
+    //   - default: row's full onOrder (sum of all SO commitments)
+    //   - when customer is selected: narrow to the selected customer's
+    //     SO qty via customerSoMap. Per-period drawdowns inside the
+    //     date columns intentionally stay unfiltered — operator picked
+    //     "Only the export's On Order" scope explicitly.
+    const customerSoEntry = customerSoMap?.get(`${r.sku}::${r.store ?? "ROF"}`);
+    const onOrderRaw = customerSoMap !== undefined
+      ? (customerSoEntry?.qty ?? 0)
+      : (r.onOrder ?? 0);
+    const onOrderV = onOrderRaw / qtyDiv;
     const onPOV    = (r.onPO    ?? 0) / qtyDiv;
     qtyRow[COL.onHand  - 1] = onHandV  === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onHandV,  t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onOrder - 1] = onOrderV === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onOrderV, t: "n", s: bodyNumStyle(FILL_QTY_COL) };
     qtyRow[COL.onPO    - 1] = onPOV    === 0 ? { v: "", t: "s", s: bodyNumStyle(FILL_QTY_COL) } : { v: onPOV,    t: "n", s: bodyNumStyle(FILL_QTY_COL) };
+    // SO Prc — qty-weighted avg unit price of the customer's matching
+    // SOs for this row. The map stores per-UNIT price (NavBar divides
+    // by mult when ingesting from Xoro's per-PACK SO data). Apply
+    // costMul on display so pack mode (explodePpk=false) shows the
+    // per-pack price and unit mode shows the per-unit price.
+    if (COL_SO_PRC) {
+      const soPrcUnit = customerSoEntry?.soPrice ?? 0;
+      const soPrcDisplay = soPrcUnit * costMul;
+      qtyRow[COL_SO_PRC - 1] = soPrcDisplay === 0
+        ? { v: "", t: "s", s: { ...bodyNumStyle(FILL_QTY_COL), numFmt: "$#,##0.00" } }
+        : { v: soPrcDisplay, t: "n", s: { ...bodyNumStyle(FILL_QTY_COL), numFmt: "$#,##0.00" } };
+    }
 
     // Period cells. For prepack rows the qty sits at the BOTTOM of
     // its cell (anchored to the bottom edge) so the PPK suffix on the
@@ -871,9 +1034,30 @@ export function buildExportPayload(
     // costMul / qtyDiv (inverses); the product is grain-invariant.
     const totalCostV = avgCostV > 0 ? avgCostV * rowPeriodTotal : 0;
     // Implied sale price needed to hit `slsMarginPct` against avgCost.
-    // price = avgCost / (1 - margin). Guard against margin >= 100.
+    // Priority (highest first):
+    //   1. If a customer is selected AND that customer has T3 sales for
+    //      ANY variant of this BP, use the customer's actual BP-level
+    //      T3 avg sale price (sum(totalPrice)/sum(qty) across all the
+    //      BP's variants for this customer, from t3ByStyleMap). Same
+    //      price applies to EVERY row of the BP — not just the variant
+    //      that had T3 sales. No rounding (it's a real avg).
+    //   2. BP-uniform: every row of the same master_style shows the
+    //      HIGHEST formula-derived price across the BP's variants —
+    //      from bpMaxSlsPrc.
+    //   3. Per-row formula: avgCost / (1 - margin), rounded UP to $0.05.
+    const styleKeyForSlsPrc = r.master_style ?? "";
+    const custT3StylePrice = (() => {
+      if (!customerFilter || !styleKeyForSlsPrc) return 0;
+      const sAgg = t3ByStyleMap?.get(styleKeyForSlsPrc);
+      if (!sAgg || sAgg.qty <= 0 || sAgg.totalPrice <= 0) return 0;
+      return sAgg.totalPrice / sAgg.qty;
+    })();
     const slsPrcV = (avgCostV > 0 && slsMargin < 1)
-      ? avgCostV / (1 - slsMargin)
+      ? (custT3StylePrice > 0
+          ? custT3StylePrice
+          : (styleKeyForSlsPrc && bpMaxSlsPrc.has(styleKeyForSlsPrc)
+              ? bpMaxSlsPrc.get(styleKeyForSlsPrc)!
+              : Math.ceil((avgCostV / (1 - slsMargin)) * 20) / 20))
       : 0;
     if (COL_AVG_COST) qtyRow[COL_AVG_COST - 1] = avgCostV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
@@ -884,6 +1068,37 @@ export function buildExportPayload(
     if (COL_SLS_PRC) qtyRow[COL_SLS_PRC - 1] = slsPrcV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+
+    // Mrgn % — see COL_SLS_MRGN_PCT declaration for the priority rules.
+    // Falls back to formula margin (== slsMarginPct) when no preferred
+    // price source applies.
+    if (COL_SLS_MRGN_PCT) {
+      let derivedPrice = slsPrcV;
+      let mrgnColor: "default" | "blue" | "red" = "default";
+      if (avgCostV > 0) {
+        const styleKey = r.master_style ?? "";
+        const sAgg = styleKey ? t3ByStyleMap?.get(styleKey) : undefined;
+        if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
+          derivedPrice = sAgg.totalPrice / sAgg.qty;
+          mrgnColor = "blue";
+        }
+        const cl = lastCustPriceMap?.get(r.sku);
+        if (cl && cl.price > 0) {
+          derivedPrice = cl.price;
+          mrgnColor = "red";
+        }
+      }
+      const m = (derivedPrice > 0 && avgCostV > 0)
+        ? (derivedPrice - avgCostV) / derivedPrice
+        : 0;
+      const base = bodyNumStyle(fill);
+      const styled = mrgnColor === "default"
+        ? { ...base, numFmt: "0.0%" }
+        : { ...base, numFmt: "0.0%", font: { ...base.font, bold: true, color: { rgb: mrgnColor === "blue" ? MRGN_BLUE : MRGN_RED } } };
+      qtyRow[COL_SLS_MRGN_PCT - 1] = m === 0
+        ? { v: "", t: "s", s: styled }
+        : { v: m, t: "n", s: styled };
+    }
 
     // Trailing 3 — sales over the last 3 months from today, optionally
     // narrowed to one customer. Sales qty is now at unit grain in the
@@ -987,6 +1202,7 @@ export function buildExportPayload(
       ppkRow[COL.spacerL - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.onHand  - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
       ppkRow[COL.onOrder - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
+      if (COL_SO_PRC) ppkRow[COL_SO_PRC - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
       ppkRow[COL.onPO    - 1] = blankFill(bodyNumStyle(FILL_QTY_COL));
 
       // Period cells: PPK suffix only where qty > 0; otherwise blank.
@@ -1009,7 +1225,7 @@ export function buildExportPayload(
       // Optional extra cols on the PPK follower row — blank with the
       // same style as the qty row's matching cell so the merge looks
       // clean and the outline finalizer sees a real cell to border.
-      for (const ci of [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
+      for (const ci of [COL_SO_PRC, COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
         if (ci !== undefined) ppkRow[ci - 1] = blankFill(bodyNumStyle(fill));
       }
 
@@ -1080,7 +1296,7 @@ export function buildExportPayload(
     // outline finalizer + autofit see real cells and the bottom row
     // closes the table cleanly across its full width. Callers that
     // want real aggregates patch these in after.
-    const optCols = [COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
+    const optCols = [COL_SO_PRC, COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
     for (const ci of optCols) {
       if (ci !== undefined) cells[ci - 1] = { v: "", t: "s", s: totalNumStyle };
     }
@@ -1101,7 +1317,13 @@ export function buildExportPayload(
       costSum    += a * q;
     }
     const avgCostW = qtyForCost > 0 ? costSum / qtyForCost : 0;
-    const slsPrcW = (avgCostW > 0 && slsMargin < 1) ? avgCostW / (1 - slsMargin) : 0;
+    // Round UP to nearest $0.05 — matches the per-row and subtotal rule.
+    const slsPrcW = (avgCostW > 0 && slsMargin < 1)
+      ? Math.ceil((avgCostW / (1 - slsMargin)) * 20) / 20
+      : 0;
+    const slsMrgnW = (avgCostW > 0 && slsPrcW > 0)
+      ? (slsPrcW - avgCostW) / slsPrcW
+      : 0;
 
     // T3 / LY totals. Sales qty is at unit grain in the DB
     // (qty_units, populated by the nightly sync). Margin % comes from
@@ -1130,7 +1352,21 @@ export function buildExportPayload(
     const t3Mrgn  = t3Tot > 0 ? t3Marg / t3Tot : 0;
     const lyMrgn  = lyTot > 0 ? lyMarg / lyTot : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
+    // SO Prc grand total: qty-weighted avg unit price across all rows
+    // that have a customer-SO entry. 0 when no customer is selected.
+    let soPrcQty = 0;
+    let soPrcRev = 0;
+    if (customerSoMap) {
+      for (const r of rows) {
+        const e = customerSoMap.get(`${r.sku}::${r.store ?? "ROF"}`);
+        if (!e || e.qty <= 0 || e.soPrice <= 0) continue;
+        soPrcQty += e.qty;
+        soPrcRev += e.qty * e.soPrice;
+      }
+    }
+    const soPrcW = soPrcQty > 0 ? soPrcRev / soPrcQty : 0;
+
+    return { avgCostW, totalCostW: costSum, slsPrcW, slsMrgnW, soPrcW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
@@ -1154,9 +1390,11 @@ export function buildExportPayload(
         ? { v: "", t: "s", s: { ...totalNumStyle, numFmt: "0.0%" } }
         : { v, t: "n", s: { ...totalNumStyle, numFmt: "0.0%" } };
     };
+    setCurr(COL_SO_PRC,      agg.soPrcW);
     setCurr(COL_AVG_COST,    agg.avgCostW);
     setCurr(COL_TOT_COST,    agg.totalCostW);
     setCurr(COL_SLS_PRC,     agg.slsPrcW);
+    setPct (COL_SLS_MRGN_PCT, agg.slsMrgnW);
     setQty (COL_T3_QTY,      agg.t3Qty);
     setCurr(COL_T3_PRICE,    agg.t3Price);
     setCurr(COL_T3_TTL_SLS,  agg.t3Tot);
@@ -1202,7 +1440,14 @@ export function buildExportPayload(
 
     const totalQtyRow = buildStackRow(
       "TOTAL Qty",
-      (k) => t[k].qty,
+      (k) => {
+        // Customer-narrowed On Order — mirrors the per-row override so
+        // the TOTAL Qty row matches what the operator sees in the body.
+        if (k === "onOrder" && customerSoMap !== undefined) {
+          return rows.reduce((a, r) => a + (customerSoMap.get(`${r.sku}::${r.store ?? "ROF"}`)?.qty ?? 0), 0);
+        }
+        return t[k].qty;
+      },
       (key) => t.periodQty[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
     );
@@ -1242,7 +1487,10 @@ export function buildExportPayload(
   } else {
     // Toggle OFF — single Total row of per-column qty sums.
     const onHandSum  = rows.reduce((a, r) => a + (r.onHand  ?? 0), 0);
-    const onOrderSum = rows.reduce((a, r) => a + (r.onOrder ?? 0), 0);
+    // On Order Total mirrors the per-row override when customer selected.
+    const onOrderSum = customerSoMap !== undefined
+      ? rows.reduce((a, r) => a + (customerSoMap.get(`${r.sku}::${r.store ?? "ROF"}`)?.qty ?? 0), 0)
+      : rows.reduce((a, r) => a + (r.onOrder ?? 0), 0);
     const onPOSum    = rows.reduce((a, r) => a + (r.onPO    ?? 0), 0);
     const periodSumByKey: Record<string, number> = {};
     periods.forEach((p, i) => { periodSumByKey[p.endDate] = periodSums[i]; });
@@ -1415,30 +1663,11 @@ export function buildExportPayload(
       m.e.r += titleRowCount;
     }
   }
-  // Title-row merge: span A1 across every column so the 22pt customer
-  // name has room to render. Without this the adjacent cells (which
-  // we wrote as { v: "", t: "s" } so the row width stays correct)
-  // block Excel's text-overflow into neighbouring empty cells —
-  // operator only sees the first ~8 chars in column A's narrow width.
-  if (titleRow) {
-    if (customerFilter && dateRangeText) {
-      // Customer in col A (un-merged so its 22pt left-justified text
-      // stays anchored), date range merged across B..lastCol so its
-      // 20pt centered banner fills the rest of the row.
-      merges.push({
-        s: { r: 0, c: 1 },
-        e: { r: 0, c: lastColIdx },
-      });
-    } else {
-      // Single value (customer OR date range alone) — merge the full
-      // row so its anchor cell can render the wide text without being
-      // clipped by adjacent empty cells.
-      merges.push({
-        s: { r: 0, c: 0 },
-        e: { r: 0, c: lastColIdx },
-      });
-    }
-  }
+  // Title-row merge is built AFTER the column-drop pass below, because
+  // hideATSData / hideZeroColumns can shorten the row — if we used the
+  // pre-drop lastColIdx here the remap at oldToNew0 would null out the
+  // merge's end column and drop the title merge entirely, leaving the
+  // 22pt customer name clipped to column A's width.
 
   // ── Optional pass: drop columns ──────────────────────────────────────
   // Two independent triggers, composed into one projection:
@@ -1509,6 +1738,48 @@ export function buildExportPayload(
           return { s: { r: m.s.r, c: sc }, e: { r: m.e.r, c: ec } };
         })
         .filter((m): m is { s: { r: number; c: number }; e: { r: number; c: number } } => m !== null);
+
+      // Rewrite every cell formula's column letters to match the new
+      // post-hide-zero layout. Formula text was emitted earlier in the
+      // pipeline using the ORIGINAL column letters (e.g. SUM(M11:R11)
+      // for periods M..R); after the kept-list compaction those letters
+      // refer to different cells in the reflowed worksheet. Without this
+      // rewrite, the Total cell's SUM ends up summing whatever cells now
+      // sit at M..R (often the row's own Total column, self-referencing).
+      const colLetterToIdx = (letters: string): number => {
+        let n = 0;
+        for (let i = 0; i < letters.length; i++) {
+          n = n * 26 + (letters.charCodeAt(i) - 64);
+        }
+        return n;
+      };
+      for (const row of effectiveAllRows) {
+        if (!row) continue;
+        for (const cell of row) {
+          if (!cell || typeof cell.f !== "string") continue;
+          cell.f = cell.f.replace(/([A-Z]+)(\d+)/g, (whole, lettersRaw, digits) => {
+            const origIdx = colLetterToIdx(lettersRaw);
+            const newIdx = columnIndexMap!.get(origIdx);
+            // Dropped column: keep the original letter — Excel evaluates
+            // the cell as empty, producing a slight under-count rather
+            // than a wildly wrong sum from a self-reference.
+            if (newIdx === undefined) return whole;
+            return `${colLetter(newIdx)}${digits}`;
+          });
+        }
+      }
+    }
+  }
+
+  // Title-row merge (built after column drop so it spans the final width).
+  if (titleRow) {
+    const finalLastColIdx = (effectiveAllRows[0]?.length ?? totalColumnCount) - 1;
+    if (customerFilter && dateRangeText) {
+      // Customer stays anchored in col A; date range banner spans B..end.
+      effectiveMerges.push({ s: { r: 0, c: 1 }, e: { r: 0, c: finalLastColIdx } });
+    } else {
+      // Single value (customer OR date range alone) merges the full row.
+      effectiveMerges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: finalLastColIdx } });
     }
   }
 

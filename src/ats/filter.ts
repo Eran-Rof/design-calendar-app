@@ -20,6 +20,15 @@ export interface RowFilterOpts {
   storeFilter: string[];
   customerSkuSet: Set<string> | null;
   today: Date;
+  // Visible period columns the grid is rendering — used by the Min ATS
+  // filter so it compares against the SAME per-period ATS qty the
+  // operator sees in the leftmost period columns, not against today's
+  // calendar-date qty (which can be empty when the picked startDate is
+  // in the future). A row passes Min ATS if ANY visible period's qty
+  // meets or exceeds the threshold (per operator spec 2026-05-26).
+  // Optional: when omitted, Min ATS falls back to r.onHand only —
+  // existing tests + callers that predate this prop keep working.
+  displayPeriods?: Array<{ endDate: string }>;
 }
 
 // Splits the search string into whitespace-delimited tokens and returns true
@@ -114,7 +123,26 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
       if (opts.filterStatus === "Low" && !(todayQty > 0 && todayQty <= 10)) return false;
       if (opts.filterStatus === "InStock" && !(todayQty > 10)) return false;
     }
-    if (opts.minATS !== "" && todayQty < opts.minATS) return false;
+    // Min ATS — operator spec 2026-05-26: a row passes if ANY visible
+    // period's ATS qty meets or exceeds the threshold. Scan
+    // r.dates[periods[i].endDate] for every column the grid is rendering
+    // (matches what the operator sees in the leftmost columns). r.onHand
+    // is included as a safety fallback for rows that don't yet carry
+    // per-period entries (e.g. early in load). Earlier behavior used
+    // only today's calendar-date qty, which diverged from the grid when
+    // startDate was in the future or the view was weekly/monthly.
+    if (opts.minATS !== "") {
+      const min = opts.minATS;
+      let pass = false;
+      if (opts.displayPeriods) {
+        for (const p of opts.displayPeriods) {
+          const q = r.dates[p.endDate];
+          if (typeof q === "number" && q >= min) { pass = true; break; }
+        }
+      }
+      if (!pass && typeof r.onHand === "number" && r.onHand >= min) pass = true;
+      if (!pass) return false;
+    }
     if (wantStore !== null && !wantStore.has(normForCompare(r.store ?? "ROF"))) return false;
     if (opts.customerSkuSet && !opts.customerSkuSet.has(r.sku)) return false;
     return true;

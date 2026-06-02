@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Anomaly {
   id: string;
@@ -58,7 +61,7 @@ export default function InternalAnomalies() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, reviewed_by: reviewer || "Internal", note: note || undefined }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -90,6 +93,21 @@ export default function InternalAnomalies() {
           ["dismissed", "Dismissed"],
           ["escalated", "Escalated"],
         ]} />
+        <div style={{ marginLeft: "auto", alignSelf: "flex-end" }}>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="anomalies"
+            sheetName="Anomalies"
+            columns={[
+              { key: "detected_at",  header: "Detected",   format: "datetime" },
+              { key: "vendor_id",    header: "Vendor ID" },
+              { key: "type",         header: "Type" },
+              { key: "severity",     header: "Severity" },
+              { key: "status",       header: "Status" },
+              { key: "description",  header: "Description" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
@@ -105,7 +123,7 @@ export default function InternalAnomalies() {
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No anomalies in this view.</div>
         ) : rows.map((a) => (
           <div key={a.id} style={{ display: "grid", gridTemplateColumns: "160px 1.5fr 140px 110px 140px 220px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-            <div style={{ fontWeight: 600 }}>{a.vendor?.name || a.vendor_id.slice(0, 8)}</div>
+            <div style={{ fontWeight: 600 }}>{a.vendor?.name || "—"}</div>
             <div style={{ color: C.textSub, fontSize: 12, lineHeight: 1.4 }}>{a.description}</div>
             <div style={{ color: C.textSub, fontSize: 12, textTransform: "capitalize" }}>{a.type.replace(/_/g, " ")}</div>
             <div style={{ color: sevColor(a.severity), fontWeight: 600, textTransform: "uppercase", fontSize: 12 }}>{a.severity}</div>

@@ -19,7 +19,8 @@ const path = window.location.pathname;
 // 1-hour idle auto-logout for every internal sub-app. Skips:
 //   /vendor  — Supabase Auth, separate session lifecycle.
 //   /design  — App.tsx mounts its own useIdleLogout with a 5-min warning banner.
-if (!path.startsWith("/vendor") && !path.startsWith("/design")) {
+//   /b2b     — external customer portal, Supabase Auth, separate session lifecycle.
+if (!path.startsWith("/vendor") && !path.startsWith("/design") && !path.startsWith("/b2b")) {
   installIdleLogout();
 }
 
@@ -93,9 +94,19 @@ async function mount() {
     const { default: VendorApp } = await import("./vendor/VendorApp");
     root.render(<StrictMode><ErrorBoundary appName="Vendor Portal"><VendorApp /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/b2b")) {
+    // External B2B customer portal — passwordless Supabase Auth, isolated from
+    // internal staff and the vendor portal (separate browser client + storageKey).
+    const { default: B2BApp } = await import("./b2b/B2BApp");
+    root.render(<StrictMode><ErrorBoundary appName="B2B Portal"><B2BApp /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/design")) {
     const { default: App } = await import("./App");
     root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><App /></ErrorBoundary></StrictMode>);
+
+  } else if (path.startsWith("/tangerine")) {
+    const { default: Tangerine } = await import("./Tangerine");
+    root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
 
   } else if (path.startsWith("/tanda")) {
     const { default: TandA } = await import("./TandA");
@@ -112,6 +123,10 @@ async function mount() {
   } else if (path.startsWith("/gs1")) {
     const { default: GS1 } = await import("./GS1");
     root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><GS1 /></ErrorBoundary></StrictMode>);
+
+  } else if (path.startsWith("/costing")) {
+    const { default: Costing } = await import("./Costing");
+    root.render(<StrictMode><ErrorBoundary appName="Costing"><Costing /></ErrorBoundary></StrictMode>);
 
   } else if (path.startsWith("/planning")) {
     // ── Planning gate ─────────────────────────────────────────────────────

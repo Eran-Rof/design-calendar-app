@@ -69,7 +69,7 @@ export async function persistRuleOutput(supabase, rule) {
  * @param {string|null} siblingJeId
  */
 export function candidateToPayload(c, siblingJeId) {
-  return {
+  const payload = {
     entity_id: c.entity_id,
     basis: c.basis,
     journal_type: c.journal_type,
@@ -90,4 +90,12 @@ export function candidateToPayload(c, siblingJeId) {
       subledger_id: l.subledger_id ?? null,
     })),
   };
+  // P4-2: pass bypass_period_lock through to the RPC. The PG-side function
+  // (extended in P4-1) gates this to journal_type IN
+  // ('ar_invoice_historical','ar_receipt_historical') — operator UI cannot
+  // set it via any non-backfill code path.
+  if (c.bypass_period_lock === true) {
+    payload.bypass_period_lock = true;
+  }
+  return payload;
 }

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Score {
   id: string;
@@ -45,8 +47,23 @@ export default function InternalEsgScores() {
           <h2 style={{ margin: 0, fontSize: 22 }}>ESG scores</h2>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Latest scored period per vendor. Sorted by overall score.</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input placeholder="Min overall score" value={minScore} onChange={(e) => setMinScore(e.target.value)} type="number" style={{ ...selectSt, width: 140 }} />
+          <ExportButton
+            rows={rows.map((s) => ({ ...s, vendor_name: s.vendor?.name || s.vendor_id })) as unknown as Array<Record<string, unknown>>}
+            filename="esg-scores"
+            sheetName="ESG Scores"
+            columns={[
+              { key: "vendor_name",          header: "Vendor" },
+              { key: "period_start",         header: "Period Start", format: "date" },
+              { key: "period_end",           header: "Period End",   format: "date" },
+              { key: "environmental_score",  header: "Env",          format: "number" },
+              { key: "social_score",         header: "Social",       format: "number" },
+              { key: "governance_score",     header: "Gov",          format: "number" },
+              { key: "overall_score",        header: "Overall",      format: "number" },
+              { key: "generated_at",         header: "Generated",    format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

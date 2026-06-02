@@ -159,4 +159,50 @@ describe("validatePatch", () => {
     expect(v.error).toBeUndefined();
     expect(v.data.tax_exempt).toBe(true);
   });
+
+  // ─── P4-7: credit_limit_cents + credit_limit_currency ─────────────────────
+  it("accepts integer credit_limit_cents", () => {
+    const v = validatePatch({ credit_limit_cents: 250000 });
+    expect(v.error).toBeUndefined();
+    expect(v.data.credit_limit_cents).toBe(250000);
+  });
+  it("accepts numeric-string credit_limit_cents", () => {
+    const v = validatePatch({ credit_limit_cents: "500000" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.credit_limit_cents).toBe(500000);
+  });
+  it("rejects non-integer credit_limit_cents", () => {
+    expect(validatePatch({ credit_limit_cents: 123.45 }).error).toMatch(/credit_limit_cents/);
+    expect(validatePatch({ credit_limit_cents: "abc" }).error).toMatch(/credit_limit_cents/);
+  });
+  it("rejects negative credit_limit_cents", () => {
+    expect(validatePatch({ credit_limit_cents: -1 }).error).toMatch(/credit_limit_cents/);
+  });
+  it("normalizes blank credit_limit_cents to null", () => {
+    expect(validatePatch({ credit_limit_cents: "" }).data.credit_limit_cents).toBeNull();
+    expect(validatePatch({ credit_limit_cents: null }).data.credit_limit_cents).toBeNull();
+  });
+  it("accepts and uppercases credit_limit_currency", () => {
+    const v = validatePatch({ credit_limit_currency: "usd" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.credit_limit_currency).toBe("USD");
+  });
+  it("rejects non-3-letter credit_limit_currency", () => {
+    expect(validatePatch({ credit_limit_currency: "USDX" }).error).toMatch(/credit_limit_currency/);
+    expect(validatePatch({ credit_limit_currency: "12" }).error).toMatch(/credit_limit_currency/);
+  });
+  it("normalizes blank credit_limit_currency to null", () => {
+    expect(validatePatch({ credit_limit_currency: "" }).data.credit_limit_currency).toBeNull();
+  });
+
+  it("validateInsert accepts credit_limit_cents + credit_limit_currency together", () => {
+    const v = validateInsert({ name: "ACME", credit_limit_cents: 100000, credit_limit_currency: "usd" });
+    expect(v.error).toBeUndefined();
+    expect(v.data.credit_limit_cents).toBe(100000);
+    expect(v.data.credit_limit_currency).toBe("USD");
+  });
+  it("validateInsert rejects bad credit_limit_cents", () => {
+    expect(validateInsert({ name: "ACME", credit_limit_cents: -5 }).error).toMatch(/credit_limit_cents/);
+    expect(validateInsert({ name: "ACME", credit_limit_cents: 1.5 }).error).toMatch(/credit_limit_cents/);
+  });
 });

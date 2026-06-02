@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import SharedToast from "./shared/ui/Toast";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
+// P14-4 — client menu hide driven by the caller's effective permissions.
+import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
+import { rbacModuleForVendorView } from "./lib/rbacModuleMap";
 import { useDashboardData } from "./tanda/hooks/useDashboardData";
 import { useEmailOps } from "./tanda/hooks/useEmailOps";
 import { useTeamsOps } from "./tanda/hooks/useTeamsOps";
@@ -33,9 +36,6 @@ import InternalRfqs from "./tanda/InternalRfqs";
 import InternalWorkflowRules from "./tanda/InternalWorkflowRules";
 import InternalWorkflowExecutions from "./tanda/InternalWorkflowExecutions";
 import InternalEntities from "./tanda/InternalEntities";
-import InternalStyleMaster from "./tanda/InternalStyleMaster";
-import InternalVendorMaster from "./tanda/InternalVendorMaster";
-import InternalCustomerMaster from "./tanda/InternalCustomerMaster";
 import InternalInsights from "./tanda/InternalInsights";
 import InternalWorkspaces from "./tanda/InternalWorkspaces";
 import InternalSustainability from "./tanda/InternalSustainability";
@@ -75,6 +75,15 @@ import type { CoreState } from "./tanda/state/core/coreTypes";
 import { useTandaStore } from "./tanda/store/index";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+// Cross-cutter T4-3 — Personalization: favorites drawer + menu-click telemetry.
+import FavoritesMenu from "./components/FavoritesMenu";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "./components/EntitySwitcher";
+import AutoLandingToast from "./components/AutoLandingToast";
+import { useAutoLanding } from "./hooks/useAutoLanding";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { tandaViewToMenuKey } from "./lib/tandaViewToMenuKey";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -170,17 +179,23 @@ const VENDOR_MENU_GROUPS: { group: string; items: MenuItem[] }[] = [
     { view: "workflow_rules",     label: "Workflow Rules",  emoji: "⚙️" },
     { view: "workflow_executions",label: "Approvals",       emoji: "✅" },
     { view: "entities",           label: "Entities",        emoji: "🏛️" },
-    { view: "style_master",       label: "Style Master",    emoji: "🎨" },
-    { view: "vendor_master",      label: "Vendor Master",   emoji: "🏭" },
-    { view: "customer_master",    label: "Customer Master", emoji: "🤝" },
   ]},
 ];
 const VENDOR_MENU: MenuItem[] = VENDOR_MENU_GROUPS.flatMap((g) => g.items);
 
 function VendorsFlyout({ view, onSelect }: { view: View; onSelect: (v: View) => void }) {
-  const currentGroup = VENDOR_MENU_GROUPS.find((g) => g.items.some((i) => i.view === view))?.group;
-  const [hovered, setHovered] = useState<string | null>(currentGroup || VENDOR_MENU_GROUPS[0].group);
-  const active = VENDOR_MENU_GROUPS.find((g) => g.group === hovered) || VENDOR_MENU_GROUPS[0];
+  // P14-4 — hide menu items the caller lacks :read on (drop empty groups).
+  // Inert (shows all) unless RBAC_MODE=enforce on the server.
+  const { can } = useEffectivePermissions();
+  const groups = VENDOR_MENU_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((i) => can(rbacModuleForVendorView(i.view), "read")) }))
+    .filter((g) => g.items.length > 0);
+
+  const currentGroup = groups.find((g) => g.items.some((i) => i.view === view))?.group;
+  const [hovered, setHovered] = useState<string | null>(currentGroup || groups[0]?.group || null);
+  const active = groups.find((g) => g.group === hovered) || groups[0];
+
+  if (!active) return null;
 
   return (
     <div
@@ -192,7 +207,7 @@ function VendorsFlyout({ view, onSelect }: { view: View; onSelect: (v: View) => 
       }}
     >
       <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
-        {VENDOR_MENU_GROUPS.map((g) => {
+        {groups.map((g) => {
           const isActive = g.group === hovered;
           const hasSelected = g.items.some((i) => i.view === view);
           return (
@@ -255,8 +270,9 @@ function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => vo
   useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); }, []);
 
   const active = VENDOR_MENU.some((m) => m.view === view);
-  const current = VENDOR_MENU.find((m) => m.view === view);
-  const label = current ? `${current.emoji} ${current.label}` : "🏢 Vendors";
+  // Header stays the section name (like the other nav sections); the active
+  // style — not a morphing label — signals you're inside a Vendors view.
+  const label = "🏢 Vendors";
 
   return (
     <div
@@ -283,12 +299,119 @@ function VendorsMenu({ view, onSelect }: { view: View; onSelect: (v: View) => vo
   );
 }
 
+// ── Nav section dropdown + view finder (menu consolidation) ──────────────────
+type TandaNavItem = { label: string; view?: View; onClick: () => void };
+
+function TandaNavMenu({ label, emoji, items, view }: { label: string; emoji: string; items: TandaNavItem[]; view: View }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", click);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", click); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); }, []);
+  const active = items.some((i) => i.view && i.view === view);
+  return (
+    <div
+      ref={ref}
+      style={{ position: "relative" }}
+      onMouseEnter={() => { if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; } setOpen(true); }}
+      onMouseLeave={() => { leaveTimer.current = setTimeout(() => setOpen(false), 200); }}
+    >
+      <button style={active ? S.navBtnActive : S.navBtn} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+        {emoji} {label} <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>▾</span>
+      </button>
+      {open && (
+        <div role="menu" style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, padding: 4, minWidth: 210, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 100, display: "flex", flexDirection: "column", gap: 2 }}>
+          {items.map((it) => {
+            const isActive = !!it.view && it.view === view;
+            return (
+              <button
+                key={it.label}
+                role="menuitem"
+                onClick={() => { it.onClick(); setOpen(false); }}
+                style={{ background: isActive ? "#3B82F620" : "transparent", border: "none", color: isActive ? "#60A5FA" : "#CBD5E1", borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: isActive ? 700 : 500 }}
+                onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
+                onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+              >
+                {it.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TandaNavSearch({ items }: { items: TandaNavItem[] }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", click);
+    return () => document.removeEventListener("mousedown", click);
+  }, []);
+  const results = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return [];
+    return items.filter((i) => i.label.toLowerCase().includes(t)).slice(0, 12);
+  }, [q, items]);
+  function choose(i: TandaNavItem) { i.onClick(); setQ(""); setOpen(false); setHi(0); }
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { setQ(""); setOpen(false); return; }
+    if (!results.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); const r = results[hi] || results[0]; if (r) choose(r); }
+  }
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <input
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
+        onFocus={() => { if (q.trim()) setOpen(true); }}
+        onKeyDown={onKey}
+        placeholder="🔍 Find a view…"
+        aria-label="Find a view"
+        style={{ background: "#0b1220", color: "#F1F5F9", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", fontSize: 13, width: 150, outline: "none" }}
+      />
+      {open && results.length > 0 && (
+        <div role="listbox" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 230, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: 6, zIndex: 110, display: "flex", flexDirection: "column", gap: 2, maxHeight: 340, overflowY: "auto" }}>
+          {results.map((r, i) => (
+            <button
+              key={r.label}
+              role="option"
+              aria-selected={i === hi}
+              onMouseEnter={() => setHi(i)}
+              onClick={() => choose(r)}
+              style={{ background: i === hi ? "#3B82F620" : "transparent", border: "none", color: i === hi ? "#fff" : "#CBD5E1", borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TandAAppWrapper() {
   return <TandAApp />;
 }
 
 function TandAApp() {
+  // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
+  // Fires once per tab session at app-shell root. See useAutoLanding.ts.
+  const landing = useAutoLanding();
   const [, rerender] = useState(0);
   const rafRef = useRef(0);
   useEffect(() => {
@@ -316,7 +439,25 @@ function TandAApp() {
   const attachments = core.attachments;
   const uploadingAttachment = core.uploadingAttachment;
   const setUser = (v: User | null) => coreSet("user", v);
-  const setView = (v: View) => coreSet("view", v);
+  // Cross-cutter T4-3 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  const { logClick: logMenuClick } = usePersonalization();
+  const setView = (v: View) => {
+    // Fire-and-forget menu-click telemetry. Mapped views (top nav +
+    // vendor flyout) hit /api/internal/users/me/menu-click; unmapped
+    // internal views (e.g. drill-down detail panels) silently skip.
+    const mk = tandaViewToMenuKey(v as unknown as string);
+    if (mk) logMenuClick(mk);
+    // Reflect the active view in the URL (?view=) so "Star this view" /
+    // FavoritesMenu can detect it (it reads window.location), and so the view
+    // is deep-linkable. No reload.
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("view", String(v));
+      window.history.replaceState(window.history.state, "", u);
+    } catch { /* non-fatal */ }
+    coreSet("view", v);
+  };
   const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(useTandaStore.getState().pos)); else coreSet("pos", v); };
   const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(useTandaStore.getState().notes)); else coreSet("notes", v); };
   const setSelected = (v: XoroPO | null) => coreSet("selected", v);
@@ -828,7 +969,7 @@ function TandAApp() {
 
   // ── Load notes from Supabase ──────────────────────────────────────────────
   const loadNotes = useCallback(async () => {
-    const { data } = await sb.from("tanda_notes").select("*").order("created_at", { ascending: false });
+    const { data } = await sb.from("tanda_notes").select("*", "order=created_at.desc");
     setNotes(Array.isArray(data) ? (data as LocalNote[]) : []);
   }, []);
 
@@ -1344,6 +1485,28 @@ function TandAApp() {
       action();
     }
   }
+  // Shared handlers for the consolidated nav (used by both a section dropdown
+  // and the view finder, so defined once here).
+  function openEmailView() {
+    guardedNav(() => {
+      setSelected(null); setView("email");
+      if (emailSelPO && msToken) {
+        loadPOEmails(emailSelPO, undefined, true);
+      } else if (!emailSelPO && pos.length > 0 && msToken) {
+        const sorted = [...pos].sort((a: any, b: any) => {
+          const ua = (emailsMap[a.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
+          const ub = (emailsMap[b.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
+          return ub - ua;
+        });
+        const firstPO = (sorted[0]?.PoNumber ?? "") as string;
+        if (firstPO) { setEmailSelPO(firstPO); setEmailSelectedId(null); setEmailSelMsg(null); setEmailThreadMsgs([]); setEmailActiveFolder("inbox"); loadPOEmails(firstPO, undefined, true); }
+      }
+    });
+  }
+  function openBulkUpdate() {
+    setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]);
+    setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch("");
+  }
   function closeSettingsGuarded() {
     if (tplDirtyGlobal) {
       setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save Changes", confirmColor: "#2563EB", cancelText: "🗑 Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
@@ -1474,26 +1637,36 @@ function TandAApp() {
               }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
             )}
           </button>
-          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("dashboard"); })}>🏠 Dashboard</button>
-          <button style={view === "list"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("list"); })}>All POs</button>
-          <button style={view === "grid"      ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("grid"); })}>🗂 Grid</button>
-          <button style={view === "templates" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("templates"); })}>📐 Templates</button>
-          <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => guardedNav(() => { setSelected(null); setView("teams"); })}>💬 Teams</button>
-          <button style={view === "email" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => {
-            setSelected(null); setView("email");
-            if (emailSelPO && msToken) {
-              loadPOEmails(emailSelPO, undefined, true);
-            } else if (!emailSelPO && pos.length > 0 && msToken) {
-              const sorted = [...pos].sort((a: any, b: any) => {
-                const ua = (emailsMap[a.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
-                const ub = (emailsMap[b.PoNumber ?? ""] || []).filter((e: any) => !e.isRead).length;
-                return ub - ua;
-              });
-              const firstPO = (sorted[0]?.PoNumber ?? "") as string;
-              if (firstPO) { setEmailSelPO(firstPO); setEmailSelectedId(null); setEmailSelMsg(null); setEmailThreadMsgs([]); setEmailActiveFolder("inbox"); loadPOEmails(firstPO, undefined, true); }
-            }
-          })}>📧 Email</button>
-          <button style={view === "activity" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("activity"); })}>📋 Activity</button>
+          {/* Favorites — first action icon (consistent across all apps). */}
+          <FavoritesMenu />
+          {/* Menu consolidated into 4 section dropdowns + a view finder. */}
+          <TandaNavSearch items={[
+            { label: "🏠 Dashboard", view: "dashboard", onClick: () => guardedNav(() => { setSelected(null); setView("dashboard"); }) },
+            { label: "All POs", view: "list", onClick: () => guardedNav(() => { setSelected(null); setView("list"); }) },
+            { label: "🗂 Grid", view: "grid", onClick: () => guardedNav(() => { setSelected(null); setView("grid"); }) },
+            { label: "📊 Timeline", view: "timeline", onClick: () => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }) },
+            { label: "📦 Archive", view: "archive", onClick: () => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); }) },
+            { label: "📐 Templates", view: "templates", onClick: () => guardedNav(() => { setSelected(null); setView("templates"); }) },
+            { label: "💬 Teams", view: "teams", onClick: () => guardedNav(() => { setSelected(null); setView("teams"); }) },
+            { label: "📧 Email", view: "email", onClick: openEmailView },
+            { label: "📋 Activity", view: "activity", onClick: () => guardedNav(() => { setSelected(null); setView("activity"); }) },
+            { label: "⚡ Bulk Update", onClick: openBulkUpdate },
+            { label: "🔄 Sync POs", onClick: () => { if (!syncing) { setShowSyncModal(true); loadVendors(); } } },
+            { label: "⚙️ Settings", onClick: () => setShowSettings(true) },
+          ]} />
+          <TandaNavMenu label="Purchase Orders" emoji="📋" view={view} items={[
+            { label: "🏠 Dashboard", view: "dashboard", onClick: () => guardedNav(() => { setSelected(null); setView("dashboard"); }) },
+            { label: "All POs", view: "list", onClick: () => guardedNav(() => { setSelected(null); setView("list"); }) },
+            { label: "🗂 Grid", view: "grid", onClick: () => guardedNav(() => { setSelected(null); setView("grid"); }) },
+            { label: "📊 Timeline", view: "timeline", onClick: () => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }) },
+            { label: `📦 Archive${archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}`, view: "archive", onClick: () => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); }) },
+            { label: "📐 Templates", view: "templates", onClick: () => guardedNav(() => { setSelected(null); setView("templates"); }) },
+          ]} />
+          <TandaNavMenu label="Collaboration" emoji="💬" view={view} items={[
+            { label: "💬 Teams", view: "teams", onClick: () => guardedNav(() => { setSelected(null); setView("teams"); }) },
+            { label: "📧 Email", view: "email", onClick: openEmailView },
+            { label: "📋 Activity", view: "activity", onClick: () => guardedNav(() => { setSelected(null); setView("activity"); }) },
+          ]} />
           <VendorsMenu view={view} onSelect={(v) => guardedNav(() => {
             // "phase_reviews" is the ROF approval page — it lives at
             // a top-level route outside TandA, so we navigate hard
@@ -1506,18 +1679,12 @@ function TandAApp() {
             setView(v);
             if (v === "vendors") loadArchivedPOs();
           })} />
-          <button style={view === "timeline" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); })}>📊 Timeline</button>
-          <button style={view === "archive" ? S.navBtnActive : S.navBtn} onClick={() => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); })}>📦 Archive{archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}</button>
-          <button style={S.navBtn} onClick={() => { setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]); setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch(""); }}>⚡ Bulk Update</button>
-          <button style={S.navBtn} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing} title="Sync POs from Xoro">
-            {syncing ? "⏳ Syncing…" : "🔄 Sync"}
-          </button>
-          {syncing && (
-            <button style={{ ...S.navBtn, color: "#EF4444", borderColor: "#EF4444" }} onClick={cancelSync} title="Cancel sync">
-              ✕ Cancel
-            </button>
-          )}
-          <button style={S.navBtn} onClick={() => setShowSettings(true)}>⚙️ Settings</button>
+          <TandaNavMenu label="Tools & Settings" emoji="⚙️" view={view} items={[
+            { label: "⚡ Bulk Update", onClick: openBulkUpdate },
+            { label: syncing ? "⏳ Syncing…" : "🔄 Sync POs", onClick: () => { if (!syncing) { setShowSyncModal(true); loadVendors(); } } },
+            ...(syncing ? [{ label: "✕ Cancel sync", onClick: () => cancelSync() }] : []),
+            { label: "⚙️ Settings", onClick: () => setShowSettings(true) },
+          ]} />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {user.avatar ? (
               <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
@@ -1681,9 +1848,10 @@ function TandAApp() {
 
         {/* ── ENTITIES ── */}
         {view === "entities" && <InternalEntities />}
-        {view === "style_master" && <InternalStyleMaster />}
-        {view === "vendor_master" && <InternalVendorMaster />}
-        {view === "customer_master" && <InternalCustomerMaster />}
+        {/* Tangerine ERP modules (style_master / vendor_master / customer_master /
+            gl_accounts / gl_periods / journal_entries) moved to /tangerine in
+            Chunk T1. The View union still includes these keys (in tandaTypes.ts)
+            but they're unreachable from Tanda's menu now. */}
 
         {/* ── INSIGHTS ── */}
         {view === "insights" && <InternalInsights />}
@@ -2031,6 +2199,9 @@ function TandAApp() {
         />
       )}
 
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
+
       <AskAIPanel
         open={aiOpen}
         onClose={() => setAiOpen(false)}
@@ -2062,6 +2233,10 @@ function TandAApp() {
         ]}
         appId="po_wip"
       />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
+      {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
+      <AutoLandingToast landing={landing} />
     </div>
   );
 

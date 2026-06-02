@@ -49,9 +49,13 @@ function computeDistincts(
   override?: Partial<Record<MatrixAxis, string[]>>,
 ): Record<MatrixAxis, string[]> {
   const out: Record<MatrixAxis, string[]> = {} as Record<MatrixAxis, string[]>;
+  // Numeric-aware natural sort so "2" < "10" and "28" < "30" (used only for
+  // auto-derived distincts; explicit overrides keep the caller's order).
+  const natural = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
   for (const axis of MATRIX_AXES) {
     if (override?.[axis]) {
-      out[axis] = [...new Set(override[axis] ?? [])].sort();
+      // Preserve the caller's order (e.g. a size scale's S,M,L,XL); dedupe only.
+      out[axis] = [...new Set(override[axis] ?? [])];
       continue;
     }
     const seen = new Set<string>();
@@ -59,7 +63,7 @@ function computeDistincts(
       const v = it[axis];
       if (v != null && v !== "") seen.add(String(v));
     }
-    out[axis] = [...seen].sort();
+    out[axis] = [...seen].sort(natural);
   }
   return out;
 }

@@ -14,7 +14,7 @@
 // quantity break-down, and which PO numbers contribute when relevant.
 
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
-import { fmtDate } from "./helpers";
+import { fmtDate, fmtDateDisplay } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS, colLetter,
   headerStyle, bodyTextStyle, bodyNumStyle, bodyStyleStyle,
@@ -230,7 +230,7 @@ export function exportStockVsSo(
       { v: r.store,           t: "s", s: bodyTextStyle(fill, "left") },
       { v: r.customerName,    t: "s", s: bodyTextStyle(fill, "left") },
       { v: r.orderNumber,     t: "s", s: bodyTextStyle(fill, "left") },
-      { v: r.shipDate,        t: "s", s: bodyTextStyle(fill, "center") },
+      { v: fmtDateDisplay(r.shipDate),        t: "s", s: bodyTextStyle(fill, "center") },
       numOrBlank(r.qtyOrdered,   bodyNumStyle(PALETTE.QTY_BAND)),
       numOrBlank(r.qtyFromStock, bodyNumStyle(PALETTE.QTY_BAND)),
       numOrBlank(r.qtyFromPO,    bodyNumStyle(PALETTE.QTY_BAND)),

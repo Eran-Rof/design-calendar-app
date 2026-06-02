@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+import { notify } from "../shared/ui/warn";
 
 interface Listing {
   id: string;
@@ -64,6 +67,32 @@ export default function InternalMarketplace() {
           <input placeholder="Search capabilities, title, description…" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...inp, width: 260 }} />
           <input placeholder="Category" value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...inp, width: 160 }} />
           <input type="number" placeholder="Min ESG" value={minEsg} onChange={(e) => setMinEsg(e.target.value)} style={{ ...inp, width: 110 }} />
+          <ExportButton
+            rows={rows.map((l) => ({
+              ...l,
+              vendor_name: l.vendor?.name || l.vendor_id,
+              capabilities_list: (l.capabilities || []).join("; "),
+              certifications_list: (l.certifications || []).join("; "),
+              geographic_coverage_list: (l.geographic_coverage || []).join("; "),
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="marketplace-listings"
+            sheetName="Marketplace"
+            columns={[
+              { key: "title",                    header: "Title" },
+              { key: "vendor_name",              header: "Vendor" },
+              { key: "category",                 header: "Category" },
+              { key: "description",              header: "Description" },
+              { key: "capabilities_list",        header: "Capabilities" },
+              { key: "certifications_list",      header: "Certifications" },
+              { key: "geographic_coverage_list", header: "Geography" },
+              { key: "min_order_value",          header: "MOV",     format: "number" },
+              { key: "lead_time_range",          header: "Lead time" },
+              { key: "esg_overall_score",        header: "ESG",     format: "number" },
+              { key: "featured",                 header: "Featured" },
+              { key: "status",                   header: "Status" },
+              { key: "views",                    header: "Views",   format: "number" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 
@@ -129,7 +158,7 @@ function InquireModal({ listing, onClose, onSent }: { listing: Listing; onClose:
   }, []);
 
   async function send() {
-    if (!message.trim() || !entityId || !inquirer.trim()) { alert("All fields required."); return; }
+    if (!message.trim() || !entityId || !inquirer.trim()) { notify("All fields required.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/marketplace/inquire", {
@@ -138,7 +167,7 @@ function InquireModal({ listing, onClose, onSent }: { listing: Listing; onClose:
       });
       if (!r.ok) throw new Error(await r.text());
       onSent();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

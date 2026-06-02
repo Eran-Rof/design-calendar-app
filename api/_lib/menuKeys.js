@@ -1,0 +1,169 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Cross-cutter T4-2 — Personalization: server-side menu_key allowlist.
+//
+// Mirror of src/lib/menuKeys.ts. Duplicated as ESM-but-CommonJS-friendly JS
+// so the handler files under api/_handlers/internal/users/me/ can validate
+// menu_key membership without pulling a TypeScript file into the Vercel
+// functions runtime.
+//
+// When you add a menu_key to src/lib/menuKeys.ts, add the SAME string here
+// in the KEY_SET below. The unit tests assert both lists are in sync.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Exhaustive allowlist. Order does not matter — this is a Set, not a list.
+// Grouped by app for diff-readability when adding new keys.
+const KEYS = [
+  // DC
+  "dc/dashboard",
+  "dc/timeline",
+  "dc/calendar",
+  "dc/trend-briefs",
+  "dc/teams",
+  "dc/email",
+  "dc/notifications",
+  // ATS
+  "ats/grid",
+  "ats/grid-so",
+  "ats/grid-po",
+  "ats/reports/export-excel",
+  "ats/reports/neg-inven",
+  "ats/reports/aged-inven",
+  "ats/reports/no-mrgn",
+  "ats/reports/stock-vs-so",
+  "ats/reports/sales-comps",
+  // PO WIP (Tanda public alias)
+  "powip/dashboard",
+  "powip/list",
+  "powip/grid",
+  "powip/templates",
+  "powip/teams",
+  "powip/email",
+  "powip/activity",
+  "powip/timeline",
+  "powip/archive",
+  "powip/notifications",
+  "powip/vendors/directory",
+  "powip/vendors/onboarding",
+  "powip/vendors/preferred",
+  "powip/vendors/scorecards",
+  "powip/vendors/health-scores",
+  "powip/vendors/diversity",
+  "powip/vendors/sustainability",
+  "powip/vendors/esg-scores",
+  "powip/ops/shipments",
+  "powip/ops/match",
+  "powip/ops/messages",
+  "powip/ops/phase-reviews",
+  "powip/ops/anomalies",
+  "powip/ops/workspaces",
+  "powip/compliance/documents",
+  "powip/compliance/automation",
+  "powip/compliance/audit",
+  "powip/sourcing/rfqs",
+  "powip/sourcing/marketplace",
+  "powip/sourcing/marketplace-inquiries",
+  "powip/sourcing/benchmark",
+  "powip/sourcing/insights",
+  "powip/finance/payments",
+  "powip/finance/discount-offers",
+  "powip/finance/scf",
+  "powip/finance/virtual-cards",
+  "powip/finance/fx",
+  "powip/finance/tax",
+  "powip/admin/analytics",
+  "powip/admin/spend",
+  "powip/admin/workflow-rules",
+  "powip/admin/workflow-executions",
+  "powip/admin/entities",
+  // GS1
+  "gs1/company",
+  "gs1/upc",
+  "gs1/scale",
+  "gs1/gtins",
+  "gs1/upload",
+  "gs1/pa-unpacker",
+  "gs1/labels",
+  "gs1/templates",
+  "gs1/cartons",
+  "gs1/receiving",
+  "gs1/exceptions",
+  "gs1/notifications",
+  // Tanda / Tangerine ERP
+  "tanda/master/style",
+  "tanda/master/pim-catalog",
+  "tanda/master/fabric-codes",
+  "tanda/master/vendor",
+  "tanda/master/customer",
+  "tanda/master/payment-terms",
+  "tanda/master/countries",
+  "tanda/master/genders",
+  "tanda/master/style-classifications",
+  "tanda/master/factors",
+  "tanda/master/size-scales",
+  // P18-F — internal B2B admin (buyers + wholesale price list).
+  "tanda/b2b/accounts",
+  "tanda/b2b/price-list",
+  "tanda/accounting/coa",
+  "tanda/accounting/periods",
+  "tanda/accounting/journal-entries",
+  "tanda/accounting/ap-invoices",
+  "tanda/accounting/ap-payments",
+  "tanda/accounting/ar-invoices",
+  "tanda/accounting/ar-receipts",
+  "tanda/sales/sales-orders",
+  "tanda/sales/allocations",
+  "tanda/accounting/ar-aging",
+  "tanda/accounting/ar-backfill",
+  "tanda/accounting/trial-balance",
+  "tanda/accounting/income-statement",
+  "tanda/accounting/balance-sheet",
+  "tanda/accounting/cash-flow",
+  "tanda/accounting/year-end-close",
+  "tanda/accounting/bank-reconciliation",
+  "tanda/crm/opportunities",
+  "tanda/crm/activities",
+  "tanda/crm/tasks",
+  "tanda/crm/pipeline-report",
+  "tanda/reports/ap-aging",
+  "tanda/reports/sales-by-rep",
+  "tanda/reports/sales-by-customer",
+  "tanda/reports/gl-detail",
+  "tanda/vendors/scorecard",
+  "tanda/customers/scorecard",
+  "tanda/inventory/transfers",
+  "tanda/inventory/adjustments",
+  "tanda/inventory/cycle-counts",
+  "tanda/procurement/purchase-orders",
+  "tanda/inventory/matrix",
+  "tanda/inventory/prepack-matrices",
+  "tanda/cs/cases",
+  "tanda/shadow-mirror/status",
+  "tanda/approvals/rules",
+  "tanda/approvals/inbox",
+  "tanda/notifications/center",
+  "tanda/notifications/prefs",
+  "tanda/hr/employees",
+  "tanda/hr/employee-titles",
+  "tanda/hr/employee-departments",
+  "tanda/operations/scanner-sessions",
+  // Tech Packs (T4-5 close-out)
+  "techpack/dashboard",
+  "techpack/list",
+  "techpack/libraries",
+  "techpack/samples",
+  "techpack/teams",
+  "techpack/email",
+  "techpack/notifications",
+];
+
+export const MENU_KEY_SET = new Set(KEYS);
+export const MENU_KEY_LIST = KEYS;
+
+/**
+ * True when `key` is a known, registered menu_key.
+ * @param {unknown} key
+ * @returns {boolean}
+ */
+export function isKnownMenuKey(key) {
+  return typeof key === "string" && MENU_KEY_SET.has(key);
+}

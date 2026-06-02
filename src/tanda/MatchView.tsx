@@ -231,7 +231,7 @@ function LineDetailModal({ po, lines, vendorName, onClose }: { po: SummaryRow; l
 
         <div style={{ border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "50px 120px 1fr 90px 90px 90px 90px 90px 90px 140px", padding: "10px 14px", background: TH.surfaceHi, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", borderBottom: `1px solid ${TH.border}` }}>
-            <div>#</div><div>Item</div><div>Description</div>
+            <div>#</div><div>Style</div><div>Description</div>
             <div>Ord.</div><div>Ship.</div><div>Recv.</div><div>Inv.</div>
             <div>PO $</div><div>Inv $</div>
             <div style={{ textAlign: "right" }}>Status</div>

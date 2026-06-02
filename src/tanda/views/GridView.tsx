@@ -25,6 +25,7 @@ import {
   phaseDividerOverlay,
   phaseDividerHost,
   phaseDividerOverlayRight,
+  phaseDividerOverlayBoundary,
   type HideableColKey,
 } from "./gridView/constants";
 import {
@@ -150,6 +151,16 @@ export function GridView({
   const [filterVendor, setFilterVendor]         = useState("All");
   const [filterBuyer, setFilterBuyer]           = useState("All");
   const [expandedPoNum, setExpandedPoNum]       = useState<string | null>(null);
+  // While ANY PO is expanded, force the freeze through Days from DDP
+  // (all 8 fixed cols). This pins the expansion strip + line item
+  // rows at left:0..766px so the operator can scroll horizontally
+  // through phase columns without losing PO context. The user's
+  // own freezeKey is restored as soon as nothing is expanded.
+  // freezeCount === 8 is the only configuration that lets the
+  // expansion's merged 1/9 cell participate in the sticky chain
+  // without overlapping the scrolling phase columns (its width
+  // matches the frozen area exactly).
+  const effectiveFreezeCount = expandedPoNum != null ? 8 : freezeCount;
   const [expandViewMode, setExpandViewMode]     = useState<"line" | "matrix">("line");
   // Right-click matrix popover anchored at click-position. Lets the
   // planner peek a PO's size matrix without expanding the row.
@@ -767,13 +778,32 @@ export function GridView({
           show content from the row scrolling underneath. zIndex=2
           keeps them above non-frozen siblings; zIndex=4 on phase-
           divider overlays already wins where it matters. */}
-      {freezeCount > 0 && (
-        <style>{
-          Array.from({ length: freezeCount }).map((_, i) => {
+      {effectiveFreezeCount > 0 && (
+        <style>{(() => {
+          const rules: string[] = [];
+          for (let i = 0; i < effectiveFreezeCount; i++) {
             const left = cellOffsets[i] ?? 0;
-            return `.gv-grid-row > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: #0F172A; }`;
-          }).join("\n")
-        }</style>
+            // Data rows: each fixed cell at its cumulative offset, sticky with
+            // the panel background so phase cells slide cleanly underneath.
+            rules.push(`.gv-grid-row:not(.gv-expanded-row) > :nth-child(${i + 1}) { position: sticky; left: ${left}px; z-index: 2; background: #0F172A; }`);
+          }
+          // Expanded-detail rows merge cols 1-8 into ONE wide div
+          // (gridColumn:"1 / 9"). Only safe to make that merged cell sticky
+          // when the freeze covers ALL 8 fixed cols — its width matches the
+          // frozen area's width exactly. Otherwise the merged DIV overhangs
+          // into the scrolling phase area (the original PR #379 bug).
+          // Background is set inline on each merged DIV (varies: infoBg /
+          // infoBg2 / rowBg) so the sticky cell doesn't show data behind.
+          if (effectiveFreezeCount === 8) {
+            // Only the 4 row types whose merged cell is gridColumn:"1 / 9"
+            // (info strip, item sub-header, empty state, per-group row) carry
+            // gv-expanded-strip. The matrix view spans 1/last-col and is
+            // excluded — sticking it at left:0 would prevent the operator
+            // from scrolling to the right edge of the matrix.
+            rules.push(`.gv-grid-row.gv-expanded-strip > :nth-child(1) { position: sticky; left: 0; z-index: 2; }`);
+          }
+          return rules.join("\n");
+        })()}</style>
       )}
 
       {/* ── Toolbar ────────────────────────────────────────────────────── */}
@@ -967,9 +997,15 @@ export function GridView({
                     // sort key + direction on click. Empty arrow when
                     // inactive so the column stays the same width and
                     // the row doesn't reflow when sort changes.
-                    const SortHdr = ({ k, label, justify }: { k: SortKey; label: string; justify?: "center" | "flex-end" }) => {
+                    const SortHdr = ({ k, label, justify, boundary }: { k: SortKey; label: string; justify?: "center" | "flex-end"; boundary?: boolean }) => {
                       const active = sortKey === k;
                       const arrow = active ? (sortDir === "asc" ? "▲" : "▼") : "";
+                      // Boundary overlay only renders when freeze is active. When active, the
+                      // freeze CSS makes this cell position:sticky — that serves as the
+                      // positioned ancestor for the absolute overlay. NOT using
+                      // phaseDividerHost here — its inline `position: relative` would
+                      // override the CSS sticky and break the freeze (see PR #403 hotfix).
+                      const showBoundary = !!boundary && effectiveFreezeCount > 0;
                       return (
                         <span
                           onClick={() => onHeaderClick(k)}
@@ -977,11 +1013,13 @@ export function GridView({
                           style={{
                             ...hdr1,
                             ...(justify ? { justifyContent: justify } : {}),
+                            ...(showBoundary ? { overflow: "visible" } : {}),
                             cursor: "pointer",
                             userSelect: "none" as const,
                             color: active ? "#C4B5FD" : undefined,
                           }}
                         >
+                          {showBoundary && <span style={phaseDividerOverlayBoundary} />}
                           {label}
                           <span style={{ marginLeft: 4, fontSize: 10, opacity: active ? 1 : 0.3 }}>
                             {arrow || "↕"}
@@ -996,7 +1034,7 @@ export function GridView({
                         <SortHdr k="buyer"       label="Buyer" />
                         <SortHdr k="buyerPo"     label="Buyer PO" justify="center" />
                         <SortHdr k="ddp"         label="DDP" justify="center" />
-                        <SortHdr k="daysFromDdp" label="Days from DDP" justify="flex-end" />
+                        <SortHdr k="daysFromDdp" label="Days from DDP" justify="flex-end" boundary />
                       </>
                     );
                   })()}
@@ -1025,9 +1063,18 @@ export function GridView({
 
                 {/* Row 2 */}
                 <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct }}>
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}) }} />
-                  ))}
+                  {Array.from({ length: 8 }).map((_, i) => {
+                    // 8th cell (Days from DDP, i===7) hosts the fixed/phase boundary
+                    // divider, but ONLY when freeze is active — see SortHdr comment
+                    // above for why we can't use phaseDividerHost (would override the
+                    // freeze CSS's position:sticky).
+                    const showBoundary = i === 7 && effectiveFreezeCount > 0;
+                    return (
+                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(showBoundary ? { overflow: "visible" } : {}) }}>
+                        {showBoundary && <span style={phaseDividerOverlayBoundary} />}
+                      </span>
+                    );
+                  })}
                   {phases.map((p, pi) => {
                     const isLastPhase = pi === phases.length - 1;
                     return (
@@ -1173,10 +1220,20 @@ export function GridView({
                       />
                     </span>
 
-                    {/* Days from DDP */}
-                    <span style={{ ...cell, justifyContent: "flex-end", color: daysClr, fontWeight: 700 }}>
-                      {daysTxt}
-                    </span>
+                    {/* Days from DDP — hosts the fixed/phase boundary divider when
+                        freeze is active so it freezes with col 8 (otherwise the phase-1
+                        left divider scrolls off). NOT using phaseDividerHost — its
+                        position:relative would override the freeze CSS's position:sticky.
+                        See SortHdr above for the same pattern. */}
+                    {(() => {
+                      const showBoundary = effectiveFreezeCount > 0;
+                      return (
+                        <span style={{ ...cell, justifyContent: "flex-end", color: daysClr, fontWeight: 700, ...(showBoundary ? { overflow: "visible" } : {}) }}>
+                          {showBoundary && <span style={phaseDividerOverlayBoundary} />}
+                          {daysTxt}
+                        </span>
+                      );
+                    })()}
 
                     {/* Phase sub-cells */}
                     {phases.map((phase, pi) => {
@@ -1317,8 +1374,13 @@ export function GridView({
                     return (
                       <>
                         {/* ── PO info strip — phase spacers keep dividers alive ── */}
-                        <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
-                          <div style={{ gridColumn: "1 / 9", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap" }}>
+                        <div className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                          {/* minWidth:0 + overflow:hidden so the flex content can't push grid tracks
+                              wider than their fixed px widths — keeps the phase-1 left divider aligned
+                              with the data rows above/below. Wrapping handles content that doesn't fit. */}
+                          <div style={{ gridColumn: "1 / 9", minWidth: 0, overflow: "visible", padding: "8px 14px 10px", display: "flex", gap: 18, alignItems: "center", borderLeft: B_CELL, borderBottom: "1px solid #1E293B", flexWrap: "wrap", background: infoBg, position: "sticky", left: 0, zIndex: 2 }}>
+                            {/* Fixed/phase boundary divider — freezes with this sticky cell. */}
+                            <span style={phaseDividerOverlayBoundary} />
                             <span style={{ color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, fontSize: 13 }}>{poNum}</span>
                             <span style={{ color: "#9CA3AF", fontSize: 12, fontWeight: 600 }}>{po.VendorName}</span>
                             {po.StatusName && <span style={{ background: "#1E293B", color: "#94A3B8", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10 }}>{po.StatusName}</span>}
@@ -1360,9 +1422,10 @@ export function GridView({
                         {expandViewMode === "line" ? (
                           <>
                             {/* ── Item sub-header ─────────────────────────────── */}
-                            <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
+                            <div className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg2 }}>
                               {/* Fixed area: item key | line status | delivery */}
-                              <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8 }}>
+                              <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, background: infoBg2, position: "sticky", left: 0, zIndex: 2, overflow: "visible" }}>
+                                <span style={phaseDividerOverlayBoundary} />
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Style / Color</span>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Line Status</span>
                                 <span style={{ color: "#4B5563", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Delivery</span>
@@ -1385,8 +1448,11 @@ export function GridView({
 
                             {/* ── One row per style/color group ──────────────── */}
                             {groups.length === 0 ? (
-                              <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
-                                <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11 }}>No line items on this PO.</div>
+                              <div className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                                <div style={{ gridColumn: "1 / 9", padding: "8px 14px", borderLeft: B_CELL, borderBottom: B_CELL, color: "#374151", fontSize: 11, background: infoBg, position: "sticky", left: 0, zIndex: 2, overflow: "visible" }}>
+                                  <span style={phaseDividerOverlayBoundary} />
+                                  No line items on this PO.
+                                </div>
                                 {phases.map((phase, pi) => { const isLast = pi === phases.length - 1; return (
                                   <React.Fragment key={phase}>
                                     <span style={{ borderBottom: B_CELL, background: infoBg, ...phaseDividerHost }}><span style={phaseDividerOverlay} /></span>
@@ -1413,9 +1479,10 @@ export function GridView({
                               const deliveryDisplay = deliveries.length === 0 ? "—" : deliveries.length === 1 ? fmtDate(deliveries[0]) : "Mixed";
 
                               return (
-                                <div key={gIdx} className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
+                                <div key={gIdx} className="gv-grid-row gv-expanded-row gv-expanded-strip" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: rowBg }}>
                                   {/* Style/color + line status + delivery spanning 8 fixed cols */}
-                                  <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1 }}>
+                                  <div style={{ gridColumn: "1 / 9", padding: "3px 14px", borderLeft: B_CELL, borderBottom: B_CELL, display: "grid", gridTemplateColumns: "1fr 90px 80px", alignItems: "center", gap: 8, opacity: closed ? 0.5 : 1, background: rowBg, position: "sticky", left: 0, zIndex: 2, overflow: "visible" }}>
+                                    <span style={phaseDividerOverlayBoundary} />
                                     <span>
                                       <span style={{ color: "#60A5FA", fontFamily: "monospace", fontSize: 10 }}>{group.key}</span>
                                       {group.desc && group.desc !== group.key && <span style={{ color: "#4B5563", fontSize: 10, marginLeft: 6 }}>{group.desc}</span>}
@@ -1525,8 +1592,8 @@ export function GridView({
                           </>
                         ) : (
                           /* ── MATRIX VIEW — read-only, full size breakdown ── */
-                          <div className="gv-grid-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
-                            <div style={{ gridColumn: `1 / ${8 + phases.length * 5 + 1}`, borderLeft: B_CELL, borderBottom: B_CELL, padding: "12px 14px", overflowX: "auto" }}>
+                          <div className="gv-grid-row gv-expanded-row" style={{ display: "grid", gridTemplateColumns: ct, minWidth: "fit-content", background: infoBg }}>
+                            <div style={{ gridColumn: `1 / ${8 + phases.length * 5 + 1}`, borderLeft: B_CELL, borderBottom: B_CELL, padding: "12px 14px", overflowX: "auto", background: infoBg }}>
                               {allItems.length === 0 ? (
                                 <div style={{ color: "#374151", fontSize: 12 }}>No line items on this PO.</div>
                               ) : hasSizes ? (

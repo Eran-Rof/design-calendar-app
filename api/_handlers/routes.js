@@ -230,7 +230,6 @@ import h224 from "./shopify/orders.js";
 import h225 from "./vendor/banking.js";
 import h226 from "./internal/rfqs/index.js";
 import h227 from "./xoro/open-pos.js";
-import h228 from "./xoro/open-sos.js";
 import h229 from "./xoro/receipts.js";
 import h230 from "./ai/ask-grid.js";
 import h231 from "./edi/inbound/index.js";
@@ -259,8 +258,481 @@ import h253 from "./internal/vendor-master/index.js";
 import h254 from "./internal/vendor-master/[id].js";
 import h255 from "./internal/customer-master/index.js";
 import h256 from "./internal/customer-master/[id].js";
+import h543 from "./internal/customer-scorecard/index.js";
+import h544 from "./internal/vendor-scorecard/index.js";
+import h257 from "./internal/gl-accounts/index.js";
+import h258 from "./internal/gl-accounts/[id].js";
+import h259 from "./internal/gl-periods/index.js";
+import h260 from "./internal/gl-periods/[id].js";
+import h261 from "./internal/journal-entries/index.js";
+import h262 from "./internal/journal-entries/[id].js";
+import h263 from "./internal/journal-entries/reverse.js";
+import h264 from "./internal/approval-rules/index.js";
+import h265 from "./internal/approval-rules/[id].js";
+import h266 from "./internal/approval-requests/index.js";
+import h267 from "./internal/approval-requests/[id].js";
+import h268 from "./internal/approval-requests/decide.js";
+import h269 from "./internal/approval-requests/cancel.js";
+import h270 from "./internal/notifications/index.js";
+import h271 from "./internal/notifications/mark-read.js";
+import h272 from "./internal/notification-preferences/index.js";
+import h273 from "./internal/documents/index.js";
+import h274 from "./internal/documents/signed-url.js";
+import h275 from "./internal/documents/archive.js";
+import h276 from "./internal/employees/index.js";
+import h277 from "./internal/employees/[id].js";
+// P16 — Employee Title + Department reference masters.
+import h545 from "./internal/employee-titles/index.js";
+import h546 from "./internal/employee-titles/[id].js";
+import h547 from "./internal/employee-departments/index.js";
+import h548 from "./internal/employee-departments/[id].js";
+import h278 from "./internal/auth/provision.js";
+import h279 from "./internal/inventory-transfers/index.js";
+import h280 from "./internal/scanner/events/batch.js";
+import h281 from "./internal/scanner/sessions/submit.js";
+import h282 from "./internal/scanner/sessions/cancel.js";
+import h283 from "./internal/scanner/sessions/[id].js";
+import h284 from "./internal/scanner/sessions/index.js";
+import h285 from "./internal/ap-invoices/index.js";
+import h286 from "./internal/ap-invoices/[id].js";
+import h287 from "./internal/ap-invoices/post.js";
+import h288 from "./internal/ap-invoices/pay.js";
+import h289 from "./internal/ap-invoices/void.js";
+import h290 from "./internal/ap-payments/index.js";
+import h291 from "./internal/fabric-codes/index.js";
+import h292 from "./internal/fabric-codes/[id].js";
+import h293 from "./internal/style-fabric-codes/index.js";
+import h294 from "./internal/style-fabric-codes/[id].js";
+import h295 from "./internal/inventory-adjustments/index.js";
+import h296 from "./internal/inventory-adjustments/[id].js";
+import h297 from "./internal/inventory-adjustments/post.js";
+import h298 from "./internal/inventory-cycle-counts/index.js";
+import h299 from "./internal/inventory-cycle-counts/[id].js";
+import h300 from "./internal/inventory-cycle-counts/lines.js";
+import h301 from "./internal/inventory-cycle-counts/finalize.js";
+import h302 from "./internal/payment-terms/index.js";
+import h303 from "./internal/payment-terms/[id].js";
+// Size Scale Master — ordered size lists (text[]) reused by Style Master.
+import h568 from "./internal/size-scales/index.js";
+import h569 from "./internal/size-scales/[id].js";
+// Matrix shared endpoints — style matrix payload + find/create SKU per cell.
+import h570 from "./internal/style-matrix/index.js";
+import h571 from "./internal/style-matrix/resolve-sku.js";
+// Chunk I — reference master panels (h549..h556). Grouped here with the
+// other Master Data handlers (payment-terms / style-master).
+import h549 from "./internal/countries/index.js";
+import h550 from "./internal/countries/[id].js";
+import h551 from "./internal/genders/index.js";
+import h552 from "./internal/genders/[id].js";
+import h553 from "./internal/style-classifications/index.js";
+import h554 from "./internal/style-classifications/[id].js";
+import h555 from "./internal/factors/index.js";
+import h556 from "./internal/factors/[id].js";
+// P18-F — internal B2B admin (authorize buyers + manage wholesale price lists).
+import h558 from "./internal/b2b-accounts/index.js";
+import h559 from "./internal/b2b-accounts/[id].js";
+import h560 from "./internal/b2b-price-list/index.js";
+import h561 from "./internal/b2b-price-list/[id].js";
+// P4-4 — AR Invoices admin (h304..h307).
+import h304 from "./internal/ar-invoices/index.js";
+import h305 from "./internal/ar-invoices/[id].js";
+import h306 from "./internal/ar-invoices/post.js";
+import h307 from "./internal/ar-invoices/void.js";
+// P4-5 — AR Receipts admin (h308..h312). Both chunks APPEND here.
+import h308 from "./internal/ar-receipts/index.js";
+import h309 from "./internal/ar-receipts/[id].js";
+import h310 from "./internal/ar-receipts/post.js";
+import h311 from "./internal/ar-receipts/void.js";
+import h312 from "./internal/ar-receipt-applications/[id].js";
+// P4-6 — AR Aging GET (h313). APPEND ONLY.
+import h313 from "./internal/ar-aging/index.js";
+// P4-8 — AR historical backfill runner (h314) + status (h315). APPEND ONLY.
+import h314 from "./internal/ar-backfill/run.js";
+import h315 from "./internal/ar-backfill/status.js";
+// P5-1 — Period close mechanics (h316 close + h317 reopen). APPEND ONLY.
+import h316 from "./internal/gl-periods/close.js";
+import h317 from "./internal/gl-periods/reopen.js";
+// P5-2 — Trial Balance GET (h318). APPEND ONLY.
+import h318 from "./internal/trial-balance/index.js";
+// P5-3 — Income Statement GET (h319). APPEND ONLY.
+import h319 from "./internal/income-statement/index.js";
+// P5-4 — Balance Sheet GET (h320). APPEND ONLY.
+import h320 from "./internal/balance-sheet/index.js";
+// P5-5 — Cash Flow Statement GET (h321). APPEND ONLY.
+import h321 from "./internal/cash-flow/index.js";
+// P5-6 — Year-End Close runner (h322 POST). APPEND ONLY.
+import h322 from "./internal/year-end-close/run.js";
+// P5-7 — Period-close pre-flight check (h323 GET). APPEND ONLY.
+import h323 from "./internal/gl-periods/preflight.js";
+// P6-2 — Plaid link-token (h324) + exchange (h325) + sync cron (h326) + webhook (h327). APPEND ONLY.
+import h324 from "./internal/bank-feeds/link-token.js";
+import h325 from "./internal/bank-feeds/exchange.js";
+import h326 from "../cron/bank-feed-sync.js";
+import h327 from "../webhooks/plaid.js";
+// P6-3 — Bank CSV upload (h328 POST). APPEND ONLY.
+import h328 from "./internal/bank-feeds/csv-upload.js";
+// P6-5 — Bank reconciliation admin handlers (h329-h335). APPEND ONLY.
+import h329 from "./internal/bank-accounts/index.js";
+import h330 from "./internal/bank-transactions/index.js";
+import h331 from "./internal/bank-transactions/match-candidates.js";
+import h332 from "./internal/bank-transactions/apply-match.js";
+import h333 from "./internal/bank-transactions/unmatch.js";
+import h334 from "./internal/bank-transactions/create-je.js";
+import h335 from "./internal/bank-transactions/ignore.js";
+// P6-7 — Auto-post fee rules (h339 PATCH bank_account + h340 cron). APPEND ONLY.
+import h339 from "./internal/bank-accounts/[id].js";
+import h340 from "../cron/bank-auto-post-fees.js";
+// P7-5 — Commission accrue/reverse/settle RPCs + list endpoints (h341-h345). APPEND ONLY.
+import h341 from "./internal/commissions/accrue.js";
+import h342 from "./internal/commissions/reverse.js";
+import h343 from "./internal/commissions/settle.js";
+import h344 from "./internal/commissions/accruals.js";
+import h345 from "./internal/commissions/payouts.js";
+// P7-7 — M9-subset operational reports (h346-h349 GET). APPEND ONLY.
+import h346 from "./internal/ap-aging/index.js";
+import h347 from "./internal/sales-by-rep/index.js";
+import h348 from "./internal/sales-by-customer/index.js";
+import h349 from "./internal/gl-detail/index.js";
+// P7-9 — Cases UI + Resend inbound webhook (h350-h353). APPEND ONLY.
+import h350 from "./internal/cases/index.js";
+import h351 from "./internal/cases/[id].js";
+import h352 from "./internal/cases/[id]/comments.js";
+import h353 from "./webhooks/resend-inbound.js";
+// P8-2 — CRM handlers + stage-change RPC (h360-h367). APPEND ONLY.
+import h360 from "./internal/crm/opportunities/index.js";
+import h361 from "./internal/crm/opportunities/[id].js";
+import h362 from "./internal/crm/opportunities/[id]/stage.js";
+import h363 from "./internal/crm/activities/index.js";
+import h364 from "./internal/crm/activities/[id].js";
+import h365 from "./internal/crm/tasks/index.js";
+import h366 from "./internal/crm/tasks/[id].js";
+import h367 from "./internal/crm/pipeline-report/index.js";
+// P8-6 — PIM handlers (non-image: categories + attribute-defs + style composite + attributes + descriptions). APPEND ONLY.
+import h370 from "./internal/pim/categories/index.js";
+import h371 from "./internal/pim/categories/[id].js";
+import h372 from "./internal/pim/attribute-defs/index.js";
+import h373 from "./internal/pim/attribute-defs/[id].js";
+import h374 from "./internal/pim/styles/[style_id].js";
+import h375 from "./internal/pim/styles/[style_id]/attributes.js";
+import h376 from "./internal/pim/styles/[style_id]/description/index.js";
+import h377 from "./internal/pim/styles/[style_id]/description/publish.js";
+// P8-7 — PIM image upload + Sharp pipeline (h380-h383). APPEND ONLY.
+import h380 from "./internal/pim/styles/[style_id]/images/index.js";
+import h381 from "./internal/pim/styles/[style_id]/images/[id].js";
+import h382 from "./internal/pim/styles/[style_id]/images/[id]/delete.js";
+import h383 from "./internal/pim/styles/[style_id]/images/[id]/signed-url.js";
+// P8-9 — CRM tasks-due-tomorrow daily cron. Renumbered h390 → h527 on
+// rebase (h390 taken on main). APPEND ONLY.
+import h527 from "../cron/crm-tasks-due-tomorrow.js";
+// T10 cross-cutter Xoro shadow mirror handlers. APPEND ONLY.
+//   h400 = T10-2 AR mirror
+//   h401 = T10-3 AP mirror
+//   h402 = T10-4 inventory rebuild (reserved slot on main)
+//   h403 = T10-5 daily summary JE poster
+import h400 from "./internal/xoro-mirror/ar.js";
+import h401 from "./internal/xoro-mirror/ap.js";
+import h402 from "./internal/xoro-mirror/inventory.js";
+import h403 from "./internal/xoro-mirror/summary-je.js";
+// T10-6 — Nightly Xoro mirror orchestrator cron.
+import h404 from "../cron/xoro-mirror-nightly.js";
+// T6-2 — Global search RPC handler. Numbered h426 to reserve h405-h425
+// for the T4-2 personalization batch landing concurrently on main.
+import h426 from "./internal/search/index.js";
+// T4-1 — Cross-cutter Personalization nightly click-decay cron.
+import h420 from "../cron/menu-usage-decay.js";
+// T4-2 — Cross-cutter Personalization registry + me/preferences + menu-click API.
+//   h421 = GET  /api/internal/users/me/preferences
+//   h422 = PUT  /api/internal/users/me/preferences/favorites
+//   h423 = PUT  /api/internal/users/me/preferences/home-route
+//   h424 = POST /api/internal/users/me/menu-click
+//   h425 = GET  /api/internal/users/me/menu-usage/top
+import h421 from "./internal/users/me/preferences/index.js";
+import h422 from "./internal/users/me/preferences/favorites.js";
+import h423 from "./internal/users/me/preferences/home-route.js";
+import h424 from "./internal/users/me/menu-click/index.js";
+import h425 from "./internal/users/me/menu-usage/top.js";
+// Universal Column Visibility (Operator ask #1, 2026-05-30):
+//   h510 = PUT /api/internal/users/me/preferences/table-visibility
+import h510 from "./internal/users/me/preferences/table-visibility.js";
+// P10-2b — Entity-switcher API (deferred from P10-2).
+//   h430 = PUT /api/internal/users/me/entity-switch  (validate membership)
+//   h431 = PUT /api/internal/users/me/entity-default (toggle is_default)
+//   h432 = GET /api/internal/users/me/entities       (list + current_entity_id)
+import h430 from "./internal/users/me/entity-switch.js";
+import h431 from "./internal/users/me/entity-default.js";
+import h432 from "./internal/users/me/entities/index.js";
+// P12b-2 — Walmart Marketplace orders ingest (manual + cron).
+//   h452 = POST /api/internal/walmart/sync-orders
+//   h453 = POST /api/cron/walmart-orders-nightly
+import h452 from "./internal/walmart/sync-orders.js";
+import h453 from "../cron/walmart-orders-nightly.js";
+// P12c-2 — Faire wholesale marketplace ingest (manual triggers + crons).
+import h454 from "./internal/faire/sync-orders.js";
+import h455 from "../cron/faire-orders-nightly.js";
+import h456 from "./internal/faire/sync-payouts.js";
+import h457 from "../cron/faire-payouts-monthly.js";
+// P11-3 — Shopify AR JE posting manual backfill handler.
+// h441 = POST /api/internal/shopify/post-order/:id
+import h441 from "./internal/shopify/post-order/[id].js";
+// P11-2 — Shopify webhook intake (orders/create + orders/updated).
+import h440 from "./internal/shopify/webhooks/orders.js";
+// P11-9 — Shopify Payments payout reconciliation (manual + daily cron).
+// h444 = POST /api/internal/shopify/sync-payouts  (manual trigger)
+// h445 = GET  /api/cron/shopify-payouts-daily     (06:00 UTC daily)
+import h444 from "./internal/shopify/sync-payouts.js";
+import h445 from "../cron/shopify-payouts-daily.js";
+// P11-4 — Shopify backfill cron (catches webhook drops every 6h) +
+// manual backfill trigger.
+// h442 = POST /api/internal/shopify/backfill
+// h443 = GET/POST /api/cron/shopify-backfill
+import h442 from "./internal/shopify/backfill.js";
+import h443 from "../cron/shopify-backfill.js";
+// P12a-2 — Amazon FBA SP-API client + orders ingest cron.
+//   h450 = POST /api/internal/fba/sync-orders  (manual single-account trigger)
+//   h451 = GET/POST /api/cron/fba-orders-nightly (Vercel cron, 03:00 UTC)
+import h450 from "./internal/fba/sync-orders.js";
+import h451 from "../cron/fba-orders-nightly.js";
+// P12a-3 — Amazon FBA AR invoice JE posting (manual backfill).
+//   h458 = POST /api/internal/fba/post-order/:id (manual JE post for one order)
+import h458 from "./internal/fba/post-order/[id].js";
+// P12b-3 — Walmart AR JE posting manual backfill handler.
+//   h459 = POST /api/internal/walmart/post-order/:id
+import h459 from "./internal/walmart/post-order/[id].js";
+// P12b-4 — Walmart Marketplace settlement reconciliation (weekly cron + manual).
+//   h464 = POST /api/internal/walmart/sync-settlements (manual trigger)
+//   h465 = GET/POST /api/cron/walmart-settlements-weekly (Vercel cron, Wed 06:30 UTC)
+import h464 from "./internal/walmart/sync-settlements.js";
+import h465 from "../cron/walmart-settlements-weekly.js";
+// P12b-5 — Walmart returns sync (credit memo + restock + restocking fee).
+//   h471 = POST /api/internal/walmart/sync-returns  (manual single-account trigger)
+//   h472 = GET/POST /api/cron/walmart-returns-daily (Vercel cron, 05:00 UTC)
+import h471 from "./internal/walmart/sync-returns.js";
+import h472 from "../cron/walmart-returns-daily.js";
+// P11-8 — Shopify dispute (chargeback) webhook intake.
+//   h466 = POST /api/internal/shopify/webhooks/disputes
+import h466 from "./internal/shopify/webhooks/disputes.js";
+
+// P12c-4 — Faire wholesale returns ingest (credit memo + restock).
+//   h473 = POST /api/internal/faire/sync-returns      (manual trigger)
+//   h474 = GET  /api/cron/faire-returns-weekly        (Mon 05:30 UTC)
+import h473 from "./internal/faire/sync-returns.js";
+import h474 from "../cron/faire-returns-weekly.js";
+// P10-6 — Per-entity COA "Copy from ROF" wizard.
+//   h528 = POST /api/internal/entities/:id/coa-copy-from-rof (renumbered from
+//   h475 on rebase — h475 is costing/projects on main).
+import h528 from "./internal/entities/[id]/coa-copy.js";
+
+// P14-3b — RBAC admin surface (matrix + role assignment + per-cell override).
+//   h529 = GET/PUT /api/internal/users-access          (matrix + set role)
+//   h530 = PUT/DELETE /api/internal/users-access/override (per-cell grant/revoke)
+import h529 from "./internal/users-access/index.js";
+import h530 from "./internal/users-access/override.js";
+// P14-4 — caller's own effective permissions (ungated self-read for menu hide).
+//   h531 = GET /api/internal/users-access/me
+import h531 from "./internal/users-access/me.js";
+// P15 Brand Master C2 — brand/channel list endpoints for the global switchers.
+//   h532 = GET /api/internal/brands
+//   h533 = GET /api/internal/channels
+import h532 from "./internal/brands/index.js";
+import h533 from "./internal/channels/index.js";
+// M50-B — GL account brand-allocation rule (read/save + child-account gen).
+//   h534 = GET/PUT /api/internal/gl-accounts/:id/brand-allocation
+import h534 from "./internal/gl-accounts/[id]/brand-allocation.js";
+// Item lookup for invoice line pickers (#3A).
+//   h535 = GET /api/internal/items
+import h535 from "./internal/items/index.js";
+// P15 — Inventory On-Hand by Brand Pool read report. (Report removed; handler
+// h536 + view v_inventory_on_hand_by_partition dropped.)
+// Customer ship-to locations (multi-DC / multi-store).
+//   h537 = GET/POST  /api/internal/customer-locations
+//   h538 = PATCH/DELETE /api/internal/customer-locations/:id
+import h537 from "./internal/customer-locations/index.js";
+import h538 from "./internal/customer-locations/[id].js";
+// P16/M10-B — native Sales Orders.
+//   h539 = GET/POST  /api/internal/sales-orders
+//   h540 = GET/PATCH/DELETE /api/internal/sales-orders/:id
+//   h541 = POST /api/internal/sales-orders/:id/create-invoice (M10-C)
+//   h542 = POST /api/internal/sales-orders/:id/split (item 15 — multi-store)
+//   h566 = POST /api/internal/sales-orders/:id/allocate (M18 allocations)
+//   h567 = POST /api/internal/sales-orders/:id/ship (M44 carrier/fulfilment)
+import h539 from "./internal/sales-orders/index.js";
+import h540 from "./internal/sales-orders/[id].js";
+import h541 from "./internal/sales-orders/create-invoice.js";
+import h542 from "./internal/sales-orders/split.js";
+import h566 from "./internal/sales-orders/allocate.js";
+import h567 from "./internal/sales-orders/ship.js";
+// P16/M11 — native Purchase Orders (origination).
+//   h572 = GET/POST  /api/internal/purchase-orders
+//   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
+import h572 from "./internal/purchase-orders/index.js";
+import h573 from "./internal/purchase-orders/[id].js";
+// Prepack Matrix Driver master (per-size pack composition for Explode-PPK).
+//   h574 = GET/POST            /api/internal/prepack-matrices
+//   h575 = GET/PATCH/DELETE    /api/internal/prepack-matrices/:id
+import h574 from "./internal/prepack-matrices/index.js";
+import h575 from "./internal/prepack-matrices/[id].js";
+// P16/M18 — Allocations Workbench (cross-SO allocation).
+//   h576 = GET demand + POST apply  /api/internal/allocations
+//   h577 = POST auto-allocate preview /api/internal/allocations/preview
+import h576 from "./internal/allocations/index.js";
+import h577 from "./internal/allocations/preview.js";
+
+// Cross-cutter T11-3 — Universal audit log read API.
+//   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
+//   h486 = GET /api/internal/audit/log         (full filtered ledger for admin panel)
+import h485 from "./internal/audit/row-history.js";
+import h486 from "./internal/audit/log.js";
+// P9-4 — Cash reconciliation engine + manual trigger.
+//   h482 = POST /api/internal/recon/run-cash
+import h482 from "./internal/recon/run-cash.js";
+
+// Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+// Handler vars shifted past audit's h485/h486 — search/sales-reps onwards
+// use h493-h496 instead of h485-h488 to avoid collision.
+import h475 from "./internal/costing/projects/index.js";
+import h476 from "./internal/costing/projects/[id]/index.js";
+import h477 from "./internal/costing/projects/[id]/lines.js";
+import h478 from "./internal/costing/lines/[line_id]/index.js";
+import h479 from "./internal/costing/lines/[line_id]/quotes/index.js";
+import h480 from "./internal/costing/lines/[line_id]/quotes/[quote_id].js";
+import h481 from "./internal/costing/lines/[line_id]/select-quote.js";
+import h497 from "./internal/costing/search/styles.js";
+import h499 from "./internal/costing/search/colors.js";
+import h500 from "./internal/costing/add-vendor.js";
+// h501 was renamed to h504 to fix the collision with style-master/notes
+// (PR #589 reserved h501 for that handler — duplicate `import h501` was
+// silently overwriting the costing one and breaking the dispatcher import,
+// which 500'd every /api/internal/** endpoint with FUNCTION_INVOCATION_FAILED).
+import h504 from "./internal/costing/projects/[id]/generate-rfqs.js";
+// RFQ list view (PR #598 — restored after PR #607 inadvertently removed
+// these imports during routes.js conflict resolution).
+import h505 from "./internal/costing/rfqs/index.js";
+import h506 from "./internal/costing/rfqs/[id]/index.js";
+// PO-history popover for the costing grid.
+import h507 from "./internal/costing/lines/[line_id]/po-history.js";
+import h483 from "./internal/costing/search/vendors.js";
+import h484 from "./internal/costing/search/customers.js";
+import h493 from "./internal/costing/search/sales-reps.js";
+import h494 from "./internal/costing/search/fabrics.js";
+import h495 from "./internal/costing/search/categories.js";
+import h496 from "./internal/costing/search/scales.js";
+
+// Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
+//   h489 = POST /api/internal/costing/comp/ly         (last-year per-style aggregates)
+//   h490 = POST /api/internal/costing/comp/t3         (trailing-3-month per-style aggregates)
+// PPK guard: qty_grain='unit' filter; comp_grain_warning when window was all
+// pack-grain (per project_ppk_grain_rule_CANONICAL).
+import h489 from "./internal/costing/comp/ly.js";
+import h490 from "./internal/costing/comp/t3.js";
+
+// Costing Module — Chunk 7 (compliance checklist handlers).
+//   h491 GET/POST   /api/internal/costing/lines/:line_id/compliance
+//   h492 PUT/DELETE /api/internal/costing/lines/:line_id/compliance/:req_id
+import h491 from "./internal/costing/lines/[line_id]/compliance/index.js";
+import h492 from "./internal/costing/lines/[line_id]/compliance/[req_id].js";
+
+// Style Master Sweep 2026-05-30 — operator ask #6 notes log handler.
+//   h501 GET/POST  /api/internal/style-master/notes
+import h501 from "./internal/style-master/notes.js";
+
+// Cross-cutter T4-7 — Personalization drawer-collapsed persistence
+// (favorites drawer redesign — operator asks #2 + #3).
+//   h502 PUT /api/internal/users/me/preferences/drawer-collapsed
+import h502 from "./internal/users/me/preferences/drawer-collapsed.js";
+
+// Style Master Polish 2026-05-30 — operator ask B (dim-value dropdowns).
+//   h511 GET  /api/internal/style-master/dim-values
+//        Returns { groups, categories, sub_categories } — distinct existing
+//        values across style_master, drives the searchable dropdowns in the
+//        edit modal (replaces the in-browser distinct-from-loaded-rows path).
+import h511 from "./internal/style-master/dim-values.js";
+// P9-3 — AR Parallel-Run reconciliation engine (manual trigger).
+//   h512 = POST /api/internal/recon/run-ar  (renumbered from h481 on rebase —
+//   h481 is taken by costing/select-quote on main; next free is h512.)
+import h512 from "./internal/recon/run-ar.js";
+// P9-2 — Parallel-Run AP reconciliation engine + manual trigger.
+//   h513 = POST /api/internal/recon/run-ap (renumbered from h480 on rebase —
+//   h480 taken by costing on main; h512 by P9-3 AR; next free is h513.)
+import h513 from "./internal/recon/run-ap.js";
+// P9-5 — GL reconciliation engine manual trigger (lagging indicator).
+//   h514 = POST /api/internal/recon/run-gl (renumbered from h483 on rebase —
+//   h483 taken by costing on main; h512 AR, h513 AP; next free is h514.)
+import h514 from "./internal/recon/run-gl.js";
+// P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
+//   h515 = POST /api/internal/recon/run-inventory (renumbered from h484 on rebase —
+//   h484 taken by costing on main; h512 AR, h513 AP, h514 GL; next free is h515.)
+import h515 from "./internal/recon/run-inventory.js";
+// P9-7 — Reconciliation dashboard read handlers + clear flow (APPEND-ONLY).
+//   Renumbered from h487-h490 on rebase (those are taken on main); recon
+//   block continues h516-h519 after the engines (h512-h515).
+//   h516 = GET  /api/internal/recon/runs
+//   h517 = GET  /api/internal/recon/variances
+//   h518 = POST /api/internal/recon/variances/:id/clear
+//   h519 = GET  /api/internal/recon/cutovers
+import h516 from "./internal/recon/runs.js";
+import h517 from "./internal/recon/variances.js";
+import h518 from "./internal/recon/clear.js";
+import h519 from "./internal/recon/cutovers.js";
+// P6-6 — Reconciliation runs. Renumbered h336-h338 → h520-h522 on rebase
+// (h336-h338 are taken on main). APPEND ONLY.
+import h520 from "./internal/bank-recon-runs/index.js";
+import h521 from "./internal/bank-recon-runs/[id].js";
+import h522 from "./internal/bank-recon-runs/compute.js";
+// P7-6 — Sales Reps master + tiers + assignments admin. Renumbered
+// h355-h358 → h523-h526 on rebase (h355-h358 taken on main). APPEND ONLY.
+import h523 from "./internal/sales-reps/index.js";
+// h524 (sales-reps/[id].js master CRUD) retired — reps unified into Employees.
+import h525 from "./internal/sales-reps/[id]/tiers.js";
+import h526 from "./internal/sales-reps/[id]/assignments.js";
+
+// P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
+//   h446 = POST /api/internal/shopify/post-cogs/:id (manual COGS retry for one order)
+import h446 from "./internal/shopify/post-cogs/[id].js";
+
+// P11-6 — Shopify refund handling (full void + partial credit memo + COGS reverse).
+//   h447 = POST    /api/internal/shopify/webhooks/refunds
+//   h448 = POST    /api/internal/shopify/process-refund/:id (manual trigger)
+//   h449 = GET/POST /api/cron/shopify-refunds-backfill      (Vercel cron, 06:30 UTC daily)
+import h447 from "./internal/shopify/webhooks/refunds.js";
+import h448 from "./internal/shopify/process-refund/[id].js";
+import h449 from "../cron/shopify-refunds-backfill.js";
+// P12c-3 — Faire AR JE posting (per-order + per-payout manual backfill).
+import h460 from "./internal/faire/post-order/[id].js";
+import h461 from "./internal/faire/post-payout/[id].js";
+// P12a-5 — Amazon FBA inventory mirror (daily snapshot + layer rebuild).
+//   h467 = POST /api/internal/fba/mirror-inventory (manual, optional uuid body)
+//   h468 = GET/POST /api/cron/fba-inventory-daily  (Vercel cron, 04:00 UTC)
+import h467 from "./internal/fba/mirror-inventory.js";
+import h468 from "../cron/fba-inventory-daily.js";
+// P12a-6 — Amazon FBA returns sync (restock vs writeoff + credit memos).
+//   h469 = POST /api/internal/fba/sync-returns  (manual single-account trigger)
+//   h470 = GET/POST /api/cron/fba-returns-daily (Vercel cron, 04:30 UTC)
+import h469 from "./internal/fba/sync-returns.js";
+import h470 from "../cron/fba-returns-daily.js";
+// P12a-4 — Amazon FBA settlement reconciliation (weekly cron, bank ↔ clearing).
+//   h462 = POST /api/internal/fba/sync-settlements (manual trigger)
+//   h463 = GET/POST /api/cron/fba-settlements-weekly (Vercel cron, Wed 06:00 UTC)
+import h462 from "./internal/fba/sync-settlements.js";
+import h463 from "../cron/fba-settlements-weekly.js";
+import h557 from "./b2b/session.js";
+// P18-C/D/E — B2B customer portal pages (catalog/pricing, cart→order, account).
+//   h562 = GET /api/b2b/catalog       (active styles + per-customer wholesale price)
+//   h563 = GET/POST /api/b2b/orders   (list this customer's SOs / place a draft SO)
+//   h564 = GET /api/b2b/orders/:id    (single order detail; powers reorder)
+//   h565 = GET /api/b2b/account       (invoices/AR + open balance + ship-to locations)
+import h562 from "./b2b/catalog.js";
+import h563 from "./b2b/orders/index.js";
+import h564 from "./b2b/orders/[id].js";
+import h565 from "./b2b/account.js";
 
 export const ROUTES = [
+  // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
+  { pattern: "/api/b2b/session", handler: h557 },
+  // ── P18-C/D/E — B2B portal pages (:id route before bare /orders) ───────────
+  { pattern: "/api/b2b/catalog", handler: h562 },
+  { pattern: "/api/b2b/orders/:id", handler: h564 },
+  { pattern: "/api/b2b/orders", handler: h563 },
+  { pattern: "/api/b2b/account", handler: h565 },
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: h0 },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: h1 },
   { pattern: "/api/internal/scf/requests/:id/fund", handler: h2 },
@@ -467,12 +939,116 @@ export const ROUTES = [
   { pattern: "/api/cron/fx-rate-sync", handler: h203 },
   { pattern: "/api/internal/disputes", handler: h204 },
   { pattern: "/api/internal/entities", handler: h205 },
+  // Style Master Sweep 2026-05-30 — notes route must precede /:id so the
+  // literal "notes" segment isn't captured as an :id param (first match wins).
+  // Same for dim-values (Polish chunk, 2026-05-30).
+  { pattern: "/api/internal/style-master/dim-values", handler: h511 },
+  { pattern: "/api/internal/style-master/notes", handler: h501 },
   { pattern: "/api/internal/style-master/:id", handler: h252 },
   { pattern: "/api/internal/style-master", handler: h251 },
   { pattern: "/api/internal/vendor-master/:id", handler: h254 },
   { pattern: "/api/internal/vendor-master", handler: h253 },
   { pattern: "/api/internal/customer-master/:id", handler: h256 },
   { pattern: "/api/internal/customer-master", handler: h255 },
+  { pattern: "/api/internal/customer-scorecard", handler: h543 },
+  { pattern: "/api/internal/vendor-scorecard", handler: h544 },
+  { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: h534 },
+  { pattern: "/api/internal/items",                            handler: h535 },
+  // Customer ship-to locations — subpath /:id BEFORE bare collection.
+  { pattern: "/api/internal/customer-locations/:id",          handler: h538 },
+  { pattern: "/api/internal/customer-locations",              handler: h537 },
+  { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: h541 },
+  { pattern: "/api/internal/sales-orders/:id/split",          handler: h542 },
+  { pattern: "/api/internal/sales-orders/:id/allocate",       handler: h566 },
+  { pattern: "/api/internal/sales-orders/:id/ship",           handler: h567 },
+  { pattern: "/api/internal/sales-orders/:id",                handler: h540 },
+  { pattern: "/api/internal/sales-orders",                    handler: h539 },
+  // P16/M11 — native Purchase Orders. :id before the bare collection.
+  { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
+  { pattern: "/api/internal/purchase-orders",                 handler: h572 },
+  // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/preview",             handler: h577 },
+  { pattern: "/api/internal/allocations",                     handler: h576 },
+  { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
+  { pattern: "/api/internal/gl-accounts", handler: h257 },
+  { pattern: "/api/internal/gl-periods/:id", handler: h260 },
+  { pattern: "/api/internal/gl-periods", handler: h259 },
+  { pattern: "/api/internal/journal-entries/:id/reverse", handler: h263 },
+  { pattern: "/api/internal/journal-entries/:id", handler: h262 },
+  { pattern: "/api/internal/journal-entries", handler: h261 },
+  { pattern: "/api/internal/approval-requests/:id/decide", handler: h268 },
+  { pattern: "/api/internal/approval-requests/:id/cancel", handler: h269 },
+  { pattern: "/api/internal/approval-requests/:id", handler: h267 },
+  { pattern: "/api/internal/approval-requests", handler: h266 },
+  { pattern: "/api/internal/approval-rules/:id", handler: h265 },
+  { pattern: "/api/internal/approval-rules", handler: h264 },
+  { pattern: "/api/internal/notifications/:id/mark-read", handler: h271 },
+  { pattern: "/api/internal/notifications", handler: h270 },
+  { pattern: "/api/internal/notification-preferences", handler: h272 },
+  { pattern: "/api/internal/documents/:id/signed-url", handler: h274 },
+  { pattern: "/api/internal/documents/:id/archive", handler: h275 },
+  { pattern: "/api/internal/documents", handler: h273 },
+  { pattern: "/api/internal/employees/:id", handler: h277 },
+  { pattern: "/api/internal/employees", handler: h276 },
+  // P16 — Employee Title + Department reference masters. :id BEFORE bare.
+  { pattern: "/api/internal/employee-titles/:id", handler: h546 },
+  { pattern: "/api/internal/employee-titles", handler: h545 },
+  { pattern: "/api/internal/employee-departments/:id", handler: h548 },
+  { pattern: "/api/internal/employee-departments", handler: h547 },
+  { pattern: "/api/internal/auth/provision", handler: h278 },
+  { pattern: "/api/internal/inventory-transfers", handler: h279 },
+  // Inventory adjustments — subpath /:id/post BEFORE bare /:id (first-match-wins)
+  { pattern: "/api/internal/inventory-adjustments/:id/post", handler: h297 },
+  { pattern: "/api/internal/inventory-adjustments/:id", handler: h296 },
+  { pattern: "/api/internal/inventory-adjustments", handler: h295 },
+  // Scanner — subpaths BEFORE /:id parent (first-match-wins dispatcher)
+  { pattern: "/api/internal/scanner/events/batch", handler: h280 },
+  { pattern: "/api/internal/scanner/sessions/:id/submit", handler: h281 },
+  { pattern: "/api/internal/scanner/sessions/:id/cancel", handler: h282 },
+  { pattern: "/api/internal/scanner/sessions/:id", handler: h283 },
+  { pattern: "/api/internal/scanner/sessions", handler: h284 },
+  // AP — subpaths BEFORE /:id parent (first-match-wins dispatcher)
+  { pattern: "/api/internal/ap-invoices/:id/post", handler: h287 },
+  { pattern: "/api/internal/ap-invoices/:id/pay", handler: h288 },
+  { pattern: "/api/internal/ap-invoices/:id/void", handler: h289 },
+  { pattern: "/api/internal/ap-invoices/:id", handler: h286 },
+  { pattern: "/api/internal/ap-invoices", handler: h285 },
+  { pattern: "/api/internal/ap-payments", handler: h290 },
+  // Fabric Codes (P3-11) — subpaths-before-parent
+  { pattern: "/api/internal/fabric-codes/:id", handler: h292 },
+  { pattern: "/api/internal/fabric-codes", handler: h291 },
+  { pattern: "/api/internal/style-fabric-codes/:id", handler: h294 },
+  { pattern: "/api/internal/style-fabric-codes", handler: h293 },
+  // Payment Terms (P3-9) — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/payment-terms/:id", handler: h303 },
+  { pattern: "/api/internal/payment-terms", handler: h302 },
+  // Size Scales — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/size-scales/:id", handler: h569 },
+  { pattern: "/api/internal/size-scales", handler: h568 },
+  { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
+  { pattern: "/api/internal/style-matrix", handler: h570 },
+  // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
+  { pattern: "/api/internal/prepack-matrices", handler: h574 },
+  // Chunk I reference masters — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/countries/:id", handler: h550 },
+  { pattern: "/api/internal/countries", handler: h549 },
+  { pattern: "/api/internal/genders/:id", handler: h552 },
+  { pattern: "/api/internal/genders", handler: h551 },
+  { pattern: "/api/internal/style-classifications/:id", handler: h554 },
+  { pattern: "/api/internal/style-classifications", handler: h553 },
+  { pattern: "/api/internal/factors/:id", handler: h556 },
+  { pattern: "/api/internal/factors", handler: h555 },
+  // P18-F internal B2B admin — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/b2b-accounts/:id", handler: h559 },
+  { pattern: "/api/internal/b2b-accounts", handler: h558 },
+  { pattern: "/api/internal/b2b-price-list/:id", handler: h561 },
+  { pattern: "/api/internal/b2b-price-list", handler: h560 },
+  // Cycle Counts (P3-6) — subpaths BEFORE /:id (first-match-wins)
+  { pattern: "/api/internal/inventory-cycle-counts/:id/finalize", handler: h301 },
+  { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: h300 },
+  { pattern: "/api/internal/inventory-cycle-counts/:id", handler: h299 },
+  { pattern: "/api/internal/inventory-cycle-counts", handler: h298 },
   { pattern: "/api/internal/insights", handler: h206 },
   { pattern: "/api/internal/payments", handler: h207 },
   { pattern: "/api/shopify/inventory", handler: h208 },
@@ -495,7 +1071,6 @@ export const ROUTES = [
   { pattern: "/api/vendor/banking", handler: h225 },
   { pattern: "/api/internal/rfqs", handler: h226 },
   { pattern: "/api/xoro/open-pos", handler: h227 },
-  { pattern: "/api/xoro/open-sos", handler: h228 },
   { pattern: "/api/xoro/receipts", handler: h229 },
   { pattern: "/api/ai/ask-grid", handler: h230 },
   { pattern: "/api/edi/inbound", handler: h231 },
@@ -518,6 +1093,262 @@ export const ROUTES = [
   { pattern: "/api/parse-excel", handler: h248 },
   { pattern: "/api/xoro-proxy", handler: h249 },
   { pattern: "/api/sales/backfill-grain", handler: h250 },
+  // P4-4 — AR Invoices admin. Subpath routes BEFORE bare :id.
+  { pattern: "/api/internal/ar-invoices/:id/post", handler: h306 },
+  { pattern: "/api/internal/ar-invoices/:id/void", handler: h307 },
+  { pattern: "/api/internal/ar-invoices/:id", handler: h305 },
+  { pattern: "/api/internal/ar-invoices", handler: h304 },
+  // P4-5 — AR Receipts admin (h308..h312). Subpath routes BEFORE bare :id.
+  { pattern: "/api/internal/ar-receipts/:id/post", handler: h310 },
+  { pattern: "/api/internal/ar-receipts/:id/void", handler: h311 },
+  { pattern: "/api/internal/ar-receipts/:id", handler: h309 },
+  { pattern: "/api/internal/ar-receipts", handler: h308 },
+  { pattern: "/api/internal/ar-receipt-applications/:id", handler: h312 },
+  // P4-6 — AR Aging GET (h313).
+  { pattern: "/api/internal/ar-aging", handler: h313 },
+  // P4-8 — AR historical backfill (h314 POST run + h315 GET status).
+  { pattern: "/api/internal/ar-backfill/run", handler: h314 },
+  { pattern: "/api/internal/ar-backfill/status", handler: h315 },
+  // P5-1 — Period close mechanics.
+  { pattern: "/api/internal/gl-periods/:id/close", handler: h316 },
+  { pattern: "/api/internal/gl-periods/:id/reopen", handler: h317 },
+  // P5-2 — Trial Balance GET (h318).
+  { pattern: "/api/internal/trial-balance", handler: h318 },
+  // P5-3 — Income Statement GET (h319).
+  { pattern: "/api/internal/income-statement", handler: h319 },
+  // P5-4 — Balance Sheet GET (h320).
+  { pattern: "/api/internal/balance-sheet", handler: h320 },
+  // P5-5 — Cash Flow Statement GET (h321).
+  { pattern: "/api/internal/cash-flow", handler: h321 },
+  // P5-6 — Year-End Close runner.
+  { pattern: "/api/internal/year-end-close/run", handler: h322 },
+  // P5-7 — Period-close pre-flight check.
+  { pattern: "/api/internal/gl-periods/:id/preflight", handler: h323 },
+  // P6-2 — Plaid Link integration + sync cron + webhook.
+  { pattern: "/api/internal/bank-feeds/link-token", handler: h324 },
+  { pattern: "/api/internal/bank-feeds/exchange",   handler: h325 },
+  { pattern: "/api/cron/bank-feed-sync",            handler: h326 },
+  { pattern: "/api/webhooks/plaid",                 handler: h327 },
+  // P6-3 — Bank CSV upload.
+  { pattern: "/api/internal/bank-feeds/csv-upload", handler: h328 },
+  // P6-5 — Bank reconciliation admin endpoints. Subpath actions BEFORE bare /:id semantics.
+  { pattern: "/api/internal/bank-transactions/:id/match-candidates", handler: h331 },
+  { pattern: "/api/internal/bank-transactions/:id/apply-match",       handler: h332 },
+  { pattern: "/api/internal/bank-transactions/:id/unmatch",           handler: h333 },
+  { pattern: "/api/internal/bank-transactions/:id/create-je",         handler: h334 },
+  { pattern: "/api/internal/bank-transactions/:id/ignore",            handler: h335 },
+  { pattern: "/api/internal/bank-transactions",                       handler: h330 },
+  { pattern: "/api/internal/bank-accounts/:id",                       handler: h339 },
+  { pattern: "/api/internal/bank-accounts",                           handler: h329 },
+  // P6-7 — Auto-post fee rules cron + manual trigger.
+  { pattern: "/api/cron/bank-auto-post-fees",                         handler: h340 },
+  // P7-5 — Commission accrue/reverse/settle RPCs + list endpoints.
+  { pattern: "/api/internal/commissions/accrue",                      handler: h341 },
+  { pattern: "/api/internal/commissions/reverse",                     handler: h342 },
+  { pattern: "/api/internal/commissions/settle",                      handler: h343 },
+  { pattern: "/api/internal/commissions/accruals",                    handler: h344 },
+  { pattern: "/api/internal/commissions/payouts",                     handler: h345 },
+  // P7-7 — M9-subset operational reports under the new 📊 Reports menu group.
+  { pattern: "/api/internal/ap-aging",                                handler: h346 },
+  { pattern: "/api/internal/sales-by-rep",                            handler: h347 },
+  { pattern: "/api/internal/sales-by-customer",                       handler: h348 },
+  { pattern: "/api/internal/gl-detail",                               handler: h349 },
+  // P7-9 — Customer Service / Cases. Subpath BEFORE bare /:id route.
+  { pattern: "/api/internal/cases/:id/comments",                      handler: h352 },
+  { pattern: "/api/internal/cases/:id",                               handler: h351 },
+  { pattern: "/api/internal/cases",                                   handler: h350 },
+  { pattern: "/api/webhooks/resend-inbound",                          handler: h353 },
+  // P8-2 — CRM (M25). Subpath routes BEFORE bare /:id routes.
+  { pattern: "/api/internal/crm/opportunities/:id/stage",             handler: h362 },
+  { pattern: "/api/internal/crm/opportunities/:id",                   handler: h361 },
+  { pattern: "/api/internal/crm/opportunities",                       handler: h360 },
+  { pattern: "/api/internal/crm/activities/:id",                      handler: h364 },
+  { pattern: "/api/internal/crm/activities",                          handler: h363 },
+  { pattern: "/api/internal/crm/tasks/:id",                           handler: h366 },
+  { pattern: "/api/internal/crm/tasks",                               handler: h365 },
+  { pattern: "/api/internal/crm/pipeline-report",                     handler: h367 },
+  // T10-2 — Cross-cutter Xoro shadow mirror, AR domain manual trigger.
+  { pattern: "/api/internal/xoro-mirror/ar",                          handler: h400 },
+  // T10-5 — Cross-cutter Xoro shadow mirror, daily summary JE poster.
+  { pattern: "/api/internal/xoro-mirror/summary-je",                  handler: h403 },
+  // T10-6 — Nightly Xoro mirror orchestrator cron (Vercel schedule 30 1 * * *).
+  { pattern: "/api/cron/xoro-mirror-nightly",                         handler: h404 },
+  // T4-1 — Cross-cutter Personalization click-decay cron (Vercel schedule 0 3 * * *).
+  { pattern: "/api/cron/menu-usage-decay",                            handler: h420 },
+  // P8-7 — PIM images. Specific subpaths BEFORE the bare /:id route.
+  // Image routes must come BEFORE the bare /:style_id route from P8-6 so
+  // /styles/:style_id/images/... gets matched first.
+  { pattern: "/api/internal/pim/styles/:style_id/images/:id/signed-url", handler: h383 },
+  { pattern: "/api/internal/pim/styles/:style_id/images/:id/delete",     handler: h382 },
+  { pattern: "/api/internal/pim/styles/:style_id/images/:id",            handler: h381 },
+  { pattern: "/api/internal/pim/styles/:style_id/images",                handler: h380 },
+  // P8-6 — PIM (M42) non-image endpoints.
+  // Subpath actions MUST come before bare /:style_id and /:id routes.
+  { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
+  { pattern: "/api/internal/pim/styles/:style_id/description",         handler: h376 },
+  { pattern: "/api/internal/pim/styles/:style_id/attributes",          handler: h375 },
+  { pattern: "/api/internal/pim/styles/:style_id",                     handler: h374 },
+  { pattern: "/api/internal/pim/attribute-defs/:id",                   handler: h373 },
+  { pattern: "/api/internal/pim/attribute-defs",                       handler: h372 },
+  { pattern: "/api/internal/pim/categories/:id",                       handler: h371 },
+  { pattern: "/api/internal/pim/categories",                           handler: h370 },
+  // T10-3 — Xoro shadow-mirror AP domain (manual trigger).
+  { pattern: "/api/internal/xoro-mirror/ap",                           handler: h401 },
+  // T6-2 — Global full-text search across the 11 v1 entities.
+  { pattern: "/api/internal/search",                                   handler: h426 },
+  // T4-2 — Cross-cutter Personalization (favorites + auto-landing + click telemetry).
+  // Subpath PUT/POST routes registered BEFORE the bare /preferences GET so
+  // /preferences/favorites and /preferences/home-route match their dedicated
+  // handlers (not the bare-GET map) when the dispatcher walks ROUTES top-down.
+  { pattern: "/api/internal/users/me/preferences/favorites",           handler: h422 },
+  { pattern: "/api/internal/users/me/preferences/home-route",          handler: h423 },
+  // Universal Column Visibility (Operator ask #1, 2026-05-30). Subpath PUT
+  // registered BEFORE the bare /preferences GET so the dispatcher matches
+  // this dedicated handler.
+  { pattern: "/api/internal/users/me/preferences/table-visibility",    handler: h510 },
+  { pattern: "/api/internal/users/me/preferences",                     handler: h421 },
+  { pattern: "/api/internal/users/me/menu-click",                      handler: h424 },
+  { pattern: "/api/internal/users/me/menu-usage/top",                  handler: h425 },
+  // P10-2b — Entity-switcher API. Subpath PUT routes registered BEFORE the
+  // bare GET so /entity-switch and /entity-default match their dedicated
+  // handlers (not the bare /entities GET) when the dispatcher walks
+  // ROUTES top-down. The three paths don't actually overlap, but the
+  // convention is "subpaths-first" and we keep the audit trail consistent.
+  { pattern: "/api/internal/users/me/entity-switch",                   handler: h430 },
+  { pattern: "/api/internal/users/me/entity-default",                  handler: h431 },
+  { pattern: "/api/internal/users/me/entities",                        handler: h432 },
+  // P12b-2 — Walmart Marketplace orders ingest.
+  { pattern: "/api/internal/walmart/sync-orders",                      handler: h452 },
+  { pattern: "/api/cron/walmart-orders-nightly",                       handler: h453 },
+  // P12c-2 — Faire wholesale marketplace ingest (manual triggers + crons).
+  { pattern: "/api/internal/faire/sync-orders",                        handler: h454 },
+  { pattern: "/api/cron/faire-orders-nightly",                         handler: h455 },
+  { pattern: "/api/internal/faire/sync-payouts",                       handler: h456 },
+  { pattern: "/api/cron/faire-payouts-monthly",                        handler: h457 },
+  // P11-3 — Shopify AR JE posting manual backfill.
+  { pattern: "/api/internal/shopify/post-order/:id",                   handler: h441 },
+  // P11-9 — Shopify Payments payout reconciliation manual trigger + cron.
+  { pattern: "/api/internal/shopify/sync-payouts",                     handler: h444 },
+  { pattern: "/api/cron/shopify-payouts-daily",                        handler: h445 },
+  // P11-2 — Shopify orders webhook intake.
+  { pattern: "/api/internal/shopify/webhooks/orders",                  handler: h440 },
+  // P11-4 — Shopify backfill cron + manual trigger (webhook-drop safety net).
+  { pattern: "/api/internal/shopify/backfill",                         handler: h442 },
+  { pattern: "/api/cron/shopify-backfill",                             handler: h443 },
+  // P12a-2 — Amazon FBA SP-API orders ingest.
+  { pattern: "/api/internal/fba/sync-orders",                          handler: h450 },
+  { pattern: "/api/cron/fba-orders-nightly",                           handler: h451 },
+  // P12a-3 — Amazon FBA AR invoice JE posting (manual backfill).
+  { pattern: "/api/internal/fba/post-order/:id",                       handler: h458 },
+  // P12b-3 — Walmart AR JE posting manual backfill.
+  { pattern: "/api/internal/walmart/post-order/:id",                   handler: h459 },
+  // P12b-4 — Walmart Marketplace settlement reconciliation.
+  { pattern: "/api/internal/walmart/sync-settlements",                 handler: h464 },
+  { pattern: "/api/cron/walmart-settlements-weekly",                   handler: h465 },
+  // P12c-4 — Faire wholesale returns ingest (credit memo + restock).
+  { pattern: "/api/internal/faire/sync-returns",                       handler: h473 },
+  { pattern: "/api/cron/faire-returns-weekly",                         handler: h474 },
+  // P12b-5 — Walmart returns sync (credit memo + restock + restocking fee).
+  { pattern: "/api/internal/walmart/sync-returns",                     handler: h471 },
+  { pattern: "/api/cron/walmart-returns-daily",                        handler: h472 },
+  // P11-8 — Shopify dispute (chargeback) webhook intake.
+  { pattern: "/api/internal/shopify/webhooks/disputes",                handler: h466 },
+  // Cross-cutter T11-3 — Universal audit log read endpoints.
+  { pattern: "/api/internal/audit/row-history",                        handler: h485 },
+  { pattern: "/api/internal/audit/log",                                handler: h486 },
+  // P9-4 — Cash reconciliation manual trigger.
+  { pattern: "/api/internal/recon/run-cash",                           handler: h482 },
+  // Costing Module — Chunk 2 (CRUD + autocompletes + select-quote stub).
+  // h482 was taken by P9-4 on main; search/styles uses h497 instead.
+  { pattern: "/api/internal/costing/projects",                         handler: h475 },
+  { pattern: "/api/internal/costing/projects/:id",                     handler: h476 },
+  { pattern: "/api/internal/costing/projects/:id/lines",               handler: h477 },
+  { pattern: "/api/internal/costing/lines/:line_id",                   handler: h478 },
+  { pattern: "/api/internal/costing/lines/:line_id/quotes",            handler: h479 },
+  { pattern: "/api/internal/costing/lines/:line_id/quotes/:quote_id",  handler: h480 },
+  { pattern: "/api/internal/costing/lines/:line_id/select-quote",      handler: h481 },
+  { pattern: "/api/internal/costing/search/styles",                    handler: h497 },
+  { pattern: "/api/internal/costing/search/colors",                    handler: h499 },
+  { pattern: "/api/internal/costing/add-vendor",                       handler: h500 },
+  { pattern: "/api/internal/costing/search/vendors",                   handler: h483 },
+  { pattern: "/api/internal/costing/search/customers",                 handler: h484 },
+  { pattern: "/api/internal/costing/search/sales-reps",                handler: h493 },
+  { pattern: "/api/internal/costing/search/fabrics",                   handler: h494 },
+  { pattern: "/api/internal/costing/search/categories",                handler: h495 },
+  { pattern: "/api/internal/costing/search/scales",                    handler: h496 },
+  // Costing Module — Chunk 5 (LY + trailing-3-month comp aggregation).
+  { pattern: "/api/internal/costing/comp/ly",                          handler: h489 },
+  { pattern: "/api/internal/costing/comp/t3",                          handler: h490 },
+  // Costing Module — Chunk 7 (compliance checklist handlers).
+  { pattern: "/api/internal/costing/lines/:line_id/compliance",            handler: h491 },
+  { pattern: "/api/internal/costing/lines/:line_id/compliance/:req_id",    handler: h492 },
+  // Costing Module — RFQ generation (replaces the vendor quotes side panel).
+  { pattern: "/api/internal/costing/projects/:id/generate-rfqs",           handler: h504 },
+  // Costing Module — RFQ list view (restored after PR #607 routes.js drift).
+  { pattern: "/api/internal/costing/rfqs",                                 handler: h505 },
+  { pattern: "/api/internal/costing/rfqs/:id",                             handler: h506 },
+  // Costing Module — PO-history popover on the costing grid (this PR).
+  { pattern: "/api/internal/costing/lines/:line_id/po-history",            handler: h507 },
+  // Cross-cutter T4-7 — Personalization drawer-collapsed persistence
+  // (favorites drawer redesign — operator asks #2 + #3). Listed AFTER the
+  // existing /preferences/favorites + /preferences/home-route + bare
+  // /preferences entries above so the top-down dispatcher routes
+  // /preferences/drawer-collapsed to this dedicated handler.
+  { pattern: "/api/internal/users/me/preferences/drawer-collapsed",        handler: h502 },
+  // P9-3 — AR Parallel-Run reconciliation engine (manual + replay).
+  { pattern: "/api/internal/recon/run-ar",                             handler: h512 },
+  // P9-2 — Parallel-Run AP reconciliation engine (manual / replay).
+  { pattern: "/api/internal/recon/run-ap",                             handler: h513 },
+  // P9-5 — GL reconciliation engine (lagging indicator + missing_standalone_je auto-cat).
+  { pattern: "/api/internal/recon/run-gl",                             handler: h514 },
+  // P9-6 — Inventory reconciliation engine (location-aware + FBA/WFS skip).
+  { pattern: "/api/internal/recon/run-inventory",                      handler: h515 },
+  // P9-7 — Reconciliation dashboard read handlers + clear flow. Subpath
+  // /variances/:id/clear MUST come before the bare /variances list route
+  // so the dispatcher matches it first (regex order = ROUTES order).
+  { pattern: "/api/internal/recon/variances/:id/clear",                handler: h518 },
+  { pattern: "/api/internal/recon/variances",                          handler: h517 },
+  { pattern: "/api/internal/recon/runs",                               handler: h516 },
+  { pattern: "/api/internal/recon/cutovers",                           handler: h519 },
+  // P6-6 — Reconciliation runs. Subpath BEFORE bare /:id.
+  { pattern: "/api/internal/bank-recon-runs/:id/compute", handler: h522 },
+  { pattern: "/api/internal/bank-recon-runs/:id",         handler: h521 },
+  { pattern: "/api/internal/bank-recon-runs",             handler: h520 },
+  // Sales reps unified into Employees. Bare /:id master CRUD (h524) retired;
+  // tiers/assignments commission config kept (keyed on the shadow sales_reps.id).
+  { pattern: "/api/internal/sales-reps/:id/tiers",                    handler: h525 },
+  { pattern: "/api/internal/sales-reps/:id/assignments",              handler: h526 },
+  { pattern: "/api/internal/sales-reps",                              handler: h523 },
+  // P8-9 — CRM tasks-due-tomorrow daily cron.
+  { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },
+  // P10-6 — Per-entity COA copy-from-ROF wizard.
+  { pattern: "/api/internal/entities/:id/coa-copy-from-rof",           handler: h528 },
+  { pattern: "/api/internal/xoro-mirror/inventory",                    handler: h402 },
+  // P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
+  { pattern: "/api/internal/shopify/post-cogs/:id",                    handler: h446 },
+  // P11-6 — Shopify refund handling (full void + partial credit memo + COGS reverse).
+  { pattern: "/api/internal/shopify/webhooks/refunds",                 handler: h447 },
+  { pattern: "/api/internal/shopify/process-refund/:id",               handler: h448 },
+  { pattern: "/api/cron/shopify-refunds-backfill",                     handler: h449 },
+  // P12c-3 — Faire AR JE posting (per-order + per-payout manual backfill).
+  { pattern: "/api/internal/faire/post-order/:id",                     handler: h460 },
+  { pattern: "/api/internal/faire/post-payout/:id",                    handler: h461 },
+  // P12a-5 — Amazon FBA inventory mirror (daily snapshot + layer rebuild).
+  { pattern: "/api/internal/fba/mirror-inventory",                     handler: h467 },
+  { pattern: "/api/cron/fba-inventory-daily",                          handler: h468 },
+  // P12a-6 — Amazon FBA returns sync (restock vs writeoff + credit memos).
+  { pattern: "/api/internal/fba/sync-returns",                         handler: h469 },
+  { pattern: "/api/cron/fba-returns-daily",                            handler: h470 },
+  // P12a-4 — Amazon FBA settlement reconciliation (weekly).
+  { pattern: "/api/internal/fba/sync-settlements",                     handler: h462 },
+  { pattern: "/api/cron/fba-settlements-weekly",                       handler: h463 },
+  // P14-3b — RBAC admin surface. Override (more specific) before the matrix.
+  { pattern: "/api/internal/users-access/me",                          handler: h531 },
+  // P15 Brand Master C2 — global brand/channel pickers.
+  { pattern: "/api/internal/brands",                                   handler: h532 },
+  { pattern: "/api/internal/channels",                                 handler: h533 },
+  { pattern: "/api/internal/users-access/override",                    handler: h530 },
+  { pattern: "/api/internal/users-access",                             handler: h529 },
 ];
 
 export function compileRoutes(routes) {

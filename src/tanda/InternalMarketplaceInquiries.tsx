@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Inquiry {
   id: string;
@@ -40,23 +43,43 @@ export default function InternalMarketplaceInquiries() {
   useEffect(() => { void load(); }, []);
 
   async function convert(inquiry: Inquiry) {
-    if (!confirm(`Convert inquiry on "${inquiry.listing?.title}" to a draft RFQ?`)) return;
+    if (!(await confirmDialog(`Convert inquiry on "${inquiry.listing?.title}" to a draft RFQ?`))) return;
     const reviewer = prompt("Your name (for audit, becomes RFQ creator):") || "Internal";
     const r = await fetch("/api/internal/marketplace/convert-to-rfq", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inquiry_id: inquiry.id, created_by: reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const d = await r.json() as { rfq: { id: string } };
-    alert(`Draft RFQ created: ${d.rfq.id}`);
+    notify(`Draft RFQ created: ${d.rfq.id}`, "success");
     await load();
   }
 
   return (
     <div style={{ color: C.text }}>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace inquiries</h2>
-        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Inquiries you've sent, vendor responses, and RFQ conversions.</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace inquiries</h2>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Inquiries you've sent, vendor responses, and RFQ conversions.</div>
+        </div>
+        <ExportButton
+          rows={rows.map((q) => ({
+            ...q,
+            listing_title: q.listing?.title || q.listing_id,
+          })) as unknown as Array<Record<string, unknown>>}
+          filename="marketplace-inquiries"
+          sheetName="Inquiries"
+          columns={[
+            { key: "created_at",     header: "Sent",         format: "datetime" },
+            { key: "listing_title",  header: "Listing" },
+            { key: "inquired_by",    header: "Inquired By" },
+            { key: "message",        header: "Message" },
+            { key: "status",         header: "Status" },
+            { key: "response",       header: "Response" },
+            { key: "responded_at",   header: "Responded",    format: "datetime" },
+            { key: "rfq_id",         header: "RFQ ID" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>

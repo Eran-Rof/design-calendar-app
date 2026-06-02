@@ -49,9 +49,10 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     storeFilter: opts.storeFilter,
     customerSkuSet,
     today: opts.today,
+    displayPeriods: opts.displayPeriods,
   }), [
     opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterStyle, opts.filterGender, opts.filterStatus,
-    opts.minATS, opts.storeFilter, customerSkuSet, opts.today,
+    opts.minATS, opts.storeFilter, customerSkuSet, opts.today, opts.displayPeriods,
   ]);
 
   const statFiltered = useMemo(

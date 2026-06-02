@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+import { notify } from "../shared/ui/warn";
 
 interface Row {
   vendor_id: string;
@@ -64,8 +67,8 @@ export default function InternalHealthScores() {
         source: "manual.health_scores",
       }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
-    alert("Flag raised.");
+    if (!r.ok) { notify(await r.text(), "error"); return; }
+    notify("Flag raised.", "success");
   }
 
   if (loading) return <div style={{ color: C.textMuted }}>Loading…</div>;
@@ -75,11 +78,25 @@ export default function InternalHealthScores() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Vendor health scores</h2>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <div>
             <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 700, textTransform: "uppercase" }}>Min score</div>
             <input type="number" value={minScore} onChange={(e) => setMinScore(e.target.value)} placeholder="0" style={inp} />
           </div>
+          <ExportButton
+            rows={rows as unknown as Array<Record<string, unknown>>}
+            filename="vendor-health-scores"
+            sheetName="Health Scores"
+            columns={[
+              { key: "name",                 header: "Vendor" },
+              { key: "overall_score",        header: "Overall",        format: "number" },
+              { key: "delivery_score",       header: "Delivery",       format: "number" },
+              { key: "quality_score",        header: "Quality",        format: "number" },
+              { key: "compliance_score",     header: "Compliance",     format: "number" },
+              { key: "financial_score",      header: "Financial",      format: "number" },
+              { key: "responsiveness_score", header: "Responsiveness", format: "number" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 

@@ -6,11 +6,11 @@
 
 import { useState } from "react";
 
-const STORAGE_KEY = "ws_planning_hidden_columns";
+const DEFAULT_STORAGE_KEY = "ws_planning_hidden_columns";
 
-function loadHiddenColumns(): Set<string> {
+function loadHiddenColumns(storageKey: string): Set<string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return new Set();
     const arr = JSON.parse(raw);
     return new Set(Array.isArray(arr) ? arr : []);
@@ -24,27 +24,43 @@ export interface HiddenColumnsApi {
   toggleColumn: (key: string) => void;
   /** Clear all hidden columns + remove the localStorage entry. */
   resetColumns: () => void;
+  /** Bulk set the hidden set — used by "select all" / "hide all" in pickers. */
+  setHiddenColumns: (keys: Iterable<string>) => void;
 }
 
-export function usePersistedHiddenColumns(): HiddenColumnsApi {
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(loadHiddenColumns);
+/**
+ * Accepts an optional storageKey so each grid that wants column-visibility
+ * memory can have its own. Defaults to "ws_planning_hidden_columns" for
+ * backwards compat with existing wholesale planning callers.
+ */
+export function usePersistedHiddenColumns(storageKey: string = DEFAULT_STORAGE_KEY): HiddenColumnsApi {
+  const [hiddenColumns, _setHiddenColumns] = useState<Set<string>>(() => loadHiddenColumns(storageKey));
 
   const toggleColumn = (key: string) => {
-    setHiddenColumns((prev) => {
+    _setHiddenColumns((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(next)));
+        localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
       } catch { /* ignore quota */ }
       return next;
     });
   };
 
   const resetColumns = () => {
-    setHiddenColumns(new Set());
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    _setHiddenColumns(new Set());
+    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
   };
 
-  return { hiddenColumns, toggleColumn, resetColumns };
+  const setHiddenColumns = (keys: Iterable<string>) => {
+    const next = new Set(keys);
+    _setHiddenColumns(next);
+    try {
+      if (next.size === 0) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
+    } catch { /* ignore */ }
+  };
+
+  return { hiddenColumns, toggleColumn, resetColumns, setHiddenColumns };
 }

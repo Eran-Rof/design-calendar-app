@@ -42,11 +42,13 @@ function makeChain(handler, table) {
       state.deleteOpts = opts;
       return chain;
     },
-    eq(k, v)   { state.filters.push(["eq",  k, v]); return chain; },
-    in(k, v)   { state.filters.push(["in",  k, v]); return chain; },
-    lt(k, v)   { state.filters.push(["lt",  k, v]); return chain; },
-    order()    { return chain; },
-    range(a, b){ state.range = [a, b]; return chain; },
+    eq(k, v)    { state.filters.push(["eq",    k, v]); return chain; },
+    in(k, v)    { state.filters.push(["in",    k, v]); return chain; },
+    lt(k, v)    { state.filters.push(["lt",    k, v]); return chain; },
+    ilike(k, v) { state.filters.push(["ilike", k, v]); return chain; },
+    limit(n)    { state.limit = n; return chain; },
+    order()     { return chain; },
+    range(a, b) { state.range = [a, b]; return chain; },
     async maybeSingle() {
       const r = handler.maybeSingle ? await handler.maybeSingle(state) : { data: null, error: null };
       return r;
@@ -123,6 +125,75 @@ describe("syncOnHandFromAtsSnapshot — happy path", () => {
       qty_on_order: 3,
       source: "manual",
     });
+  });
+
+  it("resolves color-grain candidate to size-grain master row via ilike fallback", async () => {
+    // Repro for the 2026-05-29 finding: post_master_data loads master
+    // at size-grain (RYB1469OB-Black-SML/-MED/...) from CurrentProducts,
+    // but planning sync aggregates inventory at color-grain
+    // (RYB1469OB-BLACK). The .in() lookup misses, the PPK strip doesn't
+    // apply (no "-PPKn" suffix), and without the size-grain fallback
+    // the code falls through to buildItemRow → apparel_dims_required
+    // CHECK violation → silent drop. Fallback should ilike("RYB1469OB-
+    // BLACK-%") and reuse the size-grain item id.
+    const upserts = [];
+    const ilikePatterns = [];
+    let upsertCalled = false;
+    const admin = makeAdmin({
+      app_data: {
+        async maybeSingle() {
+          return {
+            data: {
+              value: JSON.stringify({
+                skus: [
+                  { sku: "RYB1469OB-Black-SML", onHand: 100, onPO: 0, onSO: 0 },
+                  { sku: "RYB1469OB-Black-MED", onHand: 200, onPO: 0, onSO: 0 },
+                ],
+                sos: [],
+              }),
+            },
+            error: null,
+          };
+        },
+      },
+      ip_item_master: {
+        async select(state) {
+          // Bulk .in() lookup misses (master keyed at size-grain).
+          if (state.filters.some(([op]) => op === "in")) {
+            return { data: [], error: null };
+          }
+          // Size-grain fallback .ilike() should find an existing row.
+          const ilike = state.filters.find(([op]) => op === "ilike");
+          if (ilike) {
+            ilikePatterns.push(ilike[2]);
+            return { data: [{ id: "size-grain-1", sku_code: "RYB1469OB-Black-SML" }], error: null };
+          }
+          return { data: [], error: null };
+        },
+        async upsert() {
+          upsertCalled = true;
+          throw new Error("size-grain fallback should have avoided ip_item_master stub upsert");
+        },
+      },
+      ip_inventory_snapshot: {
+        async upsert(state) {
+          upserts.push(...state.upsertRows);
+          return { data: null, error: null };
+        },
+      },
+    });
+
+    const r = await syncOnHandFromAtsSnapshot(admin);
+
+    expect(r.error).toBeNull();
+    expect(upsertCalled).toBe(false);
+    expect(ilikePatterns).toEqual(["RYB1469OB-BLACK-%"]);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({
+      sku_id: "size-grain-1",
+      qty_on_hand: 300, // 100 + 200 aggregated to (style, color)
+    });
+    expect(r.new_skus).toBe(0); // no stub created
   });
 
   it("returns error when no ATS snapshot is uploaded", async () => {

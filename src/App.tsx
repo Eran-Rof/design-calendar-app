@@ -20,6 +20,7 @@ import { SB_URL, SB_KEY, supabaseClient } from "./utils/supabase";
 
 // ─── Components ───────────────────────────────────────────────────────────────
 import Avatar from "./components/Avatar";
+import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { Modal, ConfirmModal } from "./components/Modal";
 import ContextMenu from "./components/ContextMenu";
 const ActivityPanel = lazy(() => import("./components/ActivityPanel"));
@@ -44,6 +45,13 @@ const OrderTypeManager = lazy(() => import("./components/OrderTypeManager"));
 const RoleManager = lazy(() => import("./components/RoleManager"));
 const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
+import FavoritesMenu from "./components/FavoritesMenu";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "./components/EntitySwitcher";
+import AutoLandingToast from "./components/AutoLandingToast";
+import { useAutoLanding } from "./hooks/useAutoLanding";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { dcViewToMenuKey } from "./lib/dcViewToMenuKey";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -58,6 +66,9 @@ export default function AppWrapper() {
 }
 
 function App() {
+  // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
+  // Fires once per tab session at app-shell root. See useAutoLanding.ts.
+  const landing = useAutoLanding();
   const s = useAppStore();
   // dcSet removed — all callers now use useAppStore.getState().setField() directly
   // ── Confirm modal state ────────────────────────────────────────────────
@@ -113,7 +124,18 @@ function App() {
   const showUsers = s.showUsers;
   const showSizeLib = s.showSizeLib;
   const showCatLib = s.showCatLib;
-  const setView = (v: string) => useAppStore.getState().setField("view", v);
+  // Cross-cutter T4-5 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  // setView wraps the store mutation with fire-and-forget menu-click
+  // telemetry. Mapped views (top nav) hit /api/internal/users/me/menu-click;
+  // unmapped internal views (e.g. modals masquerading as views) silently
+  // skip via the null-returning mapper.
+  const { logClick: logDcMenuClick } = usePersonalization();
+  const setView = (v: string) => {
+    const mk = dcViewToMenuKey(v);
+    if (mk) logDcMenuClick(mk);
+    useAppStore.getState().setField("view", v);
+  };
   const setListView = (v: boolean) => useAppStore.getState().setField("listView", v);
   const setExpandedColl = (v: string | null) => useAppStore.getState().setField("expandedColl", v);
   const setFilterBrand = (v: any) => { if (typeof v === "function") useAppStore.getState().setField("filterBrand", v(s.filterBrand)); else useAppStore.getState().setField("filterBrand", v); };
@@ -627,6 +649,23 @@ function App() {
               T&A
             </a>
           )}
+          {currentUser && (
+            <a
+              href="/costing"
+              style={{
+                padding: "7px 12px", borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.15)",
+                color: "rgba(255,255,255,0.7)", fontWeight: 600,
+                fontFamily: "inherit", fontSize: 12,
+                textDecoration: "none", whiteSpace: "nowrap",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "none")}
+            >
+              Costing
+            </a>
+          )}
         </div>
         <div
           style={{
@@ -636,6 +675,8 @@ function App() {
             alignItems: "center",
           }}
         >
+          {/* Favorites — first action icon (consistent across all apps). */}
+          <FavoritesMenu />
           {/* Undo button — always visible, disabled when nothing to undo */}
           <button
             onClick={useAppStore.getState().handleUndo}
@@ -1317,6 +1358,9 @@ function App() {
         />
       )}
 
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
+
       <AskAIPanel
         open={aiOpen}
         onClose={() => setAiOpen(false)}
@@ -1349,6 +1393,10 @@ function App() {
         ]}
         appId="dc"
       />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
+      {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
+      <AutoLandingToast landing={landing} />
     </div>
   );
 }

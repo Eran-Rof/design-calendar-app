@@ -311,7 +311,7 @@ export default function FutureDemandRequestsPanel({
               const parsed = parseRequestNote(r.note);
               const meta = parsed.meta;
               const isTbd = parsed.tag === "TBD";
-              const styleDisp = meta.style ?? item?.style_code ?? item?.sku_code ?? r.sku_id.slice(0, 8);
+              const styleDisp = meta.style ?? item?.style_code ?? item?.sku_code ?? "(unknown sku)";
               const colorDisp = meta.color ?? item?.color ?? "–";
               const descDisp  = meta.desc  ?? item?.description ?? "–";
               const catDisp   = meta.cat   ?? readGroupName(item) ?? "–";
@@ -320,7 +320,7 @@ export default function FutureDemandRequestsPanel({
               return (
                 <tr key={r.id}>
                   <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
-                  <td style={S.td}>{customer?.name ?? r.customer_id.slice(0, 8)}</td>
+                  <td style={S.td}>{customer?.name ?? "—"}</td>
                   <td style={{ ...S.td, color: PAL.textDim }}>{catDisp}</td>
                   <td style={{ ...S.td, color: PAL.textDim }}>{subCatDisp}</td>
                   <td style={{ ...S.td, fontFamily: "monospace", color: isTbd ? PAL.yellow : PAL.accent }}>{styleDisp}</td>

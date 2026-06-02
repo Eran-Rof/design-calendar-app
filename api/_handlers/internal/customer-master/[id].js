@@ -2,11 +2,13 @@
 //
 // GET    — fetch a single customers row (full row, including
 //          tax_exempt_certificate — admin-authenticated context).
-// PATCH  — update mutable fields. Rejects tax_exempt_certificate (PII).
+// PATCH  — update mutable fields.
 //          Mutable fields: name, code, customer_type, country, payment_terms,
-//          default_currency, tax_exempt, credit_limit, status,
-//          billing_address, shipping_address, default_gl_ar_account_id,
-//          default_gl_revenue_account_id, parent_customer_id.
+//          default_currency, tax_exempt, tax_exempt_certificate, credit_limit,
+//          status, billing_address, shipping_address,
+//          default_gl_ar_account_id, default_gl_revenue_account_id,
+//          parent_customer_id, contact_name, contact_title, email, phone,
+//          website, wechat_id.
 // DELETE — soft-delete: set deleted_at = now(); 404 if already deleted.
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
@@ -19,18 +21,48 @@ const CUSTOMER_TYPES = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
 const MUTABLE_FIELDS = new Set([
-  "name", "code", "customer_type", "country", "payment_terms",
-  "default_currency", "tax_exempt", "credit_limit", "status",
+  "name", "code", "customer_type", "country", "payment_terms", "payment_terms_id",
+  "default_currency", "tax_exempt", "credit_limit",
+  "credit_limit_cents", "credit_limit_currency",
+  // Chunk K — customer factoring (operator item 17).
+  "is_factored", "factor_id",
+  "status",
   "billing_address", "shipping_address",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
+  // P4-family sales-rep / default / GL-routing columns.
+  "sales_rep_1_id",
+  "sales_rep_1_commission_pct",
+  "sales_rep_2_id",
+  "sales_rep_2_commission_pct",
+  "default_brand_id",
+  "default_channel_id",
+  "default_revenue_account_id",
+  "default_returns_account_id",
+  "default_cogs_account_id",
+  "default_ar_account_id",
   "parent_customer_id",
+  "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ]);
 
 // Nullable fields whose empty-string input should be normalized to null.
 const NULLABLE_TEXT_FIELDS = [
-  "code", "country", "payment_terms",
+  "code", "country", "payment_terms", "payment_terms_id",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
+  // P4-family UUID FK fields normalize "" → null too.
+  "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
+  "default_revenue_account_id", "default_returns_account_id",
+  "default_cogs_account_id", "default_ar_account_id",
   "parent_customer_id",
+  // Chunk K — factor_id FK normalizes "" → null too.
+  "factor_id",
+  "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
+];
+
+// P4-family UUID FK fields whose non-null value must be a valid UUID.
+const P4_UUID_FIELDS = [
+  "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
+  "default_revenue_account_id", "default_returns_account_id",
+  "default_cogs_account_id", "default_ar_account_id",
 ];
 
 function corsHeaders(res) {
@@ -50,7 +82,7 @@ export default async function handler(req, res, params) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const id = params?.id;
+  const id = params?.id || req.query?.id;
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
     return res.status(400).json({ error: "Invalid id" });
   }
@@ -121,9 +153,9 @@ export function validatePatch(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  // PII rejection.
-  if ("tax_exempt_certificate" in body) {
-    return { error: "tax_exempt_certificate must be set via the dedicated PII endpoint (not this admin route)" };
+  // tax_exempt_certificate is PII-workflow-only — never accepted via this endpoint.
+  if (body.tax_exempt_certificate != null && String(body.tax_exempt_certificate).trim() !== "") {
+    return { error: "tax_exempt_certificate must be set via the dedicated PII workflow, not this endpoint" };
   }
 
   const out = {};
@@ -182,13 +214,79 @@ export function validatePatch(body) {
     }
   }
 
+  // P4-7: canonical credit-gate fields.
+  if ("credit_limit_cents" in out) {
+    if (out.credit_limit_cents == null || out.credit_limit_cents === "") {
+      out.credit_limit_cents = null;
+    } else {
+      const n = typeof out.credit_limit_cents === "number"
+        ? out.credit_limit_cents
+        : parseInt(out.credit_limit_cents, 10);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        return { error: "credit_limit_cents must be an integer" };
+      }
+      if (n < 0) {
+        return { error: "credit_limit_cents must be >= 0" };
+      }
+      out.credit_limit_cents = n;
+    }
+  }
+  if ("credit_limit_currency" in out) {
+    if (out.credit_limit_currency == null || out.credit_limit_currency === "") {
+      out.credit_limit_currency = null;
+    } else {
+      const ccy = String(out.credit_limit_currency).toUpperCase();
+      if (!/^[A-Z]{3}$/.test(ccy)) {
+        return { error: "credit_limit_currency must be a 3-letter ISO code (e.g. USD)" };
+      }
+      out.credit_limit_currency = ccy;
+    }
+  }
+
   if ("tax_exempt" in out && typeof out.tax_exempt !== "boolean") {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
+  }
+
+  // Chunk K — customer factoring (operator item 17).
+  if ("is_factored" in out && typeof out.is_factored !== "boolean") {
+    out.is_factored = out.is_factored === "true" || out.is_factored === 1;
   }
 
   // Normalize empty strings to null for nullable text/uuid fields.
   for (const k of NULLABLE_TEXT_FIELDS) {
     if (out[k] === "") out[k] = null;
+  }
+
+  // P3-9: validate payment_terms_id is a valid UUID when not null.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (out.payment_terms_id != null && !UUID_RE.test(String(out.payment_terms_id))) {
+    return { error: "payment_terms_id must be a valid UUID" };
+  }
+
+  // Chunk K — factor_id must be a valid UUID when not null.
+  if (out.factor_id != null && !UUID_RE.test(String(out.factor_id))) {
+    return { error: "factor_id must be a valid UUID" };
+  }
+
+  // P4-family: validate UUID FK fields when not null.
+  for (const k of P4_UUID_FIELDS) {
+    if (out[k] != null && !UUID_RE.test(String(out[k]))) {
+      return { error: `${k} must be a valid UUID` };
+    }
+  }
+
+  // P4-family: commission percentages — numeric, 0..100; "" → null.
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+    if (k in out) {
+      if (out[k] == null || out[k] === "") {
+        out[k] = null;
+      } else {
+        const n = typeof out[k] === "number" ? out[k] : parseFloat(out[k]);
+        if (!Number.isFinite(n)) return { error: `${k} must be a number` };
+        if (n < 0 || n > 100) return { error: `${k} must be between 0 and 100` };
+        out[k] = n;
+      }
+    }
   }
 
   return { data: out };

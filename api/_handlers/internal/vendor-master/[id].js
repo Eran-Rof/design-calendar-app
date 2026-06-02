@@ -15,7 +15,8 @@ const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
 const MUTABLE_FIELDS = new Set([
   "name", "code", "legal_name", "country", "transit_days", "categories",
-  "contact", "email", "moq", "payment_terms", "default_currency",
+  "contact", "contact_title", "email", "phone", "website", "wechat_id",
+  "moq", "payment_terms", "payment_terms_id", "default_currency",
   "default_gl_ap_account_id", "default_gl_expense_account_id",
   "status", "is_1099_vendor", "address",
 ]);
@@ -24,8 +25,8 @@ const MUTABLE_FIELDS = new Set([
 const PII_FIELDS = new Set(["tax_id", "bank_account_encrypted"]);
 
 const SAFE_SELECT =
-  "id, code, name, legal_name, country, transit_days, categories, contact, email, moq, " +
-  "payment_terms, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
+  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, website, wechat_id, moq, " +
+  "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
 function corsHeaders(res) {
@@ -45,7 +46,7 @@ export default async function handler(req, res, params) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const id = params?.id;
+  const id = params?.id || req.query?.id;
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
     return res.status(400).json({ error: "Invalid id" });
   }
@@ -134,8 +135,26 @@ export function validatePatch(body) {
     out.moq = n;
   }
   if (out.code != null) out.code = out.code === "" ? null : String(out.code).trim().toUpperCase();
-  for (const k of ["legal_name", "country", "contact", "email", "payment_terms"]) {
+  for (const k of ["legal_name", "country", "contact", "contact_title", "email", "phone", "website", "wechat_id", "payment_terms"]) {
     if (out[k] === "") out[k] = null;
+  }
+  // P3-9: payment_terms_id — empty → null, otherwise must be a valid UUID.
+  if ("payment_terms_id" in out) {
+    if (out.payment_terms_id === "" || out.payment_terms_id == null) {
+      out.payment_terms_id = null;
+    } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.payment_terms_id))) {
+      return { error: "payment_terms_id must be a valid UUID" };
+    }
+  }
+  // GL account FK fields — empty string normalizes to null.
+  for (const k of ["default_gl_ap_account_id", "default_gl_expense_account_id"]) {
+    if (k in out) {
+      if (out[k] === "" || out[k] == null) {
+        out[k] = null;
+      } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out[k]))) {
+        return { error: `${k} must be a valid UUID` };
+      }
+    }
   }
   return { data: out };
 }

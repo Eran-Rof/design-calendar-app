@@ -49,11 +49,12 @@ export interface ATSState {
   invFile: File | null;
   purFile: File | null;
   ordFile: File | null;
-  // Sync
-  syncing: boolean;
-  syncStatus: string;
+  // Sync — `lastSync` is the upload/load timestamp shown in the navbar
+  // info line. The transient (syncing/syncStatus/syncError) fields and
+  // their SYNC_ reducer actions were removed when the in-app Xoro
+  // Sync Open SOs button was retired in favor of Playwright-driven
+  // nightly fetches.
   lastSync: string;
-  syncError: { title: string; detail: string } | null;
   // Normalization review
   normChanges: NormChange[] | null;
   normPendingData: ExcelData | null;
@@ -71,11 +72,11 @@ export interface ATSState {
   sortCol: string | null;
   sortDir: "asc" | "desc";
   mergeHistory: Array<{ fromSku: string; toSku: string }>;
-  atShip: boolean;
-  // Grid cell content selector. "ats" renders the daily on-hand + PO − SO
-  // running balance (current behavior, including AT SHIP free-to-sell when
-  // atShip is on). "so" / "po" render the SO / PO qty whose date falls
-  // within each column's period. Switches the totals-row Qty sum to match.
+  // Grid cell content selector. "ats" renders per-period availability
+  // (cumulative free at period 0; per-period new-receipt delta after,
+  // via periodAvail). "so" / "po" render the SO / PO qty whose date
+  // falls within each column's period. Switches the totals-row Qty
+  // sum to match.
   viewMode: "ats" | "so" | "po";
   // Toggles the totals row above the column headers (Qty / Cost / Sale
   // / Mrgn% summed across the filtered set). Defaults off — operator
@@ -133,10 +134,7 @@ export type ATSAction =
   | { type: "UPLOAD_PROGRESS"; step: string; pct: number }
   | { type: "UPLOAD_DONE"; message: string }
   | { type: "UPLOAD_FAIL"; error: string }
-  | { type: "UPLOAD_RESET" }
-  | { type: "SYNC_START" }
-  | { type: "SYNC_DONE"; lastSync: string }
-  | { type: "SYNC_FAIL"; error: { title: string; detail: string } };
+  | { type: "UPLOAD_RESET" };
 
 export function createInitialState(startDate: string): ATSState {
   return {
@@ -176,10 +174,7 @@ export function createInitialState(startDate: string): ATSState {
     invFile: null,
     purFile: null,
     ordFile: null,
-    syncing: false,
-    syncStatus: "",
     lastSync: "",
-    syncError: null,
     normChanges: null,
     normPendingData: null,
     normSource: "upload",
@@ -198,7 +193,6 @@ export function createInitialState(startDate: string): ATSState {
     sortCol: "style",
     sortDir: "asc",
     mergeHistory: [],
-    atShip: true,
     viewMode: "ats",
     showTotalsRow: false,
     showStatsCards: true,

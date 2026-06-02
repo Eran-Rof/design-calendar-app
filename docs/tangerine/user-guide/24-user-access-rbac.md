@@ -1,0 +1,110 @@
+# 24. User Access & Permissions (P14 RBAC)
+
+> **P14 status (2026-05-30):** schema + log-only + enforce middleware shipped (PRs #630/#632/#634, all `RBAC_MODE`-gated **off by default**). Chunk 3b ships the admin **API** (this chapter) + the **User Access** panel. **Enforcement is OFF until you set `RBAC_MODE`** — today every user still has the access they had before P14.
+
+Tangerine RBAC controls **who can do what, per module, per action** — laid on top of the existing entity membership (who belongs to ROF). It does **not** change who can log in; it changes what each logged-in person is allowed to do once inside.
+
+---
+
+## The model in one picture
+
+```
+ user ──(member of)──► entity ──┐
+   │                            ├─ entity_user_roles  → ONE role per user per entity
+   └──(per-cell tweaks)─────────┴─ entity_user_role_overrides → grant/revoke a single cell
+                                       │
+        role ──► role_permissions (the matrix: module × action = allowed?)
+                                       │
+                                       ▼
+                 v_effective_permissions = role grants ∪ grant-overrides − revoke-overrides
+```
+
+- **Module** — a feature area (Style Master, AR Invoices, Journal Entries, Bank Recon, User Access, …). ~32 of them.
+- **Action** — one of five verbs: **read · write · post · void · export**. Not every module exposes all five (a report module is read/export only; only postable accounting modules expose post/void).
+- **Role** — a named bundle of (module, action) grants. Three seed roles ship:
+  - **admin** — every action on every module.
+  - **accountant** — read/export everywhere; write on accounting + procurement; post/void on the six core postable modules (JE, AR invoices, AP invoices, AP payments, bank recon, GL periods).
+  - **viewer** — read-only everywhere.
+- **Override** — a per-user, per-cell exception layered on the role. `allowed=true` grants one extra cell; `allowed=false` revokes one cell. **A revoke beats a role grant** — handy to take one capability away from one person without inventing a whole role.
+
+> **Effective permission = role grants, plus grant-overrides, minus revoke-overrides.** That single rule is computed by the `v_effective_permissions` view and the `has_permission()` function in the database — the API and (later) the menu both read from it, so there's one source of truth.
+
+---
+
+## How everyone got a role (the backfill)
+
+When P14-1 shipped, every existing member was mapped to a seed role so **day-1 access was identical to before**:
+
+| Old `entity_users.role` | New RBAC role |
+|---|---|
+| `admin` | admin |
+| `accountant` | accountant |
+| `readonly` | viewer |
+| `staff`, blank, anything else | **admin** (never narrower than today) |
+
+So until you deliberately tighten someone, everyone keeps full access. You tighten roles **before** turning enforcement on (next section).
+
+---
+
+## Turning enforcement on (the 3-step rollout)
+
+Enforcement is controlled by the **`RBAC_MODE`** environment variable on the Vercel deployment. Three settings:
+
+| `RBAC_MODE` | Behavior |
+|---|---|
+| _(unset)_ / `off` | **Default.** No checks at all. Zero behavior change. |
+| `log` | Checks every internal API call and writes a `[RBAC log-only] would-deny …` line to the server logs when a caller lacks a permission. **Nothing is blocked.** This is your dry-run. |
+| `enforce` | A caller lacking the required permission gets a `403 permission_denied`. Unauthenticated/anon requests still pass (incremental adoption, not a hard cutover), and any internal error **fails open** so you can never lock yourself out. |
+
+**Recommended sequence:**
+1. Configure roles/overrides in the User Access panel (below) so each person has exactly what they need.
+2. Set `RBAC_MODE=log` and watch the logs for a few days. Because everyone is backfilled to `admin`, the logs stay quiet until you start narrowing roles — a quiet log on a narrowed role means "ready."
+3. When the would-deny lines only show people who genuinely shouldn't have that access, set `RBAC_MODE=enforce`.
+
+Flip back to `log` or `off` at any time — it's just an env var; no data changes.
+
+---
+
+## The User Access panel
+
+**Where:** Analytics & Admin → **User Access**. (Requires the `users_access` module — admins have it; this is intentionally admin-only, no self-service.)
+
+What you can do:
+- **See the matrix** — every member of the entity, their assigned role, and a module × action grid showing their *effective* permissions (role + overrides combined).
+- **Change a role** — pick a different role from the dropdown next to a user. Takes effect immediately (next API call uses it).
+- **Grant or revoke a single cell** — tick/untick a module×action checkbox to add a per-user override without changing their role. Add an optional reason (it's stored and audited).
+- **Remove an override** — clearing an override reverts that cell to whatever the role says.
+
+Every change to a role assignment or override is written to the **T11 universal audit log** (chapter on Shadow Mirror / audit), so "who granted X access to post JEs, and when" is always answerable.
+
+---
+
+## Security notes (why writes are safe)
+
+- The RBAC tables are **anon-read-only**. The internal apps use a shared browser key that can *read* the matrix (to render the panel) but **cannot write** roles or permissions directly. All writes go through the service-role admin API, which is itself gated on `users_access:write` once enforcement is on.
+- `has_permission()` runs as `SECURITY DEFINER` in the database — it's the one authority both the middleware and any future row-level policy consult.
+- This is the right hardening for today's shared-key data layer. The deeper move — giving each user their own signed session so the database itself enforces per-user row access — is a separate, later security phase (it does not block anything here).
+
+---
+
+## API surface (for integrators)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/internal/users-access` | The full matrix: `{ entity_id, modules[], roles[], users[] }`. Each user carries `role_id`, `role_name`, `overrides[]`, and flattened `effective[]` (`"module:action"`). Optional `?entity_id=…`. |
+| `PUT` | `/api/internal/users-access` | Body `{ user_id, role_id }` — assign/change a user's role. |
+| `PUT` | `/api/internal/users-access/override` | Body `{ user_id, module_key, action, allowed, reason? }` — grant (`true`) or revoke (`false`) one cell. |
+| `DELETE` | `/api/internal/users-access/override` | Body/query `{ user_id, module_key, action }` — remove the override (revert to role default). |
+
+Validation rejects unknown roles, non-members, unknown modules, and any action a module doesn't expose, so you can't persist an impossible cell.
+
+---
+
+## Code map
+
+- Schema + seed + backfill: `supabase/migrations/20260707000000_p14_chunk1_rbac_schema.sql`
+- Grant-table read-only lockdown: `supabase/migrations/20260707010000_p14_chunk3_rbac_grant_rls_lockdown.sql`
+- Middleware + route→permission registry: `api/_lib/rbac/` (`index.js`, `routePermissions.js`)
+- Admin handlers: `api/_handlers/internal/users-access/` (`index.js`, `override.js`)
+- Panel: `src/tanda/InternalUserAccess.tsx` (P14-3b-2)
+- Arch doc: `docs/tangerine/P14-rbac-architecture.md`

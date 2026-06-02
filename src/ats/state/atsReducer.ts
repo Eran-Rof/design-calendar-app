@@ -27,15 +27,6 @@ export function atsReducer(state: ATSState, action: ATSAction): ATSState {
     case "UPLOAD_RESET":
       return { ...state, uploadingFile: false, uploadProgress: null, uploadError: null, uploadSuccess: null, uploadWarnings: null, pendingUploadData: null, showUpload: false, invFile: null, purFile: null, ordFile: null };
 
-    case "SYNC_START":
-      return { ...state, syncing: true, syncStatus: "Syncing…", syncError: null };
-
-    case "SYNC_DONE":
-      return { ...state, syncing: false, syncStatus: "", lastSync: action.lastSync };
-
-    case "SYNC_FAIL":
-      return { ...state, syncing: false, syncStatus: "", syncError: action.error };
-
     default:
       return state;
   }

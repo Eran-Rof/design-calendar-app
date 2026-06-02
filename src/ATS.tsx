@@ -5,7 +5,7 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWarning, ExcelData, CtxMenu, SummaryCtxMenu } from "./ats/types";
-import { addDays, fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
+import { addDays, fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
@@ -24,6 +24,10 @@ import { StatCard } from "./ats/StatCard";
 import { ATSProvider, useATSState, useATSDispatch } from "./ats/state/ATSContext";
 import type { ATSState, ATSAction } from "./ats/state/atsTypes";
 import { atsRenderPanel } from "./ats/renderPanel";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "./components/EntitySwitcher";
+import { usePersonalization } from "./hooks/usePersonalization";
+import { atsViewToMenuKey } from "./lib/atsViewToMenuKey";
 import { packGzipEnvelope, unpackGzipEnvelope } from "./utils/gzipBase64";
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -76,8 +80,8 @@ function ATSReport() {
     minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
-    syncing, syncStatus, lastSync, syncError, hoveredCell, pinnedSku, ctxMenu,
-    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, atShip, viewMode, showTotalsRow, showStatsCards, explodePpk, freezeKey, hiddenColumns, generalMarginPct,
+    lastSync, hoveredCell, pinnedSku, ctxMenu,
+    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, viewMode, showTotalsRow, showStatsCards, explodePpk, freezeKey, hiddenColumns, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
   } = st;
@@ -109,10 +113,7 @@ function ATSReport() {
   const setInvFile           = mk("invFile");
   const setPurFile           = mk("purFile");
   const setOrdFile           = mk("ordFile");
-  const setSyncing           = mk("syncing");
-  const setSyncStatus        = mk("syncStatus");
   const setLastSync          = mk("lastSync");
-  const setSyncError         = mk("syncError");
   const setHoveredCell       = mk("hoveredCell");
   const setPinnedSku         = mk("pinnedSku");
   const setCtxMenu           = mk("ctxMenu");
@@ -121,8 +122,19 @@ function ATSReport() {
   const setSortCol           = mk("sortCol");
   const setSortDir           = mk("sortDir");
   const setMergeHistory      = mk("mergeHistory");
-  const setAtShip            = mk("atShip");
-  const setViewMode          = mk("viewMode");
+  const setViewModeRaw       = mk("viewMode");
+  // Cross-cutter T4-5 — personalization. Pull logClick once; the hook
+  // is cheap and shares a module-level cache so re-mounts don't refetch.
+  // setViewMode wraps the raw setter with fire-and-forget menu-click
+  // telemetry on the 3 grid pivots (ATS / SO / PO).
+  const { logClick: logAtsMenuClick } = usePersonalization();
+  const setViewMode = (v: "ats" | "so" | "po" | ((prev: "ats" | "so" | "po") => "ats" | "so" | "po")) => {
+    if (typeof v === "string") {
+      const mkk = atsViewToMenuKey(v);
+      if (mkk) logAtsMenuClick(mkk);
+    }
+    setViewModeRaw(v as any);
+  };
   const setShowTotalsRow     = mk("showTotalsRow");
   const setShowStatsCards    = mk("showStatsCards");
   const setExplodePpk        = mk("explodePpk");
@@ -451,17 +463,21 @@ function ATSReport() {
 
   // ── Display periods: what columns to render in the table ─────────────────
   const displayPeriods = useMemo(() => {
+    // Canonical period-label format: MMM/DD/YYYY (matches fmtDateDisplay).
+    // Days  → single date.
+    // Weeks → "MMM/DD/YYYY – MMM/DD/YYYY" range.
+    // Months → period-end date in MMM/DD/YYYY (last day of month).
     if (rangeUnit === "days") {
-      return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateHeader(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
+      return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateDisplay(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
     }
     if (rangeUnit === "weeks") {
       const start = new Date(startDate + "T00:00:00");
       return Array.from({ length: rangeValue }, (_, i) => {
         const wStart = addDays(start, i * 7);
         const wEnd   = addDays(wStart, 4);
-        const s = wStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        const e = wEnd.toLocaleDateString("en-US",   { month: "short", day: "numeric" });
-        return { key: fmtDate(wEnd), periodStart: fmtDate(wStart), endDate: fmtDate(wEnd), label: `${s} – ${e}`, isToday: false, isWeekend: false };
+        const sIso = fmtDate(wStart);
+        const eIso = fmtDate(wEnd);
+        return { key: eIso, periodStart: sIso, endDate: eIso, label: `${fmtDateDisplay(sIso)} – ${fmtDateDisplay(eIso)}`, isToday: false, isWeekend: false };
       });
     }
     const start = new Date(startDate + "T00:00:00");
@@ -470,11 +486,12 @@ function ATSReport() {
       m.setMonth(m.getMonth() + i);
       const firstDay = new Date(m.getFullYear(), m.getMonth(), 1);
       const lastDay  = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      const lastIso = fmtDate(lastDay);
       return {
-        key:         fmtDate(lastDay),
+        key:         lastIso,
         periodStart: fmtDate(firstDay),
-        endDate:     fmtDate(lastDay),
-        label:       m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        endDate:     lastIso,
+        label:       fmtDateDisplay(lastIso),
         isToday:     false,
         isWeekend:   false,
       };
@@ -526,9 +543,6 @@ function ATSReport() {
     const enriched = enrichRowsWithItemMaster(rows).rows;
     setRows(enriched.map(applyPpkMultiplierToRow));
   }, [masterReady, excelData, rows]);
-
-  // PO data comes from PO WIP (tanda_pos) — no separate Xoro sync needed
-  const syncProgress = null;
 
   // mergeRows (row-level) imported from ./ats/merge.ts.
 
@@ -762,8 +776,8 @@ function ATSReport() {
     setActiveSort("negATS");
     // Return the report payload to NavBar so it can route it through
     // the preview modal. null = nothing to preview (no negative rows).
-    return exportNegInven(rows, displayPeriods, atShip, eventIndex);
-  }, [rows, displayPeriods, atShip, eventIndex]);
+    return exportNegInven(rows, displayPeriods, eventIndex);
+  }, [rows, displayPeriods, eventIndex]);
 
   const onAgedInven = useCallback((days: number, category: string) => {
     // Returns "empty" when no rows qualify, otherwise a ReportPayload
@@ -1035,8 +1049,10 @@ function ATSReport() {
   ) : null;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // RENDER — see ats/renderPanel.tsx
-  return atsRenderPanel({
+  // RENDER — see ats/renderPanel.tsx. Wrap the panel in a fragment so we
+  // can also mount the cross-app FavoritesDrawer (T4-5) without touching
+  // the panel's existing layout.
+  const panel = atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
     search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus,
     minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
@@ -1044,7 +1060,7 @@ function ATSReport() {
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,
     uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData,
     setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile,
-    ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError,
+    ordFile, setOrdFile, lastSync,
     hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu,
     summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
@@ -1052,14 +1068,14 @@ function ATSReport() {
     statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
-    cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress,
+    cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey,
     normChanges, setNormChanges, normPendingData, setNormPendingData, normSource, setNormSource,
     applyNormReview, dismissNormReview,
     customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
     dragSku, setDragSku, dragOverSku, setDragOverSku,
     pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
     mergeHistory, setMergeHistory, saveMergeHistory, undoLastMerge, clearMergeAndNavigate,
-    atShip, setAtShip, viewMode, setViewMode, onNegInven, onAgedInven,
+    viewMode, setViewMode, onNegInven, onAgedInven,
     showTotalsRow, setShowTotalsRow,
     showStatsCards, setShowStatsCards,
     explodePpk, setExplodePpk,
@@ -1073,4 +1089,11 @@ function ATSReport() {
     notificationsView,
     masterReady,
   });
+  return (
+    <>
+      {panel}
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
+    </>
+  );
 }

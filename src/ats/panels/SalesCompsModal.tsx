@@ -18,7 +18,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
-import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
+import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
 import { estimateSoMargin, type SoCostInputs } from "../salesCompsSoMargin";
@@ -30,7 +30,17 @@ import {
   type DimTotals,
   type RawSkuAgg,
 } from "../salesCompsAggregate";
-import { downloadSalesCompsWorkbook, type SalesCompsExportInput, type SoRow as ExportSoRow } from "../salesCompsExport";
+import {
+  classifyMasterGrain,
+  firstMasterFor,
+  packSizeFor,
+} from "../salesCompsGrain";
+import {
+  downloadSalesCompsWorkbook,
+  computeSoCatchallRow,
+  type SalesCompsExportInput,
+  type SoRow as ExportSoRow,
+} from "../salesCompsExport";
 import type { ATSRow, ATSSoEvent, ExcelData } from "../types";
 
 function todayIso(): string {
@@ -46,6 +56,41 @@ function isoMinusMonths(iso: string, months: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setMonth(d.getMonth() - months);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function isoShiftDays(iso: string, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Per-SO LY window: ±30 days centered on the SO's cancel date shifted
+// back 12 months. Each SO row in the TY-vs-LY-SOs table compares its
+// open commitment against shipments of the same style inside this
+// window, so two SOs of the same style with different cancel dates
+// produce different LY numbers (instead of every row showing the same
+// full-window style total).
+const SO_LY_WINDOW_DAYS = 30;
+function lyWindowForCancelDate(cancelDate: string): { start: string; end: string } {
+  const anchor = isoMinusMonths(cancelDate, 12);
+  return { start: isoShiftDays(anchor, -SO_LY_WINDOW_DAYS), end: isoShiftDays(anchor, SO_LY_WINDOW_DAYS) };
+}
+// Sum a style's daily LY entries that fall within [winStart, winEnd].
+// The arr is pre-sorted by date so we can break early when we pass the
+// upper bound; a linear scan is fine — per-style arrays carry only the
+// LY-window days for that style and are small in practice.
+function sumLyInWindow(
+  arr: DailyStyleAgg[] | undefined,
+  winStart: string,
+  winEnd: string,
+): { qty: number; rev: number; mrgn: number } {
+  if (!arr) return { qty: 0, rev: 0, mrgn: 0 };
+  let qty = 0, rev = 0, mrgn = 0;
+  for (const e of arr) {
+    if (e.date < winStart) continue;
+    if (e.date > winEnd) break;
+    qty += e.qty; rev += e.totalPrice; mrgn += e.marginAmount;
+  }
+  return { qty, rev, mrgn };
 }
 function fmtUSD(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "—";
@@ -561,14 +606,39 @@ export const SalesCompsModal: React.FC<Props> = ({
       map.set(sku, fresh);
       return fresh;
     };
-    for (const [sku, a] of result.t3) { const r = ensure(sku); r.tyQty += a.qty; r.tyRev += a.totalPrice; r.tyMrgn += a.marginAmount; }
-    for (const [sku, a] of result.ly) { const r = ensure(sku); r.lyQty += a.qty; r.lyRev += a.totalPrice; r.lyMrgn += a.marginAmount; }
+    // fetchSalesAggregates feeds qty in UNIT GRAIN (qty_units = eaches —
+    // see exportSalesFetch.ts:807). The downstream aggregator
+    // (aggregateExplodeAware) expects NATIVE GRAIN (packs for PPK, eaches
+    // for each) so its explode multiplier doesn't double-count. Convert
+    // back here: divide PPK SKU qty by pack_size; each-grain SKUs are a
+    // no-op (pack_size=1). Verified 2026-05-27: every nightly-synced PPK
+    // row has qty_units == qty * pack_size, so dividing eaches by
+    // pack_size cleanly recovers the original pack count.
+    const toNativeGrain = (sku: string, eachesQty: number): number => {
+      const master = firstMasterFor(sku, resolveItemMasterIds, getItemMasterById);
+      const ps = classifyMasterGrain(master) === "ppk" ? packSizeFor(master) : 1;
+      return ps > 1 ? eachesQty / ps : eachesQty;
+    };
+    for (const [sku, a] of result.t3) {
+      const r = ensure(sku);
+      r.tyQty += toNativeGrain(sku, a.qty);
+      r.tyRev += a.totalPrice;
+      r.tyMrgn += a.marginAmount;
+    }
+    for (const [sku, a] of result.ly) {
+      const r = ensure(sku);
+      r.lyQty += toNativeGrain(sku, a.qty);
+      r.lyRev += a.totalPrice;
+      r.lyMrgn += a.marginAmount;
+    }
     for (const [skuId, e] of result.extraBySkuId) {
       const master = getItemMasterById(skuId);
       if (!master?.sku_code) continue; // drop unresolvable rows
       const r = ensure(master.sku_code);
-      r.tyQty += e.t3Qty; r.tyRev += e.t3Total; r.tyMrgn += e.t3Margin;
-      r.lyQty += e.lyQty; r.lyRev += e.lyTotal; r.lyMrgn += e.lyMargin;
+      const ps = classifyMasterGrain(master) === "ppk" ? packSizeFor(master) : 1;
+      const qDiv = ps > 1 ? ps : 1;
+      r.tyQty += e.t3Qty / qDiv; r.tyRev += e.t3Total; r.tyMrgn += e.t3Margin;
+      r.lyQty += e.lyQty / qDiv; r.lyRev += e.lyTotal; r.lyMrgn += e.lyMargin;
     }
     // Fold in open-SO contributions so a forward-looking window still
     // shows non-zero TY in the per-SKU / Style / Category breakdowns.
@@ -600,7 +670,7 @@ export const SalesCompsModal: React.FC<Props> = ({
   // we surface two totals rows (PPK packs vs each) so packs + eaches
   // never sum into a single misleading number. In explode-ON mode or
   // single-grain explode-OFF mode, one combined totals row is correct.
-  const dimTotals = useMemo<DimTotals>(() => totalsForDimRows(tableRows), [tableRows]);
+  const dimTotals = useMemo<DimTotals>(() => totalsForDimRows(tableRows, explodePpk), [tableRows, explodePpk]);
   // Combined totals — used by all explode-ON code paths + as the
   // single-row totals when only one grain is present in explode-OFF
   // mode. Mirrors the old `totals` shape so downstream consumers
@@ -707,10 +777,13 @@ export const SalesCompsModal: React.FC<Props> = ({
       // One row per (style, SO). An SO with multiple SKUs of the
       // same style (e.g. 3 colors of RYO0658 on the same order)
       // collapses to ONE row — sum qty / totalPrice across the
-      // matching SKUs. LY comes from lyRevByStyle (shared across
-      // all SOs of the same style — that's intentional, the user
-      // asked for "same style all colors" matching).
+      // matching SKUs. LY is scoped to a ±30d window around the SO's
+      // cancel date shifted -12mo (per the operator spec): two SOs of
+      // the same style with different cancel dates produce different
+      // LY numbers, rather than every row carrying the same full-window
+      // style total.
       const perStyleSo = new Map<string, SoRow>();
+      const lyDaily = result?.lyDailyByStyle;
       for (const e of enriched) {
         const styleKey = e.style ?? "(no style)";
         const composite = `${styleKey}::${e.s.orderNumber}`;
@@ -721,7 +794,10 @@ export const SalesCompsModal: React.FC<Props> = ({
           existing.tyMrgn += e.tyMrgn;
           continue;
         }
-        const lyEntry = lyRevByStyle.get(styleKey) ?? { qty: 0, rev: 0, mrgn: 0 };
+        const win = lyWindowForCancelDate(e.cancelDate);
+        const lyEntry = e.style
+          ? sumLyInWindow(lyDaily?.get(e.style), win.start, win.end)
+          : { qty: 0, rev: 0, mrgn: 0 };
         perStyleSo.set(composite, {
           kind: "row",
           key: composite,
@@ -766,17 +842,26 @@ export const SalesCompsModal: React.FC<Props> = ({
             // Sum the estimated per-row margins — each row is its own
             // SO, so margins are additive (no double-count).
             tyMrgn: rows.reduce((s, r) => s + r.tyMrgn, 0),
-            lyQty: rows[0].lyQty,    // same style → same LY (no double-count)
-            lyRev: rows[0].lyRev,
-            lyMrgn: rows[0].lyMrgn,
+            // Per-SO LY windows: each row carries its own ±30d slice of
+            // LY shipments for this style. SOs with cancel dates >60d
+            // apart have non-overlapping windows, so the subtotal must
+            // SUM across rows (the old "same style → same LY → take
+            // first" was correct only under the full-window LY rule).
+            // Same-day-or-near-same SOs DO double-count overlapping LY
+            // days here — acceptable tradeoff vs. losing per-row signal.
+            lyQty: rows.reduce((s, r) => s + r.lyQty, 0),
+            lyRev: rows.reduce((s, r) => s + r.lyRev, 0),
+            lyMrgn: rows.reduce((s, r) => s + r.lyMrgn, 0),
           });
         }
       }
     } else if (groupBy === "so") {
       // Default: one row per SO order_number. Multiple SKUs / styles
       // on the same SO collapse — sum qty / totalPrice across them.
-      // LY uses the SET of styles touched by the SO so the comp
-      // covers every style on that order.
+      // LY uses the SET of styles touched by the SO, scoped to a ±30d
+      // window around the SO's cancel date shifted -12mo: two SOs of
+      // the same style with different cancel dates produce different
+      // LY (instead of every row carrying the same full-window total).
       const perOrder = new Map<string, { e: typeof enriched[number]; tyQty: number; tyRev: number; tyMrgn: number; styles: Set<string> }>();
       for (const e of enriched) {
         const cur = perOrder.get(e.s.orderNumber);
@@ -795,11 +880,12 @@ export const SalesCompsModal: React.FC<Props> = ({
           });
         }
       }
+      const lyDaily = result?.lyDailyByStyle;
       for (const { e, tyQty, tyRev, tyMrgn, styles } of perOrder.values()) {
+        const win = lyWindowForCancelDate(e.cancelDate);
         let lyQty = 0, lyRev = 0, lyMrgn = 0;
         for (const st of styles) {
-          const ent = lyRevByStyle.get(st);
-          if (!ent) continue;
+          const ent = sumLyInWindow(lyDaily?.get(st), win.start, win.end);
           lyQty += ent.qty; lyRev += ent.rev; lyMrgn += ent.mrgn;
         }
         out.push({
@@ -852,6 +938,22 @@ export const SalesCompsModal: React.FC<Props> = ({
       }
       out.sort((a, b) => b.tyRev - a.tyRev);
     }
+
+    // Catch-all row: any style in lyRevByStyle that is NOT covered by
+    // a TY SO in the current scope. Without this, the SO TOTAL LY
+    // would silently undercount vs the Customer / Style / Sub-Cat
+    // TOTALs (which already include those styles via the per-style
+    // ship-history match). Pushed between the last meaningful row and
+    // the grand TOTAL in every groupBy variant. Detected by
+    // SO_CATCHALL_KEY in the TOTAL emitters so its LY contribution
+    // folds into the bottom TOTAL row.
+    const tyStyles = new Set<string>();
+    for (const e of enriched) {
+      if (e.style) tyStyles.add(e.style);
+    }
+    const catchall = computeSoCatchallRow(tyStyles, lyRevByStyle);
+    if (catchall) out.push(catchall);
+
     return out;
   }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle, soCostInputs]);
 
@@ -941,10 +1043,18 @@ export const SalesCompsModal: React.FC<Props> = ({
           // contribution still folds under the customer) while making
           // the unresolved chunk visible as its own row in explode-OFF
           // mode — operator can investigate without a silent drop.
-          const skuKey = master?.sku_code ?? `__unresolved:${skuId.slice(0, 8)}`;
+          const skuKey = master?.sku_code ?? "(unknown sku)";
           const row = ensure(entry.customerName, skuKey);
-          row.tyQty += agg.t3.qty; row.tyRev += agg.t3.totalPrice; row.tyMrgn += agg.t3.marginAmount;
-          row.lyQty += agg.ly.qty; row.lyRev += agg.ly.totalPrice; row.lyMrgn += agg.ly.marginAmount;
+          // result.byCustomer.bySku qty is UNIT GRAIN (qty_units = eaches)
+          // — see exportSalesFetch.ts:807. The customer-dim aggregator
+          // (aggregateExplodeAware "customer" branch) expects NATIVE
+          // grain just like rawSkuAggs above; without this divide PPK
+          // rows get pack_size² in explode-ON. See [[ppk-grain-rule-canonical]]
+          // §7 (PR #387 fixed rawSkuAggs; this is the matching path).
+          const ps = classifyMasterGrain(master) === "ppk" ? packSizeFor(master) : 1;
+          const qDiv = ps > 1 ? ps : 1;
+          row.tyQty += agg.t3.qty / qDiv; row.tyRev += agg.t3.totalPrice; row.tyMrgn += agg.t3.marginAmount;
+          row.lyQty += agg.ly.qty / qDiv; row.lyRev += agg.ly.totalPrice; row.lyMrgn += agg.ly.marginAmount;
         }
       }
     }
@@ -983,6 +1093,11 @@ export const SalesCompsModal: React.FC<Props> = ({
         // Cheap — one extra batched ip_customer_master lookup, no
         // extra sales-history round trip.
         needByCustomer:    true,
+        // Pull per-(style, day) LY breakdown so the SO view can scope
+        // each row's LY column to a ±30d window around that SO's
+        // cancel date shifted back 12 months — instead of every row
+        // showing the same full-window style total.
+        needLyDailyByStyle: true,
       });
       setResult(r);
     } catch (e: any) {
@@ -1028,7 +1143,7 @@ export const SalesCompsModal: React.FC<Props> = ({
         continue;
       }
       const dataRows = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
-      const dataTotals = totalsForDimRows(dataRows);
+      const dataTotals = totalsForDimRows(dataRows, explodePpk);
       viewSections.push({ kind: "dim", dim, dataRows, dataTotals });
     }
 
@@ -1050,12 +1165,14 @@ export const SalesCompsModal: React.FC<Props> = ({
   };
 
 
+  // Each scope facet lists the actual selected values joined by "/", matching
+  // the export's buildScopeText. Operator wanted the names visible, not a count.
   const scopeLine = [
-    customer.length > 0 && `customer ${customer.length === 1 ? customer[0] : `${customer.length} selected`}`,
-    selStores.length > 0 && `stores ${selStores.join("/")}`,
-    selCategories.length > 0 && `categories ${selCategories.length}`,
-    selSubCategories.length > 0 && `sub-cats ${selSubCategories.length}`,
-    selStyles.length > 0 && `styles ${selStyles.length}`,
+    customer.length        > 0 && `customer ${customer.join("/")}`,
+    selStores.length       > 0 && `stores ${selStores.join("/")}`,
+    selCategories.length   > 0 && `categories ${selCategories.join("/")}`,
+    selSubCategories.length> 0 && `sub-cats ${selSubCategories.join("/")}`,
+    selStyles.length       > 0 && `styles ${selStyles.join("/")}`,
   ].filter(Boolean).join(" · ") || "all";
 
   return (
@@ -1235,11 +1352,13 @@ export const SalesCompsModal: React.FC<Props> = ({
                   "SO";
                 return (
                   <div key={dim} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {/* Section header — TY vs LY SOs. 14pt bold,
+                    {/* Section header — TY SO Detail. 14pt bold,
                         primary text color. Replaces the prior 11pt
                         uppercase mini-header. Diagnostics box + table
-                        remain unchanged. */}
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>TY vs LY SOs</div>
+                        remain unchanged. LY columns removed from this
+                        table per operator request — the LY comparison
+                        already lives in the Totals block above. */}
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>TY SO Detail</div>
                     {soDiag && (
                       <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.4, padding: "6px 10px", background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 6 }}>
                         <strong style={{ color: C.text }}>Filter breakdown:</strong>{" "}
@@ -1260,8 +1379,10 @@ export const SalesCompsModal: React.FC<Props> = ({
               const built = groupedRowsFor(dim, rawSkuAggs, customerRawAggs, explodePpk);
               // Per-dim totals — used to decide whether to render two
               // grain-split totals rows (mixed grain in explode-OFF
-              // mode) or a single combined totals row.
-              const builtTotals = totalsForDimRows(built);
+              // mode) or a single combined totals row. With Explode ON,
+              // qty is uniformly in eaches and one TOTAL is correct;
+              // totalsForDimRows forces hasMixed=false in that mode.
+              const builtTotals = totalsForDimRows(built, explodePpk);
               return (
                 <CompsTable
                   key={dim}
@@ -1440,22 +1561,19 @@ function SoCompsTable({
 }): React.ReactElement {
   // Grand total across the data rows. Subtotal rows are skipped (they
   // already sum the rows above them — adding them would double-count).
-  // LY is deduped by style key so a single style spanning N SOs only
-  // contributes once, matching the per-style subtotal math.
+  // Each row's LY is now a per-SO ±30d window, so totals SUM across
+  // rows rather than de-duping by style key. Overlapping windows (same
+  // style, near-same cancel dates) double-count their overlapping LY
+  // days — acceptable tradeoff vs. losing per-row signal in the table.
+  // The LY catch-all subtotal (SO_CATCHALL_KEY) is no longer tracked
+  // here since the table is TY-only — the dim sections + Totals block
+  // above still surface the LY context the operator needs.
   const dataRows = rows.filter((r): r is Extract<SoRow, { kind: "row" }> => r.kind === "row");
-  const seenStylesLy = new Set<string>();
-  let totalTyQty = 0, totalTyRev = 0, totalLyQty = 0, totalLyRev = 0;
+  let totalTyQty = 0, totalTyRev = 0;
   for (const r of dataRows) {
     totalTyQty += r.tyQty;
     totalTyRev += r.tyRev;
-    const styleKey = r.style ?? r.key;
-    if (!seenStylesLy.has(styleKey)) {
-      totalLyQty += r.lyQty;
-      totalLyRev += r.lyRev;
-      seenStylesLy.add(styleKey);
-    }
   }
-  const totalGrowth = fmtGrowth(totalTyRev, totalLyRev);
 
   return (
     <div style={{ flex: 1, minHeight: 280, maxHeight: "48vh", overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
@@ -1474,9 +1592,6 @@ function SoCompsTable({
             )}
             <th style={th("right")}>TY Qty</th>
             <th style={th("right")}>TY Open SO $</th>
-            <th style={th("right")}>LY Qty</th>
-            <th style={th("right")}>LY Ship $</th>
-            <th style={th("right")}>Δ Rev</th>
           </tr>
         </thead>
         <tbody>
@@ -1487,13 +1602,9 @@ function SoCompsTable({
                   <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), color: C.accent, fontWeight: 600 }}>{r.label}</td>
                   <td style={{ ...td("right"), fontWeight: 600 }}>{r.tyQty.toLocaleString()}</td>
                   <td style={{ ...td("right"), fontWeight: 600 }}>{fmtUSD(r.tyRev)}</td>
-                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{r.lyQty.toLocaleString()}</td>
-                  <td style={{ ...td("right", C.textMuted), fontWeight: 600 }}>{fmtUSD(r.lyRev)}</td>
-                  <td style={{ ...td("right"), fontWeight: 600, color: fmtGrowth(r.tyRev, r.lyRev).positive ? C.green : C.red }}>{fmtGrowth(r.tyRev, r.lyRev).text}</td>
                 </tr>
               );
             }
-            const growth = fmtGrowth(r.tyRev, r.lyRev);
             return (
               <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
                 {showSoMeta ? (
@@ -1508,14 +1619,11 @@ function SoCompsTable({
                 )}
                 <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                 <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
-                <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
-                <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
-                <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
               </tr>
             );
           })}
           {dataRows.length === 0 && (
-            <tr><td colSpan={showSoMeta ? 9 : 6} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>
+            <tr><td colSpan={showSoMeta ? 6 : 3} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>
               No open SOs match this scope.
             </td></tr>
           )}
@@ -1524,9 +1632,6 @@ function SoCompsTable({
               <td colSpan={showSoMeta ? 4 : 1} style={{ ...td(), fontWeight: 700, color: C.accent }}>TOTAL</td>
               <td style={{ ...td("right"), fontWeight: 700 }}>{totalTyQty.toLocaleString()}</td>
               <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(totalTyRev)}</td>
-              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{totalLyQty.toLocaleString()}</td>
-              <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(totalLyRev)}</td>
-              <td style={{ ...td("right"), fontWeight: 700, color: totalGrowth.positive ? C.green : C.red }}>{totalGrowth.text}</td>
             </tr>
           )}
         </tbody>

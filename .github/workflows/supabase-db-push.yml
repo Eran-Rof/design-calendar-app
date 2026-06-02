@@ -1,0 +1,193 @@
+name: Supabase DB push
+
+# Auto-apply new migrations to the linked Supabase project on every merge to
+# main. Only fires when files under supabase/migrations/ change, so docs-only
+# or src/ commits don't trigger it.
+#
+# Manual trigger: GitHub Actions UI → "Supabase DB push" → Run workflow.
+#
+# Required secrets (set in repo Settings → Secrets and variables → Actions):
+#   - SUPABASE_ACCESS_TOKEN  : Personal access token from supabase.com/dashboard/account/tokens
+#   - SUPABASE_PROJECT_REF   : The project ref (the random string in your Supabase URL)
+#   - SUPABASE_DB_PASSWORD   : Database password (visible in Project Settings → Database)
+#
+# First-time setup: see docs/tangerine/MIGRATIONS.md § Bootstrap.
+#
+# Troubleshooting auth failures:
+#   The "Verify DB connectivity" step (below) runs a lightweight psql
+#   connection before attempting migrations. If you see SQLSTATE 28P01
+#   (password authentication failed), the SUPABASE_DB_PASSWORD secret
+#   has drifted from the actual Supabase project password.
+#   Fix: Project Settings → Database → reveal or reset the password, then
+#   update the SUPABASE_DB_PASSWORD repo secret to match exactly.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "supabase/migrations/**"
+      - ".github/workflows/supabase-db-push.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list pending migrations only, do not apply)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Install psql client (for connectivity probe)
+        run: sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Verify required secrets present
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          if [ -z "${SUPABASE_ACCESS_TOKEN}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN secret is not set."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SUPABASE_PROJECT_REF }}" ]; then
+            echo "::error::SUPABASE_PROJECT_REF secret is not set."
+            exit 1
+          fi
+          if [ -z "${SUPABASE_DB_PASSWORD}" ]; then
+            echo "::error::SUPABASE_DB_PASSWORD secret is not set."
+            exit 1
+          fi
+          echo "All required secrets present."
+
+      - name: Sanitize secrets (strip whitespace + report lengths)
+        id: sanitize
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          # Strip ALL whitespace (incl. newlines, tabs) from secrets — a stray
+          # trailing newline from copy-paste makes the CLI fail with cryptic
+          # errors. PROJECT_REF already had this; DB_PASSWORD did not.
+          REF_CLEAN="$(printf '%s' "$PROJECT_REF" | tr -d '[:space:]')"
+          PWD_CLEAN="$(printf '%s' "$DB_PASSWORD" | tr -d '[:space:]')"
+
+          if [ -z "$REF_CLEAN" ]; then
+            echo "::error::SUPABASE_PROJECT_REF is empty after stripping whitespace."
+            exit 1
+          fi
+          if [ -z "$PWD_CLEAN" ]; then
+            echo "::error::SUPABASE_DB_PASSWORD is empty after stripping whitespace."
+            exit 1
+          fi
+
+          # Report sanitized lengths so the operator can verify against
+          # their password manager. Never echo the values themselves.
+          echo "SUPABASE_PROJECT_REF length (sanitized) = ${#REF_CLEAN}"
+          echo "SUPABASE_DB_PASSWORD length (sanitized) = ${#PWD_CLEAN}"
+
+          if [ "${#PROJECT_REF}" != "${#REF_CLEAN}" ]; then
+            echo "::warning::SUPABASE_PROJECT_REF contained whitespace that was stripped (raw length ${#PROJECT_REF}, sanitized length ${#REF_CLEAN})."
+          fi
+          if [ "${#DB_PASSWORD}" != "${#PWD_CLEAN}" ]; then
+            echo "::warning::SUPABASE_DB_PASSWORD contained whitespace that was stripped (raw length ${#DB_PASSWORD}, sanitized length ${#PWD_CLEAN}). This is one likely cause of the SASL 28P01 failures."
+          fi
+
+          # Persist sanitized values for downstream steps. GitHub auto-masks
+          # secret-matching values, so they stay redacted in logs.
+          {
+            echo "ref<<EOF"
+            echo "$REF_CLEAN"
+            echo "EOF"
+            echo "pwd<<EOF"
+            echo "$PWD_CLEAN"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify DB connectivity (early-fail with clearer error)
+        env:
+          REF: ${{ steps.sanitize.outputs.ref }}
+          PGPASSWORD: ${{ steps.sanitize.outputs.pwd }}
+        run: |
+          HOST="aws-1-us-west-1.pooler.supabase.com"
+          USER="postgres.${REF}"
+          DB="postgres"
+          PORT="6543"
+
+          echo "Probing $HOST:$PORT as $USER (password from sanitized secret)…"
+
+          if psql "postgresql://${USER}@${HOST}:${PORT}/${DB}?connect_timeout=10" \
+                  -w -c "SELECT 1 AS connectivity_probe;" >/dev/null 2>&1; then
+            echo "✓ DB connectivity verified."
+          else
+            PSQL_OUT="$(psql "postgresql://${USER}@${HOST}:${PORT}/${DB}?connect_timeout=10" -w -c "SELECT 1" 2>&1 || true)"
+            echo "::error::DB connectivity probe FAILED."
+            echo "::error::Raw output: $PSQL_OUT"
+            if echo "$PSQL_OUT" | grep -q "28P01\|password authentication failed"; then
+              echo "::error::SQLSTATE 28P01 — the SUPABASE_DB_PASSWORD secret does not match the project password."
+              echo "::error::Fix: Supabase Dashboard → Project Settings → Database → reveal or reset the password, then update the SUPABASE_DB_PASSWORD repo secret to match EXACTLY (no trailing newline)."
+            elif echo "$PSQL_OUT" | grep -q "Name or service not known\|could not translate host name"; then
+              echo "::error::Hostname lookup failed — the project ref ($REF) may be wrong or the project may have been moved to a different region."
+            elif echo "$PSQL_OUT" | grep -q "Connection refused\|timeout"; then
+              echo "::error::Network connectivity issue — verify the project ref is correct and the project is not paused (Supabase free tier pauses after inactivity)."
+            fi
+            exit 1
+          fi
+
+      - name: Link Supabase project
+        env:
+          REF: ${{ steps.sanitize.outputs.ref }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ steps.sanitize.outputs.pwd }}
+        run: |
+          echo "Linking to project ref of length ${#REF} (value masked)."
+          supabase link --project-ref "$REF"
+
+      - name: List migration state (before)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ steps.sanitize.outputs.pwd }}
+        run: supabase migration list --linked
+        continue-on-error: true
+
+      - name: Apply pending migrations
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ steps.sanitize.outputs.pwd }}
+        run: supabase db push --linked --include-all
+
+      - name: Dry-run summary
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          echo "Dry-run mode: pending migrations were listed above but not applied."
+          echo "Re-run without dry_run to apply."
+
+      - name: List migration state (after)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ steps.sanitize.outputs.pwd }}
+        run: supabase migration list --linked
+        continue-on-error: true
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✓ supabase db push completed successfully."
+          else
+            echo "✗ supabase db push failed. Inspect logs above + run \`supabase migration repair --status applied <version>\` if a migration was partially applied."
+          fi

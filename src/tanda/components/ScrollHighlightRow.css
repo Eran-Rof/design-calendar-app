@@ -1,0 +1,76 @@
+/* src/tanda/components/ScrollHighlightRow.css
+ *
+ * Styling for the universal row-click primitive. Three concerns:
+ *
+ *  1. `.tanda-row--clickable` — hover affordance for any clickable <tr>.
+ *     Subtle bg shift on hover, pointer cursor.
+ *
+ *  2. `.tanda-row--highlighted` — last-clicked row gets a translucent blue
+ *     background that fades to transparent over `--tanda-row-fade-ms` (the
+ *     fade duration is a CSS custom property so the JS wrapper can override
+ *     it per-instance, e.g. tests set 0 to skip the animation).
+ *
+ *  3. The keyframe is keyed off `data-highlight-tick` so it RE-PLAYS each
+ *     time the wrapper bumps the tick (click again, scroll back into view).
+ *     CSS animations only replay when something changes, so we cycle
+ *     between `tanda-fade-a` and `tanda-fade-b` via attribute selectors —
+ *     odd ticks use one, even ticks the other.
+ */
+
+.tanda-row--clickable {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.tanda-row--clickable:hover {
+  background-color: rgba(59, 130, 246, 0.08);
+}
+
+.tanda-row--clickable:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+.tanda-row--disabled {
+  cursor: default;
+}
+
+/* The fade animation. The starting colour is a translucent blue
+ * (rgba(59,130,246,0.28) — matches Tangerine's primary blue). The
+ * animation drops opacity to 0 over the configured duration. */
+@keyframes tanda-row-fade-a {
+  0%   { background-color: rgba(59, 130, 246, 0.28); }
+  100% { background-color: rgba(59, 130, 246, 0); }
+}
+@keyframes tanda-row-fade-b {
+  0%   { background-color: rgba(59, 130, 246, 0.28); }
+  100% { background-color: rgba(59, 130, 246, 0); }
+}
+
+/* Apply the fade. Odd ticks → animation A; even ticks → animation B.
+ * Cycling between the two restarts the animation even when the tick
+ * value changes by 1. The :not selector covers tick=0 (initial state)
+ * which is treated as "no highlight". */
+.tanda-row--highlighted[data-highlight-tick="1"],
+.tanda-row--highlighted[data-highlight-tick="3"],
+.tanda-row--highlighted[data-highlight-tick="5"],
+.tanda-row--highlighted[data-highlight-tick="7"],
+.tanda-row--highlighted[data-highlight-tick="9"] {
+  animation: tanda-row-fade-a var(--tanda-row-fade-ms, 2000ms) ease-out forwards;
+}
+
+.tanda-row--highlighted[data-highlight-tick="2"],
+.tanda-row--highlighted[data-highlight-tick="4"],
+.tanda-row--highlighted[data-highlight-tick="6"],
+.tanda-row--highlighted[data-highlight-tick="8"],
+.tanda-row--highlighted[data-highlight-tick="10"] {
+  animation: tanda-row-fade-b var(--tanda-row-fade-ms, 2000ms) ease-out forwards;
+}
+
+/* Fallback for tick values beyond the explicit ladder above — apply
+ * animation A. The ladder up to 10 covers the realistic "click the same
+ * row 10 times in a row" case; past that the animation may not visibly
+ * replay if the parity stays the same, which is acceptable. */
+.tanda-row--highlighted:not([data-highlight-tick="0"]):not([data-highlight-tick="1"]):not([data-highlight-tick="2"]):not([data-highlight-tick="3"]):not([data-highlight-tick="4"]):not([data-highlight-tick="5"]):not([data-highlight-tick="6"]):not([data-highlight-tick="7"]):not([data-highlight-tick="8"]):not([data-highlight-tick="9"]):not([data-highlight-tick="10"]) {
+  animation: tanda-row-fade-a var(--tanda-row-fade-ms, 2000ms) ease-out forwards;
+}

@@ -23,6 +23,13 @@ import {
   downloadMemoryFile,
 } from "./memoryFile";
 import { MentionAutocomplete, expandMentionsForServer } from "./MentionAutocomplete";
+import {
+  fileToAttachment,
+  imagesFromDataTransferItems,
+  revokeAttachmentPreviews,
+  MAX_ATTACHMENTS_PER_TURN,
+  type ImageAttachment,
+} from "./imageAttachments";
 
 // Slide-in chat panel anchored to the right edge. Built as a standalone
 // component so any grid (ATS today, others later) can drop it in by
@@ -87,6 +94,8 @@ interface ChatMessage {
   /** Transient state used by the Copy button to flash "Copied" for
    *  ~1.4s after a successful clipboard write. */
   justCopied?: boolean;
+  /** Object-URL previews of images attached to this (user) message. */
+  attachmentPreviews?: string[];
   pending?: boolean;
   error?: boolean;
   // Cache hit metadata — surfaced as a small "cached Xm ago · Ask fresh ↻"
@@ -196,6 +205,43 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
   // before the question hits Claude. Survives across edits but
   // tokens not present in the final text are pruned at send time.
   const mentionMapRef = useRef<Map<string, { id: string; type: "customer" | "style"; label: string }>>(new Map());
+
+  // Vision attachments staged for the NEXT send (P11-vision / PR #218).
+  // Cleared after submit OR when removed individually. Object URLs are
+  // revoked on unmount + when sent. Capped at MAX_ATTACHMENTS_PER_TURN.
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  // Drag-over visual: lights up the input area when files are dragged over.
+  const [dragActive, setDragActive] = useState(false);
+
+  async function addAttachments(files: File[]) {
+    if (files.length === 0) return;
+    if (attachments.length >= MAX_ATTACHMENTS_PER_TURN) {
+      setAttachmentError(`At most ${MAX_ATTACHMENTS_PER_TURN} images per turn.`);
+      return;
+    }
+    const remainingSlots = MAX_ATTACHMENTS_PER_TURN - attachments.length;
+    const toProcess = files.slice(0, remainingSlots);
+    setAttachmentError(null);
+    try {
+      const built = await Promise.all(toProcess.map(f => fileToAttachment(f)));
+      setAttachments(prev => [...prev, ...built]);
+    } catch (e) {
+      setAttachmentError(String((e as Error).message || e));
+    }
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments(prev => {
+      const out = prev.slice();
+      const removed = out.splice(idx, 1);
+      revokeAttachmentPreviews(removed);
+      return out;
+    });
+  }
+
+  // Free any in-flight object URLs on unmount so we don't leak.
+  useEffect(() => () => { revokeAttachmentPreviews(attachments); /* eslint-disable-next-line */ }, []);
   // Empty array = "not loaded / nothing to show", in which case we
   // fall back to the static samplePrompts prop.
   const [popularPrompts, setPopularPrompts] = useState<string[]>([]);
@@ -390,13 +436,24 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
    */
   async function send(text: string, opts?: { baseMessages?: ChatMessage[] }) {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    // Vision (PR #218): allow an image-only turn (no text) to send with a
+    // sensible default question. Attachments only apply to a fresh turn,
+    // not to a history-replay (opts.baseMessages).
+    const hasAttachments = !opts?.baseMessages && attachments.length > 0;
+    if (busy) return;
+    if (!trimmed && !hasAttachments) return;
+    const effectiveText = trimmed || (hasAttachments ? "What's in this image?" : "");
+    const sendAttachments = hasAttachments ? attachments : [];
+    if (hasAttachments) { setAttachments([]); setAttachmentError(null); }
 
     let baseMessages: ChatMessage[];
     if (opts?.baseMessages) {
       baseMessages = opts.baseMessages;
     } else {
-      const userMsg: ChatMessage = { id: genId(), role: "user", text: trimmed };
+      const userMsg: ChatMessage = {
+        id: genId(), role: "user", text: effectiveText,
+        ...(sendAttachments.length > 0 ? { attachmentPreviews: sendAttachments.map(a => a.previewUrl) } : {}),
+      };
       baseMessages = [...messages, userMsg];
     }
     const pendingMsg: ChatMessage = { id: genId(), role: "assistant", text: "Thinking…", pending: true };
@@ -431,7 +488,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       // the displayed user bubble keeps the clean `@Burlington` token.
       // The AI sees "@Burlington (customer_id=abc123)" and uses the
       // resolved id directly instead of round-tripping through find_customer.
-      const expandedQuestion = expandMentionsForServer(trimmed, mentionMapRef.current);
+      const expandedQuestion = expandMentionsForServer(effectiveText, mentionMapRef.current);
       const expandedHistory = history.map(h =>
         h.role === "user" ? { ...h, text: expandMentionsForServer(h.text, mentionMapRef.current) } : h,
       );
@@ -448,6 +505,10 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           // parameter.
           user_id: userId,
           app_id: appId || null,
+          // Vision (PR #218): only present on a turn with staged images.
+          ...(sendAttachments.length > 0
+            ? { attachments: sendAttachments.map(a => ({ media_type: a.media_type, data: a.data })) }
+            : {}),
         }),
       });
       if (!resp.ok || !resp.body) {
@@ -952,6 +1013,24 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                 opacity: m.pending ? 0.7 : 1,
               }}
             >
+              {/* Vision (PR #218): show attached-image thumbnails ABOVE the
+                  text on a user bubble — the operator usually pastes the
+                  image first, then types the question. */}
+              {m.role === "user" && m.attachmentPreviews && m.attachmentPreviews.length > 0 && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                  {m.attachmentPreviews.map((url, i) => (
+                    <img
+                      key={i}
+                      src={url}
+                      alt=""
+                      style={{
+                        width: 64, height: 64, objectFit: "cover",
+                        borderRadius: 4, border: "1px solid rgba(255,255,255,0.25)",
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
               {m.role === "assistant" && !m.pending && !m.error
                 ? <RenderedMessage text={m.text} />
                 : m.role === "user" && editingUserId === m.id
@@ -1304,11 +1383,51 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           ))}
         </div>
 
-        <div style={{
-          padding: 12,
-          borderTop: "1px solid #1E293B",
-          background: "#0F172A",
-        }}>
+        <div
+          style={{
+            padding: 12,
+            borderTop: "1px solid #1E293B",
+            background: dragActive ? "#1E40AF22" : "#0F172A",
+            transition: "background 0.1s",
+          }}
+          onDragOver={e => {
+            if (e.dataTransfer?.types?.includes("Files")) {
+              e.preventDefault();
+              setDragActive(true);
+            }
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={e => {
+            e.preventDefault();
+            setDragActive(false);
+            const files = imagesFromDataTransferItems(e.dataTransfer?.items);
+            if (files.length > 0) addAttachments(files);
+          }}
+        >
+          {/* Vision (PR #218): staged-attachment thumbnail strip + error. */}
+          {attachments.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              {attachments.map((a, i) => (
+                <div key={`${a.name}-${i}`} style={{
+                  position: "relative", width: 56, height: 56,
+                  background: "#1E293B", border: "1px solid #334155",
+                  borderRadius: 6, overflow: "hidden",
+                }}>
+                  <img src={a.previewUrl} alt={a.name} title={`${a.name} · ${(a.size / 1024).toFixed(0)} KB`}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <button type="button" onClick={() => removeAttachment(i)} title="Remove attachment"
+                    style={{
+                      position: "absolute", top: 2, right: 2, width: 16, height: 16, lineHeight: "14px",
+                      background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: 999,
+                      cursor: "pointer", fontSize: 11, padding: 0,
+                    }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachmentError && (
+            <div style={{ color: "#FCA5A5", fontSize: 11, marginBottom: 6 }}>{attachmentError}</div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 1, position: "relative" }}>
               {/* @mention autocomplete: parses @ / # tokens around the
@@ -1350,7 +1469,14 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                 }}
                 onKeyUp={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
                 onClick={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
-                placeholder="Ask anything ROF related… (@ for customer, # for style)"
+                onPaste={e => {
+                  // Vision (PR #218): a pasted screenshot becomes an attachment.
+                  const files = imagesFromDataTransferItems(e.clipboardData?.items);
+                  if (files.length > 0) { e.preventDefault(); addAttachments(files); }
+                }}
+                placeholder={attachments.length > 0
+                  ? "Ask about this image, or hit Enter…"
+                  : "Ask anything ROF related… (@ customer, # style, paste a screenshot)"}
                 rows={2}
                 disabled={busy}
                 style={{
@@ -1369,16 +1495,16 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
             </div>
             <button
               onClick={() => send(input)}
-              disabled={busy || !input.trim()}
+              disabled={busy || (!input.trim() && attachments.length === 0)}
               style={{
-                background: busy || !input.trim() ? "#1E293B" : "#3B82F6",
-                color: busy || !input.trim() ? "#64748B" : "#fff",
+                background: busy || (!input.trim() && attachments.length === 0) ? "#1E293B" : "#3B82F6",
+                color: busy || (!input.trim() && attachments.length === 0) ? "#64748B" : "#fff",
                 border: "none",
                 borderRadius: 8,
                 padding: "0 14px",
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: busy || !input.trim() ? "not-allowed" : "pointer",
+                cursor: busy || (!input.trim() && attachments.length === 0) ? "not-allowed" : "pointer",
                 fontFamily: "inherit",
               }}
             >

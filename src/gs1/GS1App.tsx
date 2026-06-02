@@ -15,7 +15,10 @@ import LabelTemplatesPanel from "./panels/LabelTemplatesPanel";
 import ExceptionsPanel from "./panels/ExceptionsPanel";
 import NotificationsPage from "../components/notifications/NotificationsPage";
 import NotificationsShell from "../components/notifications/NotificationsShell";
+import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import { supabaseClient } from "../utils/supabase";
+// Tangerine P10-5 — Top-bar entity switcher.
+import EntitySwitcher from "../components/EntitySwitcher";
 
 function readPlmUserId(): string | null {
   try {
@@ -69,6 +72,10 @@ export default function GS1App() {
           appFilter="gs1"
         />
       )}
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
     </div>
   );
 }

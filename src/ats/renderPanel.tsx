@@ -1,18 +1,18 @@
 import React, { useMemo, useState } from "react";
 import S from "./styles";
 import { StatCard } from "./StatCard";
-import { fmtDate, fmtDateShort, fmtDateDisplay, fmtDateHeader, isToday, isWeekend, getQtyColor, getQtyBg } from "./helpers";
+import { fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQtyBg } from "./helpers";
 import { StatsRow } from "./panels/StatsRow";
 import { MergeConfirmModal } from "./panels/MergeConfirmModal";
 import { UploadWarningsModal } from "./panels/UploadWarningsModal";
 import { NormalizationReviewModal } from "./panels/NormalizationReviewModal";
-import { UploadProgressOverlay, SuccessToast, SyncErrorModal, UploadErrorModal } from "./panels/StatusOverlays";
+import { UploadProgressOverlay, SuccessToast, UploadErrorModal } from "./panels/StatusOverlays";
 import { UploadModal } from "./panels/UploadModal";
 import { SummaryContextMenu, CellContextMenu } from "./panels/ContextMenus";
 import { SOLineItemsModal, type SOLineItem } from "./panels/SOLineItemsModal";
 import { resolveItemMasterIds, getItemMasterById } from "./itemMasterLookup";
 import { Pagination } from "./panels/Pagination";
-import { NavBar, SyncProgressBanner } from "./panels/NavBar";
+import { NavBar } from "./panels/NavBar";
 import { Toolbar } from "./panels/Toolbar";
 import { GridTable } from "./panels/GridTable";
 import { GridErrorBoundary } from "./panels/GridErrorBoundary";
@@ -23,6 +23,7 @@ import type { ReportPayload } from "./reportPayload";
 import type { AgedInvenResult } from "./exportAgedInven";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
+import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import type { NormChange } from "./normalize";
 
 // Functional-updater-aware setter, matches the shape produced by ATS.tsx's `mk()`
@@ -83,7 +84,6 @@ interface ATSDerivedCtx {
   totalSKUs: number;
   totalPoQty: number;
   totalSoQty: number;
-  syncProgress: { step: string; pct: number; log: string[] } | null;
   // Drag state (plain useState, not reducer)
   dragSku: string | null;
   setDragSku: (v: string | null) => void;
@@ -107,13 +107,13 @@ interface ATSDerivedCtx {
   exportToExcel: (
     rows: ATSRow[],
     periods: Array<{ endDate: string; label: string }>,
-    atShip: boolean,
     hiddenColumns: string[],
     totals?: import("./computeTotals").GridTotals | null,
     options?: import("./panels/ExportOptionsModal").ExportOptions,
     eventIndex?: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null,
     salesAggregates?: import("./exportSalesFetch").SalesFetchResult,
     explodePpk?: boolean,
+    customerSoMap?: Map<string, { qty: number; soPrice: number }>,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
@@ -143,9 +143,9 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, syncing, syncStatus, lastSync, syncError, setSyncError, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, syncProgress, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
-  atShip, setAtShip, viewMode, setViewMode, onNegInven, onAgedInven,
+  viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
   showStatsCards, setShowStatsCards,
   explodePpk, setExplodePpk,
@@ -319,7 +319,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         exportToExcel={exportToExcel}
         filtered={sortedFiltered}
         displayPeriods={displayPeriods}
-        atShip={atShip}
         hiddenColumns={hiddenColumns ?? []}
         showTotalsRow={showTotalsRow ?? false}
         eventIndex={eventIndex}
@@ -368,7 +367,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         gridStart={startDate}
         gridEnd={dates.length > 0 ? dates[dates.length - 1] : undefined}
       />
-      <SyncProgressBanner syncProgress={syncProgress} />
       <UnmatchedBanner
         unmatchedRows={unmatchedRows}
         // The banner is only "ready" once the master-aware enrichment
@@ -450,7 +448,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           customerDropOpen={customerDropOpen} setCustomerDropOpen={setCustomerDropOpen}
           customerSearch={customerSearch} setCustomerSearch={setCustomerSearch}
           collapseLevel={collapseLevel} setCollapseLevel={setCollapseLevel!}
-          atShip={atShip} setAtShip={setAtShip}
           viewMode={viewMode ?? "ats"} setViewMode={setViewMode!}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
           explodePpk={explodePpk ?? true} setExplodePpk={setExplodePpk!}
@@ -487,7 +484,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             dragSku={dragSku} setDragSku={setDragSku}
             dragOverSku={dragOverSku} setDragOverSku={setDragOverSku}
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
-            todayKey={todayKey} atShip={atShip} viewMode={viewMode ?? "ats"}
+            todayKey={todayKey} viewMode={viewMode ?? "ats"}
             showTotalsRow={showTotalsRow}
             explodePpk={explodePpk ?? true}
             freezeKey={freezeKey ?? null}
@@ -539,7 +536,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
 
       <UploadProgressOverlay uploadProgress={uploadProgress} cancelUpload={cancelUpload} />
       <SuccessToast uploadSuccess={uploadSuccess} setUploadSuccess={setUploadSuccess} />
-      <SyncErrorModal syncError={syncError} setSyncError={setSyncError} />
       <UploadErrorModal uploadError={uploadError} setUploadError={setUploadError} />
 
       <UploadModal
@@ -557,6 +553,9 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         commitMerge={commitMerge}
         setPendingMerge={setPendingMerge}
       />
+
+      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
+      <GlobalSearchPaletteAuto />
     </div>
   );
 }

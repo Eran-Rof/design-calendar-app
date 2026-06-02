@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Row {
   id: string;
@@ -45,7 +48,7 @@ export default function InternalDiversity() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reviewer }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -56,10 +59,27 @@ export default function InternalDiversity() {
           <h2 style={{ margin: 0, fontSize: 22 }}>Diversity profiles</h2>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Verify vendor-submitted diversity certifications.</div>
         </div>
-        <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} />
-          Only unverified
-        </label>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} />
+            Only unverified
+          </label>
+          <ExportButton
+            rows={rows.map((r) => ({ ...r, business_types: (r.business_type || []).join("; ") })) as unknown as Array<Record<string, unknown>>}
+            filename="diversity-profiles"
+            sheetName="Diversity"
+            columns={[
+              { key: "vendor_name",            header: "Vendor" },
+              { key: "business_types",         header: "Business types" },
+              { key: "certifying_body",        header: "Certifying body" },
+              { key: "certification_number",   header: "Certification #" },
+              { key: "certification_expiry",   header: "Expiry",       format: "date" },
+              { key: "verified",               header: "Verified" },
+              { key: "verified_at",            header: "Verified at",  format: "datetime" },
+              { key: "verified_by",            header: "Verified by" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>

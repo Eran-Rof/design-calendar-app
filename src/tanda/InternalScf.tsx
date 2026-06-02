@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Program {
   id: string;
@@ -80,11 +83,11 @@ export default function InternalScf() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approved_amount: Number(approved) }),
       });
-      if (!resp.ok) { alert(await resp.text()); return; }
+      if (!resp.ok) { notify(await resp.text(), "error"); return; }
     } else {
-      if (!confirm("Confirm disbursement has been made?")) return;
+      if (!(await confirmDialog("Confirm disbursement has been made?"))) return;
       const resp = await fetch(`/api/internal/scf/requests/${r.id}/fund`, { method: "PUT" });
-      if (!resp.ok) { alert(await resp.text()); return; }
+      if (!resp.ok) { notify(await resp.text(), "error"); return; }
     }
     await load();
   }
@@ -95,7 +98,7 @@ export default function InternalScf() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: next }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -145,14 +148,35 @@ export default function InternalScf() {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Requests</h3>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-          <option value="requested">Pending approval</option>
-          <option value="approved">Approved (needs funding)</option>
-          <option value="funded">Funded</option>
-          <option value="repaid">Repaid</option>
-          <option value="rejected">Rejected</option>
-          <option value="">All</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
+            <option value="requested">Pending approval</option>
+            <option value="approved">Approved (needs funding)</option>
+            <option value="funded">Funded</option>
+            <option value="repaid">Repaid</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <ExportButton
+            rows={requests as unknown as Array<Record<string, unknown>>}
+            filename="scf-requests"
+            sheetName="SCF Requests"
+            columns={[
+              { key: "requested_at",        header: "Requested",      format: "datetime" },
+              { key: "vendor_id",           header: "Vendor ID" },
+              { key: "program_id",          header: "Program ID" },
+              { key: "invoice_id",          header: "Invoice ID" },
+              { key: "requested_amount",    header: "Requested",      format: "currency_dollars" },
+              { key: "approved_amount",     header: "Approved",       format: "currency_dollars" },
+              { key: "fee_pct",             header: "Fee %",          format: "number" },
+              { key: "fee_amount",          header: "Fee Amount",     format: "currency_dollars" },
+              { key: "net_disbursement",    header: "Net",            format: "currency_dollars" },
+              { key: "status",              header: "Status" },
+              { key: "repayment_due_date",  header: "Repay Due",      format: "date" },
+              { key: "rejection_reason",    header: "Rejection Reason" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
+        </div>
       </div>
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div>
@@ -167,10 +191,10 @@ export default function InternalScf() {
           {requests.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 100px 120px 150px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{r.vendor?.name || r.vendor_id}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {r.invoice?.invoice_number || r.invoice_id.slice(0, 8)} · due {r.invoice?.due_date || "—"}</div>
+                <div style={{ fontWeight: 600 }}>{r.vendor?.name || "—"}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {r.invoice?.invoice_number || "—"} · due {r.invoice?.due_date || "—"}</div>
               </div>
-              <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || r.program_id.slice(0, 8)}</div>
+              <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || "—"}</div>
               <div>${Number(r.requested_amount).toLocaleString()}</div>
               <div style={{ color: C.textMuted }}>{r.fee_amount != null ? `$${Number(r.fee_amount).toFixed(2)}` : "—"}</div>
               <div>{r.net_disbursement != null ? `$${Number(r.net_disbursement).toLocaleString()}` : "—"}</div>
@@ -197,7 +221,7 @@ function ProgramModal({ entityId, onClose, onCreated }: { entityId: string; onCl
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!name.trim() || !funder.trim() || !maxFacility) { alert("Name, funder, and facility amount required"); return; }
+    if (!name.trim() || !funder.trim() || !maxFacility) { notify("Name, funder, and facility amount required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/scf-programs", {
@@ -206,7 +230,7 @@ function ProgramModal({ entityId, onClose, onCreated }: { entityId: string; onCl
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

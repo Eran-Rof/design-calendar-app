@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Payment {
   id: string;
@@ -60,12 +63,12 @@ export default function InternalPayments() {
   useEffect(() => { void load(); }, [entityId, status]);
 
   async function transition(id: string, action: "processing" | "completed" | "failed" | "cancelled") {
-    if (!confirm(`Mark payment ${action}?`)) return;
+    if (!(await confirmDialog(`Mark payment ${action}?`))) return;
     const r = await fetch(`/api/internal/payments/${id}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -89,6 +92,26 @@ export default function InternalPayments() {
             <option value="cancelled">Cancelled</option>
           </select>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New payment</button>
+          <ExportButton
+            rows={rows.map((p) => ({
+              ...p,
+              vendor_name: p.vendor?.name || p.vendor_id,
+              invoice_number: p.invoice?.invoice_number || null,
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="payments"
+            sheetName="Payments"
+            columns={[
+              { key: "vendor_name",      header: "Vendor" },
+              { key: "invoice_number",   header: "Invoice #" },
+              { key: "amount",           header: "Amount",      format: "number" },
+              { key: "currency",         header: "Currency" },
+              { key: "method",           header: "Method" },
+              { key: "status",           header: "Status" },
+              { key: "reference",        header: "Reference" },
+              { key: "initiated_at",     header: "Initiated",   format: "datetime" },
+              { key: "completed_at",     header: "Completed",   format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 
@@ -154,7 +177,7 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
   }, []);
 
   async function save() {
-    if (!vendorId || !amount) { alert("Vendor and amount are required."); return; }
+    if (!vendorId || !amount) { notify("Vendor and amount are required.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/payments", {
@@ -168,7 +191,7 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

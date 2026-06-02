@@ -37,14 +37,15 @@ function poQtyInPeriod(
 export function exportNegInven(
   rows: ATSRow[],
   displayPeriods: Array<{ periodStart: string; endDate: string; label: string }>,
-  atShip: boolean,
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null = null,
 ): ReportPayload | null {
   const today = new Date();
-  const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+  // Canonical app-wide date format: MMM/DD/YYYY.
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const todayStr = `${months[today.getMonth()]}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
 
   function atsVal(r: ATSRow, p: { endDate: string }): number | null {
-    const v = atShip ? (r.freeMap?.[p.endDate] ?? r.dates[p.endDate]) : r.dates[p.endDate];
+    const v = r.freeMap?.[p.endDate] ?? r.dates[p.endDate];
     return v ?? null;
   }
 

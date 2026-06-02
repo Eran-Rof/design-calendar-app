@@ -5,10 +5,42 @@
 // soft-delete. Wraps /api/internal/customer-master and
 // /api/internal/customer-master/:id.
 //
-// tax_exempt_certificate is NEVER touched here — it's a PII-adjacent field
-// handled by a dedicated workflow (not built).
+// tax_exempt_certificate is editable as a plain text field (certificate number).
+// The dedicated PII workflow for more sensitive cert handling is not yet built.
+//
+// Wave 5 primitive adoption (2026-05-30):
+//   • TablePrefs        — per-user column show/hide (gear button) for the
+//                         list grid; persists via user_preferences.
+//   • Row-click + Scroll
+//     Highlight         — click anywhere on a row to open the edit modal;
+//                         briefly fades a highlight on the clicked row.
+//   • DynamicSearchInput — debounced (200 ms) search-as-you-type, replacing
+//                         the previous text input + explicit Search button.
+//   • SearchableSelect  — applied to the Payment-terms picker in the edit
+//                         modal (the only DB-driven dropdown that can grow
+//                         beyond ~7 entries). Customer-type / status /
+//                         type-filter selects are 3–5 fixed enum values, so
+//                         native <select> remains the right choice there.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+// Cross-cutter T11-3 — audit-trail drop-in for the customer detail modal.
+import RowHistory from "./components/RowHistory";
+import AddressFields, { type Address } from "./components/AddressFields";
+import CustomerLocations from "./components/CustomerLocations";
+// Wave 5 primitives.
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import DynamicSearchInput from "./components/DynamicSearchInput";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+// Chunk E — per-row drill-through scorecard (opened by the ℹ️ button).
+import CustomerScorecard from "./CustomerScorecard";
 
 type Customer = {
   id: string;
@@ -23,13 +55,37 @@ type Customer = {
   customer_type: string;
   default_gl_ar_account_id: string | null;
   default_gl_revenue_account_id: string | null;
-  payment_terms: string | null;
+  // P4-family sales-rep / default / GL-routing columns.
+  sales_rep_1_id: string | null;
+  sales_rep_1_commission_pct: number | string | null;
+  sales_rep_2_id: string | null;
+  sales_rep_2_commission_pct: number | string | null;
+  default_brand_id: string | null;
+  default_channel_id: string | null;
+  default_revenue_account_id: string | null;
+  default_returns_account_id: string | null;
+  default_cogs_account_id: string | null;
+  default_ar_account_id: string | null;
+  payment_terms: string | null;       // legacy free-text (read-only display)
+  payment_terms_id: string | null;    // P3-9 structured FK
   default_currency: string;
   tax_exempt: boolean;
+  tax_exempt_certificate: string | null;
   credit_limit: number | string | null;
+  credit_limit_cents: number | string | null;
+  credit_limit_currency: string | null;
+  // Chunk K — customer factoring (operator item 17).
+  is_factored: boolean | null;
+  factor_id: string | null;
   status: string;
   billing_address: Record<string, unknown>;
   shipping_address: Record<string, unknown>;
+  contact_name: string | null;
+  contact_title: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  wechat_id: string | null;
   attributes: Record<string, unknown>;
   active: boolean | null;
   external_refs: Record<string, unknown> | null;
@@ -37,6 +93,29 @@ type Customer = {
   updated_at: string;
   deleted_at: string | null;
 };
+
+type GlAccount = {
+  id: string;
+  code: string;
+  name: string;
+  is_postable: boolean;
+  status: string;
+};
+
+type Employee = {
+  id: string;
+  code: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  display_name: string | null;
+  title: string | null;
+  is_active: boolean;
+};
+
+type Brand = { id: string; code: string; name: string; is_default?: boolean };
+type Channel = { id: string; code: string; name: string };
+// Chunk K — factor / credit-insurance master (operator item 17).
+type Factor = { id: string; code: string; name: string };
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -46,6 +125,26 @@ const C = {
 
 const CUSTOMER_TYPE_OPTIONS = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_OPTIONS = ["active", "inactive", "on_hold"];
+
+type PaymentTermOption = {
+  id: string;
+  code: string;
+  name: string;
+  due_days: number;
+  is_active: boolean;
+};
+
+// Wave 5 — per-user column visibility for the customer list grid.
+const CUSTOMER_MASTER_TABLE_KEY = "tangerine:customermaster:columns";
+const CUSTOMER_MASTER_COLUMNS: ColumnDef[] = [
+  { key: "code",           label: "Code"          },
+  { key: "name",           label: "Name"          },
+  { key: "customer_type",  label: "Type"          },
+  { key: "country",        label: "Country"       },
+  { key: "status",         label: "Status"        },
+  { key: "credit_limit",   label: "Credit Limit"  },
+  { key: "payment_terms",  label: "Payment Terms" },
+];
 
 const btnPrimary: React.CSSProperties = {
   background: C.primary, color: "white", border: 0, padding: "8px 14px",
@@ -61,6 +160,13 @@ const btnDanger: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+};
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -95,42 +201,77 @@ function statusPill(s: string): React.CSSProperties {
 
 export default function InternalCustomerMaster() {
   const [rows, setRows] = useState<Customer[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  // Wave 5 — search-as-you-type. Synchronous `q` binds to the input so
+  // typing feels instant; `qDebounced` drives the fetch (200 ms cadence,
+  // matching the COA panel and the T6 GlobalSearchPalette).
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [typeFilter, setTypeFilter] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
+  // Chunk E — customer whose scorecard drawer is open (null = closed).
+  const [scorecardId, setScorecardId] = useState<string | null>(null);
 
-  async function load() {
+  // Wave 5 — row-click opens the edit modal; soft-deleted rows are
+  // non-interactive (matches the existing "Edit / Delete buttons hidden
+  // when deleted_at is set" rule).
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { getRowProps } = useRowClickEdit<Customer>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit customer ${r.code || r.customer_code || r.name}`,
+    disabled: (r) => !!r.deleted_at,
+  });
+
+  // Wave 5 — column visibility (gear button next to search).
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CUSTOMER_MASTER_TABLE_KEY,
+    CUSTOMER_MASTER_COLUMNS,
+  );
+  const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       if (typeFilter) params.set("customer_type", typeFilter);
-      const r = await fetch(`/api/internal/customer-master?${params.toString()}`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as Customer[]);
+      const [custRes, ptRes] = await Promise.all([
+        fetch(`/api/internal/customer-master?${params.toString()}`),
+        fetch(`/api/internal/payment-terms`),
+      ]);
+      if (!custRes.ok) throw new Error((await custRes.json().catch(() => ({}))).error || `HTTP ${custRes.status}`);
+      setRows(await custRes.json() as Customer[]);
+      if (ptRes.ok) {
+        setPaymentTerms(await ptRes.json() as PaymentTermOption[]);
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }
+  }, [qDebounced, includeInactive, typeFilter]);
 
-  useEffect(() => { void load(); }, [includeInactive, typeFilter]);
+  useEffect(() => { void load(); }, [load]);
+
+  const termById = useMemo(
+    () => new Map(paymentTerms.map((t) => [t.id, t])),
+    [paymentTerms],
+  );
 
   async function softDelete(c: Customer) {
-    if (!confirm(`Deactivate this customer?\n\n${c.name}\n\nThis soft-deletes the row. An admin can restore via SQL.`)) return;
+    if (!(await confirmDialog(`Deactivate this customer?\n\n${c.name}\n\nThis soft-deletes the row. An admin can restore via SQL.`))) return;
     try {
       const r = await fetch(`/api/internal/customer-master/${c.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -142,17 +283,20 @@ export default function InternalCustomerMaster() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="text"
-          placeholder="Search name, code, or customer_code…"
+        <DynamicSearchInput
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
-          style={{ ...inputStyle, maxWidth: 360 }}
+          onChange={setQ}
+          placeholder="Search name, code, or customer_code…"
+          ariaLabel="Search customers"
+          wrapperStyle={{ maxWidth: 360 }}
         />
-        <button onClick={() => void load()} style={btnSecondary}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <span style={{ textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11, color: C.textMuted }}>Type</span>
+          {/*
+            Native <select> retained — only 5 fixed enum values, well under
+            the >7 threshold where SearchableSelect's type-ahead becomes
+            useful.
+          */}
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 140 }}>
             <option value="">(all)</option>
             {CUSTOMER_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -166,6 +310,33 @@ export default function InternalCustomerMaster() {
           />
           Show inactive
         </label>
+        <TablePrefsButton
+          tableKey={CUSTOMER_MASTER_TABLE_KEY}
+          columns={CUSTOMER_MASTER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
+        <ExportButton
+          rows={rows as unknown as Array<Record<string, unknown>>}
+          filename="customers"
+          sheetName="Customers"
+          columns={[
+            { key: "code",             header: "Code" },
+            { key: "customer_code",    header: "Customer Code" },
+            { key: "name",             header: "Name" },
+            { key: "customer_type",    header: "Type" },
+            { key: "customer_tier",    header: "Tier" },
+            { key: "country",          header: "Country" },
+            { key: "status",           header: "Status" },
+            { key: "credit_limit",     header: "Credit Limit", format: "number" },
+            { key: "payment_terms",    header: "Payment Terms" },
+            { key: "default_currency", header: "Currency" },
+            { key: "tax_exempt",       header: "Tax Exempt" },
+            { key: "created_at",       header: "Created", format: "datetime" },
+            { key: "updated_at",       header: "Updated", format: "datetime" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
       </div>
 
       {err && (
@@ -183,39 +354,62 @@ export default function InternalCustomerMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Type</th>
-                <th style={th}>Country</th>
-                <th style={th}>Status</th>
-                <th style={{ ...th, textAlign: "right" }}>Credit Limit</th>
-                <th style={th}>Payment Terms</th>
-                <th style={{ ...th, width: 140 }}></th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("customer_type")}>Type</th>
+                <th style={th} hidden={!isVisible("country")}>Country</th>
+                <th style={th} hidden={!isVisible("status")}>Status</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("credit_limit")}>Credit Limit</th>
+                <th style={th} hidden={!isVisible("payment_terms")}>Payment Terms</th>
+                <th style={{ ...th, width: 180 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} style={r.deleted_at ? { opacity: 0.4 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
-                    {r.code || r.customer_code || "—"}
+                <ScrollHighlightRow
+                  key={r.id}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
+                  style={r.deleted_at ? { opacity: 0.4 } : undefined}
+                >
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>
+                    {displayCustomerCode(r.code || r.customer_code) || "—"}
                   </td>
-                  <td style={td}>{r.name}</td>
-                  <td style={td}>{r.customer_type}</td>
-                  <td style={td}>{r.country || "—"}</td>
-                  <td style={td}><span style={statusPill(r.status)}>{r.status}</span></td>
-                  <td style={{ ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                  <td style={td} hidden={!isVisible("name")}>{r.name}</td>
+                  <td style={td} hidden={!isVisible("customer_type")}>{r.customer_type}</td>
+                  <td style={td} hidden={!isVisible("country")}>{r.country || "—"}</td>
+                  <td style={td} hidden={!isVisible("status")}><span style={statusPill(r.status)}>{r.status}</span></td>
+                  <td
+                    style={{ ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                    hidden={!isVisible("credit_limit")}
+                  >
                     {fmtMoney(r.credit_limit)}
                   </td>
-                  <td style={td}>{r.payment_terms || "—"}</td>
+                  <td style={td} hidden={!isVisible("payment_terms")}>
+                    {r.payment_terms_id ? (
+                      termById.get(r.payment_terms_id)?.code || "—"
+                    ) : r.payment_terms ? (
+                      <span style={{ color: C.textMuted, fontStyle: "italic" }} title="Legacy free-text — edit to migrate to structured term">{r.payment_terms}</span>
+                    ) : "—"}
+                  </td>
                   <td style={{ ...td, textAlign: "right" }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
+                      title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
+                      aria-label={`Open scorecard for ${r.name}`}
+                    >
+                      📊 Scorecard
+                    </button>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
-                        <button onClick={() => void softDelete(r)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                       </>
                     )}
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>
@@ -225,6 +419,7 @@ export default function InternalCustomerMaster() {
       {addOpen && (
         <CustomerFormModal
           mode="add"
+          paymentTerms={paymentTerms}
           onClose={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); void load(); }}
         />
@@ -233,9 +428,13 @@ export default function InternalCustomerMaster() {
         <CustomerFormModal
           mode="edit"
           customer={editing}
+          paymentTerms={paymentTerms}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
+      )}
+      {scorecardId && (
+        <CustomerScorecard customerId={scorecardId} onClose={() => setScorecardId(null)} />
       )}
     </div>
   );
@@ -244,39 +443,212 @@ export default function InternalCustomerMaster() {
 interface ModalProps {
   mode: "add" | "edit";
   customer?: Customer;
+  paymentTerms: PaymentTermOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
+function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: ModalProps) {
+  // Initial credit_limit display value (in dollars). Prefer the canonical
+  // credit_limit_cents (P4-7) and fall back to the legacy numeric credit_limit
+  // column for rows that haven't been re-saved since P4-7.
+  const initCreditLimitDollars =
+    customer?.credit_limit_cents != null && customer.credit_limit_cents !== ""
+      ? String(Number(customer.credit_limit_cents) / 100)
+      : customer?.credit_limit != null
+        ? String(customer.credit_limit)
+        : "";
   const [form, setForm] = useState({
-    name:             customer?.name             ?? "",
-    code:             customer?.code             ?? "",
-    customer_type:    customer?.customer_type    ?? "wholesale",
-    country:          customer?.country          ?? "",
-    payment_terms:    customer?.payment_terms    ?? "",
-    default_currency: customer?.default_currency ?? "USD",
-    tax_exempt:       customer?.tax_exempt       ?? false,
-    credit_limit:     customer?.credit_limit != null ? String(customer.credit_limit) : "",
-    status:           customer?.status           ?? "active",
+    name:                         customer?.name                         ?? "",
+    code:                         customer?.code                         ?? "",
+    customer_type:                customer?.customer_type                ?? "wholesale",
+    country:                      customer?.country                      ?? "",
+    payment_terms_id:             customer?.payment_terms_id             ?? "",
+    default_currency:             customer?.default_currency             ?? "USD",
+    // New customers default to tax-exempt=true (operator request).
+    tax_exempt:                   mode === "add" ? true : (customer?.tax_exempt ?? false),
+    credit_limit:                 initCreditLimitDollars,
+    credit_limit_currency:        customer?.credit_limit_currency        ?? "USD",
+    // Chunk K — customer factoring (operator item 17).
+    is_factored:                  customer?.is_factored                  ?? false,
+    factor_id:                    customer?.factor_id                    ?? "",
+    status:                       customer?.status                       ?? "active",
+    billing_address:              (customer?.billing_address && typeof customer.billing_address === "object"
+                                    ? customer.billing_address : {}) as Address,
+    shipping_address:             (customer?.shipping_address && typeof customer.shipping_address === "object"
+                                    ? customer.shipping_address : {}) as Address,
+    default_gl_ar_account_id:     customer?.default_gl_ar_account_id     ?? "",
+    default_gl_revenue_account_id: customer?.default_gl_revenue_account_id ?? "",
+    // P4-family sales-rep / default / GL-routing fields.
+    sales_rep_1_id:               customer?.sales_rep_1_id               ?? "",
+    sales_rep_1_commission_pct:   customer?.sales_rep_1_commission_pct != null ? String(customer.sales_rep_1_commission_pct) : "",
+    sales_rep_2_id:               customer?.sales_rep_2_id               ?? "",
+    sales_rep_2_commission_pct:   customer?.sales_rep_2_commission_pct != null ? String(customer.sales_rep_2_commission_pct) : "",
+    default_brand_id:             customer?.default_brand_id             ?? "",
+    default_channel_id:           customer?.default_channel_id           ?? "",
+    default_revenue_account_id:   customer?.default_revenue_account_id   ?? "",
+    default_returns_account_id:   customer?.default_returns_account_id   ?? "",
+    default_cogs_account_id:      customer?.default_cogs_account_id      ?? "",
+    default_ar_account_id:        customer?.default_ar_account_id        ?? "",
+    contact_name:                 customer?.contact_name                 ?? "",
+    contact_title:                customer?.contact_title                ?? "",
+    email:                        customer?.email                        ?? "",
+    phone:                        customer?.phone                        ?? "",
+    website:                      customer?.website                      ?? "",
+    wechat_id:                    customer?.wechat_id                    ?? "",
   });
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [factors, setFactors] = useState<Factor[]>([]);
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses">("details");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/internal/gl-accounts?limit=1000")
+      .then((r) => r.json())
+      .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
+      .catch(() => {});
+    fetch("/api/internal/employees")
+      .then((r) => r.json())
+      .then((arr: Employee[]) => setEmployees(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
+    fetch("/api/internal/brands")
+      .then((r) => r.json())
+      .then((j: { brands?: Brand[] }) => setBrands(Array.isArray(j?.brands) ? j.brands : []))
+      .catch(() => {});
+    fetch("/api/internal/channels")
+      .then((r) => r.json())
+      .then((j: { channels?: Channel[] }) => setChannels(Array.isArray(j?.channels) ? j.channels : []))
+      .catch(() => {});
+    // Chunk K — factor / credit-insurance master (operator item 17).
+    fetch("/api/internal/factors")
+      .then((r) => r.json())
+      .then((arr: Factor[]) => setFactors(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
+  }, []);
+
+  // GL account picker options — postable accounts only, with "(select)" entry.
+  const glAccountOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...glAccounts.filter((a) => a.is_postable).map((a) => ({
+      value: a.id,
+      label: `${a.code} — ${a.name}`,
+    })),
+  ], [glAccounts]);
+
+  // GL routing pickers (Tab 3) — postable AND active accounts only.
+  const glRoutingOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...glAccounts.filter((a) => a.is_postable && a.status === "active").map((a) => ({
+      value: a.id,
+      label: `${a.code} — ${a.name}`,
+    })),
+  ], [glAccounts]);
+
+  // Sales-rep pickers (Tab 2) — employees by display name.
+  const employeeOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...employees.map((e) => {
+      const label = e.display_name || `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim() || e.code || e.id;
+      return {
+        value: e.id,
+        label: e.title ? `${label} — ${e.title}` : label,
+        searchHaystack: `${label} ${e.code ?? ""} ${e.title ?? ""}`,
+      };
+    }),
+  ], [employees]);
+
+  const brandOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...brands.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}`, searchHaystack: `${b.code} ${b.name}` })),
+  ], [brands]);
+
+  const channelOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...channels.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` })),
+  ], [channels]);
+
+  // Chunk K — factor picker (operator item 17). Label = factor name (with
+  // code as search haystack). Keep the current factor in the list even if it
+  // were de-activated so an edit shows the existing selection.
+  const factorOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...factors.map((f) => ({ value: f.id, label: f.name, searchHaystack: `${f.code} ${f.name}` })),
+  ], [factors]);
+
+  // Wave 5 — payment-terms picker is the only modal dropdown whose option
+  // list comes from a DB table (payment_terms) and can grow beyond a
+  // handful, so we route it through SearchableSelect. The customer_type
+  // and status selects below stay as native <select> elements (5 and 3
+  // fixed enum values respectively).
+  const paymentTermsOptions: SearchableSelectOption[] = useMemo(() => {
+    const active = paymentTerms.filter((t) => t.is_active || t.id === form.payment_terms_id);
+    return [
+      { value: "", label: "(select)" },
+      ...active.map((t) => ({
+        value: t.id,
+        label: `${t.code} — ${t.name} (${t.due_days}d)`,
+        // Make the search match on the code, name, and the formatted due-days
+        // chunk so an operator typing "n30" / "net 30" / "30d" all land.
+        searchHaystack: `${t.code} ${t.name} ${t.due_days}d net${t.due_days}`,
+      })),
+    ];
+  }, [paymentTerms, form.payment_terms_id]);
 
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
+      const dollars =
+        form.credit_limit.trim() === "" ? null : parseFloat(form.credit_limit);
+      // P4-7: write BOTH legacy credit_limit (dollars) AND canonical
+      // credit_limit_cents so the credit-gate has a single source of truth.
+      const creditCents =
+        dollars == null || !Number.isFinite(dollars) ? null : Math.round(dollars * 100);
+      // Parse billing/shipping address JSON blobs (textarea input).
       const body: Record<string, unknown> = {
-        name:             form.name.trim(),
-        code:             form.code.trim() || null,
-        customer_type:    form.customer_type,
-        country:          form.country.trim() || null,
-        payment_terms:    form.payment_terms.trim() || null,
-        default_currency: form.default_currency.trim().toUpperCase() || "USD",
-        tax_exempt:       !!form.tax_exempt,
-        credit_limit:     form.credit_limit.trim() === "" ? null : parseFloat(form.credit_limit),
-        status:           form.status,
+        name:                         form.name.trim(),
+        // Chunk M — code is server-generated; never sent from the client.
+        customer_type:                form.customer_type,
+        country:                      form.country.trim() || null,
+        // P3-9: structured FK. Legacy text column stays read-only display.
+        payment_terms_id:             form.payment_terms_id || null,
+        default_currency:             form.default_currency.trim().toUpperCase() || "USD",
+        tax_exempt:                   !!form.tax_exempt,
+        credit_limit:                 dollars,
+        credit_limit_cents:           creditCents,
+        credit_limit_currency:        creditCents == null
+          ? null
+          : (form.credit_limit_currency.trim().toUpperCase() || "USD"),
+        // Chunk K — customer factoring (operator item 17). When not factored,
+        // always clear the factor link.
+        is_factored:                  !!form.is_factored,
+        factor_id:                    form.is_factored ? (form.factor_id || null) : null,
+        status:                       form.status,
+        billing_address:              form.billing_address,
+        shipping_address:             form.shipping_address,
+        default_gl_ar_account_id:     form.default_gl_ar_account_id || null,
+        default_gl_revenue_account_id: form.default_gl_revenue_account_id || null,
+        // P4-family sales-rep / default / GL-routing fields.
+        sales_rep_1_id:               form.sales_rep_1_id || null,
+        sales_rep_1_commission_pct:   form.sales_rep_1_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_1_commission_pct),
+        sales_rep_2_id:               form.sales_rep_2_id || null,
+        sales_rep_2_commission_pct:   form.sales_rep_2_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_2_commission_pct),
+        default_brand_id:             form.default_brand_id || null,
+        default_channel_id:           form.default_channel_id || null,
+        default_revenue_account_id:   form.default_revenue_account_id || null,
+        default_returns_account_id:   form.default_returns_account_id || null,
+        default_cogs_account_id:      form.default_cogs_account_id || null,
+        default_ar_account_id:        form.default_ar_account_id || null,
+        contact_name:                 form.contact_name.trim() || null,
+        contact_title:                form.contact_title.trim() || null,
+        email:                        form.email.trim() || null,
+        phone:                        form.phone.trim() || null,
+        website:                      form.website.trim() || null,
+        wechat_id:                    form.wechat_id.trim() || null,
       };
       let url: string;
       let method: string;
@@ -308,13 +680,41 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 560, maxWidth: 760, color: C.text, maxHeight: "90vh", overflowY: "auto" }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add customer" : `Edit ${customer!.name}`}
         </h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.cardBdr}`, marginBottom: 16 }}>
+          {([
+            ["details", "Details"],
+            ["reps", "Reps & Defaults"],
+            ["gl", "GL Accounts"],
+            ["addresses", "Addresses & Locations"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              style={{
+                background: "transparent",
+                border: 0,
+                borderBottom: tab === key ? `2px solid ${C.primary}` : "2px solid transparent",
+                color: tab === key ? C.text : C.textMuted,
+                padding: "8px 12px",
+                fontSize: 13,
+                fontWeight: tab === key ? 600 : 500,
+                cursor: "pointer",
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: tab === "details" ? "grid" : "none", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Name *">
             <input
               type="text"
@@ -326,13 +726,12 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
             />
           </Field>
           <Field label="Code">
-            <input
-              type="text"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              style={inputStyle}
-              placeholder="Short ERP code"
-            />
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (displayCustomerCode(customer?.code) || "—")}
+            </div>
           </Field>
           <Field label="Customer type">
             <select value={form.customer_type} onChange={(e) => setForm({ ...form, customer_type: e.target.value })} style={inputStyle as React.CSSProperties}>
@@ -343,13 +742,68 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
             <input type="text" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} style={inputStyle} placeholder="e.g. US" />
           </Field>
           <Field label="Payment terms">
-            <input type="text" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })} style={inputStyle} placeholder="e.g. Net 30" />
+            <SearchableSelect
+              value={form.payment_terms_id || null}
+              onChange={(v) => setForm({ ...form, payment_terms_id: v })}
+              options={paymentTermsOptions}
+              placeholder="Pick a payment term…"
+            />
+            {mode === "edit" && customer?.payment_terms && !form.payment_terms_id && (
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
+                Legacy free-text: &quot;{customer.payment_terms}&quot; — pick from list to migrate.
+              </div>
+            )}
           </Field>
           <Field label="Default currency">
             <input type="text" value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value.toUpperCase() })} style={inputStyle} placeholder="USD" maxLength={3} />
           </Field>
           <Field label="Credit limit">
-            <input type="number" min="0" step="0.01" value={form.credit_limit} onChange={(e) => setForm({ ...form, credit_limit: e.target.value })} style={inputStyle} placeholder="0.00" />
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ color: C.textMuted, fontSize: 13 }}>$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.credit_limit}
+                onChange={(e) => setForm({ ...form, credit_limit: e.target.value.replace(/[^0-9.]/g, "") })}
+                style={{ ...inputStyle, width: "8ch", flex: "0 0 auto" }}
+                placeholder="0.00"
+                title="0 or blank = no credit limit (no gate)"
+              />
+              <input
+                type="text"
+                value={form.credit_limit_currency}
+                onChange={(e) => setForm({ ...form, credit_limit_currency: e.target.value.toUpperCase() })}
+                style={{ ...inputStyle, width: 64 }}
+                placeholder="USD"
+                maxLength={3}
+                aria-label="Credit limit currency"
+              />
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>
+              For factored customers this is set from the factor&apos;s API.
+            </div>
+          </Field>
+          {/* Chunk K — customer factoring (operator item 17). */}
+          <Field label="Factored?">
+            <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={form.is_factored}
+                onChange={(e) => setForm({ ...form, is_factored: e.target.checked, factor_id: e.target.checked ? form.factor_id : "" })}
+              />
+              Receivables are factored / insured
+            </label>
+            {form.is_factored && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Factor / Insurance</div>
+                <SearchableSelect
+                  value={form.factor_id || null}
+                  onChange={(v) => setForm({ ...form, factor_id: v })}
+                  options={factorOptions}
+                  placeholder="Pick a factor…"
+                />
+              </div>
+            )}
           </Field>
           <Field label="Status">
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle as React.CSSProperties}>
@@ -362,10 +816,202 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
               Yes (skip AR tax calc)
             </label>
           </Field>
+          <Field label="Default AR account">
+            <SearchableSelect
+              value={form.default_gl_ar_account_id || null}
+              onChange={(v) => setForm({ ...form, default_gl_ar_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(select)"
+            />
+          </Field>
+          <Field label="Default revenue account">
+            <SearchableSelect
+              value={form.default_gl_revenue_account_id || null}
+              onChange={(v) => setForm({ ...form, default_gl_revenue_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(select)"
+            />
+          </Field>
+          <Field label="Contact name">
+            <input
+              type="text"
+              value={form.contact_name}
+              onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+              style={inputStyle}
+              placeholder="Primary contact"
+            />
+          </Field>
+          <Field label="Contact title">
+            <input
+              type="text"
+              value={form.contact_title}
+              onChange={(e) => setForm({ ...form, contact_title: e.target.value })}
+              style={inputStyle}
+              placeholder="e.g. Buyer"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              style={inputStyle}
+              placeholder="contact@example.com"
+            />
+          </Field>
+          <Field label="Phone">
+            <input
+              type="text"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              style={inputStyle}
+              placeholder="+1 (555) 000-0000"
+            />
+          </Field>
+          <Field label="Website">
+            <input
+              type="text"
+              value={form.website}
+              onChange={(e) => setForm({ ...form, website: e.target.value })}
+              style={inputStyle}
+              placeholder="https://"
+            />
+          </Field>
+          <Field label="WeChat ID">
+            <input
+              type="text"
+              value={form.wechat_id}
+              onChange={(e) => setForm({ ...form, wechat_id: e.target.value })}
+              style={inputStyle}
+              placeholder="WeChat handle"
+            />
+          </Field>
         </div>
 
-        <div style={{ marginTop: 12, padding: "8px 12px", background: "#0b1220", border: `1px dashed ${C.cardBdr}`, borderRadius: 6, fontSize: 11, color: C.textMuted }}>
-          Tax exempt certificate handled via dedicated PII workflow — not editable here.
+        {/* ── Tab 2 — Reps & Defaults ─────────────────────────────────── */}
+        <div style={{ display: tab === "reps" ? "grid" : "none", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Sales rep 1">
+            <SearchableSelect
+              value={form.sales_rep_1_id || null}
+              onChange={(v) => setForm({ ...form, sales_rep_1_id: v })}
+              options={employeeOptions}
+              placeholder="(select)"
+            />
+          </Field>
+          <Field label="Sales rep 1 commission %">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={form.sales_rep_1_commission_pct}
+              onChange={(e) => setForm({ ...form, sales_rep_1_commission_pct: e.target.value })}
+              style={inputStyle}
+              placeholder="0.00"
+            />
+          </Field>
+          <Field label="Sales rep 2">
+            <SearchableSelect
+              value={form.sales_rep_2_id || null}
+              onChange={(v) => setForm({ ...form, sales_rep_2_id: v })}
+              options={employeeOptions}
+              placeholder="(select)"
+            />
+          </Field>
+          <Field label="Sales rep 2 commission %">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={form.sales_rep_2_commission_pct}
+              onChange={(e) => setForm({ ...form, sales_rep_2_commission_pct: e.target.value })}
+              style={inputStyle}
+              placeholder="0.00"
+            />
+          </Field>
+          <Field label="Default brand">
+            <SearchableSelect
+              value={form.default_brand_id || null}
+              onChange={(v) => setForm({ ...form, default_brand_id: v })}
+              options={brandOptions}
+              placeholder="(select)"
+            />
+          </Field>
+          <Field label="Default channel">
+            <SearchableSelect
+              value={form.default_channel_id || null}
+              onChange={(v) => setForm({ ...form, default_channel_id: v })}
+              options={channelOptions}
+              placeholder="(select)"
+            />
+          </Field>
+          <Field label="Default terms">
+            <SearchableSelect
+              value={form.payment_terms_id || null}
+              onChange={(v) => setForm({ ...form, payment_terms_id: v })}
+              options={paymentTermsOptions}
+              placeholder="Pick a payment term…"
+            />
+          </Field>
+        </div>
+
+        {/* ── Tab 3 — GL Accounts ─────────────────────────────────────── */}
+        <div style={{ display: tab === "gl" ? "block" : "none" }}>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+            Used for this customer&apos;s sales-order and invoice GL routing.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Revenue account">
+              <SearchableSelect
+                value={form.default_revenue_account_id || null}
+                onChange={(v) => setForm({ ...form, default_revenue_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(select)"
+              />
+            </Field>
+            <Field label="Returns account">
+              <SearchableSelect
+                value={form.default_returns_account_id || null}
+                onChange={(v) => setForm({ ...form, default_returns_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(select)"
+              />
+            </Field>
+            <Field label="COGS account">
+              <SearchableSelect
+                value={form.default_cogs_account_id || null}
+                onChange={(v) => setForm({ ...form, default_cogs_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(select)"
+              />
+            </Field>
+            <Field label="AR account">
+              <SearchableSelect
+                value={form.default_ar_account_id || null}
+                onChange={(v) => setForm({ ...form, default_ar_account_id: v })}
+                options={glRoutingOptions}
+                placeholder="(select)"
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* ── Tab 4 — Addresses & Locations ───────────────────────────── */}
+        <div style={{ display: tab === "addresses" ? "block" : "none" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <AddressFields label="Billing address" value={form.billing_address} onChange={(a) => setForm({ ...form, billing_address: a })} />
+            <AddressFields label="Shipping address" value={form.shipping_address} onChange={(a) => setForm({ ...form, shipping_address: a })} />
+          </div>
+          <div style={{ marginTop: 20 }}>
+            {mode === "edit" && customer ? (
+              <CustomerLocations customerId={customer.id} />
+            ) : (
+              <div style={{ padding: "8px 12px", background: "#0b1220", borderRadius: 6, border: `1px solid ${C.cardBdr}`, fontSize: 12, color: C.textMuted }}>
+                Save the customer first to add locations.
+              </div>
+            )}
+          </div>
         </div>
 
         {err && (
@@ -380,6 +1026,21 @@ function CustomerFormModal({ mode, customer, onClose, onSaved }: ModalProps) {
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
+
+        {mode === "edit" && customer && (
+          <div style={{ marginTop: 16 }}>
+            <DocumentAttachmentList
+              contextTable="customers"
+              contextId={customer.id}
+              kinds={["contract", "tax_exempt", "credit_app", "other"]}
+            />
+          </div>
+        )}
+
+        {/* Cross-cutter T11-3 — audit trail timeline */}
+        {mode === "edit" && customer && (
+          <RowHistory source_table="customers" source_id={customer.id} />
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 interface Preferred {
   pref_id: string;
@@ -60,9 +63,9 @@ export default function InternalPreferred() {
   useEffect(() => { void load(); }, []);
 
   async function remove(vendorId: string, prefId: string) {
-    if (!confirm("Remove this preferred entry?")) return;
+    if (!(await confirmDialog("Remove this preferred entry?"))) return;
     const r = await fetch(`/api/internal/vendors/${vendorId}/preferred/${prefId}`, { method: "DELETE" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -71,7 +74,7 @@ export default function InternalPreferred() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category, rank: newRank, set_by: "internal" }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -83,6 +86,36 @@ export default function InternalPreferred() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Preferred vendors</h2>
         <div style={{ display: "flex", gap: 8 }}>
+          <ExportButton
+            rows={(data?.categories || []).flatMap((g) => g.vendors.map((p) => ({
+              category: g.category,
+              rank: p.rank,
+              vendor_name: p.vendor.name,
+              vendor_id: p.vendor.id,
+              health_overall: p.health.overall,
+              health_delivery: p.health.delivery,
+              health_quality: p.health.quality,
+              health_compliance: p.health.compliance,
+              on_time_delivery_pct: p.kpi?.on_time_delivery_pct ?? null,
+              invoice_accuracy_pct: p.kpi?.invoice_accuracy_pct ?? null,
+              notes: p.notes,
+            }))) as unknown as Array<Record<string, unknown>>}
+            filename="preferred-vendors"
+            sheetName="Preferred Vendors"
+            columns={[
+              { key: "category",             header: "Category" },
+              { key: "rank",                 header: "Rank",          format: "number" },
+              { key: "vendor_name",          header: "Vendor" },
+              { key: "vendor_id",            header: "Vendor ID" },
+              { key: "health_overall",       header: "Health Overall", format: "number" },
+              { key: "health_delivery",      header: "Health Delivery", format: "number" },
+              { key: "health_quality",       header: "Health Quality",  format: "number" },
+              { key: "health_compliance",    header: "Health Compliance", format: "number" },
+              { key: "on_time_delivery_pct", header: "On-time %",     format: "number" },
+              { key: "invoice_accuracy_pct", header: "Invoice Acc %", format: "number" },
+              { key: "notes",                header: "Notes" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
           <button onClick={() => setSuggestOpen(true)} style={btnSecondary}>🔎 Suggest</button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add</button>
         </div>
@@ -146,7 +179,7 @@ function AddModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   }, []);
 
   async function submit() {
-    if (!vendorId || !category.trim()) { alert("Vendor and category required."); return; }
+    if (!vendorId || !category.trim()) { notify("Vendor and category required.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch(`/api/internal/vendors/${vendorId}/preferred`, {
@@ -156,7 +189,7 @@ function AddModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
       if (!r.ok) throw new Error(await r.text());
       onSaved();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
     } finally { setSaving(false); }
   }
 
@@ -193,7 +226,7 @@ function SuggestModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
 
   async function run() {
-    if (!category.trim()) { alert("Category required."); return; }
+    if (!category.trim()) { notify("Category required.", "error"); return; }
     setLoading(true);
     try {
       const params = new URLSearchParams({ category: category.trim() });
@@ -203,7 +236,7 @@ function SuggestModal({ onClose }: { onClose: () => void }) {
       const data = await r.json() as { suggestions: Suggestion[] };
       setSuggestions(data.suggestions);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
     } finally { setLoading(false); }
   }
 

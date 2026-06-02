@@ -25,6 +25,7 @@ const TODAY = new Date("2026-05-04T12:00:00Z");
 const filtDefaults = {
   search: "", filterCategory: [] as string[], filterSubCategory: [] as string[], filterStyle: [] as string[], filterGender: [] as string[],
   filterStatus: "All", minATS: "" as const, customerSkuSet: null, today: TODAY,
+  displayPeriods: [] as Array<{ endDate: string }>,
 };
 
 describe("filter + collapse: multi-store store filter", () => {

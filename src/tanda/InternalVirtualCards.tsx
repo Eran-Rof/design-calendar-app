@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 interface Card {
   id: string;
@@ -32,6 +36,7 @@ export default function InternalVirtualCards() {
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("active");
   const [issueOpen, setIssueOpen] = useState(false);
+  const [docsCard, setDocsCard] = useState<Card | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -58,9 +63,9 @@ export default function InternalVirtualCards() {
   useEffect(() => { void load(); }, [entityId, statusFilter]);
 
   async function cancel(c: Card) {
-    if (!confirm(`Cancel the card ending in ${c.card_number_last4}? It can no longer be charged.`)) return;
+    if (!(await confirmDialog(`Cancel the card ending in ${c.card_number_last4}? It can no longer be charged.`))) return;
     const r = await fetch(`/api/internal/virtual-cards/${c.id}/cancel`, { method: "PUT" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -83,6 +88,28 @@ export default function InternalVirtualCards() {
             <option value="">All</option>
           </select>
           <button onClick={() => setIssueOpen(true)} style={btnPrimary}>+ Issue card</button>
+          <ExportButton
+            rows={rows.map((c) => ({
+              ...c,
+              vendor_name: c.vendor?.name || c.vendor_id,
+              invoice_number: c.invoice?.invoice_number || null,
+              expiry: `${String(c.expiry_month).padStart(2, "0")}/${c.expiry_year}`,
+            })) as unknown as Array<Record<string, unknown>>}
+            filename="virtual-cards"
+            sheetName="Virtual Cards"
+            columns={[
+              { key: "vendor_name",          header: "Vendor" },
+              { key: "invoice_number",       header: "Invoice #" },
+              { key: "card_number_last4",    header: "Last 4" },
+              { key: "expiry",               header: "Expiry" },
+              { key: "credit_limit",         header: "Limit",      format: "number" },
+              { key: "amount_spent",         header: "Spent",      format: "number" },
+              { key: "provider",             header: "Provider" },
+              { key: "status",               header: "Status" },
+              { key: "issued_at",            header: "Issued",     format: "datetime" },
+              { key: "expires_at",           header: "Expires",    format: "datetime" },
+            ] as ExportColumn<Record<string, unknown>>[]}
+          />
         </div>
       </div>
 
@@ -107,7 +134,8 @@ export default function InternalVirtualCards() {
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "uppercase" }}>{c.provider}</div>
               <div><StatusChip status={c.status} /></div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(c.issued_at).toLocaleDateString()}</div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">📎 Docs</button>
                 {c.status === "active" && <button onClick={() => void cancel(c)} style={{ ...btnMini, color: C.danger }}>Cancel</button>}
               </div>
             </div>
@@ -116,6 +144,31 @@ export default function InternalVirtualCards() {
       )}
 
       {issueOpen && <IssueModal onClose={() => setIssueOpen(false)} onIssued={() => { setIssueOpen(false); void load(); }} />}
+
+      {docsCard && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          onClick={() => setDocsCard(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: 560, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", color: C.text }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>
+                Documents — card •••• {docsCard.card_number_last4}
+                <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{docsCard.vendor?.name || docsCard.vendor_id}</span>
+              </h3>
+              <button onClick={() => setDocsCard(null)} style={{ ...btnMini }}>Close</button>
+            </div>
+            <DocumentAttachmentList
+              contextTable="virtual_cards"
+              contextId={docsCard.id}
+              kinds={["supporting_doc", "authorization", "receipt", "other"]}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -127,7 +180,7 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
   const [result, setResult] = useState<{ reveal_url: string; card: { card_number_last4: string; credit_limit: number } } | null>(null);
 
   async function issue() {
-    if (!invoiceId.trim()) { alert("Invoice ID required"); return; }
+    if (!invoiceId.trim()) { notify("Invoice ID required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/payments/virtual-card", {
@@ -136,7 +189,7 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
       });
       if (!r.ok) throw new Error(await r.text());
       setResult(await r.json());
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 
