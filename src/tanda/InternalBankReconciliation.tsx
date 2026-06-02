@@ -23,6 +23,16 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TXN_TABLE_KEY = "tanda.bank_recon_transactions";
+const TXN_COLUMNS: ColumnDef[] = [
+  { key: "date",        label: "Date" },
+  { key: "account",     label: "Account" },
+  { key: "description", label: "Description" },
+  { key: "amount",      label: "Amount" },
+  { key: "status",      label: "Status" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -455,6 +465,7 @@ function TransactionsTab() {
   const [filterStatus, setFilterStatus] = useState<BankTxn["status"] | "all">("unmatched");
   const [matchModal, setMatchModal] = useState<BankTxn | null>(null);
   const [createJeModal, setCreateJeModal] = useState<BankTxn | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TXN_TABLE_KEY, TXN_COLUMNS);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -566,6 +577,14 @@ function TransactionsTab() {
             { key: "notes",               header: "Notes" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TXN_TABLE_KEY}
+          columns={TXN_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted }}>{rows.length} row{rows.length === 1 ? "" : "s"}</span>
       </div>
 
@@ -581,26 +600,26 @@ function TransactionsTab() {
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
-              <th style={th}>Date</th>
-              <th style={th}>Account</th>
-              <th style={th}>Description</th>
-              <th style={{ ...th, textAlign: "right" }}>Amount</th>
-              <th style={th}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("date")}>Date</th>
+              <th style={th} hidden={!visibleColumns.has("account")}>Account</th>
+              <th style={th} hidden={!visibleColumns.has("description")}>Description</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("amount")}>Amount</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
               <th style={{ ...th, width: 280 }}>Actions</th>
             </tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} style={r.pending ? { opacity: 0.5 } : {}}>
-                  <td style={td}>{r.posted_date}</td>
-                  <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
+                  <td style={td} hidden={!visibleColumns.has("date")}>{r.posted_date}</td>
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("account")}>
                     {r.bank_accounts?.name || "—"}
                     {r.bank_accounts?.mask ? ` ••${r.bank_accounts.mask}` : ""}
                   </td>
-                  <td style={td}>{r.merchant_name || r.description || "—"}</td>
-                  <td style={{ ...tdNum, color: r.amount_cents >= 0 ? C.success : C.danger, fontWeight: 600 }}>
+                  <td style={td} hidden={!visibleColumns.has("description")}>{r.merchant_name || r.description || "—"}</td>
+                  <td style={{ ...tdNum, color: r.amount_cents >= 0 ? C.success : C.danger, fontWeight: 600 }} hidden={!visibleColumns.has("amount")}>
                     {fmtCents(r.amount_cents)}
                   </td>
-                  <td style={{ ...td, color: STATUS_COLOR[r.status], fontWeight: 600 }}>
+                  <td style={{ ...td, color: STATUS_COLOR[r.status], fontWeight: 600 }} hidden={!visibleColumns.has("status")}>
                     {r.status}{r.match_confidence != null ? ` (${r.match_confidence}%)` : ""}
                   </td>
                   <td style={td}>
