@@ -201,6 +201,28 @@ function GenderFormModal({ mode, gender, onClose, onSaved }: ModalProps) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // On the Add form, the CODE field auto-fills from the LABEL's first letter
+  // (Men→M, Women→W, …) — but only as a default. Once the operator edits CODE
+  // by hand, codeIsAuto flips false and we stop clobbering their value.
+  const [codeIsAuto, setCodeIsAuto] = useState(mode === "add");
+
+  function onLabelChange(label: string) {
+    setForm((f) => {
+      const next = { ...f, label };
+      // Only auto-fill CODE on the Add form, and only while it's still
+      // operator-untouched (auto). Uppercased first letter of the label.
+      if (mode === "add" && codeIsAuto) {
+        next.code = (label.trim().charAt(0) || "").toUpperCase();
+      }
+      return next;
+    });
+  }
+
+  function onCodeChange(value: string) {
+    // Any manual edit to CODE makes the operator's value stick.
+    setCodeIsAuto(false);
+    setForm((f) => ({ ...f, code: value.toUpperCase() }));
+  }
 
   async function submit() {
     setSubmitting(true);
@@ -236,13 +258,13 @@ function GenderFormModal({ mode, gender, onClose, onSaved }: ModalProps) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Code *">
             {mode === "add" ? (
-              <input type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} style={inputStyle} placeholder="M" autoFocus maxLength={8} />
+              <input type="text" value={form.code} onChange={(e) => onCodeChange(e.target.value)} style={inputStyle} placeholder="M" maxLength={8} />
             ) : (
               <input type="text" value={form.code} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
           </Field>
           <Field label="Label *">
-            <input type="text" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} style={inputStyle} placeholder="Men" />
+            <input type="text" value={form.label} onChange={(e) => onLabelChange(e.target.value)} style={inputStyle} placeholder="Men" autoFocus={mode === "add"} />
           </Field>
           <Field label="Sort order">
             <input type="number" min="0" step="1" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} style={inputStyle} placeholder="0" />
