@@ -566,6 +566,11 @@ import h567 from "./internal/sales-orders/ship.js";
 //   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
 import h572 from "./internal/purchase-orders/index.js";
 import h573 from "./internal/purchase-orders/[id].js";
+// P16/M18 — Allocations Workbench (cross-SO allocation).
+//   h574 = GET demand + POST apply  /api/internal/allocations
+//   h575 = POST auto-allocate preview /api/internal/allocations/preview
+import h574 from "./internal/allocations/index.js";
+import h575 from "./internal/allocations/preview.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -956,6 +961,9 @@ export const ROUTES = [
   // P16/M11 — native Purchase Orders. :id before the bare collection.
   { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
   { pattern: "/api/internal/purchase-orders",                 handler: h572 },
+  // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/preview",             handler: h575 },
+  { pattern: "/api/internal/allocations",                     handler: h574 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
