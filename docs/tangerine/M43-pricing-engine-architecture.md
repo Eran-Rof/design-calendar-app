@@ -1,6 +1,6 @@
 # M43 — Pricing Engine architecture
 
-**Status:** Chunk A (backend) shipped #791. Chunk B (admin UI) + Chunk C (SO/AR auto-fill) ahead.
+**Status:** Chunk A (backend) shipped #792. Chunk B (admin UI) + Chunk C (SO/AR auto-fill) ahead.
 
 ## Why
 Internal SO/AR prices were 100% manual typing; the only structured prices lived in the interim, style-level `b2b_price_list` (#719, *"placeholder until M43"*), used only by the B2B portal. M43 makes pricing real and unifies staff + portal on one engine.
