@@ -15,6 +15,7 @@ import {
   ATS_REPORT_KEYS,
   ADMIN_PERMISSION,
   DEFAULT_PERMISSION,
+  canAccessAppFromSession,
   canAccessCostingFromSession,
   canSeeCostingTabFromSession,
   canSeeVendorPortalCard,
@@ -242,6 +243,55 @@ describe("permissions — session-backed gates", () => {
     it("returns true for non-admins with no costing entry (default-true)", () => {
       setSessionUser({ role: "user", permissions: {} });
       expect(canAccessCostingFromSession()).toBe(true);
+    });
+  });
+
+  // Generic per-app gate driving every launcher card + route guard, including
+  // the newly-gateable gs1 + planning apps.
+  describe("canAccessAppFromSession", () => {
+    it("returns true with no session, for every app", () => {
+      for (const app of ["design", "tanda", "techpack", "ats", "costing", "gs1", "planning"] as const) {
+        expect(canAccessAppFromSession(app)).toBe(true);
+      }
+    });
+
+    it("returns true for admins regardless of stored config", () => {
+      setSessionUser({
+        role: "admin",
+        permissions: { gs1: { access: false, readOnly: false, seeOthersData: false } },
+      });
+      expect(canAccessAppFromSession("gs1")).toBe(true);
+      expect(canAccessAppFromSession("planning")).toBe(true);
+    });
+
+    it("blocks only the apps explicitly set to access:false (ATS-only example)", () => {
+      // Jose: ATS-only — every other app opted out.
+      setSessionUser({
+        role: "user",
+        permissions: {
+          ats:      { access: true,  readOnly: false, seeOthersData: false },
+          design:   { access: false, readOnly: false, seeOthersData: false },
+          tanda:    { access: false, readOnly: false, seeOthersData: false },
+          techpack: { access: false, readOnly: false, seeOthersData: false },
+          costing:  { access: false, readOnly: false, seeOthersData: false },
+          vendor:   { access: false, readOnly: false, seeOthersData: false },
+          gs1:      { access: false, readOnly: false, seeOthersData: false },
+          planning: { access: false, readOnly: false, seeOthersData: false },
+        },
+      });
+      expect(canAccessAppFromSession("ats")).toBe(true);
+      for (const app of ["design", "tanda", "techpack", "costing", "vendor", "gs1", "planning"] as const) {
+        expect(canAccessAppFromSession(app)).toBe(false);
+      }
+    });
+
+    it("defaults a missing entry to accessible (only access:false blocks)", () => {
+      setSessionUser({
+        role: "user",
+        permissions: { gs1: { access: false, readOnly: false, seeOthersData: false } },
+      });
+      expect(canAccessAppFromSession("gs1")).toBe(false);
+      expect(canAccessAppFromSession("planning")).toBe(true); // no entry → allowed
     });
   });
 });

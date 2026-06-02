@@ -5,7 +5,7 @@ import WithNotifications from "./components/notifications/WithNotifications";
 import PlanningShell from "./inventory-planning/shared/components/PlanningShell";
 import { appConfig } from "./config/env";
 import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/planningAccess";
-import { canAccessCostingFromSession } from "./permissions";
+import { canAccessAppFromSession } from "./permissions";
 import { installInternalApiAuth } from "./utils/internalApiAuth";
 import { installIdleLogout } from "./utils/installIdleLogout";
 
@@ -62,10 +62,10 @@ function PlanningBlocked() {
   );
 }
 
-// Shown when a user without permissions.costing.access navigates directly to
-// /costing (the launcher card is already hidden for them in PLM.tsx, but the
-// route itself must refuse too — the card gate is not a security boundary).
-function CostingBlocked() {
+// Shown when a user without permissions.<app>.access navigates directly to an
+// app route. The launcher card is already locked for them in PLM.tsx, but the
+// route itself must refuse too — the card lock is UX, not a security boundary.
+function AppAccessBlocked({ appName }: { appName: string }) {
   return (
     <div
       style={{
@@ -81,9 +81,9 @@ function CostingBlocked() {
       }}
     >
       <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-      <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>Costing</h1>
+      <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>{appName}</h1>
       <p style={{ margin: "10px 0 24px", maxWidth: 360 }}>
-        Your account does not have access to the Costing app.
+        Your account does not have access to {appName}.
       </p>
       <a href="/" style={{ color: "#CC2200", fontSize: 14, textDecoration: "none" }}>
         ← Back to launcher
@@ -132,32 +132,52 @@ async function mount() {
     root.render(<StrictMode><ErrorBoundary appName="B2B Portal"><B2BApp /></ErrorBoundary></StrictMode>);
 
   } else if (path.startsWith("/design")) {
-    const { default: App } = await import("./App");
-    root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><App /></ErrorBoundary></StrictMode>);
+    if (!canAccessAppFromSession("design")) {
+      root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><AppAccessBlocked appName="Design Calendar" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: App } = await import("./App");
+      root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><App /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/tangerine")) {
     const { default: Tangerine } = await import("./Tangerine");
     root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
 
   } else if (path.startsWith("/tanda")) {
-    const { default: TandA } = await import("./TandA");
-    root.render(<StrictMode><ErrorBoundary appName="PO WIP"><TandA /></ErrorBoundary></StrictMode>);
+    if (!canAccessAppFromSession("tanda")) {
+      root.render(<StrictMode><ErrorBoundary appName="PO WIP"><AppAccessBlocked appName="PO WIP" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: TandA } = await import("./TandA");
+      root.render(<StrictMode><ErrorBoundary appName="PO WIP"><TandA /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/techpack")) {
-    const { default: TechPack } = await import("./TechPack");
-    root.render(<StrictMode><ErrorBoundary appName="Tech Packs"><TechPack /></ErrorBoundary></StrictMode>);
+    if (!canAccessAppFromSession("techpack")) {
+      root.render(<StrictMode><ErrorBoundary appName="Tech Packs"><AppAccessBlocked appName="Tech Packs" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: TechPack } = await import("./TechPack");
+      root.render(<StrictMode><ErrorBoundary appName="Tech Packs"><TechPack /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/ats")) {
-    const { default: ATS } = await import("./ATS");
-    root.render(<StrictMode><ErrorBoundary appName="ATS"><ATS /></ErrorBoundary></StrictMode>);
+    if (!canAccessAppFromSession("ats")) {
+      root.render(<StrictMode><ErrorBoundary appName="ATS"><AppAccessBlocked appName="ATS" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: ATS } = await import("./ATS");
+      root.render(<StrictMode><ErrorBoundary appName="ATS"><ATS /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/gs1")) {
-    const { default: GS1 } = await import("./GS1");
-    root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><GS1 /></ErrorBoundary></StrictMode>);
+    if (!canAccessAppFromSession("gs1")) {
+      root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><AppAccessBlocked appName="GTIN Creation" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: GS1 } = await import("./GS1");
+      root.render(<StrictMode><ErrorBoundary appName="GS1 Labels"><GS1 /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/costing")) {
-    if (!canAccessCostingFromSession()) {
-      root.render(<StrictMode><ErrorBoundary appName="Costing"><CostingBlocked /></ErrorBoundary></StrictMode>);
+    if (!canAccessAppFromSession("costing")) {
+      root.render(<StrictMode><ErrorBoundary appName="Costing"><AppAccessBlocked appName="Costing" /></ErrorBoundary></StrictMode>);
     } else {
       const { default: Costing } = await import("./Costing");
       root.render(<StrictMode><ErrorBoundary appName="Costing"><Costing /></ErrorBoundary></StrictMode>);
@@ -165,9 +185,12 @@ async function mount() {
 
   } else if (path.startsWith("/planning")) {
     // ── Planning gate ─────────────────────────────────────────────────────
-    // All /planning/* sub-routes share the same access check so it only
-    // needs to live in one place.
-    if (!planningAccessAllowed()) {
+    // Per-user permission first, then the beta email-allowlist. All
+    // /planning/* sub-routes share the same checks so they live in one place.
+    if (!canAccessAppFromSession("planning")) {
+      root.render(<StrictMode><ErrorBoundary appName="Planning"><AppAccessBlocked appName="Inventory Planning" /></ErrorBoundary></StrictMode>);
+
+    } else if (!planningAccessAllowed()) {
       root.render(<StrictMode><ErrorBoundary appName="Planning"><PlanningBlocked /></ErrorBoundary></StrictMode>);
 
     } else if (path.startsWith("/planning/data-quality")) {
