@@ -100,3 +100,56 @@ export function getRoleRecipients(role, options = {}) {
   }
   return getInternalRecipients(category, { ...options, fallback: "compliance" });
 }
+
+// The canonical list of notification categories an internal employee can
+// subscribe to (the keys of CATEGORY_VARS). Exported so the employee handler
+// can validate the per-employee `notification_subscriptions` array and the UI
+// can render one checkbox per category. Keep in sync with the UI labels in
+// src/lib/notificationCategories.ts.
+export const NOTIFICATION_CATEGORIES = Object.keys(CATEGORY_VARS);
+
+/**
+ * Async, DB-aware recipient resolution: env-var recipients (via the sync
+ * getInternalRecipients) UNION any ACTIVE employee who has subscribed to this
+ * category in employees.notification_subscriptions. This is what lets an
+ * operator route a notification to a person by ticking a box on their employee
+ * record, without touching Vercel env vars.
+ *
+ * Dedupes case-insensitively (preserving the first-seen casing). The employee
+ * lookup is wrapped so a DB hiccup degrades to env-only behavior rather than
+ * dropping the notification entirely.
+ *
+ * @param {object} admin       service-role Supabase client (must be in scope)
+ * @param {string} category    one of NOTIFICATION_CATEGORIES
+ * @param {object} [options]   same shape as getInternalRecipients options
+ * @returns {Promise<{emails: string[], empty: boolean, varsConsulted: string[], subscriberCount: number}>}
+ */
+export async function resolveInternalRecipients(admin, category, options = {}) {
+  const base = getInternalRecipients(category, options);
+  const byKey = new Map(); // lower(email) -> original-cased email
+  for (const e of base.emails) byKey.set(e.toLowerCase(), e);
+
+  let subscriberCount = 0;
+  try {
+    if (admin && CATEGORY_VARS[category]) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("email")
+        .eq("is_active", true)
+        .contains("notification_subscriptions", [category]);
+      if (error) throw error;
+      for (const row of data || []) {
+        const raw = (row.email || "").trim();
+        if (!raw) continue;
+        subscriberCount += 1;
+        const key = raw.toLowerCase();
+        if (!byKey.has(key)) byKey.set(key, raw);
+      }
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] employee-subscription lookup failed for category="${category}": ${String(err)}`);
+  }
+
+  const emails = Array.from(byKey.values()).filter(Boolean);
+  return { emails, empty: emails.length === 0, varsConsulted: base.varsConsulted, subscriberCount };
+}

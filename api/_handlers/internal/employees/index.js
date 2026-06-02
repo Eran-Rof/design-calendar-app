@@ -8,8 +8,24 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { insertWithAutoCode } from "../../../_lib/autoCode.js";
+import { NOTIFICATION_CATEGORIES } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
+
+// Validate an employee.notification_subscriptions array: every entry must be a
+// known notification category key. Returns a deduped array or an error string.
+function parseSubscriptions(raw) {
+  if (raw == null) return { value: [] };
+  if (!Array.isArray(raw)) return { error: "notification_subscriptions must be an array of category keys" };
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return { error: "notification_subscriptions entries must be strings" };
+    const key = item.trim();
+    if (!NOTIFICATION_CATEGORIES.includes(key)) return { error: `unknown notification category: ${JSON.stringify(item)}` };
+    if (!out.includes(key)) out.push(key);
+  }
+  return { value: out };
+}
 
 // Chunk M — employee codes are server-generated + read-only (operator item 14).
 const CODE_PREFIX = "EMP-";
@@ -143,6 +159,8 @@ export function validateInsert(body) {
   if (wholesalePct.error) return { error: `commission_wholesale_pct: ${wholesalePct.error}` };
   const closeoutPct = parsePct(body.commission_closeout_pct);
   if (closeoutPct.error) return { error: `commission_closeout_pct: ${closeoutPct.error}` };
+  const subs = parseSubscriptions(body.notification_subscriptions);
+  if (subs.error) return { error: subs.error };
 
   return {
     data: {
@@ -162,6 +180,7 @@ export function validateInsert(body) {
       phone: body.phone ? String(body.phone).trim() : null,
       auth_user_id: auth_user_id_trimmed || null,
       manager_employee_id: manager_id_trimmed || null,
+      notification_subscriptions: subs.value,
       metadata: body.metadata || {},
     },
   };

@@ -9,8 +9,24 @@
 // Tangerine P2 Chunk 8.
 
 import { createClient } from "@supabase/supabase-js";
+import { NOTIFICATION_CATEGORIES } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
+
+// Validate an employee.notification_subscriptions array: every entry must be a
+// known notification category key. Returns a deduped array or an error string.
+export function validateSubscriptions(raw) {
+  if (raw == null) return { value: [] };
+  if (!Array.isArray(raw)) return { error: "notification_subscriptions must be an array of category keys" };
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return { error: "notification_subscriptions entries must be strings" };
+    const key = item.trim();
+    if (!NOTIFICATION_CATEGORIES.includes(key)) return { error: `unknown notification category: ${JSON.stringify(item)}` };
+    if (!out.includes(key)) out.push(key);
+  }
+  return { value: out };
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -187,6 +203,11 @@ export function validatePatch(body) {
     data.manager_employee_id = trimmed || null;
   }
   if ("metadata" in body) data.metadata = body.metadata || {};
+  if ("notification_subscriptions" in body) {
+    const s = validateSubscriptions(body.notification_subscriptions);
+    if (s.error) return { error: s.error };
+    data.notification_subscriptions = s.value;
+  }
 
   return { data };
 }
