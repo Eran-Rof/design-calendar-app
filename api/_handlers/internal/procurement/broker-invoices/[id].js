@@ -12,11 +12,24 @@
 // layers is owned by a separate chunk.
 
 import { createClient } from "@supabase/supabase-js";
+import { postEvent } from "../../../../_lib/accounting/posting/index.js";
+import { resolveInventoryAccount } from "../../inventory-adjustments/post.js";
 
-export const config = { maxDuration: 20 };
+export const config = { maxDuration: 30 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOCATION_METHODS = ["value", "weight", "cbm", "manual"];
+
+function centsToStr(cents) {
+  const n = BigInt(Math.trunc(Number(cents)));
+  const neg = n < 0n; const abs = neg ? -n : n;
+  return `${neg ? "-" : ""}${(abs / 100n).toString()}.${(abs % 100n).toString().padStart(2, "0")}`;
+}
+async function findPostableAccount(admin, entityId, code) {
+  const { data } = await admin.from("gl_accounts")
+    .select("id, is_postable, status").eq("entity_id", entityId).eq("code", code).maybeSingle();
+  return (data && data.is_postable && data.status === "active") ? data.id : null;
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -76,6 +89,132 @@ export default async function handler(req, res, params) {
       try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
     }
     body = body || {};
+
+    // ── action: post — allocate this broker bill onto a native receipt's FIFO
+    //    layers + post the landed-cost revaluation JE (P13 GL-C4). ───────────
+    if (body.action === "post") {
+      if (inv.allocation_je_id) return res.status(409).json({ error: "Broker invoice already posted (allocation JE exists)." });
+      const totalCents = Number(inv.total_cents) || 0;
+      if (totalCents <= 0) return res.status(409).json({ error: "Broker invoice total is zero — nothing to allocate." });
+      if (!inv.vendor_id) return res.status(409).json({ error: "Broker invoice has no vendor (the broker) — cannot post AP." });
+
+      const receiptId = (inv.tanda_po_receipt_id && UUID_RE.test(String(inv.tanda_po_receipt_id))) ? inv.tanda_po_receipt_id
+        : (body.tanda_po_receipt_id && UUID_RE.test(String(body.tanda_po_receipt_id))) ? body.tanda_po_receipt_id : null;
+      if (!receiptId) return res.status(400).json({ error: "tanda_po_receipt_id required — the posted native receipt to allocate landed cost onto." });
+
+      const { data: rcpt } = await admin.from("tanda_po_receipts").select("id, status, entity_id").eq("id", receiptId).maybeSingle();
+      if (!rcpt || rcpt.entity_id !== inv.entity_id) return res.status(404).json({ error: "Receipt not found for this entity." });
+      if (rcpt.status !== "posted") return res.status(409).json({ error: "Receipt must be posted before landed costs can be allocated." });
+
+      // Receipt lines with their FIFO layer (carries original/remaining qty + cost).
+      const { data: rlines } = await admin.from("tanda_po_receipt_lines")
+        .select("id, inventory_layer_id, qty_accepted, unit_cost_cents, purchase_order_line_id").eq("receipt_id", receiptId);
+      const layerIds = (rlines || []).map((l) => l.inventory_layer_id).filter(Boolean);
+      if (layerIds.length === 0) return res.status(409).json({ error: "Receipt has no inventory layers to revalue." });
+      const { data: layers } = await admin.from("inventory_layers")
+        .select("id, item_id, original_qty, remaining_qty, unit_cost_cents").in("id", layerIds);
+      const layerById = new Map((layers || []).map((l) => [l.id, l]));
+      const { data: polRows } = await admin.from("purchase_order_lines")
+        .select("id, inventory_item_id").in("id", [...new Set((rlines || []).map((l) => l.purchase_order_line_id).filter(Boolean))]);
+      const itemByPol = new Map((polRows || []).map((p) => [p.id, p.inventory_item_id]));
+
+      // Allocate the broker total across lines by value (qty_accepted × unit cost).
+      // weight / cbm methods fall back to value until per-line weight/cbm is captured.
+      const targets = (rlines || []).filter((l) => l.inventory_layer_id && Number(l.qty_accepted) > 0 && layerById.has(l.inventory_layer_id));
+      const valueOf = (l) => Number(l.qty_accepted || 0) * Number(l.unit_cost_cents || 0);
+      const totalValue = targets.reduce((s, l) => s + valueOf(l), 0);
+      if (totalValue <= 0) return res.status(409).json({ error: "Receipt lines have zero value — cannot allocate by value." });
+
+      // Per-line allocation (largest-remainder so the parts sum to the total).
+      let allocated = 0;
+      const perLine = targets.map((l, i) => {
+        const isLast = i === targets.length - 1;
+        const alloc = isLast ? (totalCents - allocated) : Math.round(totalCents * (valueOf(l) / totalValue));
+        allocated += isLast ? 0 : alloc;
+        return { line: l, alloc };
+      });
+
+      // Split each line's allocation into a per-unit uplift (capitalized to the
+      // remaining FIFO qty) + a consumed-portion variance (units already sold).
+      const upliftByItem = new Map(); // item_id → cents
+      const layerBumps = [];          // { layer_id, new_unit_cost_cents }
+      let consumedTotal = 0;
+      for (const { line, alloc } of perLine) {
+        const layer = layerById.get(line.inventory_layer_id);
+        const itemId = layer.item_id || itemByPol.get(line.purchase_order_line_id);
+        const orig = Number(layer.original_qty) || 0;
+        const remaining = Number(layer.remaining_qty) || 0;
+        if (orig <= 0) { consumedTotal += alloc; continue; }
+        const perUnit = Math.round(alloc / orig);          // integer cents/unit
+        const uplift = perUnit * remaining;                 // capitalized to stock
+        const consumed = alloc - uplift;                    // expensed (sold units)
+        if (uplift > 0 && perUnit > 0) {
+          upliftByItem.set(itemId, (upliftByItem.get(itemId) || 0) + uplift);
+          layerBumps.push({ layer_id: layer.id, new_unit_cost_cents: Number(layer.unit_cost_cents) + perUnit });
+        }
+        if (consumed > 0) consumedTotal += consumed;
+      }
+
+      const inventoryAcctId = (await resolveInventoryAccount(admin, inv.entity_id, null))?.id || null;
+      const varianceAcctId = await findPostableAccount(admin, inv.entity_id, "5150");
+      const { data: ent } = await admin.from("entities").select("default_ap_account_id").eq("id", inv.entity_id).maybeSingle();
+      const apAccountId = (ent && ent.default_ap_account_id) || (await findPostableAccount(admin, inv.entity_id, "2010"));
+      if (!inventoryAcctId || !apAccountId) return res.status(409).json({ error: "Need postable Inventory + AP (2010) accounts to post landed cost." });
+      if (consumedTotal > 0 && !varianceAcctId) return res.status(409).json({ error: "Some units already sold but no postable Landed Cost Variance account (5150)." });
+
+      // Create the broker AP invoice (payable record) for the broker vendor.
+      const invNo = inv.broker_invoice_number || `BRK-${String(id).slice(0, 8)}`;
+      const { data: apInv, error: hErr } = await admin.from("invoices").insert({
+        entity_id: inv.entity_id, vendor_id: inv.vendor_id, invoice_number: invNo,
+        invoice_kind: "vendor_bill", gl_status: "unposted", posting_date: inv.invoice_date, due_date: inv.invoice_date,
+        ap_account_id: apAccountId, source: "system", description: `Broker / customs landed cost ${invNo}`,
+      }).select("id").single();
+      if (hErr) {
+        if (hErr.code === "23505") return res.status(409).json({ error: "An AP invoice with that number already exists for this vendor." });
+        return res.status(500).json({ error: hErr.message });
+      }
+      const { error: lErr } = await admin.from("invoice_line_items").insert({
+        invoice_id: apInv.id, entity_id: inv.entity_id, line_index: 1, description: `Landed cost allocation (receipt ${String(receiptId).slice(0, 8)})`,
+        expense_account_id: varianceAcctId || inventoryAcctId, quantity: 1, unit_cost_cents: totalCents, tax_amount_cents: 0,
+      });
+      if (lErr) { await admin.from("invoices").delete().eq("id", apInv.id); return res.status(500).json({ error: `AP invoice line failed: ${lErr.message}` }); }
+
+      // Post the revaluation JE.
+      let jeId = null;
+      try {
+        const result = await postEvent(admin, {
+          kind: "landed_cost_revaluation", entity_id: inv.entity_id, created_by_user_id: null,
+          data: {
+            invoice_id: apInv.id, vendor_id: inv.vendor_id, invoice_number: invNo, invoice_date: inv.invoice_date,
+            ap_account_id: apAccountId, inventory_account_id: inventoryAcctId, variance_account_id: varianceAcctId,
+            inventory_lines: [...upliftByItem.entries()].filter(([, c]) => c > 0).map(([item_id, c]) => ({ item_id, amount: centsToStr(c) })),
+            consumed_variance_amount: centsToStr(consumedTotal),
+            total_amount: centsToStr(totalCents),
+          },
+        });
+        jeId = result.accrual_je_id;
+      } catch (e) {
+        await admin.from("invoices").delete().eq("id", apInv.id);
+        return res.status(500).json({ error: `Landed-cost revaluation JE failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+      await admin.from("invoices").update({ gl_status: "posted" }).eq("id", apInv.id);
+
+      // Bump the remaining FIFO layers' unit cost (capitalize the in-stock share).
+      for (const b of layerBumps) {
+        await admin.from("inventory_layers").update({ unit_cost_cents: b.new_unit_cost_cents }).eq("id", b.layer_id);
+      }
+
+      // Stamp the broker invoice + (if linked) the customs entry.
+      await admin.from("broker_invoices").update({ ap_invoice_id: apInv.id, allocation_je_id: jeId, tanda_po_receipt_id: receiptId }).eq("id", id);
+      if (inv.customs_entry_id) await admin.from("customs_entries").update({ revaluation_je_id: jeId }).eq("id", inv.customs_entry_id);
+
+      const { data: fresh } = await admin.from("broker_invoices").select("*").eq("id", id).single();
+      return res.status(200).json({
+        ...fresh, je_id: jeId, ap_invoice_id: apInv.id,
+        layers_revalued: layerBumps.length, consumed_variance_cents: consumedTotal,
+        message: `Landed cost posted — ${layerBumps.length} layer(s) revalued, ${consumedTotal > 0 ? `${centsToStr(consumedTotal)} expensed on sold units` : "all units still in stock"}.`,
+      });
+    }
 
     const patch = {};
     if ("vendor_id" in body) {

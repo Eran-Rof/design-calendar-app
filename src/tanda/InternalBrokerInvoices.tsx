@@ -37,6 +37,7 @@ type BrokerInvoice = {
   duty_advance_cents: number | string; other_cents: number | string;
   total_cents: number | string; allocation_method: string;
   ap_invoice_id: string | null; allocation_je_id: string | null;
+  tanda_po_receipt_id?: string | null;
   vendor_name?: string | null; customs_entry_number?: string | null;
 };
 type Vendor = { id: string; name: string; code?: string };
@@ -73,6 +74,7 @@ export default function InternalBrokerInvoices() {
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<BrokerInvoice | null>(null);
+  const [postFor, setPostFor] = useState<BrokerInvoice | null>(null);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -127,10 +129,11 @@ export default function InternalBrokerInvoices() {
             <th style={{ ...th, textAlign: "right" }}>Freight</th><th style={{ ...th, textAlign: "right" }}>Brokerage</th>
             <th style={{ ...th, textAlign: "right" }}>Duty advance</th><th style={{ ...th, textAlign: "right" }}>Other</th>
             <th style={{ ...th, textAlign: "right" }}>Total</th>
+            <th style={th}>Landed cost</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={8}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={8}>No broker invoices.</td></tr>}
+            {loading && <tr><td style={td} colSpan={9}>Loading…</td></tr>}
+            {!loading && filtered.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={9}>No broker invoices.</td></tr>}
             {filtered.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(r); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.broker_invoice_number}</td>
@@ -141,6 +144,11 @@ export default function InternalBrokerInvoices() {
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.duty_advance_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.other_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmtCents(r.total_cents)}</td>
+                <td style={td} onClick={(e) => e.stopPropagation()}>
+                  {r.allocation_je_id
+                    ? <span style={{ color: C.success, fontSize: 12 }}>✓ Posted</span>
+                    : <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }} onClick={() => setPostFor(r)}>💲 Post landed cost</button>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -154,6 +162,68 @@ export default function InternalBrokerInvoices() {
           onSaved={() => { setModalOpen(false); setEditing(null); void load(); }}
         />
       )}
+      {postFor && (
+        <PostLandedCostModal
+          invoice={postFor}
+          onClose={() => setPostFor(null)}
+          onPosted={() => { setPostFor(null); void load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PostLandedCostModal({ invoice, onClose, onPosted }: { invoice: BrokerInvoice; onClose: () => void; onPosted: () => void }) {
+  const [receipts, setReceipts] = useState<Array<{ id: string; receipt_date: string; landed_cost_cents: number | null }>>([]);
+  const [receiptId, setReceiptId] = useState(invoice.tanda_po_receipt_id || "");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/internal/procurement/receipts?status=posted")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((a) => setReceipts(Array.isArray(a) ? a : []))
+      .catch(() => setReceipts([]));
+  }, []);
+
+  async function doPost() {
+    if (!receiptId) { setErr("Pick a posted receipt to allocate onto."); return; }
+    setSubmitting(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/procurement/broker-invoices/${invoice.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "post", tanda_po_receipt_id: receiptId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "Landed cost posted.", "success");
+      onPosted();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Post landed cost — {invoice.broker_invoice_number}</h3>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
+          Allocates <b>{fmtCents(invoice.total_cents)}</b> across the chosen posted receipt&apos;s accepted units (by value):
+          in-stock units have their FIFO layer cost revalued up; the share on units already sold is expensed to Landed Cost Variance (5150). Books the broker AP bill. This cannot be undone here.
+        </div>
+        <Field label="Posted receipt to allocate onto">
+          <select value={receiptId} onChange={(e) => setReceiptId(e.target.value)} style={inputStyle}>
+            <option value="">— pick a posted receipt —</option>
+            {receipts.map((rc) => (
+              <option key={rc.id} value={rc.id}>{rc.receipt_date} · {rc.id.slice(0, 8)} · landed {fmtCents(rc.landed_cost_cents)}</option>
+            ))}
+          </select>
+        </Field>
+        {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "12px 0", fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void doPost()} style={btnPrimary} disabled={submitting || !receiptId}>{submitting ? "Posting…" : "Post landed cost"}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -288,7 +358,7 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
         <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
-          Landed-cost revaluation onto FIFO layers posts in a later chunk. This broker invoice is record-only — no AP invoice or allocation journal entry is created here.
+          Save the charges here, then use <b>💲 Post landed cost</b> in the list to allocate them onto a posted receipt&apos;s FIFO layers (in-stock units revalued up, sold-units&apos; share expensed to Landed Cost Variance) and book the broker AP bill.
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>

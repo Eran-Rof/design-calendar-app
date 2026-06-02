@@ -6,10 +6,17 @@
 Inspect a **posted** receipt: record pass/partial/fail with an overall pass-rate and per-finding detail (category, severity minor/major/critical, qty affected, description). Optionally adjust the receipt lines' accepted/rejected qty. *(The vendor-RMA / credit / write-off / rework disposition workflow with its GL effects is a later chunk — QC currently records the inspection only.)*
 
 ## 32.5 Customs Entries (`Procurement → 🛃 Customs Entries`)
-Record a CBP entry (entry #, date, port, broker) with per-line HTS code, country of origin, entered value, duty rate/amount, §301, MPF/HMF. Header money totals are auto-summed from the lines. *(Capitalizing duty into FIFO layers via a revaluation JE is a later chunk — this records the entry.)*
+Record a CBP entry (entry #, date, port, broker) with per-line HTS code, country of origin, entered value, duty rate/amount, §301, MPF/HMF. Header money totals are auto-summed from the lines. Duty is capitalized into FIFO layers when you post the linked **broker invoice** (§32.6) — link the customs entry to the broker invoice so its `revaluation_je_id` is stamped.
 
 ## 32.6 Broker Invoices (`Procurement → 🚢 Broker Invoices`)
-Record a broker/freight-forwarder invoice (freight, brokerage, duty advance, other), optionally linked to a customs entry, with an allocation method (value / weight / cbm / manual). *(Landed-cost allocation onto FIFO layers posts in a later chunk.)*
+Record a broker/freight-forwarder invoice (freight, brokerage, duty advance, other), optionally linked to a customs entry, with an allocation method (value / weight / cbm / manual).
+
+**💲 Post landed cost** (per row, until posted) allocates the invoice total onto a chosen **posted receipt's** accepted units **by value** (weight / cbm fall back to value until per-line weight/cbm is captured) and posts the **landed-cost revaluation JE**:
+- **DR Inventory** — the share on units **still in stock**; those FIFO layers' unit cost is **revalued up**.
+- **DR Landed Cost Variance (5150)** — the share on units **already sold** (consumed units keep their original receipt cost; no retroactive COGS restatement).
+- **CR AP** — the broker bill, booked as a payable to the broker vendor.
+
+The broker invoice is then marked **✓ Posted** (its `allocation_je_id` is stamped; a linked customs entry's `revaluation_je_id` too). Idempotent — a posted invoice cannot be re-posted.
 
 ## 32.7 3-Way Match (`Procurement → ⚖️ 3-Way Match`)
 Enter a vendor invoice and match it against its PO + posted receipts. The engine compares the invoice total to the **received-and-accepted value** and flags **matched** (within $5 or 2%, whichever is greater), **variance** (outside tolerance), or **exception** (no receipt found).
@@ -62,8 +69,8 @@ The **period-close pre-flight** (Periods → Run checks, and the close itself) n
 ## What's NOT yet usable (deferred to later P13 chunks)
 - **Receiving against mirrored Xoro POs** — C1 is native-PO only.
 - **GL Chunk 1 (Receipt GRNI JE) ✅ shipped** — receiving posts the GR/IR journal entry (§32.2).
-- **GL Chunk 2 (Matched vendor AP clears GR/IR) ✅ shipped** — a within-tolerance 3-way match auto-posts DR GR/IR (2050) / DR-CR PO Variance (6320) / CR AP, with no second inventory layer (§32.7). Remaining GL follow-ups:
-  - **QC disposition GL effects** — write-off (6420), vendor credit memo, rework move — **GL Chunk 3**.
-  - **Landed-cost revaluation JE** — customs duty / broker freight capitalized onto the *remaining* FIFO layers — **GL Chunk 4**.
+- **GL Chunk 2 (Matched vendor AP clears GR/IR) ✅ shipped** — a within-tolerance 3-way match auto-posts DR GR/IR (2050) / DR-CR PO Variance (6320) / CR AP, with no second inventory layer (§32.7).
+- **GL Chunk 4 (Landed-cost revaluation) ✅ shipped** — posting a broker invoice capitalizes its cost onto the receipt's remaining FIFO layers + expenses the sold-units' share to Landed Cost Variance (5150), booking the broker AP bill (§32.6). Remaining GL follow-up:
+  - **QC disposition GL effects** — write-off (6420), vendor credit memo, rework move — **GL Chunk 3** (in progress).
   - Today native POs = 0, so there is no live double-count; during the parallel run, P9 reconciliation covers variances.
 - **OCR vendor-invoice ingestion** — manual entry first (per D14).
