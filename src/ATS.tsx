@@ -77,7 +77,7 @@ function ATSReport() {
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
   const {
     startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus,
-    minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
+    minATS, soWinFrom, soWinTo, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
     lastSync, hoveredCell, pinnedSku, ctxMenu,
@@ -95,6 +95,8 @@ function ATSReport() {
   const setFilterGender      = mk("filterGender");
   const setFilterStatus      = mk("filterStatus");
   const setMinATS            = mk("minATS");
+  const setSoWinFrom         = mk("soWinFrom");
+  const setSoWinTo           = mk("soWinTo");
   const setStoreFilter       = mk("storeFilter");
   const setPoDropOpen        = mk("poDropOpen");
   const setSoDropOpen        = mk("soDropOpen");
@@ -516,14 +518,14 @@ function ATSReport() {
 
   useEffect(() => {
     if (excelData) {
-      let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
+      let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores, { start: soWinFrom, end: soWinTo });
       for (const op of mergeHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
       // Phase 1 dark ship: enrich with master fields. Re-runs when masterReady
       // flips so rows pick up master data once the cache loads.
       const enriched = enrichRowsWithItemMaster(computed).rows;
       setRows(enriched);
     }
-  }, [excelData, dates, poStores, soStores, mergeHistory, masterReady]);
+  }, [excelData, dates, poStores, soStores, soWinFrom, soWinTo, mergeHistory, masterReady]);
 
   // Snapshot-path safety net: if rows were populated by the legacy
   // ats_snapshots load before the master cache was ready, re-enrich them
@@ -1055,7 +1057,7 @@ function ATSReport() {
   const panel = atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
     search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus,
-    minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
+    minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
     soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage,
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,
     uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData,
