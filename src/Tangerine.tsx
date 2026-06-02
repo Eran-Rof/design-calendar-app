@@ -39,6 +39,8 @@ import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
 import InternalAllocations        from "./tanda/InternalAllocations";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
+import InternalReceiving          from "./tanda/InternalReceiving";
+import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
@@ -169,6 +171,8 @@ type ModuleKey =
   | "inventory_matrix"
   | "prepack_matrices"
   | "purchase_orders"
+  | "receiving"
+  | "bookkeeper_approval"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -314,7 +318,10 @@ const MODULES: ModuleDef[] = [
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
-  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
+  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Procurement" },
+  // P13/C1 — Receiving + bookkeeper approval (procurement operational layer).
+  { key: "receiving",           label: "Receiving",         emoji: "📥", group: "Procurement" },
+  { key: "bookkeeper_approval", label: "Bookkeeper Approval", emoji: "🧾", group: "Procurement" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
   { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
@@ -583,6 +590,8 @@ export default function Tangerine() {
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
         {activeModule === "sales_allocations" && <InternalAllocations />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
+        {activeModule === "receiving"         && <InternalReceiving />}
+        {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}

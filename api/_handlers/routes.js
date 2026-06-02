@@ -592,6 +592,17 @@ import h581 from "./internal/price-list-items/index.js";
 import h582 from "./internal/price-list-items/[id].js";
 import h583 from "./internal/price-promotions/index.js";
 import h584 from "./internal/price-promotions/[id].js";
+// P13/C1 — Receiving + landed-cost rollups + bookkeeper approval queue.
+//   h585 = GET/POST          /api/internal/procurement/receipts
+//   h586 = GET/PATCH/DELETE  /api/internal/procurement/receipts/:id
+//   h587 = POST              /api/internal/procurement/receipts/:id/post
+//   h588 = GET               /api/internal/procurement/bookkeeper-queue
+//   h589 = POST              /api/internal/procurement/bookkeeper-queue/:id
+import h585 from "./internal/procurement/receipts/index.js";
+import h586 from "./internal/procurement/receipts/[id].js";
+import h587 from "./internal/procurement/receipts/post.js";
+import h588 from "./internal/procurement/bookkeeper-queue/index.js";
+import h589 from "./internal/procurement/bookkeeper-queue/[id].js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -994,6 +1005,12 @@ export const ROUTES = [
   { pattern: "/api/internal/price-list-items",                handler: h581 },
   { pattern: "/api/internal/price-promotions/:id",            handler: h584 },
   { pattern: "/api/internal/price-promotions",                handler: h583 },
+  // P13/C1 — Receiving. :id/post before :id before the bare collection.
+  { pattern: "/api/internal/procurement/receipts/:id/post",   handler: h587 },
+  { pattern: "/api/internal/procurement/receipts/:id",        handler: h586 },
+  { pattern: "/api/internal/procurement/receipts",            handler: h585 },
+  { pattern: "/api/internal/procurement/bookkeeper-queue/:id", handler: h589 },
+  { pattern: "/api/internal/procurement/bookkeeper-queue",    handler: h588 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },

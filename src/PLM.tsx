@@ -47,6 +47,8 @@ interface User {
     ats?: AtsPermission;
     costing?: AppPermission;
     vendor?: AppPermission;
+    gs1?: AppPermission;
+    planning?: AppPermission;
   };
 }
 
@@ -192,12 +194,33 @@ export default function PLMApp() {
     }
   }, [user?.id, unreadAll]);
 
-  // Restore session
+  // Restore session, then refresh role + permissions from the source of truth.
+  // The session blob is a snapshot taken at login (handleLogin), so without
+  // this an admin's permission change wouldn't take effect until the user
+  // signed out and back in — they'd appear to "still have access" after a
+  // reload. We re-fetch on launcher mount and re-snapshot if anything changed.
+  // Best-effort: any fetch failure or missing record keeps the existing
+  // session, so a transient Supabase hiccup can never lock someone out.
   useEffect(() => {
+    let parsed: User | null = null;
     try {
       const saved = sessionStorage.getItem(SESSION_KEY);
-      if (saved) setUser(JSON.parse(saved));
-    } catch {}
+      if (saved) { parsed = JSON.parse(saved) as User; setUser(parsed); }
+    } catch { return; }
+    if (!parsed) return;
+
+    const current = parsed;
+    loadUsers()
+      .then(users => {
+        const fresh = users.find(u => u.id === current.id);
+        if (!fresh) return; // user not found (e.g. deleted) — don't disrupt mid-session
+        const merged: User = { ...current, role: fresh.role, permissions: fresh.permissions };
+        if (JSON.stringify(merged) !== JSON.stringify(current)) {
+          try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged)); } catch { /* noop */ }
+          setUser(merged);
+        }
+      })
+      .catch(() => { /* keep existing session snapshot */ });
   }, []);
 
   async function handleLogin() {
@@ -361,14 +384,13 @@ export default function PLMApp() {
             if (app.id === "vendor" && !canSeeVendorPortalCard(user)) return false;
             return true;
           }).map(app => {
-            // Per-user-permission apps. Costing honors permissions.costing.access
-            // (the SAME key that gates the Tech Packs Costing sub-tab in
-            // TechPack.tsx) so a user with no costing access sees a 🔒 locked
-            // tile here too. Vendor Portal is filtered out above. Other dashboard
-            // cards (planning, gs1) have no per-user permission yet, so default
-            // to access=true.
-            const hasPerm = app.id === "design" || app.id === "tanda" || app.id === "techpack" || app.id === "ats" || app.id === "costing" || app.id === "vendor";
-            const perm = hasPerm ? getPermission(user, app.id as PermissionAppId) : DEFAULT_PERMISSION;
+            // Every launcher app now carries a per-user permission
+            // (permissions.<id>.access). A user without access sees a 🔒 locked
+            // tile and can't open it; the matching route guard in main.tsx
+            // refuses direct-URL access too. Vendor Portal is filtered out above
+            // (hidden, not locked). Default-true semantics: a missing entry =
+            // access granted, so only an explicit access:false blocks.
+            const perm = getPermission(user, app.id as PermissionAppId);
             const locked = !perm.access;
 
             return (
@@ -575,6 +597,8 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { id: "costing",  label: "Costing",         color: "#7C3AED" },
     { id: "ats",      label: "ATS",             color: "#10B981" },
     { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
+    { id: "planning", label: "Inv. Planning",   color: "#F59E0B" },
+    { id: "gs1",      label: "GTIN Creation",   color: "#0891B2" },
   ];
 
   const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [

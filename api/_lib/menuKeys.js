@@ -135,6 +135,8 @@ const KEYS = [
   "tanda/inventory/adjustments",
   "tanda/inventory/cycle-counts",
   "tanda/procurement/purchase-orders",
+  "tanda/procurement/receiving",
+  "tanda/procurement/bookkeeper-approval",
   "tanda/inventory/matrix",
   "tanda/inventory/prepack-matrices",
   "tanda/cs/cases",
