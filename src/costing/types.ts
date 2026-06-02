@@ -233,6 +233,8 @@ export interface RfqListRow {
   project_name: string | null;
   line_count: number;
   preview_lines: string[];
+  /** Σ(target_price × quantity) across line items. Null when no line is target-priced. */
+  target_cost: number | null;
 }
 
 export interface RfqLineItem {
