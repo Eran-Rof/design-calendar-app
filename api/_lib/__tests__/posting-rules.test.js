@@ -152,6 +152,41 @@ describe("inventoryReceipt", () => {
     expect(r.accrual.lines[1].account_id).toBe("grir1");
     expect(r.accrual.lines[1].subledger_type).toBe("vendor");
   });
+
+  it("multi-line: DR inventory per item / CR GR-IR goods / CR accrued landed", () => {
+    const r = inventoryReceipt({
+      kind: "inventory_receipt", entity_id: ENTITY,
+      data: {
+        receipt_id: "rcpt-2", vendor_id: "v-1", receipt_date: "2026-05-21",
+        inventory_account_id: "inv1", gr_ir_account_id: "grir1", accrued_landed_account_id: "accr1",
+        lines: [{ item_id: "i-1", amount: "60.00" }, { item_id: "i-2", amount: "45.00" }],
+        goods_amount: "100.00", accrued_landed_amount: "5.00",
+        source_table: "tanda_po_receipts",
+      },
+    });
+    expect(r.cash).toBeNull();
+    expect(r.accrual.source_table).toBe("tanda_po_receipts");
+    expect(r.accrual.lines).toHaveLength(4); // 2 inventory DR + GR/IR goods CR + accrued landed CR
+    expect(r.accrual.lines[0].account_id).toBe("inv1");
+    expect(r.accrual.lines[0].debit).toBe("60.00");
+    expect(r.accrual.lines[1].debit).toBe("45.00");
+    expect(r.accrual.lines[2].account_id).toBe("grir1");
+    expect(r.accrual.lines[2].credit).toBe("100.00");
+    expect(r.accrual.lines[3].account_id).toBe("accr1");
+    expect(r.accrual.lines[3].credit).toBe("5.00");
+  });
+
+  it("multi-line: rejects when landed DR != goods + accrued landed", () => {
+    expect(() => inventoryReceipt({
+      kind: "inventory_receipt", entity_id: ENTITY,
+      data: {
+        receipt_id: "rcpt-3", vendor_id: "v-1", receipt_date: "2026-05-21",
+        inventory_account_id: "inv1", gr_ir_account_id: "grir1",
+        lines: [{ item_id: "i-1", amount: "60.00" }],
+        goods_amount: "100.00",
+      },
+    })).toThrow(/landed DR/);
+  });
 });
 
 describe("inventoryAdjustment", () => {

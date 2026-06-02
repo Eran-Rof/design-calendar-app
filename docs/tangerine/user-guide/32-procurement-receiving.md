@@ -28,9 +28,12 @@ Records goods arriving against an **issued / in-transit** PO.
 2. **Landed-cost rollups** (optional) — add freight / duty / broker / inspection charges: pick the expense GL account, amount, vendor, and whether to **capitalize to inventory** (on = folds into unit cost; off = expense only).
 3. **Save draft** (editable), then **Post receipt**. Posting:
    - Creates one **FIFO inventory layer** per accepted line at the **landed unit cost** = PO unit cost + the line's value-weighted share of the capitalized rollups. (e.g. 100 units @ \$10 + \$50 freight → \$10.50/unit.)
-   - Sends each rollup to the **Bookkeeper Approval** queue as a draft AP invoice (it does *not* hit the GL until approved).
+   - Posts the **goods-receipt journal entry (GRNI)**: **DR Inventory** at the landed total (matching the layers), **CR GR/IR Clearing (2050)** for the vendor goods cost, and **CR Accrued Landed (2150)** for the capitalized rollups. The receipt's `je_id` is stamped. Goods are booked into inventory **once** here.
+   - Sends each rollup to the **Bookkeeper Approval** queue as a draft AP invoice. **Capitalized** rollups clear **Accrued Landed (2150)** on approval (DR 2150 / CR AP) — they do *not* re-hit an expense account, so freight is never double-counted; **non-capitalized** rollups stay on their chosen expense GL. The matched vendor AP invoice later clears **GR/IR (2050)** (a later chunk) — neither AP invoice re-debits inventory.
    - Consumes the PO's open commitments.
    - A posted receipt is locked.
+
+> **Accounting model.** GR/IR (Goods-Received-Not-Invoiced) is a two-step: the receipt debits inventory and credits clearing liabilities; the vendor + rollup invoices debit those liabilities and credit AP. The inventory asset is therefore recorded exactly once at landed cost, and no AP invoice creates a second inventory layer.
 
 ## 32.3 Bookkeeper Approval (`Procurement → 🧾 Bookkeeper Approval`)
 Lists the rollup AP invoices (freight / duty / broker) created by receiving, held in `pending_bookkeeper_approval`.
@@ -48,6 +51,9 @@ The **period-close pre-flight** (Periods → Run checks, and the close itself) n
 
 ## What's NOT yet usable (deferred to later P13 chunks)
 - **Receiving against mirrored Xoro POs** — C1 is native-PO only.
-- **Inventory-receipt GL entry (GRNI)** and ensuring a matched vendor AP invoice does **not** create a *second* inventory layer for the same goods — settled in **C4** (3-way match). Today native POs = 0, so there is no live double-count; during the parallel run, P9 reconciliation covers variances.
-- **Deferred GL refinements:** the inventory-receipt **GRNI JE**, the **landed-cost revaluation JE** (duty/broker capitalized onto FIFO layers), **QC disposition GL effects** (write-off / vendor credit), and ensuring a matched vendor AP invoice doesn't create a *second* layer. Wave C panels currently **record** their data and route any posting through existing AP/adjustment flows; these procurement-specific GL postings are a focused follow-up (low live impact — native POs = 0; P9 reconciliation covers parallel-run variances).
+- **GL Chunk 1 (Receipt GRNI JE) ✅ shipped** — receiving now posts the GR/IR journal entry (above). Remaining GL follow-ups:
+  - **Matched vendor AP invoice clears GR/IR (2050)** with price-variance to PO Variance (6320), and a guard so the matched invoice does **not** create a *second* inventory layer — **GL Chunk 2**.
+  - **QC disposition GL effects** — write-off (6420), vendor credit memo, rework move — **GL Chunk 3**.
+  - **Landed-cost revaluation JE** — customs duty / broker freight capitalized onto the *remaining* FIFO layers — **GL Chunk 4**.
+  - Today native POs = 0, so there is no live double-count; during the parallel run, P9 reconciliation covers variances.
 - **OCR vendor-invoice ingestion** — manual entry first (per D14).
