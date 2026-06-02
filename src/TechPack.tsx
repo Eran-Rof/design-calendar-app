@@ -125,6 +125,23 @@ import { TemplatesModal } from "./techpack/modals/TemplatesModal";
 
 // sb helper moved to ./techpack/supabase
 
+// ── Costing tab permission gate ───────────────────────────────────────────────
+// Internal staff live in sessionStorage.plm_user (see
+// project_internal_auth_pattern.md). The Costing tab inside each Tech Pack
+// is gated by permissions.costing.access (default-true when missing so
+// existing users keep their current view). Admins always see it.
+function canSeeCostingTab(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = sessionStorage.getItem("plm_user");
+    if (!raw) return true;
+    const u = JSON.parse(raw) as { role?: string; permissions?: { costing?: { access?: boolean } } };
+    if (u.role === "admin") return true;
+    return u.permissions?.costing?.access !== false;
+  } catch {
+    return true;
+  }
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -1928,7 +1945,15 @@ export default function TechPackApp() {
 
           {/* Tabs */}
           <div style={{ display: "flex", gap: 0, padding: "0 24px", borderBottom: "1px solid #334155" }}>
-            {([["sketch", "Sketch"], ["spec", "Spec Sheet"], ["construction", "Construction"], ["bom", "BOM"], ["costing", "Costing"], ["approvals", "Approvals"], ["samples", "Samples"], ["images", "Images"]] as [DetailTab, string][]).map(([key, label]) => (
+            {(() => {
+              // Costing tab is gated by the per-user permission set in
+              // PLM.tsx (permissions.costing.access). Default-true when the
+              // session blob has no costing permission (matches the
+              // pre-existing behavior for users that pre-date this gate).
+              // Admins always see it.
+              const allTabs: [DetailTab, string][] = [["sketch", "Sketch"], ["spec", "Spec Sheet"], ["construction", "Construction"], ["bom", "BOM"], ["costing", "Costing"], ["approvals", "Approvals"], ["samples", "Samples"], ["images", "Images"]];
+              return allTabs.filter(([key]) => key !== "costing" || canSeeCostingTab());
+            })().map(([key, label]) => (
               <button key={key} onClick={() => setDetailTab(key)}
                 style={{ padding: "10px 16px", background: "none", border: "none", borderBottom: detailTab === key ? "2px solid #3B82F6" : "2px solid transparent", color: detailTab === key ? "#60A5FA" : "#6B7280", fontSize: 13, fontWeight: detailTab === key ? 700 : 500, cursor: "pointer", fontFamily: "inherit" }}>
                 {label}
@@ -1942,7 +1967,7 @@ export default function TechPackApp() {
             {detailTab === "spec" && renderSpecTab(tp)}
             {detailTab === "construction" && renderConstructionTab(tp)}
             {detailTab === "bom" && renderBOMTab(tp)}
-            {detailTab === "costing" && renderCostingTab(tp)}
+            {detailTab === "costing" && canSeeCostingTab() && renderCostingTab(tp)}
             {detailTab === "approvals" && renderApprovalsTab(tp)}
             {detailTab === "samples" && renderSamplesTab(tp)}
             {detailTab === "images" && renderImagesTab(tp)}

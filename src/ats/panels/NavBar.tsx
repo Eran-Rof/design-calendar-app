@@ -22,6 +22,31 @@ import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
 
+// ── ATS Reports permission gate ───────────────────────────────────────────────
+// Internal staff live in sessionStorage.plm_user (NOT Supabase Auth — see
+// project_internal_auth_pattern.md). We read the user blob here and resolve
+// permissions.ats.reports with default-true semantics: any missing/undefined
+// key means the report is accessible, matching the data-model contract
+// documented in PLM.tsx (getAtsReportsPermissions). Admins see every report.
+const ATS_REPORT_KEYS = ["exportExcel", "negInven", "agedInven", "noMrgnData", "stockVsSo", "salesComps"] as const;
+export type AtsReportKey = typeof ATS_REPORT_KEYS[number];
+export function getAtsReportPermissionsFromSession(): Record<AtsReportKey, boolean> {
+  const allOn: Record<AtsReportKey, boolean> = { exportExcel: true, negInven: true, agedInven: true, noMrgnData: true, stockVsSo: true, salesComps: true };
+  if (typeof window === "undefined") return allOn;
+  try {
+    const raw = sessionStorage.getItem("plm_user");
+    if (!raw) return allOn;
+    const u = JSON.parse(raw) as { role?: string; permissions?: { ats?: { reports?: Partial<Record<AtsReportKey, boolean>> } } };
+    if (u.role === "admin") return allOn;
+    const reports = u.permissions?.ats?.reports ?? {};
+    const resolved = {} as Record<AtsReportKey, boolean>;
+    for (const k of ATS_REPORT_KEYS) resolved[k] = reports[k] !== false;
+    return resolved;
+  } catch {
+    return allOn;
+  }
+}
+
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
 // customer's sales reference SKUs that haven't been cached (newly
@@ -613,6 +638,12 @@ export const NavBar: React.FC<NavBarProps> = ({
   // same handler that the dedicated buttons used to fire; the Aged Inven
   // entry still opens the days/category modal before downloading.
   const [reportsOpen, setReportsOpen] = useState(false);
+  // Per-report permission gate (default-true semantics — see
+  // getAtsReportPermissionsFromSession). Resolved once per render; the
+  // session payload only changes on login/logout so there's no value in
+  // subscribing to storage events here.
+  const atsReportsPerm = getAtsReportPermissionsFromSession();
+  const anyReportAllowed = ATS_REPORT_KEYS.some(k => atsReportsPerm[k]);
   const reportsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reportsOpen) return;
@@ -1230,7 +1261,13 @@ export const NavBar: React.FC<NavBarProps> = ({
                 sub: "TY vs same-period-LY for the date range + filters you pick",
                 onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
               },
-            ] as const).map((item) => (
+            ] as const)
+              // Per-report permission gate. atsReportsPerm[key] is true unless
+              // the admin explicitly opted this user out (false). Hidden
+              // entries don't render at all — the operator shouldn't see a
+              // disabled row teasing a report they can't run.
+              .filter(item => atsReportsPerm[item.key as AtsReportKey])
+              .map((item) => (
               <button
                 key={item.key}
                 onClick={() => { item.onClick(); setReportsOpen(false); }}
@@ -1256,6 +1293,11 @@ export const NavBar: React.FC<NavBarProps> = ({
                 <span style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "normal", lineHeight: 1.3 }}>{item.sub}</span>
               </button>
             ))}
+            {!anyReportAllowed && (
+              <div style={{ padding: "10px 14px", fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>
+                No reports available — ask an admin to enable a report under User Management.
+              </div>
+            )}
           </div>
         )}
       </div>

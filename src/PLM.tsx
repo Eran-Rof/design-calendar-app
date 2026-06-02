@@ -18,6 +18,25 @@ interface AppPermission {
   seeOthersData: boolean; // can see other users' data
 }
 
+// ATS reports gate (per-report on/off). Missing/undefined entries default to
+// true at the read-side helper (see getAtsReportsPermissions). This keeps
+// existing users with ATS access fully working while letting admins opt-out
+// specific reports.
+interface AtsReportsPermission {
+  exportExcel?: boolean;
+  negInven?: boolean;
+  agedInven?: boolean;
+  noMrgnData?: boolean;
+  stockVsSo?: boolean;
+  salesComps?: boolean;
+}
+
+interface AtsPermission extends AppPermission {
+  reports?: AtsReportsPermission;
+}
+
+type PermissionAppId = "design" | "tanda" | "techpack" | "ats" | "costing" | "vendor";
+
 interface User {
   id: string;
   username: string;
@@ -30,14 +49,34 @@ interface User {
     design?: AppPermission;
     tanda?: AppPermission;
     techpack?: AppPermission;
-    ats?: AppPermission;
+    ats?: AtsPermission;
+    costing?: AppPermission;
+    vendor?: AppPermission;
   };
 }
 
 const DEFAULT_PERMISSION: AppPermission = { access: true, readOnly: false, seeOthersData: false };
 const ADMIN_PERMISSION: AppPermission   = { access: true, readOnly: false, seeOthersData: true  };
 
-function getPermission(user: User, app: "design" | "tanda" | "techpack" | "ats"): AppPermission {
+const ATS_REPORT_KEYS = ["exportExcel", "negInven", "agedInven", "noMrgnData", "stockVsSo", "salesComps"] as const;
+type AtsReportKey = typeof ATS_REPORT_KEYS[number];
+
+// Resolve report permissions with default-true semantics: when a user has
+// ATS access but no explicit reports object (or a missing per-report key),
+// all reports are accessible. Admins see every report.
+function getAtsReportsPermissions(user: User): Record<AtsReportKey, boolean> {
+  if (user.role === "admin") {
+    return { exportExcel: true, negInven: true, agedInven: true, noMrgnData: true, stockVsSo: true, salesComps: true };
+  }
+  const reports = (user.permissions?.ats as AtsPermission | undefined)?.reports ?? {};
+  const resolved = {} as Record<AtsReportKey, boolean>;
+  for (const k of ATS_REPORT_KEYS) {
+    resolved[k] = reports[k] !== false; // missing or true → true
+  }
+  return resolved;
+}
+
+function getPermission(user: User, app: PermissionAppId): AppPermission {
   if (user.role === "admin") return ADMIN_PERMISSION;
   return user.permissions?.[app] ?? DEFAULT_PERMISSION;
 }
@@ -100,6 +139,14 @@ const APPS = [
     icon: "📦",
     color: "#10B981",
     path: "/ats",
+  },
+  {
+    id: "vendor" as const,
+    name: "Vendor Portal",
+    description: "Manage vendors, POs, invoices, compliance, RFQ, payments",
+    icon: "🤝",
+    color: "#EA580C",
+    path: "/vendor",
   },
   {
     id: "planning" as const,
@@ -321,9 +368,23 @@ export default function PLMApp() {
             // Demo mode: only show the four apps in scope (Design Calendar,
             // PO WIP, ATS, Planning). Tech Packs + GS1 are hidden.
             if (appConfig.demoMode && (app.id === "techpack" || app.id === "gs1")) return false;
-            return app.id !== "planning" || appConfig.inventoryPlanningEnabled;
+            if (app.id === "planning" && !appConfig.inventoryPlanningEnabled) return false;
+            // Vendor Portal card is gated by the per-user permission. Admins
+            // always see it (ADMIN_PERMISSION grants access in getPermission).
+            // Regular users without permissions.vendor.access do NOT see the
+            // card at all — different from other apps which show a 🔒 locked
+            // tile, because the vendor portal isn't a discoverable app for
+            // most internal staff.
+            if (app.id === "vendor" && !getPermission(user, "vendor").access) return false;
+            return true;
           }).map(app => {
-            const perm = getPermission(user, app.id);
+            // Only the original four apps have per-user permissions today.
+            // Costing is a Tech Packs sub-tab (gated in TechPack.tsx via
+            // permissions.costing.access), and Vendor Portal is filtered
+            // out above. Other dashboard cards (planning, gs1) have no
+            // per-user permission yet, so default to access=true.
+            const hasPerm = app.id === "design" || app.id === "tanda" || app.id === "techpack" || app.id === "ats" || app.id === "vendor";
+            const perm = hasPerm ? getPermission(user, app.id as PermissionAppId) : DEFAULT_PERMISSION;
             const locked = !perm.access;
 
             return (
@@ -460,12 +521,23 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     finally { setSaving(false); }
   }
 
-  function updatePermission(userId: string, app: "design" | "tanda" | "techpack" | "ats", field: keyof AppPermission, value: boolean) {
+  function updatePermission(userId: string, app: PermissionAppId, field: keyof AppPermission, value: boolean) {
     const updated = users.map(u => {
       if (u.id !== userId) return u;
       const perms = u.permissions ?? {};
       const appPerm = perms[app] ?? { ...DEFAULT_PERMISSION };
       return { ...u, permissions: { ...perms, [app]: { ...appPerm, [field]: value } } };
+    });
+    setUsers(updated);
+  }
+
+  function updateAtsReportPermission(userId: string, reportKey: AtsReportKey, value: boolean) {
+    const updated = users.map(u => {
+      if (u.id !== userId) return u;
+      const perms = u.permissions ?? {};
+      const atsPerm: AtsPermission = perms.ats ?? { ...DEFAULT_PERMISSION };
+      const reports: AtsReportsPermission = { ...(atsPerm.reports ?? {}), [reportKey]: value };
+      return { ...u, permissions: { ...perms, ats: { ...atsPerm, reports } } };
     });
     setUsers(updated);
   }
@@ -480,6 +552,8 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
         tanda:    { ...DEFAULT_PERMISSION },
         techpack: { ...DEFAULT_PERMISSION },
         ats:      { ...DEFAULT_PERMISSION },
+        costing:  { ...DEFAULT_PERMISSION },
+        vendor:   { ...DEFAULT_PERMISSION },
       },
     };
     setEditing(newUser);
@@ -510,11 +584,22 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     }
   }
 
-  const APP_LABELS = [
-    { id: "design" as const,   label: "Design Calendar", color: "#CC2200" },
-    { id: "tanda"  as const,   label: "PO WIP",          color: "#3B82F6" },
-    { id: "techpack" as const, label: "Tech Packs",      color: "#8B5CF6" },
-    { id: "ats" as const,      label: "ATS",             color: "#10B981" },
+  const APP_LABELS: { id: PermissionAppId; label: string; color: string }[] = [
+    { id: "design",   label: "Design Calendar", color: "#CC2200" },
+    { id: "tanda",    label: "PO WIP",          color: "#3B82F6" },
+    { id: "techpack", label: "Tech Packs",      color: "#8B5CF6" },
+    { id: "costing",  label: "Costing",         color: "#7C3AED" },
+    { id: "ats",      label: "ATS",             color: "#10B981" },
+    { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
+  ];
+
+  const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [
+    { key: "exportExcel", label: "Export Excel" },
+    { key: "negInven",    label: "Neg Inven" },
+    { key: "agedInven",   label: "Aged Inven" },
+    { key: "noMrgnData",  label: "NO Mrgn Data" },
+    { key: "stockVsSo",   label: "Stock Vs SO" },
+    { key: "salesComps",  label: "Sales Comps" },
   ];
 
   return (
@@ -551,32 +636,65 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
                   {/* Per-app permissions */}
                   {u.role !== "admin" && (
-                    <div style={{ display: "flex", gap: 12, flex: 1 }}>
-                      {APP_LABELS.map(app => {
-                        const perm = u.permissions?.[app.id] ?? DEFAULT_PERMISSION;
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        {APP_LABELS.map(app => {
+                          const perm = u.permissions?.[app.id] ?? DEFAULT_PERMISSION;
+                          // Vendor Portal is read/write only — there's no
+                          // per-user "data" concept inside the vendor portal
+                          // shell (data scoping is handled by vendor_id JWT
+                          // claims inside /vendor/*), so we only expose Access.
+                          const isVendor = app.id === "vendor";
+                          return (
+                            <div key={app.id} style={{ textAlign: "center", minWidth: 96 }}>
+                              <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>{app.label}</div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                                  <input type="checkbox" checked={perm.access}
+                                    onChange={e => updatePermission(u.id, app.id, "access", e.target.checked)} />
+                                  Access
+                                </label>
+                                {!isVendor && (
+                                  <>
+                                    <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
+                                      <input type="checkbox" checked={!perm.readOnly} disabled={!perm.access}
+                                        onChange={e => updatePermission(u.id, app.id, "readOnly", !e.target.checked)} />
+                                      Write
+                                    </label>
+                                    <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
+                                      <input type="checkbox" checked={perm.seeOthersData} disabled={!perm.access}
+                                        onChange={e => updatePermission(u.id, app.id, "seeOthersData", e.target.checked)} />
+                                      All Data
+                                    </label>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* ATS Reports — only shown when ATS access is on. */}
+                      {(u.permissions?.ats?.access ?? DEFAULT_PERMISSION.access) && (() => {
+                        const reportsPerm = (u.permissions?.ats as AtsPermission | undefined)?.reports ?? {};
                         return (
-                          <div key={app.id} style={{ textAlign: "center", minWidth: 100 }}>
-                            <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>{app.label}</div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                                <input type="checkbox" checked={perm.access}
-                                  onChange={e => updatePermission(u.id, app.id, "access", e.target.checked)} />
-                                Access
-                              </label>
-                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
-                                <input type="checkbox" checked={!perm.readOnly} disabled={!perm.access}
-                                  onChange={e => updatePermission(u.id, app.id, "readOnly", !e.target.checked)} />
-                                Write
-                              </label>
-                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
-                                <input type="checkbox" checked={perm.seeOthersData} disabled={!perm.access}
-                                  onChange={e => updatePermission(u.id, app.id, "seeOthersData", e.target.checked)} />
-                                All Data
-                              </label>
+                          <div style={{ borderLeft: "3px solid #10B981", paddingLeft: 10, marginLeft: 4 }}>
+                            <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, fontWeight: 600 }}>ATS Reports</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(110px, 1fr))", gap: "2px 8px" }}>
+                              {ATS_REPORT_LABELS.map(r => {
+                                const enabled = reportsPerm[r.key] !== false;
+                                return (
+                                  <label key={r.key} style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                                    <input type="checkbox" checked={enabled}
+                                      onChange={e => updateAtsReportPermission(u.id, r.key, e.target.checked)} />
+                                    {r.label}
+                                  </label>
+                                );
+                              })}
                             </div>
                           </div>
                         );
-                      })}
+                      })()}
                     </div>
                   )}
                   {u.role === "admin" && (
