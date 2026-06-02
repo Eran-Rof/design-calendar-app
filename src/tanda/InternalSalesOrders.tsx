@@ -11,6 +11,18 @@ import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify } from "../shared/ui/warn";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.sales_orders";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "so_number", label: "SO #" },
+  { key: "customer", label: "Customer" },
+  { key: "order_date", label: "Order date" },
+  { key: "start_ship", label: "Start Ship" },
+  { key: "status", label: "Status" },
+  { key: "factor", label: "Factor" },
+  { key: "total", label: "Total" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -67,6 +79,7 @@ export default function InternalSalesOrders() {
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const customerName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -106,6 +119,9 @@ export default function InternalSalesOrders() {
         </select>
         <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void load(); }} placeholder="Search SO #…" style={{ ...inputStyle, width: 200 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns} onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+        </div>
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
@@ -113,23 +129,23 @@ export default function InternalSalesOrders() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th}>SO #</th><th style={th}>Customer</th><th style={th}>Order date</th>
-            <th style={th}>Start Ship</th><th style={th}>Status</th><th style={th}>Factor</th><th style={{ ...th, textAlign: "right" }}>Total</th>
+            <th style={th} hidden={!visibleColumns.has("so_number")}>SO #</th><th style={th} hidden={!visibleColumns.has("customer")}>Customer</th><th style={th} hidden={!visibleColumns.has("order_date")}>Order date</th>
+            <th style={th} hidden={!visibleColumns.has("start_ship")}>Start Ship</th><th style={th} hidden={!visibleColumns.has("status")}>Status</th><th style={th} hidden={!visibleColumns.has("factor")}>Factor</th><th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total")}>Total</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={7}>Loading…</td></tr>}
             {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>No sales orders.</td></tr>}
             {rows.map((so) => (
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
-                <td style={td}>{customerName[so.customer_id] || "—"}</td>
-                <td style={td}>{so.order_date}</td>
-                <td style={td}>{so.requested_ship_date || "—"}</td>
-                <td style={td}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
-                <td style={td}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
+                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!visibleColumns.has("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
+                <td style={td} hidden={!visibleColumns.has("customer")}>{customerName[so.customer_id] || "—"}</td>
+                <td style={td} hidden={!visibleColumns.has("order_date")}>{so.order_date}</td>
+                <td style={td} hidden={!visibleColumns.has("start_ship")}>{so.requested_ship_date || "—"}</td>
+                <td style={td} hidden={!visibleColumns.has("status")}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
+                <td style={td} hidden={!visibleColumns.has("factor")}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
                   ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: FACTOR_COLORS[so.factor_approval_status] || C.text, border: `1px solid ${FACTOR_COLORS[so.factor_approval_status] || C.cardBdr}` }}>{so.factor_approval_status}</span>
                   : <span style={{ color: C.textMuted }}>—</span>}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(so.total_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!visibleColumns.has("total")}>{fmtCents(so.total_cents)}</td>
               </tr>
             ))}
           </tbody>

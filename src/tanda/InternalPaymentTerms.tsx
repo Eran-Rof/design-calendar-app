@@ -105,7 +105,7 @@ export default function InternalPaymentTerms() {
   const [editing, setEditing] = useState<PaymentTerm | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     PAYMENT_TERMS_TABLE_KEY,
     PAYMENT_TERM_COLUMNS,
   );
@@ -201,6 +201,7 @@ export default function InternalPaymentTerms() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 

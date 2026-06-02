@@ -100,7 +100,7 @@ export default function InternalSizeScales() {
   // create flow shifts every scale with sort_order > insertBelowOrder by +1.
   const [insertBelowOrder, setInsertBelowOrder] = useState<number | null>(null);
 
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     SIZE_SCALES_TABLE_KEY,
     SIZE_SCALE_COLUMNS,
   );
@@ -244,6 +244,7 @@ export default function InternalSizeScales() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 

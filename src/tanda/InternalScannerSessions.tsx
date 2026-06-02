@@ -13,6 +13,18 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const SCANNER_SESSIONS_TABLE_KEY = "tanda.scanner_sessions";
+const SCANNER_SESSION_COLUMNS: ColumnDef[] = [
+  { key: "created",   label: "Created" },
+  { key: "mode",      label: "Mode" },
+  { key: "target",    label: "Target" },
+  { key: "status",    label: "Status" },
+  { key: "device",    label: "Device" },
+  { key: "last_scan", label: "Last Scan" },
+  { key: "submitted", label: "Submitted" },
+];
 
 type ScannerSession = {
   id: string;
@@ -84,6 +96,12 @@ export default function InternalScannerSessions() {
   const [modeFilter, setModeFilter] = useState<string>("");
   const [active, setActive] = useState<SessionWithEvents | null>(null);
   const [loadingActive, setLoadingActive] = useState(false);
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+    SCANNER_SESSIONS_TABLE_KEY,
+    SCANNER_SESSION_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -158,6 +176,14 @@ export default function InternalScannerSessions() {
             { key: "submitted_at",    header: "Submitted",    format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={SCANNER_SESSIONS_TABLE_KEY}
+          columns={SCANNER_SESSION_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
@@ -166,13 +192,13 @@ export default function InternalScannerSessions() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Created</th>
-              <th style={th}>Mode</th>
-              <th style={th}>Target</th>
-              <th style={th}>Status</th>
-              <th style={th}>Device</th>
-              <th style={th}>Last Scan</th>
-              <th style={th}>Submitted</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
+              <th style={th} hidden={!isVisible("mode")}>Mode</th>
+              <th style={th} hidden={!isVisible("target")}>Target</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <th style={th} hidden={!isVisible("device")}>Device</th>
+              <th style={th} hidden={!isVisible("last_scan")}>Last Scan</th>
+              <th style={th} hidden={!isVisible("submitted")}>Submitted</th>
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -185,19 +211,19 @@ export default function InternalScannerSessions() {
             )}
             {rows.map((s) => (
               <tr key={s.id} style={s.status === "cancelled" ? { opacity: 0.6 } : {}}>
-                <td style={{ ...td, color: C.textMuted, fontFamily: "monospace" }}>
+                <td style={{ ...td, color: C.textMuted, fontFamily: "monospace" }} hidden={!isVisible("created")}>
                   {new Date(s.created_at).toLocaleString()}
                 </td>
-                <td style={td}>{s.mode}</td>
-                <td style={td}>{s.target_kind}{s.target_id ? ` / ${s.target_id.slice(0, 8)}…` : ""}</td>
-                <td style={{ ...td, color: statusColor(s.status), fontWeight: 600 }}>{s.status}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>
+                <td style={td} hidden={!isVisible("mode")}>{s.mode}</td>
+                <td style={td} hidden={!isVisible("target")}>{s.target_kind}{s.target_id ? ` / ${s.target_id.slice(0, 8)}…` : ""}</td>
+                <td style={{ ...td, color: statusColor(s.status), fontWeight: 600 }} hidden={!isVisible("status")}>{s.status}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("device")}>
                   {s.device_user_id.slice(0, 8)}…
                 </td>
-                <td style={{ ...td, color: C.textSub }}>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("last_scan")}>
                   {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : "—"}
                 </td>
-                <td style={{ ...td, color: C.textSub }}>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("submitted")}>
                   {s.submitted_at ? new Date(s.submitted_at).toLocaleString() : "—"}
                 </td>
                 <td style={td}>

@@ -13,6 +13,17 @@ import type { EditableMatrixRow } from "../shared/matrix";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.purchase_orders";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "po_number", label: "PO #" },
+  { key: "vendor", label: "Vendor" },
+  { key: "order_date", label: "Order date" },
+  { key: "expected", label: "Expected" },
+  { key: "status", label: "Status" },
+  { key: "total", label: "Total" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -62,6 +73,7 @@ export default function InternalPurchaseOrders() {
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const vendorName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -127,6 +139,9 @@ export default function InternalPurchaseOrders() {
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void load(); }} placeholder="Search PO #…" style={{ ...inputStyle, width: 200 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns} onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+        </div>
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
@@ -134,20 +149,20 @@ export default function InternalPurchaseOrders() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th}>PO #</th><th style={th}>Vendor</th><th style={th}>Order date</th>
-            <th style={th}>Expected</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Total</th>
+            <th style={th} hidden={!visibleColumns.has("po_number")}>PO #</th><th style={th} hidden={!visibleColumns.has("vendor")}>Vendor</th><th style={th} hidden={!visibleColumns.has("order_date")}>Order date</th>
+            <th style={th} hidden={!visibleColumns.has("expected")}>Expected</th><th style={th} hidden={!visibleColumns.has("status")}>Status</th><th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total")}>Total</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
             {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No purchase orders.</td></tr>}
             {rows.map((po) => (
               <tr key={po.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(po); setModalOpen(true); }}>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
-                <td style={td}>{vendorName[po.vendor_id] || "—"}</td>
-                <td style={td}>{po.order_date}</td>
-                <td style={td}>{po.expected_date || "—"}</td>
-                <td style={td}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span></td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(po.total_cents)}</td>
+                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!visibleColumns.has("po_number")}>{po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
+                <td style={td} hidden={!visibleColumns.has("vendor")}>{vendorName[po.vendor_id] || "—"}</td>
+                <td style={td} hidden={!visibleColumns.has("order_date")}>{po.order_date}</td>
+                <td style={td} hidden={!visibleColumns.has("expected")}>{po.expected_date || "—"}</td>
+                <td style={td} hidden={!visibleColumns.has("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span></td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!visibleColumns.has("total")}>{fmtCents(po.total_cents)}</td>
               </tr>
             ))}
           </tbody>

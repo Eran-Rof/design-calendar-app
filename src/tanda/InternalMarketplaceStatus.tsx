@@ -48,6 +48,18 @@ import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.marketplace_status";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "channel",       label: "Channel" },
+  { key: "feed",          label: "Feed" },
+  { key: "last_sync",     label: "Last sync" },
+  { key: "rows_in_range", label: "Rows in range" },
+  { key: "unposted",      label: "Unposted" },
+  { key: "unmatched_dep", label: "Unmatched dep." },
+  { key: "errors_24h",    label: "Errors 24h" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Theme — match the Shadow Mirror / Bank Reconciliation palette.
@@ -184,6 +196,8 @@ export default function InternalMarketplaceStatus() {
 
   const authUserId = getCachedAuthUserId();
   const isAdmin = !!authUserId;
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -368,6 +382,14 @@ export default function InternalMarketplaceStatus() {
             { key: "errors_24h",          header: "Errors (24h)",       format: "number" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
@@ -377,13 +399,13 @@ export default function InternalMarketplaceStatus() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Channel</th>
-                <th style={th}>Feed</th>
-                <th style={th}>Last sync</th>
-                <th style={{ ...th, textAlign: "right" }}>Rows in range</th>
-                <th style={{ ...th, textAlign: "right" }}>Unposted</th>
-                <th style={{ ...th, textAlign: "right" }}>Unmatched dep.</th>
-                <th style={{ ...th, textAlign: "right" }}>Errors 24h</th>
+                <th style={th} hidden={!visibleColumns.has("channel")}>Channel</th>
+                <th style={th} hidden={!visibleColumns.has("feed")}>Feed</th>
+                <th style={th} hidden={!visibleColumns.has("last_sync")}>Last sync</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("rows_in_range")}>Rows in range</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unposted")}>Unposted</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unmatched_dep")}>Unmatched dep.</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("errors_24h")}>Errors 24h</th>
                 <th style={{ ...th, textAlign: "center" }}>Run now</th>
               </tr>
             </thead>
@@ -396,20 +418,20 @@ export default function InternalMarketplaceStatus() {
                 const busy = feed?.manualUrl === manualBusy;
                 return (
                   <tr key={`${s.channel}-${s.kind}`}>
-                    <td style={td}>
+                    <td style={td} hidden={!visibleColumns.has("channel")}>
                       <span style={{ marginRight: 6 }}>{CHANNEL_EMOJI[s.channel]}</span>
                       {CHANNEL_LABEL[s.channel]}
                     </td>
-                    <td style={td}>{feed?.label ?? s.kind}</td>
-                    <td style={td}>{fmtDateTime(s.last_sync_at)}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.rows_in_range.toLocaleString()}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unposted_count ?? 0) > 0 ? C.warn : undefined }}>
+                    <td style={td} hidden={!visibleColumns.has("feed")}>{feed?.label ?? s.kind}</td>
+                    <td style={td} hidden={!visibleColumns.has("last_sync")}>{fmtDateTime(s.last_sync_at)}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!visibleColumns.has("rows_in_range")}>{s.rows_in_range.toLocaleString()}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unposted_count ?? 0) > 0 ? C.warn : undefined }} hidden={!visibleColumns.has("unposted")}>
                       {s.unposted_count ?? "—"}
                     </td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unmatched_deposits ?? 0) > 0 ? C.warn : undefined }}>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unmatched_deposits ?? 0) > 0 ? C.warn : undefined }} hidden={!visibleColumns.has("unmatched_dep")}>
                       {s.unmatched_deposits ?? "—"}
                     </td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: s.errors_24h > 0 ? C.danger : undefined }}>{s.errors_24h}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: s.errors_24h > 0 ? C.danger : undefined }} hidden={!visibleColumns.has("errors_24h")}>{s.errors_24h}</td>
                     <td style={{ ...td, textAlign: "center" }}>
                       {feed?.manualUrl ? (
                         <button

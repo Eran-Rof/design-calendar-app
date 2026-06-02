@@ -22,6 +22,18 @@ import InternalPimStyleDetail from "./InternalPimStyleDetail";
 import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const PIM_CATALOG_TABLE_KEY = "tanda.pim_product_catalog";
+const PIM_CATALOG_COLUMNS: ColumnDef[] = [
+  { key: "image",          label: "Image" },
+  { key: "style_number",   label: "Style Number" },
+  { key: "style_name",     label: "Style Name" },
+  { key: "category",       label: "Category" },
+  { key: "brand",          label: "Brand" },
+  { key: "publish_status", label: "Publish Status" },
+  { key: "last_updated",   label: "Last Updated" },
+];
 
 type Category = {
   id: string;
@@ -196,6 +208,12 @@ export default function InternalPimProductCatalog() {
 
   const [openStyleId, setOpenStyleId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+    PIM_CATALOG_TABLE_KEY,
+    PIM_CATALOG_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<RowVM>({
     onRowClick: (r) => setOpenStyleId(r.id),
@@ -463,6 +481,14 @@ export default function InternalPimProductCatalog() {
             { key: "pim_updated",    header: "Last Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={PIM_CATALOG_TABLE_KEY}
+          columns={PIM_CATALOG_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && (
@@ -487,13 +513,13 @@ export default function InternalPimProductCatalog() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ ...th, width: 110 }}>Image</th>
-                <th style={th}>Style Number</th>
-                <th style={th}>Style Name</th>
-                <th style={th}>Category</th>
-                <th style={th}>Brand</th>
-                <th style={th}>Publish Status</th>
-                <th style={th}>Last Updated</th>
+                <th style={{ ...th, width: 110 }} hidden={!isVisible("image")}>Image</th>
+                <th style={th} hidden={!isVisible("style_number")}>Style Number</th>
+                <th style={th} hidden={!isVisible("style_name")}>Style Name</th>
+                <th style={th} hidden={!isVisible("category")}>Category</th>
+                <th style={th} hidden={!isVisible("brand")}>Brand</th>
+                <th style={th} hidden={!isVisible("publish_status")}>Publish Status</th>
+                <th style={th} hidden={!isVisible("last_updated")}>Last Updated</th>
               </tr>
             </thead>
             <tbody>
@@ -504,7 +530,7 @@ export default function InternalPimProductCatalog() {
                   highlightedRowId={highlightedId}
                   {...getRowProps(r)}
                 >
-                  <td style={{ ...td, width: 110 }}>
+                  <td style={{ ...td, width: 110 }} hidden={!isVisible("image")}>
                     {r.primary_thumb ? (
                       <img
                         src={r.primary_thumb}
@@ -528,16 +554,16 @@ export default function InternalPimProductCatalog() {
                       </div>
                     )}
                   </td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("style_number")}>
                     {r.style_code}
                   </td>
-                  <td style={td}>{r.style_name || r.description || "—"}</td>
-                  <td style={td}>{r.category_label}</td>
-                  <td style={td}>{r.brand_label}</td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("style_name")}>{r.style_name || r.description || "—"}</td>
+                  <td style={td} hidden={!isVisible("category")}>{r.category_label}</td>
+                  <td style={td} hidden={!isVisible("brand")}>{r.brand_label}</td>
+                  <td style={td} hidden={!isVisible("publish_status")}>
                     <PublishPill label={r.publish_label} loaded={r.loaded} />
                   </td>
-                  <td style={td}>{fmtDate(r.pim_updated)}</td>
+                  <td style={td} hidden={!isVisible("last_updated")}>{fmtDate(r.pim_updated)}</td>
                 </ScrollHighlightRow>
               ))}
             </tbody>

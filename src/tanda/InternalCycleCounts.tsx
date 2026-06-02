@@ -19,6 +19,16 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.cycle_counts";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "count_date", label: "Count date" },
+  { key: "location",   label: "Location" },
+  { key: "status",     label: "Status" },
+  { key: "created",    label: "Created" },
+  { key: "id",         label: "ID" },
+];
 
 type Status = "in_progress" | "completed" | "cancelled";
 
@@ -125,6 +135,8 @@ export default function InternalCycleCounts() {
   const [showStartModal, setShowStartModal] = useState(false);
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
 
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -204,6 +216,14 @@ export default function InternalCycleCounts() {
               { key: "id",          header: "ID" },
             ] as ExportColumn<Record<string, unknown>>[]}
           />
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
         </div>
       </div>
 
@@ -217,11 +237,11 @@ export default function InternalCycleCounts() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Count date</th>
-              <th style={th}>Location</th>
-              <th style={th}>Status</th>
-              <th style={th}>Created</th>
-              <th style={th}>ID</th>
+              <th style={th} hidden={!visibleColumns.has("count_date")}>Count date</th>
+              <th style={th} hidden={!visibleColumns.has("location")}>Location</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("created")}>Created</th>
+              <th style={th} hidden={!visibleColumns.has("id")}>ID</th>
             </tr>
           </thead>
           <tbody>
@@ -239,11 +259,11 @@ export default function InternalCycleCounts() {
                 style={{ cursor: "pointer" }}
                 onClick={() => setOpenDetailId(cc.id)}
               >
-                <td style={td}>{fmtDate(cc.count_date)}</td>
-                <td style={td}>{cc.location}</td>
-                <td style={td}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
-                <td style={td}>{fmtDate(cc.created_at)}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{cc.id.slice(0, 8)}</td>
+                <td style={td} hidden={!visibleColumns.has("count_date")}>{fmtDate(cc.count_date)}</td>
+                <td style={td} hidden={!visibleColumns.has("location")}>{cc.location}</td>
+                <td style={td} hidden={!visibleColumns.has("status")}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
+                <td style={td} hidden={!visibleColumns.has("created")}>{fmtDate(cc.created_at)}</td>
+                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!visibleColumns.has("id")}>{cc.id.slice(0, 8)}</td>
               </tr>
             ))}
           </tbody>

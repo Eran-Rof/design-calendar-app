@@ -6,6 +6,16 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const SALES_BY_CUSTOMER_TABLE_KEY = "tanda.sales_by_customer";
+const SALES_BY_CUSTOMER_COLUMNS: ColumnDef[] = [
+  { key: "customer",     label: "Customer" },
+  { key: "invoices",     label: "Invoices" },
+  { key: "gross",        label: "Gross" },
+  { key: "credit_memos", label: "Credit Memos" },
+  { key: "net",          label: "Net" },
+];
 
 type Row = {
   customer_id: string;
@@ -72,6 +82,12 @@ export default function InternalSalesByCustomer() {
   const [fromDate, setFromDate] = useState<string>(isoMinusDays(90));
   const [toDate, setToDate] = useState<string>(todayISO());
   const [filter, setFilter] = useState<string>("");
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+    SALES_BY_CUSTOMER_TABLE_KEY,
+    SALES_BY_CUSTOMER_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -158,6 +174,14 @@ export default function InternalSalesByCustomer() {
             { key: "net_cents",         header: "Net",          format: "currency_cents" },
           ]}
         />
+        <TablePrefsButton
+          tableKey={SALES_BY_CUSTOMER_TABLE_KEY}
+          columns={SALES_BY_CUSTOMER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && (
@@ -177,36 +201,36 @@ export default function InternalSalesByCustomer() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }}>Invoices</th>
-                <th style={{ ...th, textAlign: "right" }}>Gross</th>
-                <th style={{ ...th, textAlign: "right" }}>Credit Memos</th>
-                <th style={{ ...th, textAlign: "right" }}>Net</th>
+                <th style={th} hidden={!isVisible("customer")}>Customer</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("invoices")}>Invoices</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("gross")}>Gross</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("credit_memos")}>Credit Memos</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("net")}>Net</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.customer_id}>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("customer")}>
                     <strong>{r.customer_name || r.customer_code || r.customer_id}</strong>
                     {r.customer_code && r.customer_name && (
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>({r.customer_code})</span>
                     )}
                   </td>
-                  <td style={tdNum}>{r.invoice_count}</td>
-                  <td style={tdNum}>{fmtCents(r.gross_cents)}</td>
-                  <td style={tdNum}>{fmtCents(r.credit_memo_cents)}</td>
-                  <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(r.net_cents)}</td>
+                  <td style={tdNum} hidden={!isVisible("invoices")}>{r.invoice_count}</td>
+                  <td style={tdNum} hidden={!isVisible("gross")}>{fmtCents(r.gross_cents)}</td>
+                  <td style={tdNum} hidden={!isVisible("credit_memos")}>{fmtCents(r.credit_memo_cents)}</td>
+                  <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("net")}>{fmtCents(r.net_cents)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
-                <td style={{ ...td, fontWeight: 700, color: C.textSub }}>TOTAL ({filtered.length})</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{totals.invoice_count}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.gross)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.credit_memo)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.net)}</td>
+                <td style={{ ...td, fontWeight: 700, color: C.textSub }} hidden={!isVisible("customer")}>TOTAL ({filtered.length})</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("invoices")}>{totals.invoice_count}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("gross")}>{fmtCents(totals.gross)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("credit_memos")}>{fmtCents(totals.credit_memo)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("net")}>{fmtCents(totals.net)}</td>
               </tr>
             </tfoot>
           </table>
