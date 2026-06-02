@@ -36,7 +36,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DateRangePresets from "./components/DateRangePresets";
-import { computePreset } from "./components/dateRangePresets";
+import { computePreset } from "./components/dateRangeMath";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge from "./components/SourceBadge";
