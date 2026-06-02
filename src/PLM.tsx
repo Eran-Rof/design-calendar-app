@@ -194,12 +194,33 @@ export default function PLMApp() {
     }
   }, [user?.id, unreadAll]);
 
-  // Restore session
+  // Restore session, then refresh role + permissions from the source of truth.
+  // The session blob is a snapshot taken at login (handleLogin), so without
+  // this an admin's permission change wouldn't take effect until the user
+  // signed out and back in — they'd appear to "still have access" after a
+  // reload. We re-fetch on launcher mount and re-snapshot if anything changed.
+  // Best-effort: any fetch failure or missing record keeps the existing
+  // session, so a transient Supabase hiccup can never lock someone out.
   useEffect(() => {
+    let parsed: User | null = null;
     try {
       const saved = sessionStorage.getItem(SESSION_KEY);
-      if (saved) setUser(JSON.parse(saved));
-    } catch {}
+      if (saved) { parsed = JSON.parse(saved) as User; setUser(parsed); }
+    } catch { return; }
+    if (!parsed) return;
+
+    const current = parsed;
+    loadUsers()
+      .then(users => {
+        const fresh = users.find(u => u.id === current.id);
+        if (!fresh) return; // user not found (e.g. deleted) — don't disrupt mid-session
+        const merged: User = { ...current, role: fresh.role, permissions: fresh.permissions };
+        if (JSON.stringify(merged) !== JSON.stringify(current)) {
+          try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged)); } catch { /* noop */ }
+          setUser(merged);
+        }
+      })
+      .catch(() => { /* keep existing session snapshot */ });
   }, []);
 
   async function handleLogin() {
