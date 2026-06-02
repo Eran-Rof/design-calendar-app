@@ -676,7 +676,7 @@ import h522 from "./internal/bank-recon-runs/compute.js";
 // P7-6 — Sales Reps master + tiers + assignments admin. Renumbered
 // h355-h358 → h523-h526 on rebase (h355-h358 taken on main). APPEND ONLY.
 import h523 from "./internal/sales-reps/index.js";
-import h524 from "./internal/sales-reps/[id].js";
+// h524 (sales-reps/[id].js master CRUD) retired — reps unified into Employees.
 import h525 from "./internal/sales-reps/[id]/tiers.js";
 import h526 from "./internal/sales-reps/[id]/assignments.js";
 
@@ -1306,10 +1306,10 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-recon-runs/:id/compute", handler: h522 },
   { pattern: "/api/internal/bank-recon-runs/:id",         handler: h521 },
   { pattern: "/api/internal/bank-recon-runs",             handler: h520 },
-  // P7-6 — Sales Reps master + tiers + assignments. Subpaths BEFORE bare /:id.
+  // Sales reps unified into Employees. Bare /:id master CRUD (h524) retired;
+  // tiers/assignments commission config kept (keyed on the shadow sales_reps.id).
   { pattern: "/api/internal/sales-reps/:id/tiers",                    handler: h525 },
   { pattern: "/api/internal/sales-reps/:id/assignments",              handler: h526 },
-  { pattern: "/api/internal/sales-reps/:id",                          handler: h524 },
   { pattern: "/api/internal/sales-reps",                              handler: h523 },
   // P8-9 — CRM tasks-due-tomorrow daily cron.
   { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },

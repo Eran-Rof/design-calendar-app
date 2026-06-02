@@ -182,7 +182,7 @@ export function routeFor(result: SearchResult): string {
     case "sku":              return `/tanda?view=skus&open=${id}`;
     case "gl_account":       return `/tanda?view=coa&open=${id}`;
     case "case":             return `/tanda?view=cases&open=${id}`;
-    case "sales_rep":        return `/tanda?view=sales-reps&open=${id}`;
+    case "sales_rep":        return `/tangerine?module=employees`;
     case "bank_transaction": return `/tanda?view=bank-transactions&open=${id}`;
     case "brand":            return `/tangerine?module=pim_catalog`;
     default:                 return `/tanda`;
