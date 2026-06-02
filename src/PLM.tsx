@@ -47,6 +47,8 @@ interface User {
     ats?: AtsPermission;
     costing?: AppPermission;
     vendor?: AppPermission;
+    gs1?: AppPermission;
+    planning?: AppPermission;
   };
 }
 
@@ -361,14 +363,13 @@ export default function PLMApp() {
             if (app.id === "vendor" && !canSeeVendorPortalCard(user)) return false;
             return true;
           }).map(app => {
-            // Per-user-permission apps. Costing honors permissions.costing.access
-            // (the SAME key that gates the Tech Packs Costing sub-tab in
-            // TechPack.tsx) so a user with no costing access sees a 🔒 locked
-            // tile here too. Vendor Portal is filtered out above. Other dashboard
-            // cards (planning, gs1) have no per-user permission yet, so default
-            // to access=true.
-            const hasPerm = app.id === "design" || app.id === "tanda" || app.id === "techpack" || app.id === "ats" || app.id === "costing" || app.id === "vendor";
-            const perm = hasPerm ? getPermission(user, app.id as PermissionAppId) : DEFAULT_PERMISSION;
+            // Every launcher app now carries a per-user permission
+            // (permissions.<id>.access). A user without access sees a 🔒 locked
+            // tile and can't open it; the matching route guard in main.tsx
+            // refuses direct-URL access too. Vendor Portal is filtered out above
+            // (hidden, not locked). Default-true semantics: a missing entry =
+            // access granted, so only an explicit access:false blocks.
+            const perm = getPermission(user, app.id as PermissionAppId);
             const locked = !perm.access;
 
             return (
@@ -575,6 +576,8 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { id: "costing",  label: "Costing",         color: "#7C3AED" },
     { id: "ats",      label: "ATS",             color: "#10B981" },
     { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
+    { id: "planning", label: "Inv. Planning",   color: "#F59E0B" },
+    { id: "gs1",      label: "GTIN Creation",   color: "#0891B2" },
   ];
 
   const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [
