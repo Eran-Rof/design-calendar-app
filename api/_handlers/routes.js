@@ -566,6 +566,16 @@ import h567 from "./internal/sales-orders/ship.js";
 //   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
 import h572 from "./internal/purchase-orders/index.js";
 import h573 from "./internal/purchase-orders/[id].js";
+// Prepack Matrix Driver master (per-size pack composition for Explode-PPK).
+//   h574 = GET/POST            /api/internal/prepack-matrices
+//   h575 = GET/PATCH/DELETE    /api/internal/prepack-matrices/:id
+import h574 from "./internal/prepack-matrices/index.js";
+import h575 from "./internal/prepack-matrices/[id].js";
+// P16/M18 — Allocations Workbench (cross-SO allocation).
+//   h576 = GET demand + POST apply  /api/internal/allocations
+//   h577 = POST auto-allocate preview /api/internal/allocations/preview
+import h576 from "./internal/allocations/index.js";
+import h577 from "./internal/allocations/preview.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -671,7 +681,7 @@ import h522 from "./internal/bank-recon-runs/compute.js";
 // P7-6 — Sales Reps master + tiers + assignments admin. Renumbered
 // h355-h358 → h523-h526 on rebase (h355-h358 taken on main). APPEND ONLY.
 import h523 from "./internal/sales-reps/index.js";
-import h524 from "./internal/sales-reps/[id].js";
+// h524 (sales-reps/[id].js master CRUD) retired — reps unified into Employees.
 import h525 from "./internal/sales-reps/[id]/tiers.js";
 import h526 from "./internal/sales-reps/[id]/assignments.js";
 
@@ -956,6 +966,9 @@ export const ROUTES = [
   // P16/M11 — native Purchase Orders. :id before the bare collection.
   { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
   { pattern: "/api/internal/purchase-orders",                 handler: h572 },
+  // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/preview",             handler: h577 },
+  { pattern: "/api/internal/allocations",                     handler: h576 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
@@ -1014,6 +1027,9 @@ export const ROUTES = [
   { pattern: "/api/internal/size-scales", handler: h568 },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
+  // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
+  { pattern: "/api/internal/prepack-matrices", handler: h574 },
   // Chunk I reference masters — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/countries/:id", handler: h550 },
   { pattern: "/api/internal/countries", handler: h549 },
@@ -1298,10 +1314,10 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-recon-runs/:id/compute", handler: h522 },
   { pattern: "/api/internal/bank-recon-runs/:id",         handler: h521 },
   { pattern: "/api/internal/bank-recon-runs",             handler: h520 },
-  // P7-6 — Sales Reps master + tiers + assignments. Subpaths BEFORE bare /:id.
+  // Sales reps unified into Employees. Bare /:id master CRUD (h524) retired;
+  // tiers/assignments commission config kept (keyed on the shadow sales_reps.id).
   { pattern: "/api/internal/sales-reps/:id/tiers",                    handler: h525 },
   { pattern: "/api/internal/sales-reps/:id/assignments",              handler: h526 },
-  { pattern: "/api/internal/sales-reps/:id",                          handler: h524 },
   { pattern: "/api/internal/sales-reps",                              handler: h523 },
   // P8-9 — CRM tasks-due-tomorrow daily cron.
   { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },

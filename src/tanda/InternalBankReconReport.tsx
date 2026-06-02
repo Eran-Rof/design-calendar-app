@@ -14,6 +14,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.bank_recon_report";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "account",        label: "Account" },
+  { key: "gl_balance",     label: "GL Balance" },
+  { key: "uncleared",      label: "+ Uncleared" },
+  { key: "bank_statement", label: "Bank Statement" },
+  { key: "diff",           label: "Diff" },
+  { key: "status",         label: "Status" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -92,6 +103,7 @@ export default function InternalBankReconReport() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<Record<string, string>>({});       // bank_account_id -> typed statement balance (dollars)
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function loadBase() {
     setLoading(true);
@@ -206,6 +218,16 @@ export default function InternalBankReconReport() {
           </div>
         )}
         {periodId && <button style={btnSecondary} onClick={() => void loadRuns()}>Refresh</button>}
+        {periodId && (
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
+        )}
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>{err}</div>}
@@ -226,12 +248,12 @@ export default function InternalBankReconReport() {
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
-              <th style={th}>Account</th>
-              <th style={{ ...th, textAlign: "right" }}>GL Balance</th>
-              <th style={{ ...th, textAlign: "right" }}>+ Uncleared</th>
-              <th style={{ ...th, textAlign: "right" }}>Bank Statement</th>
-              <th style={{ ...th, textAlign: "right" }}>Diff</th>
-              <th style={th}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("account")}>Account</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("gl_balance")}>GL Balance</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("uncleared")}>+ Uncleared</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("bank_statement")}>Bank Statement</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("diff")}>Diff</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
               <th style={{ ...th, width: 280 }}>Actions</th>
             </tr></thead>
             <tbody>
@@ -241,13 +263,13 @@ export default function InternalBankReconReport() {
                 const diffColor = diff == null ? C.textMuted : Math.abs(Number(diff)) <= 1 ? C.success : C.danger;
                 return (
                   <tr key={r.id}>
-                    <td style={td}>
+                    <td style={td} hidden={!visibleColumns.has("account")}>
                       <strong>{r.bank_accounts.name}</strong>
                       {r.bank_accounts.mask && <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>••{r.bank_accounts.mask}</span>}
                     </td>
-                    <td style={tdNum}>{fmtCents(r.gl_balance_cents)}</td>
-                    <td style={tdNum}>{fmtCents(r.uncleared_txn_cents)}</td>
-                    <td style={tdNum}>
+                    <td style={tdNum} hidden={!visibleColumns.has("gl_balance")}>{fmtCents(r.gl_balance_cents)}</td>
+                    <td style={tdNum} hidden={!visibleColumns.has("uncleared")}>{fmtCents(r.uncleared_txn_cents)}</td>
+                    <td style={tdNum} hidden={!visibleColumns.has("bank_statement")}>
                       {isReconciled ? (
                         <span>{fmtCents(r.bank_statement_balance_cents)}</span>
                       ) : (
@@ -264,8 +286,8 @@ export default function InternalBankReconReport() {
                         </span>
                       )}
                     </td>
-                    <td style={{ ...tdNum, color: diffColor, fontWeight: 700 }}>{fmtCents(diff)}</td>
-                    <td style={{ ...td, color: isReconciled ? C.success : r.status === "flagged" ? C.danger : C.warn, fontWeight: 600 }}>
+                    <td style={{ ...tdNum, color: diffColor, fontWeight: 700 }} hidden={!visibleColumns.has("diff")}>{fmtCents(diff)}</td>
+                    <td style={{ ...td, color: isReconciled ? C.success : r.status === "flagged" ? C.danger : C.warn, fontWeight: 600 }} hidden={!visibleColumns.has("status")}>
                       ● {r.status}
                     </td>
                     <td style={td}>

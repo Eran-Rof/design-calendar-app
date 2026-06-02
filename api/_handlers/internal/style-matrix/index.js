@@ -39,7 +39,12 @@ export default async function handler(req, res) {
   const eid = await entityId(admin);
   if (!eid) return res.status(500).json({ error: "Default entity (ROF) not found" });
 
-  const payload = await enumerateStyleMatrix(admin, eid, String(styleId));
+  // Explode-PPK: opt-in. When true, the payload folds a SIZED style's PPK
+  // sibling packs into per-size eaches (see _lib/styleMatrix.js). Off by default
+  // so existing consumers (SO entry, adjustments, PO) are unaffected.
+  const explodePpk = String(req.query?.explode_ppk || "").toLowerCase() === "true";
+
+  const payload = await enumerateStyleMatrix(admin, eid, String(styleId), { explodePpk });
   if (!payload) return res.status(404).json({ error: "Style not found" });
   return res.status(200).json(payload);
 }
