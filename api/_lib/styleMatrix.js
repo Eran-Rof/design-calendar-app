@@ -16,6 +16,10 @@
 
 const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
+// Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
+// (color-grain opening_balance layers predate the by-size warehouse cutover).
+const WH_UNASSIGNED = "(unassigned)";
+
 /** Build the matrix payload for one style. */
 export async function enumerateStyleMatrix(admin, entityId, styleId) {
   const { data: style } = await admin
@@ -49,17 +53,34 @@ export async function enumerateStyleMatrix(admin, entityId, styleId) {
   const rises = [...new Set(skus.map((s) => s.rise).filter(Boolean))];
 
   // On-hand (Σ remaining_qty) + available (M18 view) + last-received per item.
+  // Per-warehouse on-hand breakdown (additive, backward-compatible): the by-size
+  // cutover (RYB0412) tags each layer's warehouse in `notes` as `…:wh=<Store>`
+  // (e.g. `wh=ROF Main`, `wh=ROF - ECOM`). Layers with no `wh=` token (e.g.
+  // color-grain opening_balance) bucket under WH_UNASSIGNED. `on_hand_qty` stays
+  // the FULL sum across all warehouses so existing consumers are unaffected; the
+  // breakdown is exposed as the new per-SKU `on_hand_by_wh` map.
   const ids = skus.map((s) => s.id);
   const onHand = new Map();
+  const onHandByWh = new Map(); // item_id → { [wh]: qty }
+  const whSeen = new Set();
   const avail = new Map();
   const lastReceived = new Map();
   if (ids.length > 0) {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, received_at")
+      .select("item_id, remaining_qty, received_at, notes")
       .in("item_id", ids);
     for (const l of layers || []) {
-      if (Number(l.remaining_qty) > 0) onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + Number(l.remaining_qty));
+      const q = Number(l.remaining_qty);
+      if (q > 0) {
+        onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + q);
+        const m = (l.notes || "").match(/wh=(.+)$/);
+        const wh = m ? m[1].trim() : WH_UNASSIGNED;
+        whSeen.add(wh);
+        let byWh = onHandByWh.get(l.item_id);
+        if (!byWh) { byWh = {}; onHandByWh.set(l.item_id, byWh); }
+        byWh[wh] = (byWh[wh] || 0) + q;
+      }
       if (l.received_at) {
         const prev = lastReceived.get(l.item_id);
         if (!prev || l.received_at > prev) lastReceived.set(l.item_id, l.received_at);
@@ -85,15 +106,23 @@ export async function enumerateStyleMatrix(admin, entityId, styleId) {
     }
   }
 
+  // Warehouses present on this style's layers, in a stable order: known stores
+  // alphabetically first, then the unassigned bucket last. Exposed so the UI can
+  // build a warehouse filter without re-deriving it from every SKU.
+  const warehouses = [...whSeen].filter((w) => w !== WH_UNASSIGNED).sort((a, b) => a.localeCompare(b));
+  if (whSeen.has(WH_UNASSIGNED)) warehouses.push(WH_UNASSIGNED);
+
   return {
     style: { id: style.id, style_code: style.style_code, style_name: style.style_name, description: style.description, size_scale_id: style.size_scale_id, brand_id: style.brand_id, gender_code: style.gender_code },
     sizes,
     colors,
     inseams,
     rises,
+    warehouses,
     skus: skus.map((s) => ({
       ...s,
       on_hand_qty: onHand.get(s.id) || 0,
+      on_hand_by_wh: onHandByWh.get(s.id) || {},
       available_qty: avail.has(s.id) ? avail.get(s.id) : null,
       avg_cost_cents: s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null,
       last_received: lastReceived.has(s.id) ? lastReceived.get(s.id) : null,

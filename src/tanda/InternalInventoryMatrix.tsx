@@ -29,6 +29,7 @@ type StyleListRow = {
   group_name?: string | null;
   category_name?: string | null;
   sub_category_name?: string | null;
+  brand_id?: string | null;
 };
 
 type MatrixSku = {
@@ -41,6 +42,7 @@ type MatrixSku = {
   fit: string | null;
   rise: string | null;
   on_hand_qty: number | string | null;
+  on_hand_by_wh?: Record<string, number> | null;
   available_qty: number | string | null;
   avg_cost_cents: number | null;
   last_received: string | null;
@@ -53,15 +55,21 @@ type MatrixPayload = {
     style_name: string | null;
     description: string | null;
     size_scale_id: string | null;
+    brand_id?: string | null;
   };
   sizes: string[];
   colors: string[];
   inseams: string[];
   rises: string[];
+  warehouses?: string[];
   skus: MatrixSku[];
 };
 
 type SizeScale = { id: string; name: string };
+
+type Brand = { id: string; code: string | null; name: string | null };
+
+const ALL_WAREHOUSES = "__all__";
 
 // ── palette (mirrors poMatrixTab + other Internal* panels) ───────────────────
 
@@ -118,9 +126,13 @@ function fmtQty(v: number): string {
 export default function InternalInventoryMatrix() {
   const [styles, setStyles]     = useState<StyleListRow[]>([]);
   const [scales, setScales]     = useState<SizeScale[]>([]);
+  const [brands, setBrands]     = useState<Brand[]>([]);
+  const [brandId, setBrandId]   = useState<string>(""); // "" = all brands
   const [styleId, setStyleId]   = useState<string>("");
   const [payload, setPayload]   = useState<MatrixPayload | null>(null);
   const [metric, setMetric]     = useState<"on_hand" | "available">("on_hand");
+  const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
+  const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -142,6 +154,16 @@ export default function InternalInventoryMatrix() {
         })));
       })
       .catch(() => {/* non-fatal; scale name just shows as the id */});
+    // Brands for the style-picker scope filter.
+    fetch("/api/internal/brands")
+      .then((r) => r.json())
+      .then((d) => {
+        const rows = Array.isArray(d) ? d : (d.brands || []);
+        setBrands(rows.map((b: { id: string; code?: string | null; name?: string | null }) => ({
+          id: b.id, code: b.code ?? null, name: b.name ?? null,
+        })));
+      })
+      .catch(() => {/* non-fatal; brand filter just stays empty */});
   }, []);
 
   // Fetch the matrix payload when a style is picked.
@@ -151,6 +173,7 @@ export default function InternalInventoryMatrix() {
     setLoading(true);
     setErr(null);
     setRiseFilter([]);
+    setWarehouse(ALL_WAREHOUSES);
     fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`)
       .then(async (r) => {
         if (!r.ok) {
@@ -167,10 +190,34 @@ export default function InternalInventoryMatrix() {
     return () => { cancelled = true; };
   }, [styleId]);
 
+  // Brand picker options (blank = all brands). Label prefers code, falls back to name.
+  const brandOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      brands.map((b) => ({
+        value: b.id,
+        label: b.code && b.name ? `${b.code} — ${b.name}` : (b.name || b.code || b.id),
+      })),
+    [brands],
+  );
+
+  // Styles narrowed to the selected brand (brand filter scopes the STYLE picker).
+  // brand_id comes straight off the style-master list payload, so the narrowing
+  // is purely client-side — no extra fetch.
+  const brandStyles = useMemo<StyleListRow[]>(
+    () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
+    [styles, brandId],
+  );
+
+  // If the currently-picked style isn't in the brand-narrowed set, clear it so
+  // the matrix doesn't show a style that's hidden from the picker.
+  useEffect(() => {
+    if (styleId && !brandStyles.some((s) => s.id === styleId)) setStyleId("");
+  }, [brandStyles, styleId]);
+
   // Style picker options "<style_code> — <style_name>".
   const styleOptions = useMemo<SearchableSelectOption[]>(
     () =>
-      styles.map((s) => {
+      brandStyles.map((s) => {
         const name = s.style_name || s.description || "";
         const label = name ? `${s.style_code} — ${name}` : s.style_code;
         // Search across code + name + description + group/category/sub so a
@@ -181,7 +228,7 @@ export default function InternalInventoryMatrix() {
         ].filter(Boolean).join(" ");
         return { value: s.id, label, searchHaystack };
       }),
-    [styles],
+    [brandStyles],
   );
 
   const rises = payload?.rises ?? [];
@@ -197,8 +244,26 @@ export default function InternalInventoryMatrix() {
     return seen;
   }, [payload]);
 
-  // qty for a SKU under the active metric.
-  const skuQty = (s: MatrixSku) => num(metric === "on_hand" ? s.on_hand_qty : s.available_qty);
+  // Warehouses available for the filter — prefer the payload's list; fall back
+  // to deriving from the SKUs' on_hand_by_wh maps for older payload shapes.
+  const warehouseList = useMemo<string[]>(() => {
+    if (payload?.warehouses && payload.warehouses.length) return payload.warehouses;
+    if (!payload) return [];
+    const seen = new Set<string>();
+    for (const s of payload.skus) for (const w of Object.keys(s.on_hand_by_wh || {})) seen.add(w);
+    return [...seen].sort((a, b) => a.localeCompare(b));
+  }, [payload]);
+
+  // The warehouse filter only narrows on-hand (the breakdown is on-hand-only).
+  // When "Available" is the metric, or "All" is selected, sum everything.
+  const whActive = metric === "on_hand" && warehouse !== ALL_WAREHOUSES;
+
+  // qty for a SKU under the active metric + warehouse filter.
+  const skuQty = (s: MatrixSku) => {
+    if (metric === "available") return num(s.available_qty);
+    if (whActive) return num((s.on_hand_by_wh || {})[warehouse]);
+    return num(s.on_hand_qty);
+  };
 
   // Group SKUs into matrix rows: one row per color (× rise when the style
   // spans >1 rise). Each row carries a size→qty map, a blended avg cost
@@ -267,20 +332,33 @@ export default function InternalInventoryMatrix() {
         if (arr && arr.length) row.avgCostCents = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
       }
     }
-    return [...map.values()].sort((a, b) =>
-      a.color.localeCompare(b.color) || String(a.rise ?? "").localeCompare(String(b.rise ?? "")),
-    );
-  }, [payload, riseFilter, metric, showRise]);
+    // Sort by descending row Total qty (highest first); stable for ties — the
+    // Map preserves first-seen (SKU) order, and we keep that order on equal qty.
+    const ordered = [...map.values()];
+    return ordered
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => (b.r.totalQty - a.r.totalQty) || (a.i - b.i))
+      .map((x) => x.r);
+  }, [payload, riseFilter, metric, showRise, warehouse]);
+
+  // Apply the hide-zero-total-rows toggle (default ON). Hides color rows whose
+  // row Total under the active metric+warehouse is 0 (e.g. White / Woodland Camo
+  // with no on-hand). Totals below are computed over the visible rows so the
+  // Grand Total always matches what's shown.
+  const visibleRows = useMemo<MatrixRow[]>(
+    () => (hideZeros ? rows.filter((r) => r.totalQty !== 0) : rows),
+    [rows, hideZeros],
+  );
 
   // Column (size) grand totals + grand totals for the footer.
   const colTotals = useMemo<Record<string, number>>(() => {
     const out: Record<string, number> = {};
-    for (const sz of sizeOrder) out[sz] = rows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+    for (const sz of sizeOrder) out[sz] = visibleRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
     return out;
-  }, [rows, sizeOrder]);
+  }, [visibleRows, sizeOrder]);
 
-  const grandQty = useMemo(() => rows.reduce((s, r) => s + r.totalQty, 0), [rows]);
-  const grandCostCents = useMemo(() => rows.reduce((s, r) => s + r.totalCostCents, 0), [rows]);
+  const grandQty = useMemo(() => visibleRows.reduce((s, r) => s + r.totalQty, 0), [visibleRows]);
+  const grandCostCents = useMemo(() => visibleRows.reduce((s, r) => s + r.totalCostCents, 0), [visibleRows]);
 
   const scaleName = useMemo(() => {
     if (!payload?.style.size_scale_id) return null;
@@ -290,7 +368,7 @@ export default function InternalInventoryMatrix() {
   // Flat rows for export (one per matrix row).
   const exportRows = useMemo<Array<Record<string, unknown>>>(() => {
     if (!payload) return [];
-    return rows.map((r) => {
+    return visibleRows.map((r) => {
       const out: Record<string, unknown> = {
         style_code: payload.style.style_code,
         color: r.color,
@@ -303,7 +381,7 @@ export default function InternalInventoryMatrix() {
       out.last_received = r.lastReceived ?? "";
       return out;
     });
-  }, [payload, rows, sizeOrder, showRise]);
+  }, [payload, visibleRows, sizeOrder, showRise]);
 
   const exportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => {
     const cols: ExportColumn<Record<string, unknown>>[] = [
@@ -319,7 +397,12 @@ export default function InternalInventoryMatrix() {
     return cols;
   }, [sizeOrder, showRise]);
 
-  const colSpanLead = showRise ? 3 : 2; // Style col label spans Color (+Rise)
+  // The footer's "Grand Total" label must span EVERY leading data column so the
+  // size totals and trailing Total/Total-Cost cells line up under their headers.
+  // Leading data cols = Base Part + Description + Color (= 3), plus Rise when the
+  // style spans >1 rise (= 4). The previous value (2/3) was off by one, which
+  // shifted the whole footer one column left of the data rows.
+  const colSpanLead = showRise ? 4 : 3;
 
   return (
     <div style={{ color: C.text }}>
@@ -335,6 +418,18 @@ export default function InternalInventoryMatrix() {
 
       {/* Controls */}
       <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+        {/* Brand filter — scopes the style picker to one brand ("" = all). */}
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 200 }}>
+          Brand
+          <SearchableSelect
+            value={brandId || null}
+            onChange={(v) => setBrandId(v || "")}
+            options={brandOptions}
+            placeholder="(all brands)"
+            inputStyle={inputStyle}
+          />
+        </label>
+
         {/* Style picker */}
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 320 }}>
           Style
@@ -356,6 +451,46 @@ export default function InternalInventoryMatrix() {
             </button>
             <button type="button" style={btnToggle(metric === "available")} onClick={() => setMetric("available")}>
               Available
+            </button>
+          </div>
+        </div>
+
+        {/* Warehouse filter — on-hand-only; "All" sums every warehouse (today's
+            number). Disabled when the metric is Available (no per-wh breakdown). */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Warehouse
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", opacity: metric === "available" ? 0.5 : 1 }}>
+            <button
+              type="button"
+              style={btnToggle(warehouse === ALL_WAREHOUSES)}
+              disabled={metric === "available"}
+              onClick={() => setWarehouse(ALL_WAREHOUSES)}
+            >
+              All
+            </button>
+            {warehouseList.map((wh) => (
+              <button
+                key={wh}
+                type="button"
+                style={btnToggle(metric === "on_hand" && warehouse === wh)}
+                disabled={metric === "available"}
+                onClick={() => setWarehouse(wh)}
+              >
+                {wh}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Hide-zero-rows toggle (default ON). */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Rows
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" style={btnToggle(hideZeros)} onClick={() => setHideZeros(true)}>
+              Hide Zero
+            </button>
+            <button type="button" style={btnToggle(!hideZeros)} onClick={() => setHideZeros(false)}>
+              Show All
             </button>
           </div>
         </div>
@@ -401,6 +536,7 @@ export default function InternalInventoryMatrix() {
           <span style={{ color: C.textMuted }}>
             {"  ·  Size scale: "}{scaleName || (payload.style.size_scale_id ? "—" : "none")}
             {"  ·  "}{metric === "on_hand" ? "On-hand qty" : "Available qty"}
+            {whActive ? `  ·  Warehouse: ${warehouse}` : "  ·  All warehouses"}
           </span>
         </div>
       )}
@@ -423,6 +559,10 @@ export default function InternalInventoryMatrix() {
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
           No SKUs found for this style{showRise && riseFilter.length ? " at the selected rise." : "."}
         </div>
+      ) : visibleRows.length === 0 ? (
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Switch “Rows” to <strong>Show All</strong>{whActive ? " or pick a different warehouse" : ""} to see them.
+        </div>
       ) : (
         <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -442,8 +582,8 @@ export default function InternalInventoryMatrix() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, ri) => {
-                const isLast = ri === rows.length - 1;
+              {visibleRows.map((row, ri) => {
+                const isLast = ri === visibleRows.length - 1;
                 return (
                   <tr
                     key={row.key}
