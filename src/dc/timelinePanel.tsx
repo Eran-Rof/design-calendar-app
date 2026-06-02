@@ -6,8 +6,24 @@ import Avatar from "../components/Avatar";
 import { useAppStore } from "../store";
 import { selectGetBrand, selectIsAdmin, selectCanViewAll, selectFiltered, selectOverdue, selectCollMap, selectCollList } from "../store/selectors";
 import { sbSaveTask } from "../store/supabaseService";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../tanda/components/TablePrefs";
 
 export type TimelineCtx = Record<string, any>;
+
+// Column registry for the List-view collection table (the Gantt/timeline
+// branch below is not a column table and is left untouched).
+const LIST_TABLE_KEY = "dc.timeline_list";
+const LIST_COLUMNS: ColumnDef[] = [
+  { key: "brand", label: "Brand" },
+  { key: "collection", label: "Collection" },
+  { key: "season", label: "Season" },
+  { key: "vendor", label: "Vendor" },
+  { key: "ddp", label: "DDP" },
+  { key: "progress", label: "Progress" },
+  { key: "next_task", label: "Next Task" },
+];
+const LIST_HEADERS = LIST_COLUMNS.map(c => c.label);
+const LIST_KEYS = LIST_COLUMNS.map(c => c.key);
 
 function TimelinePanelInner(): React.ReactElement | null {
   const s = useAppStore();
@@ -34,6 +50,11 @@ function TimelinePanelInner(): React.ReactElement | null {
   const collMap = selectCollMap(s);
   const collList = selectCollList(s);
   const sbSaveTaskFn = (task: any) => sbSaveTask(task, currentUser?.name || "");
+  // Column-visibility prefs for the List-view table. Hook is called
+  // unconditionally here (before any early return) to respect the Rules
+  // of Hooks even though only the listView branch consumes it.
+  const { visibleColumns: listVisible, toggleColumn: listToggle, setAllVisible: listSetAll, resetToDefault: listReset } = useTablePrefs(LIST_TABLE_KEY, LIST_COLUMNS);
+  const listVisibleCount = LIST_COLUMNS.reduce((n, c) => n + (listVisible.has(c.key) ? 1 : 0), 0);
 
     const g = {};
     const src = focusCollKey
@@ -91,11 +112,21 @@ function TimelinePanelInner(): React.ReactElement | null {
       });
       return (
         <div style={{ border: `1px solid ${TH.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 12px", background: TH.header }}>
+            <TablePrefsButton
+              tableKey={LIST_TABLE_KEY}
+              columns={LIST_COLUMNS}
+              visibleColumns={listVisible}
+              onToggle={listToggle}
+              onReset={listReset}
+              onSetAll={listSetAll}
+            />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
             <thead>
               <tr style={{ background: TH.header, borderBottom: `2px solid ${TH.header}` }}>
-                {["Brand", "Collection", "Season", "Vendor", "DDP", "Progress", "Next Task"].map(h => (
-                  <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                {LIST_HEADERS.map((h, hi) => (
+                  <th key={h} hidden={!listVisible.has(LIST_KEYS[hi])} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -117,19 +148,19 @@ function TimelinePanelInner(): React.ReactElement | null {
                       style={{ borderBottom: `1px solid ${TH.border}`, cursor: "pointer", background: rowBg, transition: "background 0.1s" }}
                       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#DDE3EE"}
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = rowBg}>
-                      <td style={{ padding: "10px 14px" }}>
+                      <td hidden={!listVisible.has("brand")} style={{ padding: "10px 14px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ width: 10, height: 10, borderRadius: 2, background: brand.color, flexShrink: 0 }} />
                           <span style={{ fontWeight: 700, color: brand.color }}>{brand.short || brand.name}</span>
                         </div>
                       </td>
-                      <td style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
+                      <td hidden={!listVisible.has("collection")} style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
                         {isExpanded ? "▼ " : "▶ "}{c.collection}
                       </td>
-                      <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{season}</td>
-                      <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{vendorName}</td>
-                      <td style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>{ddpTask ? formatDate(ddpTask.due) : "—"}</td>
-                      <td style={{ padding: "10px 14px" }}>
+                      <td hidden={!listVisible.has("season")} style={{ padding: "10px 14px", color: TH.textSub2 }}>{season}</td>
+                      <td hidden={!listVisible.has("vendor")} style={{ padding: "10px 14px", color: TH.textSub2 }}>{vendorName}</td>
+                      <td hidden={!listVisible.has("ddp")} style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>{ddpTask ? formatDate(ddpTask.due) : "—"}</td>
+                      <td hidden={!listVisible.has("progress")} style={{ padding: "10px 14px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, height: 6, background: "#CBD5E0", borderRadius: 3, minWidth: 60 }}>
                             <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : brand.color, borderRadius: 3, transition: "width 0.3s" }} />
@@ -137,11 +168,11 @@ function TimelinePanelInner(): React.ReactElement | null {
                           <span style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>{pct}%</span>
                         </div>
                       </td>
-                      <td style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>{next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}</td>
+                      <td hidden={!listVisible.has("next_task")} style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>{next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}</td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={7} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
+                        <td colSpan={listVisibleCount} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "inherit" }}>
                             <thead>
                               <tr style={{ background: "#3A4A5C", borderBottom: `1px solid #2D3748` }}>
