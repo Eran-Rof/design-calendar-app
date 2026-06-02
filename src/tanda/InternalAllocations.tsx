@@ -87,11 +87,15 @@ export default function InternalAllocations() {
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [savingLine, setSavingLine] = useState<string | null>(null);
 
-  // Auto-allocate preview dialog.
+  // Auto-allocate preview dialog. Strategy chosen at run time (re-previews live).
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<Proposal[]>([]);
   const [previewScopeLabel, setPreviewScopeLabel] = useState("");
+  const [previewItemIds, setPreviewItemIds] = useState<string[]>([]);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [strategy, setStrategy] = useState<"priority_full" | "fair_share" | "capped">("priority_full");
+  const [capPct, setCapPct] = useState("50");
+  const [capBasis, setCapBasis] = useState<"sku" | "style_color">("sku");
 
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(TABLE_KEY, COLUMNS);
   const isVisible = (k: string) => visibleColumns.has(k);
@@ -176,21 +180,30 @@ export default function InternalAllocations() {
     finally { setSavingLine(null); }
   }
 
-  async function runAutoAllocate(itemIds: string[], scopeLabel: string) {
+  // Open the dialog for a scope; the live preview is (re)fetched by the effect
+  // below whenever the scope or chosen strategy/cap changes.
+  function runAutoAllocate(itemIds: string[], scopeLabel: string) {
+    setPreviewItemIds(itemIds); setPreviewScopeLabel(scopeLabel); setPreviewRows([]); setPreviewOpen(true);
+  }
+  async function fetchPreview() {
     setPreviewBusy(true);
     try {
+      const payload: Record<string, unknown> = { strategy, item_ids: previewItemIds };
+      if (strategy === "capped") { payload.cap_pct = Number(capPct) || 0; payload.cap_basis = capBasis; }
       const r = await fetch("/api/internal/allocations/preview", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strategy: "priority_full", item_ids: itemIds }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
-      const rows = (Array.isArray(j.proposals) ? j.proposals : []) as Proposal[];
-      const changing = rows.filter((p) => p.grant > 0 || p.blocked_reason);
-      if (changing.length === 0) { notify("Nothing to allocate — no available stock or no open demand in scope.", "info"); return; }
-      setPreviewRows(changing); setPreviewScopeLabel(scopeLabel); setPreviewOpen(true);
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); setPreviewRows([]); return; }
+      setPreviewRows((Array.isArray(j.proposals) ? j.proposals : []) as Proposal[]);
     } finally { setPreviewBusy(false); }
   }
+  useEffect(() => {
+    if (!previewOpen) return;
+    if (strategy === "capped" && (!(Number(capPct) > 0) || Number(capPct) > 100)) { setPreviewRows([]); return; } // wait for a valid %
+    void fetchPreview();
+    /* eslint-disable-next-line */
+  }, [previewOpen, previewItemIds, strategy, capPct, capBasis]);
 
   async function applyPreview() {
     const allocations = previewRows.filter((p) => p.grant > 0).map((p) => ({ line_id: p.line_id, qty: p.proposed_allocated }));
@@ -329,10 +342,38 @@ export default function InternalAllocations() {
       {previewOpen && (
         <div onClick={() => !previewBusy && setPreviewOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 760, maxWidth: 980, maxHeight: "86vh", overflowY: "auto", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>⚡ Auto-allocate preview — {previewScopeLabel}</h3>
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
-              Priority full-fill: <b>factor-approved → credit-card → oldest</b>. Allocation resolves per size-level SKU; the lines below get the stock. Blocked rows (factor gate / no stock) are shown but allocate nothing.
+            <h3 style={{ margin: "0 0 10px", fontSize: 18 }}>⚡ Auto-allocate — {previewScopeLabel}</h3>
+
+            {/* Strategy chosen at run time. Priority tiering (factor-approved →
+                credit-card → oldest) applies to every mode; allocation always
+                resolves per size-level SKU, so a % target never fills a 0-stock size. */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {([
+                ["priority_full", "Priority full-fill"],
+                ["fair_share", "Fair-share (pro-rata)"],
+                ["capped", "Capped %"],
+              ] as const).map(([k, lbl]) => (
+                <button key={k} onClick={() => setStrategy(k)}
+                  style={{ ...btnSecondary, padding: "5px 12px", fontSize: 12, color: strategy === k ? "white" : C.textSub, background: strategy === k ? C.violet : "transparent", borderColor: strategy === k ? C.violet : C.cardBdr }}>{lbl}</button>
+              ))}
+              {strategy === "capped" && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <input type="text" inputMode="decimal" value={capPct} onChange={(e) => setCapPct(e.target.value)}
+                    style={{ ...numCell, width: "5ch" }} title="Cap each order to this % of its open qty" />
+                  <span style={{ fontSize: 12, color: C.textMuted }}>% of</span>
+                  <select value={capBasis} onChange={(e) => setCapBasis(e.target.value as "sku" | "style_color")} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}>
+                    <option value="sku">each SKU line</option>
+                    <option value="style_color">each style/color</option>
+                  </select>
+                </span>
+              )}
             </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+              {strategy === "priority_full" && <>Fill each order 100% in priority order (<b>factor-approved → credit-card → oldest</b>) until stock runs out.</>}
+              {strategy === "fair_share" && <>Spread available stock <b>pro-rata</b> across competing orders so each gets the same share of its open qty (leftover by priority).</>}
+              {strategy === "capped" && <>Priority full-fill, but cap each {capBasis === "sku" ? "order line" : "order's style/color total"} at <b>{capPct || "?"}%</b> of its open qty. Bounded by real per-size availability.</>}
+            </div>
+
             <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 14 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>
@@ -340,7 +381,9 @@ export default function InternalAllocations() {
                   <th style={{ ...th, textAlign: "right" }}>Now</th><th style={{ ...th, textAlign: "right" }}>+Grant</th><th style={{ ...th, textAlign: "right" }}>→ New</th>
                 </tr></thead>
                 <tbody>
-                  {previewRows.map((p) => (
+                  {previewBusy && <tr><td style={td} colSpan={7}>Computing…</td></tr>}
+                  {!previewBusy && previewRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>Nothing to allocate — no available stock or open demand in scope.</td></tr>}
+                  {!previewBusy && previewRows.map((p) => (
                     <tr key={p.line_id} style={{ opacity: p.blocked_reason ? 0.6 : 1 }}>
                       <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{p.so_number || "(draft)"}</td>
                       <td style={td}>{p.customer_name || "—"}</td>
