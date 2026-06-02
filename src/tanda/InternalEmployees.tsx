@@ -335,7 +335,6 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     manager_employee_id: employee?.manager_employee_id ?? "",
     hire_date: employee?.hire_date ?? "",
     termination_date: employee?.termination_date ?? "",
-    auth_user_id: employee?.auth_user_id ?? "",
     phone: employee?.phone ?? "",
     is_active: employee?.is_active ?? true,
   });
@@ -368,11 +367,12 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
         manager_employee_id: form.manager_employee_id.trim() || null,
         hire_date: form.hire_date.trim() || null,
         termination_date: form.termination_date.trim() || null,
-        auth_user_id: form.auth_user_id.trim() || null,
         phone: form.phone.trim() || null,
         is_active: form.is_active,
       };
       // Chunk M — code is server-generated; never sent from the client.
+      // auth_user_id is no longer collected in the form (operator request);
+      // the server treats it as optional and defaults it to null on create.
 
       const url = mode === "add"
         ? "/api/internal/employees"
@@ -402,7 +402,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
   // "EB001" or by display name both work.
   const managerOptions: SearchableSelectOption[] = useMemo(() => {
     return [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...otherActive.map((m) => ({
         value: m.id,
         label: `${m.display_name} (${m.code})`,
@@ -414,7 +414,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
   // P16 — title / department pickers + commission-rate reveal.
   const titleOptions: SearchableSelectOption[] = useMemo(() => {
     return [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...titles.map((t) => ({
         value: t.id,
         label: t.is_sales_role ? `${t.name} (sales)` : t.name,
@@ -425,7 +425,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
 
   const departmentOptions: SearchableSelectOption[] = useMemo(() => {
     return [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...departments.map((d) => ({ value: d.id, label: d.name, searchHaystack: d.name })),
     ];
   }, [departments]);
@@ -458,12 +458,17 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
                 : (employee?.code || "—")}
             </div>
           </Field>
-          <Field label="Active">
-            <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingTop: 6 }}>
-              <input type="checkbox" checked={form.is_active} onChange={(e) => set("is_active", e.target.checked)} />
-              Is active
-            </label>
-          </Field>
+          {/* Operator request — hide the Active toggle on the Add form; new
+              employees default to active server-side. Kept on Edit so an
+              employee can be (re)activated/deactivated from the modal. */}
+          {mode === "edit" && (
+            <Field label="Active">
+              <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingTop: 6 }}>
+                <input type="checkbox" checked={form.is_active} onChange={(e) => set("is_active", e.target.checked)} />
+                Is active
+              </label>
+            </Field>
+          )}
           <Field label="First name">
             <input style={inputStyle} value={form.first_name} onChange={(e) => set("first_name", e.target.value)} />
           </Field>
@@ -481,7 +486,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
               value={form.title_id || null}
               onChange={(v) => set("title_id", v)}
               options={titleOptions}
-              placeholder="(none)"
+              placeholder="(select)"
               emptyText="No matching titles"
             />
           </Field>
@@ -490,7 +495,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
               value={form.department_id || null}
               onChange={(v) => set("department_id", v)}
               options={departmentOptions}
-              placeholder="(none)"
+              placeholder="(select)"
               emptyText="No matching departments"
             />
           </Field>
@@ -531,12 +536,9 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
               value={form.manager_employee_id || null}
               onChange={(v) => set("manager_employee_id", v)}
               options={managerOptions}
-              placeholder="(none)"
+              placeholder="(select)"
               emptyText="No matching employees"
             />
-          </Field>
-          <Field label="auth_user_id (optional)">
-            <input style={inputStyle} value={form.auth_user_id} onChange={(e) => set("auth_user_id", e.target.value)} placeholder="uuid of auth.users row" />
           </Field>
           <Field label="Hire date">
             <input style={inputStyle} type="date" value={form.hire_date} onChange={(e) => set("hire_date", e.target.value)} />
