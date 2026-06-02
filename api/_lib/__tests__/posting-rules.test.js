@@ -9,6 +9,7 @@ import { arInvoiceSent } from "../accounting/posting/rules/arInvoiceSent.js";
 import { arPaymentReceived } from "../accounting/posting/rules/arPaymentReceived.js";
 import { inventoryReceipt } from "../accounting/posting/rules/inventoryReceipt.js";
 import { inventoryAdjustment } from "../accounting/posting/rules/inventoryAdjustment.js";
+import { apInvoiceGrirMatch } from "../accounting/posting/rules/apInvoiceGrirMatch.js";
 
 const ENTITY = "00000000-0000-0000-0000-000000000001";
 
@@ -186,6 +187,48 @@ describe("inventoryReceipt", () => {
         goods_amount: "100.00",
       },
     })).toThrow(/landed DR/);
+  });
+});
+
+describe("apInvoiceGrirMatch", () => {
+  const base = {
+    invoice_id: "inv-1", vendor_id: "v-1", invoice_number: "VINV-1", invoice_date: "2026-05-21",
+    ap_account_id: "ap1", grir_account_id: "grir1", variance_account_id: "var1",
+  };
+  it("invoice == received: DR GR/IR / CR AP, no variance line", () => {
+    const r = apInvoiceGrirMatch({ kind: "ap_invoice_grir_match", entity_id: ENTITY,
+      data: { ...base, received_amount: "100.00", total_amount: "100.00" } });
+    expect(r.cash).toBeNull();
+    expect(r.accrual.lines).toHaveLength(2);
+    expect(r.accrual.lines[0].account_id).toBe("grir1");
+    expect(r.accrual.lines[0].debit).toBe("100.00");
+    expect(r.accrual.lines[1].account_id).toBe("ap1");
+    expect(r.accrual.lines[1].credit).toBe("100.00");
+    expect(r.accrual.lines[1].subledger_type).toBe("vendor");
+  });
+  it("invoice > received: DR GR/IR + DR variance / CR AP (balanced)", () => {
+    const r = apInvoiceGrirMatch({ kind: "ap_invoice_grir_match", entity_id: ENTITY,
+      data: { ...base, received_amount: "100.00", total_amount: "103.00" } });
+    expect(r.accrual.lines).toHaveLength(3);
+    expect(r.accrual.lines[0].debit).toBe("100.00");   // GR/IR
+    expect(r.accrual.lines[1].account_id).toBe("var1"); // variance DR
+    expect(r.accrual.lines[1].debit).toBe("3.00");
+    expect(r.accrual.lines[2].credit).toBe("103.00");   // AP
+  });
+  it("invoice < received: DR GR/IR / CR variance + CR AP (balanced)", () => {
+    const r = apInvoiceGrirMatch({ kind: "ap_invoice_grir_match", entity_id: ENTITY,
+      data: { ...base, received_amount: "100.00", total_amount: "98.00" } });
+    expect(r.accrual.lines).toHaveLength(3);
+    expect(r.accrual.lines[0].debit).toBe("100.00");   // GR/IR DR
+    expect(r.accrual.lines[1].account_id).toBe("var1");
+    expect(r.accrual.lines[1].credit).toBe("2.00");    // variance CR
+    expect(r.accrual.lines[2].credit).toBe("98.00");   // AP
+    // DR 100 == CR (2 + 98)
+  });
+  it("requires variance_account_id when there is a variance", () => {
+    expect(() => apInvoiceGrirMatch({ kind: "ap_invoice_grir_match", entity_id: ENTITY,
+      data: { ...base, variance_account_id: undefined, received_amount: "100.00", total_amount: "103.00" } }))
+      .toThrow(/variance_account_id/);
   });
 });
 
