@@ -40,6 +40,17 @@ import { computePreset } from "./components/dateRangePresets";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge from "./components/SourceBadge";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const CUTOVER_TABLE_KEY = "tanda.recon_cutover_history";
+const CUTOVER_COLUMNS: ColumnDef[] = [
+  { key: "domain",       label: "Domain" },
+  { key: "source_tag",   label: "Source tag" },
+  { key: "clean_window", label: "Clean window" },
+  { key: "total_recons", label: "Total recons" },
+  { key: "signoff_emp",  label: "Signoff employee" },
+  { key: "signoff_at",   label: "Signed off at" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Theme — match the existing Tangerine internal panels (Bank Rec / Shadow
@@ -359,6 +370,10 @@ export default function InternalReconciliationDashboard() {
   // is in flight so the operator can't double-fire.
   const [running, setRunning] = useState<Domain | null>(null);
 
+  // Column visibility for the cutover-history table (operator ask #1).
+  const cutoverPrefs = useTablePrefs(CUTOVER_TABLE_KEY, CUTOVER_COLUMNS);
+  const cutoverVisible = cutoverPrefs.visibleColumns;
+
   async function loadRuns() {
     setLoading(true); setErr(null);
     try {
@@ -649,9 +664,19 @@ export default function InternalReconciliationDashboard() {
 
       {/* ───── Cutover history table ───── */}
       <div style={{ marginBottom: 24 }} data-testid="recon-cutover-history">
-        <h3 style={{ margin: "0 0 8px", fontSize: 14, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
-          Cutover history · D8 sign-offs
-        </h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+            Cutover history · D8 sign-offs
+          </h3>
+          <TablePrefsButton
+            tableKey={CUTOVER_TABLE_KEY}
+            columns={CUTOVER_COLUMNS}
+            visibleColumns={cutoverVisible}
+            onToggle={cutoverPrefs.toggleColumn}
+            onReset={cutoverPrefs.resetToDefault}
+            onSetAll={cutoverPrefs.setAllVisible}
+          />
+        </div>
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
           {cutovers.length === 0 ? (
             <div style={{ padding: 20, color: C.textMuted, textAlign: "center", fontSize: 12 }}>
@@ -661,29 +686,29 @@ export default function InternalReconciliationDashboard() {
             <table style={{ width: "100%", borderCollapse: "collapse" }} data-testid="recon-cutover-table">
               <thead>
                 <tr>
-                  <th style={th}>Domain</th>
-                  <th style={th}>Source tag</th>
-                  <th style={th}>Clean window</th>
-                  <th style={th}>Total recons</th>
-                  <th style={th}>Signoff employee</th>
-                  <th style={th}>Signed off at</th>
+                  <th style={th} hidden={!cutoverVisible.has("domain")}>Domain</th>
+                  <th style={th} hidden={!cutoverVisible.has("source_tag")}>Source tag</th>
+                  <th style={th} hidden={!cutoverVisible.has("clean_window")}>Clean window</th>
+                  <th style={th} hidden={!cutoverVisible.has("total_recons")}>Total recons</th>
+                  <th style={th} hidden={!cutoverVisible.has("signoff_emp")}>Signoff employee</th>
+                  <th style={th} hidden={!cutoverVisible.has("signoff_at")}>Signed off at</th>
                 </tr>
               </thead>
               <tbody>
                 {cutovers.map((c) => (
                   <tr key={c.id} data-testid={`recon-cutover-row-${c.id}`}>
-                    <td style={td}><strong>{c.domain}</strong></td>
-                    <td style={td}>
+                    <td style={td} hidden={!cutoverVisible.has("domain")}><strong>{c.domain}</strong></td>
+                    <td style={td} hidden={!cutoverVisible.has("source_tag")}>
                       {c.source_tag ? <SourceBadge source={c.source_tag} /> : <span style={{ color: C.textMuted }}>—</span>}
                     </td>
-                    <td style={{ ...td, fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("clean_window")}>
                       {c.clean_window_start} → {c.clean_window_end}
                     </td>
-                    <td style={{ ...td, fontVariantNumeric: "tabular-nums" }}>{c.total_recons}</td>
-                    <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>
+                    <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("total_recons")}>{c.total_recons}</td>
+                    <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }} hidden={!cutoverVisible.has("signoff_emp")}>
                       {c.signoff_employee_id ? c.signoff_employee_id.slice(0, 8) + "…" : "—"}
                     </td>
-                    <td style={{ ...td, fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("signoff_at")}>
                       {new Date(c.signoff_at).toLocaleString()}
                     </td>
                   </tr>

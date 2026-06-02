@@ -1,16 +1,16 @@
-// Tests for Tangerine P7-6 — Sales Reps + tiers + assignments handlers.
+// Tests for Tangerine Sales Reps list (now sourced from sales-role employees)
+// + commission tiers + assignments handlers.
 //
-// Pure validators only. Live insert/upsert behaviour is covered by the
-// schema's own migration tests (P7-4) + the deployed app smoke test.
+// Pure validators only. The Sales Reps standalone MASTER (index.js POST +
+// [id].js PATCH/DELETE) was retired when reps were unified into Employees, so
+// validateInsert / validatePatch no longer exist. index.js now only exposes
+// parseListQuery (the list filter parser).
 
 import { describe, it, expect } from "vitest";
 
 import {
   parseListQuery,
-  validateInsert,
-  isUuid,
 } from "../../_handlers/internal/sales-reps/index.js";
-import { validatePatch } from "../../_handlers/internal/sales-reps/[id].js";
 import {
   validateTierInsert,
   isISODate as tiersIsISODate,
@@ -20,25 +20,13 @@ import {
   isISODate as assignIsISODate,
 } from "../../_handlers/internal/sales-reps/[id]/assignments.js";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID  = "00000000-0000-0000-0000-000000000001";
 const UUID2 = "00000000-0000-0000-0000-000000000002";
 
 // ────────────────────────────────────────────────────────────────────────
-// index.js — isUuid + parseListQuery + validateInsert
+// index.js — parseListQuery (list filters)
 // ────────────────────────────────────────────────────────────────────────
-
-describe("sales-reps isUuid", () => {
-  it("accepts a canonical uuid", () => {
-    expect(isUuid(UUID)).toBe(true);
-  });
-  it("rejects garbage", () => {
-    expect(isUuid("abc")).toBe(false);
-    expect(isUuid("")).toBe(false);
-    expect(isUuid(null)).toBe(false);
-    expect(isUuid(undefined)).toBe(false);
-    expect(isUuid(123)).toBe(false);
-  });
-});
 
 describe("sales-reps parseListQuery", () => {
   it("defaults to active-only with limit 200", () => {
@@ -68,109 +56,6 @@ describe("sales-reps parseListQuery", () => {
   });
   it("trims and stores q", () => {
     expect(parseListQuery({ q: "  smith  " }).data.q).toBe("smith");
-  });
-});
-
-describe("sales-reps validateInsert", () => {
-  it("requires display_name", () => {
-    expect(validateInsert({}).error).toMatch(/display_name/);
-    expect(validateInsert({ display_name: "   " }).error).toMatch(/display_name/);
-  });
-  it("rejects display_name over 200 chars", () => {
-    expect(validateInsert({ display_name: "x".repeat(201) }).error).toMatch(/200/);
-  });
-  it("accepts the minimum valid body", () => {
-    const v = validateInsert({ display_name: "Jane Smith" });
-    expect(v.error).toBeUndefined();
-    expect(v.data.display_name).toBe("Jane Smith");
-    expect(v.data.email).toBeNull();
-    expect(v.data.default_commission_pct).toBe(0);
-    expect(v.data.payout_terms_days).toBe(30);
-    expect(v.data.is_active).toBe(true);
-    expect(v.data.employee_id).toBeNull();
-  });
-  it("rejects email > 320 chars", () => {
-    const v = validateInsert({ display_name: "x", email: "a".repeat(321) });
-    expect(v.error).toMatch(/email/);
-  });
-  it("rejects default_commission_pct outside 0..100", () => {
-    expect(validateInsert({ display_name: "x", default_commission_pct: -1 }).error).toMatch(/0 and 100/);
-    expect(validateInsert({ display_name: "x", default_commission_pct: 100.01 }).error).toMatch(/0 and 100/);
-  });
-  it("accepts default_commission_pct at boundaries", () => {
-    expect(validateInsert({ display_name: "x", default_commission_pct: 0 }).data.default_commission_pct).toBe(0);
-    expect(validateInsert({ display_name: "x", default_commission_pct: 100 }).data.default_commission_pct).toBe(100);
-  });
-  it("rejects non-numeric default_commission_pct", () => {
-    expect(validateInsert({ display_name: "x", default_commission_pct: "abc" }).error).toMatch(/number/);
-  });
-  it("rejects negative payout_terms_days", () => {
-    expect(validateInsert({ display_name: "x", payout_terms_days: -1 }).error).toMatch(/non-negative/);
-  });
-  it("rejects non-integer payout_terms_days", () => {
-    expect(validateInsert({ display_name: "x", payout_terms_days: 2.5 }).error).toMatch(/non-negative integer/);
-  });
-  it("accepts payout_terms_days = 0", () => {
-    expect(validateInsert({ display_name: "x", payout_terms_days: 0 }).data.payout_terms_days).toBe(0);
-  });
-  it("rejects bad employee_id", () => {
-    expect(validateInsert({ display_name: "x", employee_id: "nope" }).error).toMatch(/employee_id/);
-  });
-  it("accepts a valid employee_id", () => {
-    expect(validateInsert({ display_name: "x", employee_id: UUID }).data.employee_id).toBe(UUID);
-  });
-  it("rejects bad created_by_user_id", () => {
-    expect(validateInsert({ display_name: "x", created_by_user_id: "nope" }).error).toMatch(/created_by_user_id/);
-  });
-  it("coerces is_active explicitly", () => {
-    expect(validateInsert({ display_name: "x", is_active: false }).data.is_active).toBe(false);
-    expect(validateInsert({ display_name: "x", is_active: 0 }).data.is_active).toBe(false);
-    expect(validateInsert({ display_name: "x", is_active: true }).data.is_active).toBe(true);
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────
-// [id].js — validatePatch
-// ────────────────────────────────────────────────────────────────────────
-
-describe("sales-reps validatePatch", () => {
-  it("rejects locked columns", () => {
-    expect(validatePatch({ id: UUID }).error).toMatch(/id is not patchable/);
-    expect(validatePatch({ entity_id: UUID }).error).toMatch(/entity_id/);
-    expect(validatePatch({ created_at: "2026-01-01" }).error).toMatch(/created_at/);
-    expect(validatePatch({ created_by_user_id: UUID }).error).toMatch(/created_by_user_id/);
-  });
-  it("returns empty patch for empty body", () => {
-    const v = validatePatch({});
-    expect(v.error).toBeUndefined();
-    expect(v.data).toEqual({});
-  });
-  it("trims and stores display_name", () => {
-    expect(validatePatch({ display_name: "  Bob  " }).data.display_name).toBe("Bob");
-  });
-  it("rejects empty display_name when supplied", () => {
-    expect(validatePatch({ display_name: "" }).error).toMatch(/non-empty/);
-    expect(validatePatch({ display_name: "   " }).error).toMatch(/non-empty/);
-  });
-  it("accepts null email", () => {
-    expect(validatePatch({ email: null }).data.email).toBeNull();
-    expect(validatePatch({ email: "" }).data.email).toBeNull();
-  });
-  it("rejects default_commission_pct outside 0..100", () => {
-    expect(validatePatch({ default_commission_pct: 200 }).error).toMatch(/0 and 100/);
-  });
-  it("rejects non-integer payout_terms_days", () => {
-    expect(validatePatch({ payout_terms_days: 2.5 }).error).toMatch(/non-negative/);
-  });
-  it("rejects bad employee_id", () => {
-    expect(validatePatch({ employee_id: "garbage" }).error).toMatch(/employee_id/);
-  });
-  it("accepts null employee_id", () => {
-    expect(validatePatch({ employee_id: null }).data.employee_id).toBeNull();
-  });
-  it("coerces is_active", () => {
-    expect(validatePatch({ is_active: false }).data.is_active).toBe(false);
-    expect(validatePatch({ is_active: 1 }).data.is_active).toBe(true);
   });
 });
 
@@ -299,6 +184,6 @@ describe("validateAssignmentInsert", () => {
 describe("sales-reps UUID smoke", () => {
   it("two different valid UUIDs are distinct", () => {
     expect(UUID).not.toBe(UUID2);
-    expect(isUuid(UUID2)).toBe(true);
+    expect(UUID_RE.test(UUID2)).toBe(true);
   });
 });

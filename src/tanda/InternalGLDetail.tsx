@@ -11,17 +11,16 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
-import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
 
-// Universal column-visibility registry for this panel (operator ask #1).
-const GL_DETAIL_TABLE_KEY = "tangerine:gldetail:columns";
-const GL_DETAIL_COLUMNS: ColumnDef[] = [
-  { key: "date",        label: "Date" },
-  { key: "description", label: "Description" },
-  { key: "source",      label: "Source" },
-  { key: "debit",       label: "Debit" },
-  { key: "credit",      label: "Credit" },
-  { key: "balance",     label: "Running Balance" },
+// Only the numeric columns are toggleable — the TOTAL footer row spans the
+// first three columns (Date/Description/Source) via colSpan={3}, so those
+// stay always-visible to avoid footer/body misalignment.
+const TABLE_KEY = "tanda.gl_detail";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "debit",   label: "Debit" },
+  { key: "credit",  label: "Credit" },
+  { key: "balance", label: "Running Balance" },
 ];
 
 type Account = {
@@ -137,13 +136,7 @@ export default function InternalGLDetail() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  // Wave 5 — universal column show/hide.
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
-    GL_DETAIL_TABLE_KEY,
-    GL_DETAIL_COLUMNS,
-  );
-  const isVisible = (k: string): boolean => visibleColumns.has(k);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=2000")
@@ -244,13 +237,6 @@ export default function InternalGLDetail() {
         <button onClick={() => void load()} style={btnPrimary} disabled={loading || !accountId}>
           {loading ? "Loading…" : "Load"}
         </button>
-        <TablePrefsButton
-          tableKey={GL_DETAIL_TABLE_KEY}
-          columns={GL_DETAIL_COLUMNS}
-          visibleColumns={visibleColumns}
-          onToggle={toggleColumn}
-          onReset={resetToDefault}
-        />
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename={selectedAccount
@@ -267,6 +253,14 @@ export default function InternalGLDetail() {
             { key: "source_module", header: "Source Module" },
             { key: "source_id",     header: "Source ID" },
           ]}
+        />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 
@@ -296,34 +290,34 @@ export default function InternalGLDetail() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("date")}>Date</th>
-                <th style={th} hidden={!isVisible("description")}>Description</th>
-                <th style={th} hidden={!isVisible("source")}>Source</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("debit")}>Debit</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("credit")}>Credit</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("balance")}>Running Balance</th>
+                <th style={th}>Date</th>
+                <th style={th}>Description</th>
+                <th style={th}>Source</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("debit")}>Debit</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("credit")}>Credit</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("balance")}>Running Balance</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={`${r.je_id}-${r.posting_date}`}>
-                  <td style={td} hidden={!isVisible("date")}>{r.posting_date}</td>
-                  <td style={td} hidden={!isVisible("description")}>{r.description || "—"}</td>
-                  <td style={{ ...td, color: C.textMuted, fontSize: 11 }} hidden={!isVisible("source")}>
+                  <td style={td}>{r.posting_date}</td>
+                  <td style={td}>{r.description || "—"}</td>
+                  <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>
                     {r.source_module}{r.source_id ? ` · ${r.source_id}` : ""}
                   </td>
-                  <td style={tdNum} hidden={!isVisible("debit")}>{fmtCents(r.debit_cents)}</td>
-                  <td style={tdNum} hidden={!isVisible("credit")}>{fmtCents(r.credit_cents)}</td>
-                  <td style={{ ...tdNum, fontWeight: 600 }} hidden={!isVisible("balance")}>{fmtBalanceCents(r.running_balance_cents)}</td>
+                  <td style={tdNum} hidden={!visibleColumns.has("debit")}>{fmtCents(r.debit_cents)}</td>
+                  <td style={tdNum} hidden={!visibleColumns.has("credit")}>{fmtCents(r.credit_cents)}</td>
+                  <td style={{ ...tdNum, fontWeight: 600 }} hidden={!visibleColumns.has("balance")}>{fmtBalanceCents(r.running_balance_cents)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
                 <td style={{ ...td, fontWeight: 700, color: C.textSub }} colSpan={3}>TOTAL ({rows.length})</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.debit)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.credit)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: netCents !== 0 ? C.text : C.textMuted }}>{fmtBalanceCents(netCents)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("debit")}>{fmtCents(totals.debit)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("credit")}>{fmtCents(totals.credit)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: netCents !== 0 ? C.text : C.textMuted }} hidden={!visibleColumns.has("balance")}>{fmtBalanceCents(netCents)}</td>
               </tr>
             </tfoot>
           </table>
