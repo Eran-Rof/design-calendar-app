@@ -27,6 +27,7 @@ const VALID_SOURCE_KIND = new Set([
   "opening_balance",
   "transfer_in",
   "credit_memo_return",   // P4-2 — AR credit memo with return-to-stock line
+  "po_receipt",           // P13/C1 — PO goods-receipt layer at landed unit cost
 ]);
 
 const VALID_CONSUMER_KIND = new Set([
@@ -122,6 +123,7 @@ export async function createLayer(supabase, args) {
   assertUuid("source_adjustment_id", args.source_adjustment_id, { optional: true });
   assertUuid("created_by_user_id", args.created_by_user_id, { optional: true });
   assertUuid("partition_id", args.partition_id, { optional: true }); // P15 brand stock pool
+  assertUuid("location_id", args.location_id, { optional: true });   // P12-0 multi-location
 
   const row = {
     entity_id: args.entity_id,
@@ -140,6 +142,9 @@ export async function createLayer(supabase, args) {
     notes: args.notes || null,
     created_by_user_id: args.created_by_user_id || null,
   };
+  // location_id is NOT NULL on inventory_layers (P12-0 multi-location). Only set
+  // it when provided — callers that stock to a specific location pass it.
+  if (args.location_id) row.location_id = args.location_id;
 
   const { data, error } = await supabase
     .from("inventory_layers")
