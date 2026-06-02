@@ -566,6 +566,11 @@ import h567 from "./internal/sales-orders/ship.js";
 //   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
 import h572 from "./internal/purchase-orders/index.js";
 import h573 from "./internal/purchase-orders/[id].js";
+// Prepack Matrix Driver master (per-size pack composition for Explode-PPK).
+//   h574 = GET/POST            /api/internal/prepack-matrices
+//   h575 = GET/PATCH/DELETE    /api/internal/prepack-matrices/:id
+import h574 from "./internal/prepack-matrices/index.js";
+import h575 from "./internal/prepack-matrices/[id].js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -1014,6 +1019,9 @@ export const ROUTES = [
   { pattern: "/api/internal/size-scales", handler: h568 },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
+  // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
+  { pattern: "/api/internal/prepack-matrices", handler: h574 },
   // Chunk I reference masters — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/countries/:id", handler: h550 },
   { pattern: "/api/internal/countries", handler: h549 },
