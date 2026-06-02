@@ -19,7 +19,9 @@ import {
   submitBatch,
   transitionBatch,
   updateExecutionAction,
+  createTangerinePos,
 } from "../services";
+import type { TangerinePoResult } from "../services/tangerinePoService";
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
@@ -65,6 +67,7 @@ export default function ExecutionBatchDetail({
 }: ExecutionBatchDetailProps) {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<WritebackResult[]>([]);
+  const [poResult, setPoResult] = useState<TangerinePoResult | null>(null);
   const locked = isBatchLocked(batch);
   const user = useCurrentUser();
   const canApproveBatch = user ? can(user, "approve_execution") : false;
@@ -161,6 +164,21 @@ export default function ExecutionBatchDetail({
       await onChange();
     } catch (e) {
       onToast({ text: "Submit failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  // M31 (direction A) — create DRAFT native Tangerine POs from this buy plan
+  // (one draft PO per vendor). Operator issues them in Tangerine Procurement.
+  async function createPos() {
+    if (!window.confirm("Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).")) return;
+    setBusy(true);
+    try {
+      const r = await createTangerinePos({ batch });
+      setPoResult(r);
+      onToast({ text: r.message || `Created ${r.created.length} draft PO(s)`, kind: r.created.length ? "success" : "error" });
+      await onChange();
+    } catch (e) {
+      onToast({ text: "Create POs failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally { setBusy(false); }
   }
 
@@ -282,10 +300,36 @@ export default function ExecutionBatchDetail({
                   onClick={submit}>
             Submit writeback
           </button>
+          <button style={{ ...S.btnPrimary, background: "#EA580C" }}
+                  disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
+                  title={canWriteback ? "Create draft native Tangerine POs (one per vendor) from this buy plan" : "Missing permission: run_writeback"}
+                  onClick={createPos}>
+            🍊 Create Tangerine POs
+          </button>
           <div style={{ color: PAL.textMuted, fontSize: 12, marginLeft: "auto" }}>
-            Writeback is per-action; only rows with method=<code style={{ color: PAL.text }}>api_writeback</code> and an enabled config are attempted.
+            Writeback is per-action (Xoro). <b>Create Tangerine POs</b> turns <code style={{ color: PAL.text }}>create_buy_request</code> actions into draft native POs, grouped by vendor.
           </div>
         </div>
+
+        {poResult && (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+            {poResult.created.map((c, i) => (
+              <div key={(c.po_id || "preview") + i} style={{ background: PAL.green + "22", color: PAL.green, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
+                {c.preview ? "[preview] " : "✓ "}{c.vendor_name || c.vendor_id} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO ${c.po_id.slice(0, 8)} (draft)` : ""}
+              </div>
+            ))}
+            {poResult.warnings.map((w) => (
+              <div key={"w" + w.action_id} style={{ background: PAL.yellow + "22", color: PAL.yellow, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
+                ⚠ {w.action_id.slice(0, 8)} · {w.message}
+              </div>
+            ))}
+            {poResult.skipped.map((s) => (
+              <div key={"s" + s.action_id} style={{ background: PAL.textMuted + "22", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
+                skipped {s.action_id.slice(0, 8)} · {s.reason}
+              </div>
+            ))}
+          </div>
+        )}
 
         {results.length > 0 && (
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>

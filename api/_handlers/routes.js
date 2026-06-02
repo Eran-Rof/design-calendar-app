@@ -575,6 +575,8 @@ import h575 from "./internal/prepack-matrices/[id].js";
 import h599 from "./internal/prepack-matrices/needed.js";
 // h600 = QC failure dispositions (write-off / vendor-credit / RMA / rework) — P13 GL-C3
 import h600 from "./internal/procurement/qc/dispositions.js";
+// h601 = POST /api/internal/planning/buy-plan-to-po (M31: buy plan → draft Tangerine POs)
+import h601 from "./internal/planning/buy-plan-to-po.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1095,6 +1097,8 @@ export const ROUTES = [
   { pattern: "/api/internal/size-scales", handler: h568 },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
+  // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
+  { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
