@@ -24,6 +24,9 @@ const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
 const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "closed", "awarded"];
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+// Per-unit target cost is a unit price → 2 decimals (e.g. 6.75), unlike the
+// whole-dollar totals (Est Budget).
+const fmtUnit  = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtQty   = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 export default function RfqListView() {
@@ -229,7 +232,7 @@ export default function RfqListView() {
                   <Td align="right">{r.line_count}</Td>
                   <Td align="right">{typeof r.estimated_quantity === "number" ? fmtQty.format(r.estimated_quantity) : "—"}</Td>
                   <Td align="right">{typeof r.estimated_budget === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.estimated_budget)}` : "—"}</Td>
-                  <Td align="right">{typeof r.target_cost === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.target_cost)}` : "—"}</Td>
+                  <Td align="right">{typeof r.target_cost === "number" ? `${r.currency || "USD"} ${fmtUnit.format(r.target_cost)}` : "—"}</Td>
                   <Td>
                     <span style={{ background: sc.bg, color: sc.fg, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
                       {r.status}
