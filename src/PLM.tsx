@@ -361,12 +361,13 @@ export default function PLMApp() {
             if (app.id === "vendor" && !canSeeVendorPortalCard(user)) return false;
             return true;
           }).map(app => {
-            // Only the original four apps have per-user permissions today.
-            // Costing is a Tech Packs sub-tab (gated in TechPack.tsx via
-            // permissions.costing.access), and Vendor Portal is filtered
-            // out above. Other dashboard cards (planning, gs1) have no
-            // per-user permission yet, so default to access=true.
-            const hasPerm = app.id === "design" || app.id === "tanda" || app.id === "techpack" || app.id === "ats" || app.id === "vendor";
+            // Per-user-permission apps. Costing honors permissions.costing.access
+            // (the SAME key that gates the Tech Packs Costing sub-tab in
+            // TechPack.tsx) so a user with no costing access sees a 🔒 locked
+            // tile here too. Vendor Portal is filtered out above. Other dashboard
+            // cards (planning, gs1) have no per-user permission yet, so default
+            // to access=true.
+            const hasPerm = app.id === "design" || app.id === "tanda" || app.id === "techpack" || app.id === "ats" || app.id === "costing" || app.id === "vendor";
             const perm = hasPerm ? getPermission(user, app.id as PermissionAppId) : DEFAULT_PERMISSION;
             const locked = !perm.access;
 
