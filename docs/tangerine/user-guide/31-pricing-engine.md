@@ -43,9 +43,9 @@ Customer Master → edit a customer → **Reps & Defaults** tab → **Price list
 ## 31.5 Where it's used today
 
 - **B2B portal** — the catalog and order-create already resolve through this engine (no change for buyers; prices now come from your price lists instead of the old B2B price-list table).
-- **Internal Sales Orders** — picking a style on an SO line now **auto-fills the suggested unit price** from the engine (using the line's customer + SKU + quantity). It only fills an empty price box, so your manual entries/edits are never overwritten; the **↻** button beside the price re-pulls on demand, and a small "from <list>" hint shows which list the price came from.
+- **Internal Sales Orders & AR Invoices** — picking a style on an SO **or AR-invoice** line now **auto-fills the suggested unit price** from the engine (using the line's customer + SKU + quantity). It only fills an empty price box, so your manual entries/edits are never overwritten; the **↻** button beside the price re-pulls on demand, and a small "from <list>" hint shows which list the price came from.
 
 ## What's NOT yet usable
-- **AR-invoice auto-fill** and **matrix-entry auto-fill** — fast-follows; AR lines + the size-grid SO entry still take a typed price (use ↻ on the resulting SO lines).
+- **Matrix-entry auto-fill** — fast-follow; the size-grid SO entry still takes a typed price (use ↻ on the resulting lines).
 - **Size-level prices, multi-currency, promotion stacking, cost-plus auto-pricing** — out of scope for v1 (see `../M43-pricing-engine-architecture.md`).
 - Setting a customer's price list on the **create** screen isn't persisted yet — create the customer first, then edit to assign the list.
