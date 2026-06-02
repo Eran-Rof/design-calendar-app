@@ -855,13 +855,13 @@ function ARInvoiceModal({
                   value={shipToLocationId || null}
                   onChange={(v) => setShipToLocationId(v)}
                   options={[
-                    { value: "", label: "(none — ship to billing address)" },
+                    { value: "", label: "(select)" },
                     ...shipToLocations.map((l) => ({
                       value: l.id,
                       label: l.code ? `${l.code} — ${l.name}` : l.name,
                     })),
                   ]}
-                  placeholder={customerId ? "(none — ship to billing address)" : "(pick customer first)"}
+                  placeholder={customerId ? "(select)" : "(pick customer first)"}
                   disabled={!editable || !customerId}
                 />
               </Field>
@@ -896,10 +896,10 @@ function ARInvoiceModal({
                   value={paymentTermsId || null}
                   onChange={(v) => setPaymentTermsId(v)}
                   options={[
-                    { value: "", label: "(none — set due date manually)" },
+                    { value: "", label: "(select)" },
                     ...paymentTerms.map((pt) => ({ value: pt.id, label: `${pt.code} — ${pt.name}` })),
                   ]}
-                  placeholder="(none — set due date manually)"
+                  placeholder="(select)"
                   disabled={!editable}
                 />
               </Field>
@@ -997,7 +997,7 @@ function ARInvoiceModal({
                           onChange={(v) => updateLine(idx, { inventory_item_id: v })}
                           options={(() => {
                             const opts = [
-                              { value: "", label: "(none — non-item line)" },
+                              { value: "", label: "(select)" },
                               ...items.map((it) => ({
                                 value: it.id,
                                 label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`,
@@ -1009,7 +1009,7 @@ function ARInvoiceModal({
                             }
                             return opts;
                           })()}
-                          placeholder="(none — non-item line)"
+                          placeholder="(select)"
                           disabled={!editable}
                         />
                       </td>
