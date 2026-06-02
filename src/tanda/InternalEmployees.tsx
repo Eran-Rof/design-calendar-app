@@ -88,16 +88,21 @@ const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borde
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  // boxSizing keeps width:100% + padding inside the grid cell; without it
+  // the field overflows its column and bleeds into the neighbouring field.
+  boxSizing: "border-box",
   // colorScheme makes native pickers (date / time / color) render their
   // popup chrome in dark mode so the calendar widget matches the panel.
   colorScheme: "dark",
 };
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+// Rendered as a real <input readOnly> so its box metrics match the sibling
+// inputs exactly (operator: "code overlapped to name and heights don't match").
 const readonlyCodeStyle: React.CSSProperties = {
-  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  ...inputStyle,
+  color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  cursor: "default", opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -108,6 +113,18 @@ const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   color: C.text, fontSize: 13,
 };
+
+// Operator request — phone is freeform input but coerced into the US mask
+// (XXX) XXX-XXXX as the operator types. Strips non-digits, caps at 10, and
+// renders only as many groups as there are digits so partial entry isn't
+// jarring. Pasting "5551234567" or "+1 (555) 123-4567" both normalise.
+function formatPhone(raw: string): string {
+  const d = (raw || "").replace(/\D/g, "").slice(0, 10);
+  if (d.length === 0) return "";
+  if (d.length < 4) return `(${d}`;
+  if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
 
 export default function InternalEmployees() {
   const [rows, setRows] = useState<Employee[]>([]);
@@ -143,6 +160,23 @@ export default function InternalEmployees() {
     EMPLOYEES_COLUMNS,
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  // P16 — the modal writes the title_id / department_id FK pointers (via the
+  // SearchableSelect pickers), but the list reads the legacy title / department
+  // *text* columns. Rows edited through the new pickers therefore had blank
+  // text columns and showed "—" even though a title/department was set
+  // (operator: "title and department not showing for Molly"). Resolve the name
+  // from the FK first, falling back to the legacy text column.
+  const titleNameById = useMemo(() => new Map(titles.map((t) => [t.id, t.name])), [titles]);
+  const deptNameById = useMemo(() => new Map(departments.map((d) => [d.id, d.name])), [departments]);
+  const titleOf = useCallback(
+    (e: Employee) => (e.title_id && titleNameById.get(e.title_id)) || e.title || "—",
+    [titleNameById],
+  );
+  const deptOf = useCallback(
+    (e: Employee) => (e.department_id && deptNameById.get(e.department_id)) || e.department || "—",
+    [deptNameById],
+  );
 
   // Wave 5 — universal row-click + scroll-highlight. Clicking anywhere on a
   // row opens the edit modal; the inline <button>s already short-circuit via
@@ -268,8 +302,8 @@ export default function InternalEmployees() {
                 <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("code")}>{e.code}</td>
                 <td style={td} hidden={!isVisible("name")}>{e.display_name}</td>
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("email")}>{e.email}</td>
-                <td style={td} hidden={!isVisible("title")}>{e.title || "—"}</td>
-                <td style={td} hidden={!isVisible("department")}>{e.department || "—"}</td>
+                <td style={td} hidden={!isVisible("title")}>{titleOf(e)}</td>
+                <td style={td} hidden={!isVisible("department")}>{deptOf(e)}</td>
                 <td style={td} hidden={!isVisible("active")}>{e.is_active ? "🟢" : "⚪"}</td>
                 <td style={td}>
                   <button style={btnSecondary} onClick={() => setEditing(e)}>Edit</button>
@@ -335,7 +369,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     manager_employee_id: employee?.manager_employee_id ?? "",
     hire_date: employee?.hire_date ?? "",
     termination_date: employee?.termination_date ?? "",
-    phone: employee?.phone ?? "",
+    phone: formatPhone(employee?.phone ?? ""),
     is_active: employee?.is_active ?? true,
   });
   const [err, setErr] = useState<string | null>(null);
@@ -349,12 +383,17 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     setErr(null);
     setSaving(true);
     try {
+      // Keep the denormalized title / department *text* columns in sync with
+      // the FK pointers the pickers set, so the list + Excel export (which read
+      // the text columns) always reflect the chosen title/department.
+      const selectedTitleName = titles.find((t) => t.id === form.title_id)?.name ?? null;
+      const selectedDeptName = departments.find((d) => d.id === form.department_id)?.name ?? null;
       const payload: Record<string, unknown> = {
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         email: form.email.trim(),
-        title: form.title.trim() || null,
-        department: form.department.trim() || null,
+        title: form.title_id ? selectedTitleName : (form.title.trim() || null),
+        department: form.department_id ? selectedDeptName : (form.department.trim() || null),
         // P16 — new FK pointers + commission rates. Commission rates are only
         // meaningful for sales-role titles; we still send them (0 default) so a
         // role flip doesn't leave a stale value behind.
@@ -451,12 +490,17 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Code">
-            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
-            <div style={readonlyCodeStyle}>
-              {mode === "add"
-                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
-                : (employee?.code || "—")}
-            </div>
+            {/* Chunk M — codes are server-generated + read-only (operator item 14).
+                A real <input readOnly> (vs a <div>) guarantees identical height
+                to the sibling fields so the row lines up cleanly. */}
+            <input
+              readOnly
+              tabIndex={-1}
+              style={mode === "add"
+                ? { ...readonlyCodeStyle, fontStyle: "italic", fontFamily: "inherit" }
+                : readonlyCodeStyle}
+              value={mode === "add" ? "(auto-generated on save)" : (employee?.code || "—")}
+            />
           </Field>
           {/* Operator request — hide the Active toggle on the Add form; new
               employees default to active server-side. Kept on Edit so an
@@ -479,7 +523,13 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
             <input style={inputStyle} value={form.email} onChange={(e) => set("email", e.target.value)} type="email" />
           </Field>
           <Field label="Phone">
-            <input style={inputStyle} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            <input
+              style={inputStyle}
+              value={form.phone}
+              onChange={(e) => set("phone", formatPhone(e.target.value))}
+              placeholder="(555) 123-4567"
+              inputMode="tel"
+            />
           </Field>
           <Field label="Title">
             <SearchableSelect
