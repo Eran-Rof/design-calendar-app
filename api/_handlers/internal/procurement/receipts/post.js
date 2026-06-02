@@ -7,18 +7,43 @@
 //      cost (source_kind='po_receipt'); stamp inventory_layer_id + landed cost.
 //   3. Create the rollup AP invoices as DRAFTS held for bookkeeper approval
 //      (status='pending_bookkeeper_approval', gl_status='unposted',
-//      is_receipt_rollup=true) + one expense line each.
+//      is_receipt_rollup=true) + one line each. Capitalized rollups clear the
+//      Accrued Landed account (2150); non-capitalized stay on their expense GL.
 //   4. Consume po_commitments for the PO.
-//   5. receipt.status='posted'.
+//   5. Post the goods-receipt GRNI journal entry (P13 GL-C1):
+//        DR Inventory (1300) = landed total (matches the FIFO layers)
+//        CR GR/IR-goods (2050) = vendor PO goods cost  → cleared by the vendor AP invoice
+//        CR Accrued Landed (2150) = capitalized rollups → cleared by the rollup AP invoices
+//      Stamp tanda_po_receipts.je_id; flip status='posted'.
 //
-// SCOPE NOTE (C1): this does NOT post an inventory-receipt JE (GRNI). The rollup
-// AP invoices post to the GL only after a bookkeeper approves them via the normal
-// AP flow. Ensuring a later matched vendor AP invoice does NOT create a second
-// layer for the same goods is handled in C4 (3-way match). No live double-count
-// today (native purchase_orders has 0 rows).
+// Goods are booked into inventory ONCE here. The matched vendor AP invoice
+// (3-way match) and the rollup AP invoices clear the GR/IR + Accrued-Landed
+// liabilities — they do NOT re-debit inventory or create a second layer, so
+// there is no double count. No live data today (native purchase_orders = 0 rows).
 
 import { createClient } from "@supabase/supabase-js";
 import { createLayer } from "../../../../_lib/inventory/fifo.js";
+import { postEvent } from "../../../../_lib/accounting/posting/index.js";
+// Reuse the SAME inventory-account resolver the adjustments + AP-invoice flows
+// use, so the receipt JE debits the same asset account (1300 is a non-postable
+// brand-rollup parent; this resolves to the postable on-hand account, e.g. 1310).
+import { resolveInventoryAccount } from "../../inventory-adjustments/post.js";
+
+// decimal-string for cents (bigint/number).
+function centsToStr(cents) {
+  const n = BigInt(Math.trunc(Number(cents)));
+  const neg = n < 0n; const abs = neg ? -n : n;
+  return `${neg ? "-" : ""}${(abs / 100n).toString()}.${(abs % 100n).toString().padStart(2, "0")}`;
+}
+
+// Resolve a postable GL account by code for the entity (e.g. 2050/2150).
+async function findPostableAccount(admin, entityId, code) {
+  const { data } = await admin.from("gl_accounts")
+    .select("id, code, is_postable, status")
+    .eq("entity_id", entityId).eq("code", code).maybeSingle();
+  if (data && data.is_postable && data.status === "active") return data.id;
+  return null;
+}
 
 export const config = { maxDuration: 30 };
 
@@ -60,6 +85,15 @@ export default async function handler(req, res) {
   const itemByPol = new Map((polRows || []).map((p) => [p.id, p.inventory_item_id]));
 
   const { data: po } = await admin.from("purchase_orders").select("id, vendor_id").eq("id", rcpt.purchase_order_id).maybeSingle();
+  const vendorId = po?.vendor_id || null;
+
+  // GL accounts for the goods-receipt GRNI JE (step 5).
+  const inventoryAcctId = (await resolveInventoryAccount(admin, rcpt.entity_id, null))?.id || null;
+  const grirAcctId = await findPostableAccount(admin, rcpt.entity_id, "2050");
+  const accruedLandedAcctId = await findPostableAccount(admin, rcpt.entity_id, "2150");
+  if (!inventoryAcctId) return res.status(409).json({ error: "No postable Inventory asset account (gl_accounts code 1300/1310 or name ILIKE 'inventory%') — cannot post the receipt JE." });
+  if (!grirAcctId) return res.status(409).json({ error: "No postable GR/IR Clearing account (gl_accounts code 2050) — apply the 20260717120000 migration." });
+  if (!vendorId) return res.status(409).json({ error: "Parent PO has no vendor — cannot post the receipt GRNI JE." });
 
   // Receiving location (inventory_layers.location_id is NOT NULL). Prefer a
   // warehouse / "Main" location for the entity; fall back to the first active.
@@ -79,7 +113,11 @@ export default async function handler(req, res) {
   const receiptExt = lines.reduce((s, l) => s + extOf(l), 0);
 
   // ── 2. Create a FIFO layer per accepted line at landed unit cost ────────────
+  //    Accumulate the per-item landed total (in cents) so the GRNI JE (step 5)
+  //    debits inventory at EXACTLY what the layers hold (no rounding drift).
   const layerResults = [];
+  const landedByItem = new Map(); // item_id → landed cents (Σ landedUnit × qty)
+  let landedTotalCents = 0;
   for (const l of lines) {
     const qty = Number(l.qty_accepted || 0);
     const itemId = itemByPol.get(l.purchase_order_line_id);
@@ -96,6 +134,9 @@ export default async function handler(req, res) {
       await admin.from("tanda_po_receipt_lines")
         .update({ inventory_layer_id: layer.id, landed_unit_cost_cents: landedUnit })
         .eq("id", l.id);
+      const lineLanded = landedUnit * qty;
+      landedByItem.set(itemId, (landedByItem.get(itemId) || 0) + lineLanded);
+      landedTotalCents += lineLanded;
       layerResults.push({ line_id: l.id, layer_id: layer.id, qty, landed_unit_cost_cents: landedUnit });
     } catch (e) {
       return res.status(500).json({ error: `Layer creation failed for line ${l.id}: ${e instanceof Error ? e.message : String(e)}` });
@@ -117,9 +158,17 @@ export default async function handler(req, res) {
       is_receipt_rollup: true, rollup_parent_receipt_id: id, source: "system",
     }).select("id").single();
     if (iErr) { rollupInvoices.push({ rollup_id: r.id, error: iErr.message }); continue; }
+    // Capitalized rollups were folded into the layers' landed cost AND credited
+    // to Accrued Landed (2150) by the GRNI JE, so this AP invoice must clear
+    // 2150 (DR 2150 / CR AP on approval) — NOT re-hit an expense account, which
+    // would double-count the freight. Non-capitalized rollups stay on their
+    // chosen expense GL (true period cost).
+    const capitalized = r.capitalized_to_inventory !== false;
+    const lineAcctId = (capitalized && accruedLandedAcctId) ? accruedLandedAcctId : r.expense_gl_account_id;
     const { error: lErr } = await admin.from("invoice_line_items").insert({
-      invoice_id: inv.id, entity_id: rcpt.entity_id, line_index: 1, description: r.description || "Landed-cost rollup",
-      expense_account_id: r.expense_gl_account_id, quantity: 1, unit_cost_cents: Number(r.amount_cents) || 0, tax_amount_cents: 0,
+      invoice_id: inv.id, entity_id: rcpt.entity_id, line_index: 1,
+      description: r.description || (capitalized ? "Landed-cost rollup (clears Accrued Landed)" : "Landed-cost rollup"),
+      expense_account_id: lineAcctId, quantity: 1, unit_cost_cents: Number(r.amount_cents) || 0, tax_amount_cents: 0,
     });
     if (lErr) { await admin.from("invoices").delete().eq("id", inv.id); rollupInvoices.push({ rollup_id: r.id, error: lErr.message }); continue; }
     await admin.from("tanda_po_receipt_rollups").update({ auto_invoice_id: inv.id }).eq("id", r.id);
@@ -147,15 +196,56 @@ export default async function handler(req, res) {
     remaining -= apply;
   }
 
-  // ── 5. Post the receipt ─────────────────────────────────────────────────────
-  await admin.from("tanda_po_receipts").update({ status: "posted", landed_cost_cents: capTotal }).eq("id", id);
+  // ── 5. Post the goods-receipt GRNI journal entry ────────────────────────────
+  //    DR Inventory (per item, landed)  = landedTotalCents (matches the layers)
+  //    CR GR/IR-goods (2050)            = landedTotal − capitalized rollups
+  //    CR Accrued Landed (2150)         = capitalized rollups  (when > 0)
+  // capTotal is the capitalized rollup cents already folded into the layers;
+  // crediting Accrued Landed for it exactly nets the rollup AP invoices to zero.
+  let jeId = null;
+  if (landedTotalCents > 0) {
+    const capCents = Math.min(capTotal, landedTotalCents);     // never exceed DR
+    const goodsCents = landedTotalCents - capCents;
+    if (capCents > 0 && !accruedLandedAcctId) {
+      return res.status(409).json({ error: "Capitalized rollups present but no postable Accrued Landed account (gl_accounts code 2150)." });
+    }
+    const jeLines = [...landedByItem.entries()]
+      .filter(([, c]) => c > 0)
+      .map(([item_id, c]) => ({ item_id, amount: centsToStr(c) }));
+    try {
+      const result = await postEvent(admin, {
+        kind: "inventory_receipt",
+        entity_id: rcpt.entity_id,
+        created_by_user_id: null,
+        data: {
+          receipt_id: id,
+          vendor_id: vendorId,
+          receipt_date: rcpt.receipt_date,
+          inventory_account_id: inventoryAcctId,
+          gr_ir_account_id: grirAcctId,
+          accrued_landed_account_id: accruedLandedAcctId,
+          lines: jeLines,
+          goods_amount: centsToStr(goodsCents),
+          accrued_landed_amount: centsToStr(capCents),
+          source_table: "tanda_po_receipts",
+        },
+      });
+      jeId = result.accrual_je_id;
+    } catch (e) {
+      return res.status(500).json({ error: `Receipt GRNI JE failed: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+
+  // ── 6. Flip the receipt to posted + stamp the JE ────────────────────────────
+  await admin.from("tanda_po_receipts").update({ status: "posted", landed_cost_cents: capTotal, je_id: jeId }).eq("id", id);
 
   const rollupCount = rollupInvoices.filter((x) => x.invoice_id).length;
   return res.status(200).json({
     receipt_id: id, status: "posted",
     layers_created: layerResults.length, landed_cost_cents: capTotal,
+    je_id: jeId,
     rollup_invoices_queued: rollupCount,
-    message: `Receipt posted — ${layerResults.length} inventory layer(s) created${rollupCount ? `, ${rollupCount} rollup AP invoice(s) sent to bookkeeper approval` : ""}.`,
+    message: `Receipt posted — ${layerResults.length} inventory layer(s) created${jeId ? ", GRNI JE posted" : ""}${rollupCount ? `, ${rollupCount} rollup AP invoice(s) sent to bookkeeper approval` : ""}.`,
     layers: layerResults, rollup_invoices: rollupInvoices,
   });
 }
