@@ -93,6 +93,9 @@ import InternalUserAccess              from "./tanda/InternalUserAccess";
 // P14-4 — client menu hide driven by the caller's effective permissions.
 import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
 import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
+// M31 — surface the standalone Planning app inside the Tangerine shell; gate by
+// the shared PLM per-app permission (`permissions.planning.access`, default-true).
+import { canAccessAppFromSession } from "./permissions";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -389,6 +392,19 @@ const APPS: AppLink[] = [
   { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
   { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
   { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
+];
+
+// M31 — the standalone Planning app's screens, surfaced as first-class deep
+// links inside the Tangerine shell (header nav + home landing). The Planning
+// app keeps its own shell once you land there; these are entry points. No data
+// plumbing yet — Planning still reads its own Xoro/Shopify-backed tables.
+const PLANNING_SCREENS: AppLink[] = [
+  { href: "/planning/wholesale", label: "Wholesale", emoji: "🛒", description: "Wholesale demand forecast" },
+  { href: "/planning/ecom",      label: "Ecom",      emoji: "🛍️", description: "Shopify weekly forecast" },
+  { href: "/planning/supply",    label: "Supply",    emoji: "⚖️", description: "Supply reconciliation + buy recs" },
+  { href: "/planning/scenarios", label: "Scenarios", emoji: "🔀", description: "What-if planning + exports" },
+  { href: "/planning/accuracy",  label: "Accuracy",  emoji: "🎯", description: "Forecast accuracy + AI" },
+  { href: "/planning/execution", label: "Execution", emoji: "🚀", description: "Approved buy-plan batches" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1159,6 +1175,27 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           );
         })}
 
+        {/* M31 — Planning is a separate app (own shell + nav); surface it as a
+            first-class header link. Opens in a new tab so the Tangerine session
+            is preserved. Gated by the shared planning permission. */}
+        {canAccessAppFromSession("planning") && (
+          <a
+            href="/planning/wholesale"
+            target="_blank"
+            rel="noopener"
+            title="Inventory planning — forecasting, supply, scenarios (opens in a new tab)"
+            style={{
+              background: "transparent", border: "1px solid transparent", color: C.textSub,
+              padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
+          >
+            <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+          </a>
+        )}
+
         {/* Menu-item finder — type-ahead jump to any panel, separate from the
             section dropdowns. Respects the same permission filter. */}
         <MenuSearch items={searchItems} onSelect={handleSelect} />
@@ -1368,6 +1405,19 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
           {inventoryModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
+
+      {/* M31 — the standalone Planning app's screens as first-class deep links.
+          Separate app (own shell, own Xoro/Shopify-backed data); opens in a new
+          tab. Gated by the shared planning permission. */}
+      {canAccessAppFromSession("planning") && (
+        <Section title="Planning (M31)">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            {PLANNING_SCREENS.map((s) => (
+              <ExternalLinkCard key={s.href} href={s.href} label={s.label} emoji={s.emoji} sublabel={s.description} />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="Customer Service (P7)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
