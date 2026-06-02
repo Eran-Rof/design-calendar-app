@@ -174,7 +174,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/size-scales",   label: "Size Scales",        app: "tanda", route: "/tangerine?m=size_scales",      group: "Master Data", icon: "📏" },
   // P18-F — internal B2B admin (buyers + wholesale price list).
   { key: "tanda/b2b/accounts",         label: "B2B Buyers",         app: "tanda", route: "/tangerine?m=b2b_accounts",     group: "Customers", icon: "🛍️" },
-  { key: "tanda/b2b/price-list",       label: "B2B Price List",     app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Customers", icon: "🏷️" },
+  { key: "tanda/b2b/price-list",       label: "Price Lists",        app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Pricing", icon: "🏷️" },
+  { key: "tanda/pricing/promotions",   label: "Promotions",         app: "tanda", route: "/tangerine?m=pricing_promotions", group: "Pricing", icon: "🎁" },
   // Accounting
   { key: "tanda/accounting/coa",        label: "Chart of Accounts", app: "tanda", route: "/tangerine?m=gl_accounts",       group: "Accounting", icon: "📒" },
   { key: "tanda/accounting/periods",    label: "Periods",           app: "tanda", route: "/tangerine?m=gl_periods",        group: "Accounting", icon: "🗓️" },

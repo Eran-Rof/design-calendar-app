@@ -41,6 +41,7 @@ const MUTABLE_FIELDS = new Set([
   "default_cogs_account_id",
   "default_ar_account_id",
   "parent_customer_id",
+  "price_list_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
 ]);
 
@@ -52,7 +53,7 @@ const NULLABLE_TEXT_FIELDS = [
   "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id",
   "default_cogs_account_id", "default_ar_account_id",
-  "parent_customer_id",
+  "parent_customer_id", "price_list_id",
   // Chunk K — factor_id FK normalizes "" → null too.
   "factor_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
@@ -62,7 +63,7 @@ const NULLABLE_TEXT_FIELDS = [
 const P4_UUID_FIELDS = [
   "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id",
-  "default_cogs_account_id", "default_ar_account_id",
+  "default_cogs_account_id", "default_ar_account_id", "price_list_id",
 ];
 
 function corsHeaders(res) {

@@ -51,6 +51,7 @@ const LIST_COLUMNS = [
   "default_returns_account_id",
   "default_cogs_account_id",
   "default_ar_account_id",
+  "price_list_id",
   "status", "billing_address", "shipping_address", "attributes",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
