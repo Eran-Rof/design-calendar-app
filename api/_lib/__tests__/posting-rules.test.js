@@ -11,6 +11,7 @@ import { inventoryReceipt } from "../accounting/posting/rules/inventoryReceipt.j
 import { inventoryAdjustment } from "../accounting/posting/rules/inventoryAdjustment.js";
 import { apInvoiceGrirMatch } from "../accounting/posting/rules/apInvoiceGrirMatch.js";
 import { landedCostRevaluation } from "../accounting/posting/rules/landedCostRevaluation.js";
+import { qcVendorCredit } from "../accounting/posting/rules/qcVendorCredit.js";
 
 const ENTITY = "00000000-0000-0000-0000-000000000001";
 
@@ -263,6 +264,28 @@ describe("landedCostRevaluation", () => {
     expect(() => landedCostRevaluation({ kind: "landed_cost_revaluation", entity_id: ENTITY,
       data: { ...base, inventory_lines: [{ item_id: "i-1", amount: "30.00" }],
         consumed_variance_amount: "10.00", total_amount: "50.00" } })).toThrow(/!= broker total/);
+  });
+});
+
+describe("qcVendorCredit", () => {
+  it("DR AP (vendor) / CR Inventory (item) at the credit amount", () => {
+    const r = qcVendorCredit({ kind: "qc_vendor_credit", entity_id: ENTITY,
+      data: { invoice_id: "ci-1", vendor_id: "v-1", item_id: "i-1", amount: "42.00",
+        ap_account_id: "ap1", inventory_account_id: "inv1", posting_date: "2026-05-25" } });
+    expect(r.cash).toBeNull();
+    expect(r.accrual.journal_type).toBe("ap_credit_memo");
+    expect(r.accrual.lines).toHaveLength(2);
+    expect(r.accrual.lines[0].account_id).toBe("ap1");
+    expect(r.accrual.lines[0].debit).toBe("42.00");
+    expect(r.accrual.lines[0].subledger_type).toBe("vendor");
+    expect(r.accrual.lines[1].account_id).toBe("inv1");
+    expect(r.accrual.lines[1].credit).toBe("42.00");
+    expect(r.accrual.lines[1].subledger_type).toBe("item");
+  });
+  it("rejects a non-positive amount", () => {
+    expect(() => qcVendorCredit({ kind: "qc_vendor_credit", entity_id: ENTITY,
+      data: { invoice_id: "ci-1", vendor_id: "v-1", item_id: "i-1", amount: "0.00",
+        ap_account_id: "ap1", inventory_account_id: "inv1", posting_date: "2026-05-25" } })).toThrow(/amount must be/);
   });
 });
 

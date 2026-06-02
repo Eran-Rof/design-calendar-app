@@ -573,6 +573,8 @@ import h574 from "./internal/prepack-matrices/index.js";
 import h575 from "./internal/prepack-matrices/[id].js";
 // h599 = GET /api/internal/prepack-matrices/needed (PPK styles still needing a matrix)
 import h599 from "./internal/prepack-matrices/needed.js";
+// h600 = QC failure dispositions (write-off / vendor-credit / RMA / rework) — P13 GL-C3
+import h600 from "./internal/procurement/qc/dispositions.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1025,6 +1027,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/bookkeeper-queue/:id", handler: h589 },
   { pattern: "/api/internal/procurement/bookkeeper-queue",    handler: h588 },
   // P13/C2-C4 — QC, customs, broker, 3-way match (:id before bare).
+  { pattern: "/api/internal/procurement/qc/dispositions",     handler: h600 },
   { pattern: "/api/internal/procurement/qc/:id",              handler: h591 },
   { pattern: "/api/internal/procurement/qc",                  handler: h590 },
   { pattern: "/api/internal/procurement/customs-entries/:id", handler: h593 },
