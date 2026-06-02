@@ -467,6 +467,8 @@ export default function InternalInventoryMatrix() {
             </button>
             <a
               href="/ats"
+              target="_blank"
+              rel="noopener noreferrer"
               style={atsLinkStyle}
               title="Open the ATS app for available-to-sell"
             >
