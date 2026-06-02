@@ -13,6 +13,19 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect from "./components/SearchableSelect";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.b2b_accounts";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "customer", label: "Customer" },
+  { key: "email", label: "Email" },
+  { key: "role", label: "Role" },
+  { key: "active", label: "Active" },
+  { key: "can_order", label: "Can order" },
+  { key: "activated", label: "Activated" },
+  { key: "last_login", label: "Last login" },
+  { key: "actions", label: "Actions" },
+];
 
 type Role = "buyer" | "approver" | "admin";
 
@@ -85,6 +98,7 @@ export default function InternalB2BAccounts() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<B2BAccount | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const { getRowProps } = useRowClickEdit<B2BAccount>({
     onRowClick: (r) => setEditing(r),
@@ -162,6 +176,14 @@ export default function InternalB2BAccounts() {
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Show inactive
         </label>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <ExportButton
           rows={rows.map((a) => ({
             customer: customerName(a.customer_id),
@@ -207,14 +229,14 @@ export default function InternalB2BAccounts() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Customer</th>
-                <th style={th}>Email</th>
-                <th style={th}>Role</th>
-                <th style={th}>Active</th>
-                <th style={th}>Can order</th>
-                <th style={th}>Activated</th>
-                <th style={th}>Last login</th>
-                <th style={{ ...th, width: 160 }}></th>
+                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
+                <th style={th} hidden={!visibleColumns.has("email")}>Email</th>
+                <th style={th} hidden={!visibleColumns.has("role")}>Role</th>
+                <th style={th} hidden={!visibleColumns.has("active")}>Active</th>
+                <th style={th} hidden={!visibleColumns.has("can_order")}>Can order</th>
+                <th style={th} hidden={!visibleColumns.has("activated")}>Activated</th>
+                <th style={th} hidden={!visibleColumns.has("last_login")}>Last login</th>
+                <th style={{ ...th, width: 160 }} hidden={!visibleColumns.has("actions")}></th>
               </tr>
             </thead>
             <tbody>
@@ -226,18 +248,18 @@ export default function InternalB2BAccounts() {
                   {...getRowProps(a)}
                   style={!a.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={td}>{customerName(a.customer_id)}</td>
-                  <td style={td}>{a.email}{a.display_name ? <span style={{ color: C.textMuted }}> — {a.display_name}</span> : null}</td>
-                  <td style={td}>{a.role}</td>
-                  <td style={td}>{a.is_active ? "yes" : "no"}</td>
-                  <td style={td}>{a.can_place_orders ? "yes" : "no"}</td>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("customer")}>{customerName(a.customer_id)}</td>
+                  <td style={td} hidden={!visibleColumns.has("email")}>{a.email}{a.display_name ? <span style={{ color: C.textMuted }}> — {a.display_name}</span> : null}</td>
+                  <td style={td} hidden={!visibleColumns.has("role")}>{a.role}</td>
+                  <td style={td} hidden={!visibleColumns.has("active")}>{a.is_active ? "yes" : "no"}</td>
+                  <td style={td} hidden={!visibleColumns.has("can_order")}>{a.can_place_orders ? "yes" : "no"}</td>
+                  <td style={td} hidden={!visibleColumns.has("activated")}>
                     {a.auth_user_id
                       ? <span style={{ color: C.success }}>activated</span>
                       : <span style={{ color: C.textMuted }}>pending</span>}
                   </td>
-                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{fmtDateTime(a.last_login_at)}</td>
-                  <td style={{ ...td, textAlign: "right" }}>
+                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("last_login")}>{fmtDateTime(a.last_login_at)}</td>
+                  <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("actions")}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(a); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(a); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>

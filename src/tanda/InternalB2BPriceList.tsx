@@ -13,6 +13,18 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect from "./components/SearchableSelect";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.b2b_price_list";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "customer", label: "Customer" },
+  { key: "tier", label: "Tier" },
+  { key: "style", label: "Style" },
+  { key: "price", label: "Price" },
+  { key: "min_qty", label: "Min qty" },
+  { key: "active", label: "Active" },
+  { key: "actions", label: "Actions" },
+];
 
 type EmbeddedCustomer = { id: string; name: string; customer_code: string | null } | null;
 type EmbeddedStyle = { id: string; style_code: string | null; style_name: string | null } | null;
@@ -93,6 +105,7 @@ export default function InternalB2BPriceList() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PriceRow | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const { getRowProps } = useRowClickEdit<PriceRow>({
     onRowClick: (r) => setEditing(r),
@@ -173,6 +186,14 @@ export default function InternalB2BPriceList() {
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Show inactive
         </label>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <ExportButton
           rows={rows.map((r) => ({
             customer: customerLabel(r),
@@ -218,13 +239,13 @@ export default function InternalB2BPriceList() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Customer</th>
-                <th style={th}>Tier</th>
-                <th style={th}>Style</th>
-                <th style={{ ...th, textAlign: "right" }}>Price</th>
-                <th style={{ ...th, textAlign: "right" }}>Min qty</th>
-                <th style={th}>Active</th>
-                <th style={{ ...th, width: 160 }}></th>
+                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
+                <th style={th} hidden={!visibleColumns.has("tier")}>Tier</th>
+                <th style={th} hidden={!visibleColumns.has("style")}>Style</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("price")}>Price</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("min_qty")}>Min qty</th>
+                <th style={th} hidden={!visibleColumns.has("active")}>Active</th>
+                <th style={{ ...th, width: 160 }} hidden={!visibleColumns.has("actions")}></th>
               </tr>
             </thead>
             <tbody>
@@ -236,13 +257,13 @@ export default function InternalB2BPriceList() {
                   {...getRowProps(r)}
                   style={!r.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={td}>{customerLabel(r)}</td>
-                  <td style={td}>{r.customer_tier || "—"}</td>
-                  <td style={td}>{styleLabel(r.style)}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtPrice(r.price_cents, r.currency)}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.min_qty || "—"}</td>
-                  <td style={td}>{r.is_active ? "yes" : "no"}</td>
-                  <td style={{ ...td, textAlign: "right" }}>
+                  <td style={td} hidden={!visibleColumns.has("customer")}>{customerLabel(r)}</td>
+                  <td style={td} hidden={!visibleColumns.has("tier")}>{r.customer_tier || "—"}</td>
+                  <td style={td} hidden={!visibleColumns.has("style")}>{styleLabel(r.style)}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!visibleColumns.has("price")}>{fmtPrice(r.price_cents, r.currency)}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!visibleColumns.has("min_qty")}>{r.min_qty || "—"}</td>
+                  <td style={td} hidden={!visibleColumns.has("active")}>{r.is_active ? "yes" : "no"}</td>
+                  <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("actions")}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(r); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>

@@ -8,6 +8,18 @@ import { useEffect, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.approval_requests";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "kind", label: "Kind" },
+  { key: "context", label: "Context" },
+  { key: "amount", label: "Amount" },
+  { key: "current_step", label: "Current step" },
+  { key: "status", label: "Status" },
+  { key: "created", label: "Created" },
+  { key: "actions", label: "Actions" },
+];
 
 type Step = {
   id: string;
@@ -87,6 +99,7 @@ export default function InternalApprovalRequests() {
   const [statusFilter, setStatusFilter] = useState<Request["status"]>("pending");
   const [kindFilter, setKindFilter] = useState("");
   const [deciding, setDeciding] = useState<Request | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true);
@@ -151,7 +164,15 @@ export default function InternalApprovalRequests() {
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="approval-requests"
@@ -177,13 +198,13 @@ export default function InternalApprovalRequests() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Kind</th>
-              <th style={th}>Context</th>
-              <th style={th}>Amount</th>
-              <th style={th}>Current step</th>
-              <th style={th}>Status</th>
-              <th style={th}>Created</th>
-              <th style={th}>Actions</th>
+              <th style={th} hidden={!visibleColumns.has("kind")}>Kind</th>
+              <th style={th} hidden={!visibleColumns.has("context")}>Context</th>
+              <th style={th} hidden={!visibleColumns.has("amount")}>Amount</th>
+              <th style={th} hidden={!visibleColumns.has("current_step")}>Current step</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("created")}>Created</th>
+              <th style={th} hidden={!visibleColumns.has("actions")}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -197,19 +218,19 @@ export default function InternalApprovalRequests() {
               const cur = currentStep(r);
               return (
                 <tr key={r.id}>
-                  <td style={{ ...td, fontFamily: "monospace" }}>{r.kind}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }}>
+                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!visibleColumns.has("kind")}>{r.kind}</td>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!visibleColumns.has("context")}>
                     {r.context_table}#{r.context_id.slice(0, 8)}
                   </td>
-                  <td style={td}>{formatCents(r.requested_amount_cents)}</td>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("amount")}>{formatCents(r.requested_amount_cents)}</td>
+                  <td style={td} hidden={!visibleColumns.has("current_step")}>
                     {cur ? `${cur.step_order}. ${cur.mode}/${cur.role_required}` : "—"}
                   </td>
-                  <td style={{ ...td, color: STATUS_COLOR[r.status] }}>{r.status}</td>
-                  <td style={{ ...td, color: C.textSub, fontSize: 12 }}>
+                  <td style={{ ...td, color: STATUS_COLOR[r.status] }} hidden={!visibleColumns.has("status")}>{r.status}</td>
+                  <td style={{ ...td, color: C.textSub, fontSize: 12 }} hidden={!visibleColumns.has("created")}>
                     {new Date(r.created_at).toLocaleString()}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("actions")}>
                     {r.status === "pending" && cur && (
                       <>
                         <button style={btnPrimary} onClick={() => setDeciding(r)}>Decide</button>

@@ -11,6 +11,19 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 // Cross-cutter T11-3 — audit-trail drop-in for the case detail modal.
 import RowHistory from "./components/RowHistory";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.cases";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "case_number", label: "Case #" },
+  { key: "subject", label: "Subject" },
+  { key: "customer", label: "Customer" },
+  { key: "status", label: "Status" },
+  { key: "severity", label: "Severity" },
+  { key: "assignee", label: "Assignee" },
+  { key: "created", label: "Created" },
+  { key: "last_activity", label: "Last activity" },
+];
 
 type Case = {
   id: string;
@@ -143,6 +156,7 @@ export default function InternalCases() {
   const [addOpen, setAddOpen] = useState(false);
 
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true);
@@ -242,6 +256,14 @@ export default function InternalCases() {
             { key: "last_activity_at", header: "Last Activity", format: "datetime" },
           ]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <button type="button" style={btnPrimary} onClick={() => setAddOpen(true)}>
           + New case
         </button>
@@ -292,14 +314,14 @@ export default function InternalCases() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Case #</th>
-              <th style={th}>Subject</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Status</th>
-              <th style={th}>Severity</th>
-              <th style={th}>Assignee</th>
-              <th style={th}>Created</th>
-              <th style={th}>Last activity</th>
+              <th style={th} hidden={!visibleColumns.has("case_number")}>Case #</th>
+              <th style={th} hidden={!visibleColumns.has("subject")}>Subject</th>
+              <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("severity")}>Severity</th>
+              <th style={th} hidden={!visibleColumns.has("assignee")}>Assignee</th>
+              <th style={th} hidden={!visibleColumns.has("created")}>Created</th>
+              <th style={th} hidden={!visibleColumns.has("last_activity")}>Last activity</th>
             </tr>
           </thead>
           <tbody>
@@ -317,16 +339,16 @@ export default function InternalCases() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#0b1220"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
               >
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: C.textSub }}>{r.case_number}</td>
-                <td style={td}>{truncate(r.subject, 80)}</td>
-                <td style={td}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : (r.external_email || "—")}</td>
-                <td style={td}><span style={pill(r.status, STATUS_COLOR[r.status])}>{r.status.replace("_", " ")}</span></td>
-                <td style={td}><span style={pill(r.severity, SEVERITY_COLOR[r.severity])}>{r.severity}</span></td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: C.textSub }} hidden={!visibleColumns.has("case_number")}>{r.case_number}</td>
+                <td style={td} hidden={!visibleColumns.has("subject")}>{truncate(r.subject, 80)}</td>
+                <td style={td} hidden={!visibleColumns.has("customer")}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : (r.external_email || "—")}</td>
+                <td style={td} hidden={!visibleColumns.has("status")}><span style={pill(r.status, STATUS_COLOR[r.status])}>{r.status.replace("_", " ")}</span></td>
+                <td style={td} hidden={!visibleColumns.has("severity")}><span style={pill(r.severity, SEVERITY_COLOR[r.severity])}>{r.severity}</span></td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("assignee")}>
                   {r.assignee_user_id ? truncate(r.assignee_user_id, 12) : "—"}
                 </td>
-                <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{fmtDate(r.created_at)}</td>
-                <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{fmtDate(r.last_activity_at || r.updated_at)}</td>
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("created")}>{fmtDate(r.created_at)}</td>
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("last_activity")}>{fmtDate(r.last_activity_at || r.updated_at)}</td>
               </tr>
             ))}
           </tbody>

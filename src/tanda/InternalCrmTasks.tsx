@@ -11,6 +11,19 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.crm_tasks";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "title", label: "Title" },
+  { key: "status", label: "Status" },
+  { key: "priority", label: "Priority" },
+  { key: "due", label: "Due" },
+  { key: "assignee", label: "Assignee" },
+  { key: "customer", label: "Customer" },
+  { key: "opp", label: "Opp" },
+  { key: "actions", label: "Actions" },
+];
 
 type Status = "open" | "in_progress" | "done" | "cancelled";
 type Priority = "low" | "normal" | "high" | "urgent";
@@ -142,6 +155,7 @@ export default function InternalCrmTasks() {
 
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityLite[]>([]);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true);
@@ -279,6 +293,14 @@ export default function InternalCrmTasks() {
             { key: "created_at",         header: "Created",  format: "datetime" },
           ]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <button type="button" style={btnPrimary} onClick={() => setAddOpen(true)}>
           + New task
         </button>
@@ -343,14 +365,14 @@ export default function InternalCrmTasks() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Title</th>
-              <th style={th}>Status</th>
-              <th style={th}>Priority</th>
-              <th style={th}>Due</th>
-              <th style={th}>Assignee</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Opp</th>
-              <th style={th}>Actions</th>
+              <th style={th} hidden={!visibleColumns.has("title")}>Title</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("priority")}>Priority</th>
+              <th style={th} hidden={!visibleColumns.has("due")}>Due</th>
+              <th style={th} hidden={!visibleColumns.has("assignee")}>Assignee</th>
+              <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
+              <th style={th} hidden={!visibleColumns.has("opp")}>Opp</th>
+              <th style={th} hidden={!visibleColumns.has("actions")}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -368,31 +390,31 @@ export default function InternalCrmTasks() {
                   onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#0b1220"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
                 >
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("title")}>
                     <div style={{ color: C.text, fontWeight: 500 }}>{t.title}</div>
                     {t.description && (
                       <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{truncate(t.description, 80)}</div>
                     )}
                   </td>
-                  <td style={td}><span style={pill(STATUS_COLOR[t.status])}>{t.status.replace("_", " ")}</span></td>
-                  <td style={td}><span style={pill(PRIORITY_COLOR[t.priority])}>{t.priority}</span></td>
-                  <td style={{ ...td, fontSize: 12 }}>{fmtDateOnly(t.due_date)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>
+                  <td style={td} hidden={!visibleColumns.has("status")}><span style={pill(STATUS_COLOR[t.status])}>{t.status.replace("_", " ")}</span></td>
+                  <td style={td} hidden={!visibleColumns.has("priority")}><span style={pill(PRIORITY_COLOR[t.priority])}>{t.priority}</span></td>
+                  <td style={{ ...td, fontSize: 12 }} hidden={!visibleColumns.has("due")}>{fmtDateOnly(t.due_date)}</td>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("assignee")}>
                     {t.assignee_user_id ? truncate(t.assignee_user_id, 12) : "—"}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("customer")}>
                     {t.customer_id
                       ? (customerById.get(t.customer_id)
                           ? `${customerById.get(t.customer_id)!.code ?? ""} ${customerById.get(t.customer_id)!.name}`.trim()
                           : truncate(t.customer_id, 12))
                       : "—"}
                   </td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }} hidden={!visibleColumns.has("opp")}>
                     {t.opportunity_id
                       ? (oppById.get(t.opportunity_id)?.opportunity_number ?? truncate(t.opportunity_id, 12))
                       : "—"}
                   </td>
-                  <td style={td} onClick={(e) => e.stopPropagation()}>
+                  <td style={td} hidden={!visibleColumns.has("actions")} onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: 6 }}>
                       {next && (
                         <button type="button" onClick={() => advanceStatus(t)} style={btnSecondary}>
