@@ -14,6 +14,14 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const STYLE_CLASS_TABLE_KEY = "tangerine:styleclassifications:columns";
+const STYLE_CLASS_COLUMNS: ColumnDef[] = [
+  { key: "name",       label: "Name" },
+  { key: "sort_order", label: "Sort" },
+  { key: "is_active",  label: "Active" },
+];
 
 type Kind = "group" | "category" | "sub_category";
 
@@ -83,6 +91,12 @@ export default function InternalStyleClassifications() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Classification | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    STYLE_CLASS_TABLE_KEY,
+    STYLE_CLASS_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<Classification>({
     onRowClick: (r) => setEditing(r),
@@ -164,6 +178,13 @@ export default function InternalStyleClassifications() {
             { key: "is_active",  header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={STYLE_CLASS_TABLE_KEY}
+          columns={STYLE_CLASS_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -181,9 +202,9 @@ export default function InternalStyleClassifications() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Name</th>
-                <th style={{ ...th, textAlign: "right" }}>Sort</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
@@ -196,9 +217,9 @@ export default function InternalStyleClassifications() {
                   {...getRowProps(row)}
                   style={!row.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={td}>{row.name}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.sort_order}</td>
-                  <td style={td}>{row.is_active ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("name")}>{row.name}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{row.sort_order}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{row.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(row); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(row); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
