@@ -577,6 +577,11 @@ import h599 from "./internal/prepack-matrices/needed.js";
 import h600 from "./internal/procurement/qc/dispositions.js";
 // h601 = POST /api/internal/planning/buy-plan-to-po (M31: buy plan → draft Tangerine POs)
 import h601 from "./internal/planning/buy-plan-to-po.js";
+// P11-10 — Shopify product image pull. APPEND ONLY.
+//   h604 = POST /api/internal/pim/styles/:style_id/link-shopify
+//   h605 = POST /api/internal/pim/styles/:style_id/pull-shopify-images
+import h604 from "./internal/pim/styles/[style_id]/link-shopify.js";
+import h605 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1266,6 +1271,9 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
   { pattern: "/api/internal/pim/styles/:style_id/description",         handler: h376 },
   { pattern: "/api/internal/pim/styles/:style_id/attributes",          handler: h375 },
+  // P11-10 — Shopify link + image pull. MUST precede bare /:style_id.
+  { pattern: "/api/internal/pim/styles/:style_id/pull-shopify-images", handler: h605 },
+  { pattern: "/api/internal/pim/styles/:style_id/link-shopify",        handler: h604 },
   { pattern: "/api/internal/pim/styles/:style_id",                     handler: h374 },
   { pattern: "/api/internal/pim/attribute-defs/:id",                   handler: h373 },
   { pattern: "/api/internal/pim/attribute-defs",                       handler: h372 },
