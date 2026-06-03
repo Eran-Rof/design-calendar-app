@@ -316,6 +316,7 @@ function TabNav() {
       <NotificationsTabLink />
       <TabLink to="/vendor/reports" active={p.startsWith("/vendor/reports")}>Dashboard</TabLink>
       <TabLink to="/vendor" active={p === "/vendor"}>Purchase Orders</TabLink>
+      <TabLink to="/vendor/rfqs" active={p.startsWith("/vendor/rfqs")}>RFQs</TabLink>
       <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>
       <TabLink to="/vendor/payments" active={p.startsWith("/vendor/payments")}>Payments</TabLink>
