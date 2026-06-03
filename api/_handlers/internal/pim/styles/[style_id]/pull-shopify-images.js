@@ -52,11 +52,10 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const body = req.body && typeof req.body === "object" ? req.body : {};
-  const storeId = body.store_id || req.query?.store_id || null;
-
   try {
-    const summary = await pullShopifyImages({ admin, styleId, storeId });
+    // Store + numeric product id are derived from the shopify_products mirror
+    // that style_master.shopify_product_id points at — set via /link-shopify.
+    const summary = await pullShopifyImages({ admin, styleId });
     return res.status(200).json(summary);
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
