@@ -9,6 +9,7 @@ import { ALL_STATUSES, statusLabel, statusColor, navigate, getEditId } from "../
 import type { CostingStatus, CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
+import ProjectStatusBadge from "../panels/ProjectStatusBadge";
 import CompliancePanel from "../panels/CompliancePanel";
 import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
@@ -25,11 +26,10 @@ const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
 interface BrandRow { id: string; name: string; color?: string }
 
 // Facet tabs for the project editor (Tanda PO-detail fused-tab model). The
-// PlanFlow stage strip stays persistent above the tabs; only the content
-// sections below are tabbed. "All" restores the full stacked view.
-type EditTab = "details" | "grid" | "compliance" | "all";
+// Details form + PlanFlow strip stay persistent above the tabs as a page
+// header; only the work surfaces below are tabbed. "All" stacks them.
+type EditTab = "grid" | "compliance" | "all";
 const EDIT_TABS: { key: EditTab; label: string }[] = [
-  { key: "details",    label: "Details" },
   { key: "grid",       label: "Costing Grid" },
   { key: "compliance", label: "Compliance" },
   { key: "all",        label: "All" },
@@ -180,7 +180,9 @@ export default function ProjectEditView() {
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <a href="#" onClick={(e) => { e.preventDefault(); navigate("list"); }} style={{ color: "#60A5FA", textDecoration: "none", fontSize: 13 }}>← Projects</a>
+        {/* Project status quick-dropdown — moved here from the PlanFlow strip,
+            into the spot the old "← Projects" back-link occupied. */}
+        <ProjectStatusBadge />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {project?.project_name || "Loading…"}
         </h2>
@@ -214,26 +216,11 @@ export default function ProjectEditView() {
 
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4, marginBottom: 12 }}>{error}</div>}
 
-      <PlanFlowWidget />
-
-      {/* Facet tab strip — fused into the panel below (Tanda PO-detail model). */}
-      <div style={{ display: "flex", gap: 2, marginTop: 12, marginBottom: 0 }}>
-        {EDIT_TABS.map((t) => (
-          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
+      {/* Details — always-visible page header (no "Details" label, not a tab). */}
       <div style={{
-        border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px",
-        background: "#1E293B", padding: 16,
-      }}>
-
-      {/* Details — header form (bare; the tab panel supplies the card). */}
-      <div style={{
-        display: (tab === "details" || tab === "all") ? "grid" : "none",
-        maxWidth: 880, gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
+        background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
+        padding: "14px 16px", marginBottom: 12, maxWidth: 880, display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
       }}>
         <Field label="Project name" span={2}>
           <input value={form.project_name || ""} onChange={(e) => setField("project_name", e.target.value)} style={inp} />
@@ -326,6 +313,23 @@ export default function ProjectEditView() {
           <textarea value={form.notes || ""} onChange={(e) => setField("notes", e.target.value || null)} rows={2} style={{ ...inp, fontFamily: "inherit", resize: "vertical" }} />
         </Field>
       </div>
+
+      {/* Collapsible stage strip — sits below the Details header. */}
+      <PlanFlowWidget />
+
+      {/* Facet tab strip — fused into the panel below (Tanda PO-detail model). */}
+      <div style={{ display: "flex", gap: 2, marginTop: 0, marginBottom: 0 }}>
+        {EDIT_TABS.map((t) => (
+          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{
+        border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px",
+        background: "#1E293B", padding: 16,
+      }}>
 
       {/* Costing Grid */}
       <div style={{ display: (tab === "grid" || tab === "all") ? "block" : "none" }}>
