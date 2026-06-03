@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7).
 
-**Last updated:** 2026-06-02
+**Last updated:** 2026-06-03
 
 ## Summary
 
