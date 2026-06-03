@@ -17,6 +17,7 @@ import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
+import { deriveProjectStage } from "../hooks/usePlanFlow";
 
 // Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
 const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
@@ -158,6 +159,23 @@ export default function ProjectEditView() {
   const setField = <K extends keyof CostingProjectPatch>(k: K, v: CostingProjectPatch[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
   };
+
+  // Auto-advance the project status to match line-level progress (the operator
+  // chose this over a manual status). Rule: highest line stage wins — any
+  // awarded line ⇒ Awarded, etc. FORWARD-ONLY: never downgrades, and leaves the
+  // manual terminal states (closed/cancelled) alone. Runs whenever lines/quotes
+  // change AND on open, so a project awarded before this shipped self-heals the
+  // moment it's viewed. Reuses the form autosave path (setField → debounced PUT).
+  const statusRank = (s: CostingStatus) =>
+    s === "awarded" ? 3 : s === "quoted" ? 2 : s === "in_progress" ? 1 : 0;
+  React.useEffect(() => {
+    if (!project) return;
+    const cur = (form.status || project.status) as CostingStatus;
+    if (cur === "closed" || cur === "cancelled") return;
+    const derived = deriveProjectStage(lines, vendorQuotes) as CostingStatus;
+    if (statusRank(derived) > statusRank(cur)) setField("status", derived);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, vendorQuotes, project, form.status]);
 
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
