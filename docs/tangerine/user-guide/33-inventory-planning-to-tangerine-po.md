@@ -1,0 +1,72 @@
+# 33. Inventory Planning → Tangerine Purchase Orders (M31 / P17, direction A)
+
+> **Status (2026-06-03):** the Inventory Planning app (`/planning`) is surfaced in the Tangerine shell (📈 Planning), and an approved **buy plan** can be turned into **draft native Tangerine purchase orders** — hardened + verified in this chapter. The flow is built and usable; it produces nothing until the upstream planning data exists (see §33.5).
+
+## 33.1 What this connects
+
+Inventory Planning forecasts demand, reconciles supply, and emits **buy recommendations**. You gather the ones you want into an **execution batch** (a "buy plan") on **`/planning` → Execution**. Historically a batch was exported to xlsx or written back to Xoro. This integration adds a third, native target:
+
+> **One approved buy plan → one DRAFT Tangerine purchase order per vendor**, created directly in Procurement, ready for you to review and issue.
+
+No Xoro involvement. The buy plan reads planning data; the POs are real native `purchase_orders` rows you then manage in **Tangerine → Procurement → Purchase Orders** (chapter 28 / 32).
+
+## 33.2 Running it (Execution screen)
+
+On a batch that is **approved** (or exported / submitted / partially executed):
+
+1. **🔍 Preview POs** — a dry run. Nothing is written. You see exactly which vendors would get a PO, how many lines, the dollar total, and — importantly — **which actions would be skipped and why**. Always preview first.
+2. **🍊 Create Tangerine POs** — does it for real. Each `create_buy_request` action becomes a PO line; lines are grouped by vendor into one **draft** PO each.
+
+Both buttons require the **`run_writeback`** planning permission (admin / operations_user roles). They are disabled with a tooltip if your role lacks it.
+
+After a real run, each created PO shows a **`open in Procurement →`** link, and every action in the table gets a persistent **Tangerine PO** chip (`draft 1a2b3c4d ↗`) that deep-links to the PO panel — so the link survives a page refresh, not just the result banner.
+
+## 33.3 How each line is built
+
+| PO field | Source |
+|---|---|
+| Line item (`inventory_item_id`) | action `sku_id` = `ip_item_master.id` (direct, no lookup) |
+| Quantity | `approved_qty` if set, else `suggested_qty` (must be > 0) |
+| Vendor | `ip_vendor_master.portal_vendor_id` → Tangerine `vendors.id` |
+| Unit cost | `ip_item_master.unit_cost` → **fallback** `ip_item_avg_cost.avg_cost` → `standard_unit_price` → $0 |
+| Expected date | earliest action `period_start` in the group |
+
+**Cost fallback (new):** if the item master has no `unit_cost`, the line uses the last-known average cost, then the standard unit price, before giving up. Only a line that resolves to $0 from *every* source raises a cost warning — edit it before issuing.
+
+The POs are created **`status='draft'`**: no PO number, no open commitments. Issuing them in Procurement (chapter 28) is what assigns the number and opens commitments — that step is deliberately yours.
+
+## 33.4 Why an action gets skipped
+
+The preview / result shows a coded breakdown. The common ones:
+
+| Skip | Meaning / fix |
+|---|---|
+| **no vendor on action** | the buy rec has no vendor — assign one in the buy plan, or populate `ip_vendor_master` |
+| **vendor not linked to Tangerine** | the planning vendor has no `portal_vendor_id` — use the **🔗 Link** suggestion (§33.6) |
+| **vendor not in planning master** | the action's `vendor_id` isn't an `ip_vendor_master` row |
+| **SKU not in item master** | the action's `sku_id` isn't an `ip_item_master` row |
+| **zero approved qty** | set an approved qty > 0 |
+| **cancelled action** | the action was cancelled |
+| **already linked to a PO** | idempotency — this action already created a PO. (If you deleted that draft in Procurement, the next run re-creates it.) |
+
+Skips never block the other actions — eligible lines still create their POs.
+
+## 33.5 Prerequisites (what must exist first)
+
+This integration is the *last mile*. As of 2026-06-03 the planning pipeline has **9 runs and 7,807 recommendations**, but **0 execution batches** and an **empty `ip_vendor_master`** — so a run today would skip everything. To actually produce POs:
+
+1. **Populate planning vendors** (`ip_vendor_master`) and make sure buy recommendations carry a vendor.
+2. **Create + approve an execution batch** from the recommendations (Execution screen).
+3. **Link each planning vendor → its Tangerine vendor** (§33.6).
+
+## 33.6 Linking a planning vendor to a Tangerine vendor
+
+When a vendor is unlinked, the preview offers **🔗 Link** chips: the server matched the planning vendor against Tangerine `vendors` by **code**, **name**, or **alias** and shows each candidate (with what it matched on). Click one to set `ip_vendor_master.portal_vendor_id` in place, then the preview re-runs and those lines move into the eligible set. If no candidate matches, create/align the vendor in **Vendors** first.
+
+## 33.7 Access note
+
+The flow is permission-gated by the planning RBAC (`ip_user_roles` / `ip_roles`), which is separate from the app-level `permissions.planning` flag that shows the Planning app at all. The CEO (`eran@`) was granted the planning **admin** role (migration `20260725000000`) so the buy-plan→PO buttons are usable; reverse or re-scope that grant in `ip_user_roles` if you prefer a narrower role.
+
+---
+
+*Direction B (feeding Tangerine's own on-hand / on-order / receipts back into the planning supply view) is the deferred fallback if direction A doesn't cover the buying workflow.*

@@ -582,6 +582,8 @@ import h601 from "./internal/planning/buy-plan-to-po.js";
 //   h605 = POST /api/internal/pim/styles/:style_id/pull-shopify-images
 import h604 from "./internal/pim/styles/[style_id]/link-shopify.js";
 import h605 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
+// h606 = POST /api/internal/planning/link-planning-vendor (M31: link planning vendor → Tangerine vendor)
+import h606 from "./internal/planning/link-planning-vendor.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1109,6 +1111,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
+  { pattern: "/api/internal/planning/link-planning-vendor", handler: h606 },
   { pattern: "/api/internal/ats-by-size", handler: h603 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
