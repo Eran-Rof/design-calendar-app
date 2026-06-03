@@ -38,6 +38,7 @@ export default function InternalOnboarding() {
   const [filter, setFilter] = useState("pending_review");
   const [selected, setSelected] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [inviteRefresh, setInviteRefresh] = useState(0);
 
   async function load() {
     setLoading(true);
@@ -110,8 +111,82 @@ export default function InternalOnboarding() {
         ))}
       </div>
 
+      <OutstandingInvites refreshKey={inviteRefresh} onResent={() => setInviteRefresh((n) => n + 1)} />
+
       {selected && <ReviewModal vendorId={selected} onClose={() => setSelected(null)} onAction={() => { setSelected(null); void load(); }} />}
-      {showInvite && <InviteVendorModal onClose={() => setShowInvite(false)} onSent={() => { setShowInvite(false); void load(); }} />}
+      {showInvite && <InviteVendorModal onClose={() => setShowInvite(false)} onSent={() => { setShowInvite(false); setInviteRefresh((n) => n + 1); void load(); }} />}
+    </div>
+  );
+}
+
+type InviteRow = { id: string; vendor_id: string; vendor_name: string | null; email: string; display_name: string | null; sent_at: string; expires_at: string; status: "pending" | "expired" | "accepted" };
+
+function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onResent: () => void }) {
+  const [rows, setRows] = useState<InviteRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-invites?status=outstanding");
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Failed to load invitations (${r.status})`);
+      setRows((Array.isArray(body) ? body : []) as InviteRow[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, [refreshKey]);
+
+  async function resend(row: InviteRow) {
+    setResending(row.id); setErr(null);
+    try {
+      const r = await fetch("/api/vendor-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendor_id: row.vendor_id, email: row.email, display_name: row.display_name || null, site_url: window.location.origin }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Resend failed (${r.status})`);
+      notify(body?.warning ? body.warning : `Invite resent to ${row.email} (valid 72 hours).`, body?.warning ? "info" : "success");
+      onResent();
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally { setResending(null); }
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Outstanding invitations</h3>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>{rows.length} not yet accepted</span>
+      </div>
+      {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 120px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+          <div>Vendor</div><div>Email</div><div>Status</div><div>Expires</div><div></div>
+        </div>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No outstanding invitations — everyone invited has accepted.</div>
+        ) : rows.map((row) => {
+          const expired = row.status === "expired";
+          return (
+            <div key={row.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
+              <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
+              <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email}</div>
+              <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span></div>
+              <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString()} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+              <div style={{ textAlign: "right" }}>
+                <button onClick={() => void resend(row)} disabled={resending === row.id} style={{ ...btnPrimary, opacity: resending === row.id ? 0.6 : 1 }}>{resending === row.id ? "Resending…" : "Resend"}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
