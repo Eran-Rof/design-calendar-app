@@ -92,7 +92,9 @@ export default function VendorPODetail() {
         const uid = userRes.user?.id;
         if (!uid) throw new Error("Not signed in.");
         const { data: vu } = await supabaseVendor
-          .from("vendor_users").select("id, display_name").eq("auth_id", uid).maybeSingle();
+          .from("vendor_users").select("id, display_name, vendor_id").eq("auth_id", uid).maybeSingle();
+        const vendorId = (vu?.vendor_id as string | undefined) ?? null;
+        if (!vendorId) throw new Error("Your account is not linked to a vendor.");
         if (vu) {
           setVendorUserId(vu.id as string);
           setSender({
@@ -102,8 +104,10 @@ export default function VendorPODetail() {
           });
         }
 
+        // Scope the PO to this vendor explicitly — never trust RLS (see
+        // vendorId.ts). A foreign uuid simply resolves to null → "PO not found".
         const [poRes, lineRes, shipRes, msgRes] = await Promise.all([
-          supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id").eq("uuid_id", id).maybeSingle(),
+          supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id").eq("uuid_id", id).eq("vendor_id", vendorId).maybeSingle(),
           supabaseVendor.from("po_line_items").select("id, line_index, item_number, description, qty_ordered, qty_received, unit_price, line_total").eq("po_id", id).order("line_index"),
           supabaseVendor.from("shipments").select("id, number, number_type, asn_number, carrier, ship_date, estimated_delivery, current_status, workflow_status").eq("po_id", id).order("created_at", { ascending: false }),
           supabaseVendor.from("po_messages").select("id, sender_type, read_by_vendor").eq("po_id", id),
