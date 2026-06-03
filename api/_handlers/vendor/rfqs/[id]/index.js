@@ -70,9 +70,22 @@ export default async function handler(req, res) {
     }).eq("id", invitation.id);
   }
 
+  // Resolve fabric NAME from fabric_codes (the line carries only the code,
+  // e.g. "DEN12" → "12oz Denim") so the vendor view can show the friendly name.
+  const lineItems = liRes.data || [];
+  const fabricCodes = Array.from(new Set(lineItems.map((li) => li.fabric_code).filter(Boolean)));
+  let nameByCode = new Map();
+  if (fabricCodes.length > 0) {
+    const { data: fcs } = await admin.from("fabric_codes").select("code, name").in("code", fabricCodes);
+    nameByCode = new Map((fcs || []).map((f) => [f.code, f.name]));
+  }
+  for (const li of lineItems) {
+    li.fabric_name = li.fabric_code ? (nameByCode.get(li.fabric_code) || null) : null;
+  }
+
   return res.status(200).json({
     rfq: rfqRes.data,
-    line_items: liRes.data || [],
+    line_items: lineItems,
     invitation,
     quote: qtRes.data || null,
   });
