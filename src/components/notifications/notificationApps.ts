@@ -43,6 +43,7 @@ const TANDA_EVENTS = [
   "vendor_flagged",
   "scorecard_updated",
   "health_score_dropped",
+  "production_order_requested",
 ];
 
 // Design Calendar — task / collection / calendar events.
