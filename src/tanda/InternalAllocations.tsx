@@ -106,6 +106,12 @@ export default function InternalAllocations() {
   // Post-allocation summary popup.
   const [summary, setSummary] = useState<{ label: string; count: number; units: number; pctFilled: number; rows: { so: string; sku: string; size: string; granted: number; newAlloc: number }[] } | null>(null);
   const [summaryShowRows, setSummaryShowRows] = useState(false);
+  // Configurable allocation priority rules (auto-allocate order + tie-break).
+  const ALLOC_DEFAULT_RULES = { priority_order: ["factor_approved", "credit_card", "oldest"], tie_break: "order_date" };
+  const [rules, setRules] = useState<{ priority_order: string[]; tie_break: string }>(ALLOC_DEFAULT_RULES);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rulesDraft, setRulesDraft] = useState<{ priority_order: string[]; tie_break: string }>(ALLOC_DEFAULT_RULES);
+  const [rulesSaving, setRulesSaving] = useState(false);
 
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(TABLE_KEY, COLUMNS);
   const isVisible = (k: string) => visibleColumns.has(k);
@@ -129,6 +135,34 @@ export default function InternalAllocations() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [customerId, onlyShort, dSearch]);
+
+  // Load the saved priority rules once.
+  useEffect(() => {
+    fetch("/api/internal/allocations/rules").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (j?.priority_order && j?.tie_break) setRules({ priority_order: j.priority_order, tie_break: j.tie_break });
+    }).catch(() => {});
+  }, []);
+  function openRules() { setRulesDraft({ priority_order: [...rules.priority_order], tie_break: rules.tie_break }); setRulesOpen(true); }
+  function moveCriterion(i: number, dir: -1 | 1) {
+    setRulesDraft((p) => {
+      const order = [...p.priority_order]; const j = i + dir;
+      if (j < 0 || j >= order.length) return p;
+      [order[i], order[j]] = [order[j], order[i]];
+      return { ...p, priority_order: order };
+    });
+  }
+  async function saveRules() {
+    setRulesSaving(true);
+    try {
+      const r = await fetch("/api/internal/allocations/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rulesDraft) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
+      setRules({ priority_order: j.priority_order, tie_break: j.tie_break });
+      setRulesOpen(false);
+      notify("Allocation priority rules saved. Re-run auto-allocate to apply.", "success");
+    } finally { setRulesSaving(false); }
+  }
+  const CRITERION_LABEL: Record<string, string> = { factor_approved: "🅕 Factor-approved", credit_card: "💳 Credit-card on file", oldest: "⏱ Oldest (by date) — everyone else" };
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
@@ -281,6 +315,7 @@ export default function InternalAllocations() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>📊 Allocations</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button style={btnSecondary} onClick={openRules} title="Set the auto-allocate priority order (factor / card / oldest) + tie-break">⚙ Rules</button>
           {lastUndo && (
             <button style={{ ...btnSecondary, color: C.warn, borderColor: C.warn }} disabled={previewBusy} onClick={() => void undoLast()}
               title={`Revert: ${lastUndo.label}`}>↩ Undo last</button>
@@ -482,6 +517,42 @@ export default function InternalAllocations() {
               <button style={{ ...btnPrimary, background: C.violet }} disabled={previewBusy || previewRows.every((p) => p.grant <= 0)} onClick={() => void applyPreview()}>
                 {previewBusy ? "…" : `Apply ${previewRows.filter((p) => p.grant > 0).length} allocation(s)`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Allocation priority rules — reorder the criteria + pick the tie-break.
+          The auto-allocate engine reads these server-side. */}
+      {rulesOpen && (
+        <div onClick={() => !rulesSaving && setRulesOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>⚙ Allocation priority rules</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>Auto-allocate fills competing orders in this order (top = first). A factored order with no approval is never allocated, whatever the order.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {rulesDraft.priority_order.map((c, i) => (
+                <div key={c} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "8px 10px" }}>
+                  <span><b style={{ color: C.violet, marginRight: 8 }}>{i + 1}</b>{CRITERION_LABEL[c] || c}</span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    <button style={{ ...btnSecondary, padding: "2px 8px", fontSize: 12, opacity: i === 0 ? 0.4 : 1 }} disabled={i === 0} onClick={() => moveCriterion(i, -1)}>↑</button>
+                    <button style={{ ...btnSecondary, padding: "2px 8px", fontSize: 12, opacity: i === rulesDraft.priority_order.length - 1 ? 0.4 : 1 }} disabled={i === rulesDraft.priority_order.length - 1} onClick={() => moveCriterion(i, 1)}>↓</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <span style={{ fontSize: 12, color: C.textMuted }}>Within the same tier, prefer the</span>
+              <select value={rulesDraft.tie_break} onChange={(e) => setRulesDraft((p) => ({ ...p, tie_break: e.target.value }))} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}>
+                <option value="order_date">earliest order date</option>
+                <option value="ship_date">earliest requested ship date</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <button style={{ ...btnSecondary, fontSize: 12 }} disabled={rulesSaving} onClick={() => setRulesDraft({ priority_order: ["factor_approved", "credit_card", "oldest"], tie_break: "order_date" })}>Reset to default</button>
+              <span style={{ display: "flex", gap: 8 }}>
+                <button style={btnSecondary} disabled={rulesSaving} onClick={() => setRulesOpen(false)}>Cancel</button>
+                <button style={btnPrimary} disabled={rulesSaving} onClick={() => void saveRules()}>{rulesSaving ? "Saving…" : "Save rules"}</button>
+              </span>
             </div>
           </div>
         </div>
