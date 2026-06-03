@@ -16,11 +16,23 @@ import { customerDisplayName, listPaymentTerms, type PaymentTermHit } from "../s
 import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
+import { tabStyle } from "./tabStyle";
 
 // Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
 const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
 
 interface BrandRow { id: string; name: string; color?: string }
+
+// Facet tabs for the project editor (Tanda PO-detail fused-tab model). The
+// PlanFlow stage strip stays persistent above the tabs; only the content
+// sections below are tabbed. "All" restores the full stacked view.
+type EditTab = "details" | "grid" | "compliance" | "all";
+const EDIT_TABS: { key: EditTab; label: string }[] = [
+  { key: "details",    label: "Details" },
+  { key: "grid",       label: "Costing Grid" },
+  { key: "compliance", label: "Compliance" },
+  { key: "all",        label: "All" },
+];
 
 export default function ProjectEditView() {
   const id = getEditId();
@@ -40,6 +52,7 @@ export default function ProjectEditView() {
   );
 
   const [form, setForm] = useState<CostingProjectPatch>({});
+  const [tab, setTab] = useState<EditTab>("grid");
   const [saving, setSaving] = useState(false);
   const [brands, setBrands] = useState<BrandRow[]>([]);
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermHit[]>([]);
@@ -185,10 +198,24 @@ export default function ProjectEditView() {
 
       <PlanFlowWidget />
 
+      {/* Facet tab strip — fused into the panel below (Tanda PO-detail model). */}
+      <div style={{ display: "flex", gap: 2, marginTop: 12, marginBottom: 0 }}>
+        {EDIT_TABS.map((t) => (
+          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div style={{
-        background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
-        padding: "14px 16px", maxWidth: 880, display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
+        border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px",
+        background: "#1E293B", padding: 16,
+      }}>
+
+      {/* Details — header form (bare; the tab panel supplies the card). */}
+      <div style={{
+        display: (tab === "details" || tab === "all") ? "grid" : "none",
+        maxWidth: 880, gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
       }}>
         <Field label="Project name" span={2}>
           <input value={form.project_name || ""} onChange={(e) => setField("project_name", e.target.value)} style={inp} />
@@ -282,9 +309,17 @@ export default function ProjectEditView() {
         </Field>
       </div>
 
-      <CostingGrid />
+      {/* Costing Grid */}
+      <div style={{ display: (tab === "grid" || tab === "all") ? "block" : "none" }}>
+        <CostingGrid />
+      </div>
 
-      <CompliancePanel />
+      {/* Compliance */}
+      <div style={{ display: (tab === "compliance" || tab === "all") ? "block" : "none" }}>
+        <CompliancePanel />
+      </div>
+
+      </div>
     </div>
   );
 }
