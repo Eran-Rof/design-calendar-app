@@ -393,17 +393,20 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   // multiple legacy dups: pick deterministically (prefer the canonical spelling,
   // then oldest) instead of erroring — the old `.maybeSingle()` threw on 2+ rows
   // and the caller then created a THIRD, which is how the catalog fragmented.
-  let q = admin.from("ip_item_master").select("id, size, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
-  q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
-  q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
-  const { data: matches, error: findErr } = await q;
-  if (findErr) return { error: findErr.message };
-  if (matches && matches.length) {
-    const best = matches.slice().sort((a, b) =>
+  // Reused on a 23505 below so a race / the logical-tuple UNIQUE index
+  // (uq_ip_item_master_logical_sku) resolves to the existing row, not an error.
+  async function findExistingId() {
+    let q = admin.from("ip_item_master").select("id, size, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
+    q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
+    q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
+    const { data: rows, error: e } = await q;
+    if (e || !rows || !rows.length) return null;
+    return rows.slice().sort((a, b) =>
       (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical first
-      || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0];
-    return { id: best.id, created: false };
+      || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0].id;
   }
+  const existingId = await findExistingId();
+  if (existingId) return { id: existingId, created: false };
 
   // Need the style_code if not supplied.
   let sc = style_code;
@@ -423,8 +426,12 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
       .single();
     if (!error && created) return { id: created.id, created: true };
     if (error && error.code !== "23505") return { error: error.message };
-    // 23505 → sku_code collided; re-find by the colliding sku_code (race) or
-    // by the tuple (a variant row landed) and reuse it.
+    // 23505 → either the logical-tuple UNIQUE index (a variant/race row for the
+    // same (style,color,canonical-size,inseam) landed) or the sku_code unique (a
+    // DIFFERENT tuple grabbed this sku_code). Re-find by the tuple first and
+    // reuse; else by the exact sku_code; else bump the suffix and retry.
+    const viaTuple = await findExistingId();
+    if (viaTuple) return { id: viaTuple, created: false };
     const { data: again } = await admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("sku_code", skuCode).maybeSingle();
     if (again?.id) return { id: again.id, created: false };
   }
