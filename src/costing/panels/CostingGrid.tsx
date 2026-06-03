@@ -21,8 +21,9 @@ import ComplianceChipCell from "./ComplianceChipCell";
 import ScalePickerCell from "./ScalePickerCell";
 import FabricPickerCell from "./FabricPickerCell";
 import HistoricalCostCell from "./HistoricalCostCell";
+import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
-import DateRangePresets from "../../tanda/components/DateRangePresets";
+import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
@@ -99,6 +100,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_unit_price",  label: "T3 Sls Prc",  width: 90,  align: "right" },
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
+  { key: "_docs",          label: "Docs",     width: 56, align: "center" },
   { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
 
@@ -172,7 +174,11 @@ export default function CostingGrid() {
   };
 
   const onGenerateRfqs = async () => {
-    if (!project || selectedRowIds.size === 0) return;
+    if (!project) return;
+    if (selectedRowIds.size === 0) {
+      setNotice("Tick the checkbox on at least one row, then click Vendor RFQ.", "info");
+      return;
+    }
     const projectId = project.id;
     const lineIds = Array.from(selectedRowIds);
     setGenerating(true);
@@ -362,10 +368,10 @@ export default function CostingGrid() {
         >+ Add row</button>
         <button
           onClick={onGenerateRfqs}
-          disabled={generating || selectedRowIds.size === 0}
+          disabled={generating}
           title={
             selectedRowIds.size === 0
-              ? "Check rows in the grid first"
+              ? "Tick a row checkbox first, then click to generate RFQs"
               : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
           }
           style={{
@@ -373,7 +379,7 @@ export default function CostingGrid() {
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
             padding: "5px 14px", borderRadius: 4,
-            cursor: generating || selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            cursor: generating ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600,
             opacity: generating ? 0.6 : 1,
           }}
@@ -693,6 +699,18 @@ export default function CostingGrid() {
                       <span style={{ width: "100%", padding: "0 6px" }}>
                         {math.margin_pct ? fmtPct.format(math.margin_pct) + "%" : "—"}
                       </span>
+                    </div>
+                  );
+                }
+
+                // Docs — per-row document attachments. Opens a portaled modal
+                // wrapping the shared <DocumentAttachmentList> for this line
+                // (context_table="costing_lines"). Every line is persisted on
+                // creation so line.id is always a real costing_lines id.
+                if (c.key === "_docs") {
+                  return (
+                    <div key={c.key} style={{ ...style, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <RowAttachmentsCell lineId={line.id} styleCode={line.style_code} />
                     </div>
                   );
                 }

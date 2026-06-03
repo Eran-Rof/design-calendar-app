@@ -289,6 +289,15 @@ export interface RfqDetail {
   rfq: RfqListRow;
   line_items: RfqLineItem[];
   invitations: RfqInvitation[];
+  // The destined vendor on a not-yet-sent draft (no invitation row exists yet).
+  intended_vendor?: {
+    id: string;
+    code: string | null;
+    name: string | null;
+    legal_name: string | null;
+    country: string | null;
+    default_currency: string | null;
+  } | null;
   source_project: {
     id: string;
     project_name: string;

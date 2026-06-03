@@ -19,6 +19,7 @@ import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCan
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
+import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import FavoritesMenu from "../../components/FavoritesMenu";
 
@@ -387,6 +388,12 @@ export const NavBar: React.FC<NavBarProps> = ({
   // same handler that the dedicated buttons used to fire; the Aged Inven
   // entry still opens the days/category modal before downloading.
   const [reportsOpen, setReportsOpen] = useState(false);
+  // Per-report permission gate (default-true semantics — see
+  // getAtsReportPermissionsFromSession). Resolved once per render; the
+  // session payload only changes on login/logout so there's no value in
+  // subscribing to storage events here.
+  const atsReportsPerm = getAtsReportPermissionsFromSession();
+  const anyReportAllowed = ATS_REPORT_KEYS.some(k => atsReportsPerm[k]);
   const reportsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reportsOpen) return;
@@ -1004,7 +1011,13 @@ export const NavBar: React.FC<NavBarProps> = ({
                 sub: "TY vs same-period-LY for the date range + filters you pick",
                 onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
               },
-            ] as const).map((item) => (
+            ] as const)
+              // Per-report permission gate. atsReportsPerm[key] is true unless
+              // the admin explicitly opted this user out (false). Hidden
+              // entries don't render at all — the operator shouldn't see a
+              // disabled row teasing a report they can't run.
+              .filter(item => atsReportsPerm[item.key as AtsReportKey])
+              .map((item) => (
               <button
                 key={item.key}
                 onClick={() => { logReportClick(item.menuKey); item.onClick(); setReportsOpen(false); }}
@@ -1030,6 +1043,11 @@ export const NavBar: React.FC<NavBarProps> = ({
                 <span style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "normal", lineHeight: 1.3 }}>{item.sub}</span>
               </button>
             ))}
+            {!anyReportAllowed && (
+              <div style={{ padding: "10px 14px", fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>
+                No reports available — ask an admin to enable a report under User Management.
+              </div>
+            )}
           </div>
         )}
       </div>

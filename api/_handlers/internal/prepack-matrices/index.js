@@ -52,30 +52,56 @@ async function resolveDefaultEntityId(admin) {
   return data.id;
 }
 
+// Resolve a matrix name from the style MASTER (never guess). Tries style_master
+// .style_name for the PPK code, then its sized sibling, then ip_item_master
+// .description for the sibling. Returns "" if the master has nothing.
+async function resolveStyleName(admin, ppkStyleCode) {
+  if (!ppkStyleCode) return "";
+  const base = String(ppkStyleCode).replace(/-?PPK\d*/gi, "");
+  const sm = async (code) => {
+    const { data } = await admin.from("style_master").select("style_name").eq("style_code", code).maybeSingle();
+    return data?.style_name ? String(data.style_name).trim() : "";
+  };
+  let n = await sm(ppkStyleCode);
+  if (!n && base && base !== ppkStyleCode) n = await sm(base);
+  if (!n && base) {
+    const { data } = await admin.from("ip_item_master").select("description").eq("style_code", base).not("description", "is", null).limit(1).maybeSingle();
+    n = data?.description ? String(data.description).trim() : "";
+  }
+  return n;
+}
+
 // Normalize a `sizes` payload to an ordered array of { size, qty_per_pack }.
 // Accepts either an array of { size, qty_per_pack } objects OR an object map
 // { "<size>": <qty> }. Blank sizes and non-positive/NaN qtys are dropped.
 // Duplicate sizes (last wins) are folded by summing? No — last wins, matching
 // the (matrix_id, size) UNIQUE; we keep the LAST value seen for a size.
 export function normalizeSizes(input) {
-  const out = new Map(); // size(string) → { size, qty_per_pack }
+  const out = new Map(); // size(string) → { size, qty_per_pack, inner_pack_qty }
   let order = 0;
-  const push = (rawSize, rawQty) => {
+  const toInt = (v) => { const n = typeof v === "number" ? v : parseInt(String(v ?? "").trim(), 10); return Number.isInteger(n) && n >= 0 ? n : null; };
+  // rawQty = Qty Per Box (carton units for the size); rawInner = Inner Pack Qty.
+  const push = (rawSize, rawQty, rawInner) => {
     const size = rawSize == null ? "" : String(rawSize).trim();
     if (size === "") return;
-    const qty = typeof rawQty === "number" ? rawQty : parseInt(String(rawQty ?? "").trim(), 10);
-    if (!Number.isInteger(qty) || qty < 0) return;
+    const qty = toInt(rawQty);
+    if (qty == null) return;
     if (qty === 0) { out.delete(size); return; } // 0 means "not in this pack"
+    const inner = toInt(rawInner) ?? 0;
     const existing = out.get(size);
-    out.set(size, { size, qty_per_pack: qty, sort_order: existing ? existing.sort_order : order++ });
+    out.set(size, { size, qty_per_pack: qty, inner_pack_qty: inner, sort_order: existing ? existing.sort_order : order++ });
   };
   if (Array.isArray(input)) {
     for (const row of input) {
       if (row == null) continue;
-      push(row.size ?? row.Size ?? row.SIZE, row.qty_per_pack ?? row.qty ?? row.Qty ?? row.QTY);
+      push(
+        row.size ?? row.Size ?? row.SIZE,
+        row.qty_per_pack ?? row.qty_per_box ?? row["Qty Per Box"] ?? row["Qty Per Pack"] ?? row.qty ?? row.Qty ?? row.QTY,
+        row.inner_pack_qty ?? row["Inner Pack Qty"] ?? row.inner ?? 0,
+      );
     }
   } else if (input && typeof input === "object") {
-    for (const [k, v] of Object.entries(input)) push(k, v);
+    for (const [k, v] of Object.entries(input)) push(k, v, 0);
   }
   return [...out.values()];
 }
@@ -84,9 +110,8 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  if (!body.name || !String(body.name).trim()) {
-    return { error: "name is required" };
-  }
+  // name is OPTIONAL — when blank the handler resolves it from the style master
+  // (we never guess a "<code> Pack of N" name).
   const sizes = normalizeSizes(body.sizes);
   if (sizes.length === 0) {
     return { error: "at least one size with a positive qty_per_pack is required" };
@@ -106,7 +131,7 @@ export function validateInsert(body) {
 
   return {
     data: {
-      name:           String(body.name).trim(),
+      name:           body.name ? String(body.name).trim() : "",
       ppk_style_code: body.ppk_style_code ? String(body.ppk_style_code).trim() : null,
       pack_token:     body.pack_token ? String(body.pack_token).trim() : null,
       pack_total:     packTotal,
@@ -122,7 +147,8 @@ async function writeSizes(admin, matrixId, sizes) {
   await admin.from("prepack_matrix_sizes").delete().eq("matrix_id", matrixId);
   if (sizes.length === 0) return { error: null };
   const rows = sizes.map((s) => ({
-    matrix_id: matrixId, size: s.size, qty_per_pack: s.qty_per_pack, sort_order: s.sort_order,
+    matrix_id: matrixId, size: s.size, qty_per_pack: s.qty_per_pack,
+    inner_pack_qty: s.inner_pack_qty ?? 0, sort_order: s.sort_order,
   }));
   const { error } = await admin.from("prepack_matrix_sizes").insert(rows);
   return { error };
@@ -135,18 +161,22 @@ async function listWithSizes(admin, matrixRows) {
   if (ids.length > 0) {
     const { data: sizeRows } = await admin
       .from("prepack_matrix_sizes")
-      .select("matrix_id, size, qty_per_pack, sort_order")
+      .select("matrix_id, size, qty_per_pack, inner_pack_qty, sort_order")
       .in("matrix_id", ids)
       .order("sort_order", { ascending: true });
     for (const r of sizeRows || []) {
       const arr = bySize.get(r.matrix_id) || [];
-      arr.push({ size: r.size, qty_per_pack: r.qty_per_pack, sort_order: r.sort_order });
+      arr.push({ size: r.size, qty_per_pack: r.qty_per_pack, inner_pack_qty: r.inner_pack_qty ?? 0, sort_order: r.sort_order });
       bySize.set(r.matrix_id, arr);
     }
   }
   return matrixRows.map((m) => {
     const sizes = bySize.get(m.id) || [];
-    return { ...m, sizes, pack_total_computed: sizes.reduce((a, s) => a + (s.qty_per_pack || 0), 0) };
+    return {
+      ...m, sizes,
+      pack_total_computed: sizes.reduce((a, s) => a + (s.qty_per_pack || 0), 0),
+      inner_packs_computed: sizes.reduce((a, s) => a + (s.inner_pack_qty || 0), 0),
+    };
   });
 }
 
@@ -191,6 +221,11 @@ export default async function handler(req, res) {
     }
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
+
+    // Name from the style master when not explicitly provided (no guessing).
+    if (!v.data.name) {
+      v.data.name = (await resolveStyleName(admin, v.data.ppk_style_code)) || v.data.ppk_style_code || "Prepack";
+    }
 
     // Idempotent upsert by (entity, ppk_style_code): if a matrix already exists
     // for this PPK style, UPDATE it in place (re-import path). Otherwise insert

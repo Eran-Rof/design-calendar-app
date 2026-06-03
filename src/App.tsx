@@ -6,6 +6,7 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
+import { canAccessAppFromSession } from "./permissions";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
 import React from "react";
@@ -632,7 +633,7 @@ function App() {
               )}
             </button>
           )}
-          {currentUser && (
+          {currentUser && canAccessAppFromSession("tanda") && (
             <a
               href="/tanda"
               style={{
@@ -649,7 +650,7 @@ function App() {
               T&A
             </a>
           )}
-          {currentUser && (
+          {currentUser && canAccessAppFromSession("costing") && (
             <a
               href="/costing"
               style={{

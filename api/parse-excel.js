@@ -136,10 +136,19 @@ export default async function handler(req, res) {
       let soNoUnitPrice = 0;
       const soNoDateItems = [];
 
+      // Open-orders only — drop terminal-status lines (Shipped / Cancelled /
+      // Void / Closed); they carry no open commitment. Mirrors
+      // api/_lib/ats-parse.js + src/ats/parseExcelClient.ts.
+      const TERMINAL_SO_STATUSES = new Set([
+        "shipped", "fully shipped", "cancelled", "canceled",
+        "void", "voided", "closed", "complete", "completed",
+      ]);
       for (const r of ordRows) {
         const base  = str(r["Base Part"]);
         const color = str(r["Option 1 Value"]);
         if (!base) continue;
+        const soStatus = str(r["Order Line Status"] || r["Order Status"] || r["Status"] || "").toLowerCase();
+        if (TERMINAL_SO_STATUSES.has(soStatus)) continue;
         const sku = color ? `${base} - ${color}` : base;
         const qty = toNum(r["Total Sum of Qty Ordered"]);
 

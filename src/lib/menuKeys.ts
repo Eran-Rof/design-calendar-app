@@ -174,7 +174,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/size-scales",   label: "Size Scales",        app: "tanda", route: "/tangerine?m=size_scales",      group: "Master Data", icon: "📏" },
   // P18-F — internal B2B admin (buyers + wholesale price list).
   { key: "tanda/b2b/accounts",         label: "B2B Buyers",         app: "tanda", route: "/tangerine?m=b2b_accounts",     group: "Customers", icon: "🛍️" },
-  { key: "tanda/b2b/price-list",       label: "B2B Price List",     app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Customers", icon: "🏷️" },
+  { key: "tanda/b2b/price-list",       label: "Price Lists",        app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Pricing", icon: "🏷️" },
+  { key: "tanda/pricing/promotions",   label: "Promotions",         app: "tanda", route: "/tangerine?m=pricing_promotions", group: "Pricing", icon: "🎁" },
   // Accounting
   { key: "tanda/accounting/coa",        label: "Chart of Accounts", app: "tanda", route: "/tangerine?m=gl_accounts",       group: "Accounting", icon: "📒" },
   { key: "tanda/accounting/periods",    label: "Periods",           app: "tanda", route: "/tangerine?m=gl_periods",        group: "Accounting", icon: "🗓️" },
@@ -208,7 +209,14 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/vendors/scorecard",     label: "Vendor Scorecard",   app: "tanda", route: "/tangerine?m=vendor_scorecard",   group: "Vendors", icon: "📊" },
   { key: "tanda/customers/scorecard",   label: "Customer Scorecard", app: "tanda", route: "/tangerine?m=customer_scorecard", group: "Customers", icon: "📊" },
   // Inventory
-  { key: "tanda/procurement/purchase-orders", label: "Purchase Orders", app: "tanda", route: "/tangerine?m=purchase_orders", group: "Inventory", icon: "📦" },
+  { key: "tanda/procurement/purchase-orders", label: "Purchase Orders", app: "tanda", route: "/tangerine?m=purchase_orders", group: "Procurement", icon: "📦" },
+  { key: "tanda/procurement/receiving", label: "Receiving", app: "tanda", route: "/tangerine?m=receiving", group: "Procurement", icon: "📥" },
+  { key: "tanda/procurement/bookkeeper-approval", label: "Bookkeeper Approval", app: "tanda", route: "/tangerine?m=bookkeeper_approval", group: "Procurement", icon: "🧾" },
+  { key: "tanda/procurement/qc", label: "QC Inspections", app: "tanda", route: "/tangerine?m=qc_inspections", group: "Procurement", icon: "🔍" },
+  { key: "tanda/procurement/customs", label: "Customs Entries", app: "tanda", route: "/tangerine?m=customs_entries", group: "Procurement", icon: "🛃" },
+  { key: "tanda/procurement/broker-invoices", label: "Broker Invoices", app: "tanda", route: "/tangerine?m=broker_invoices", group: "Procurement", icon: "🚢" },
+  { key: "tanda/procurement/three-way-match", label: "3-Way Match", app: "tanda", route: "/tangerine?m=three_way_match", group: "Procurement", icon: "⚖️" },
+  { key: "tanda/procurement/recon", label: "Procurement Recon", app: "tanda", route: "/tangerine?m=procurement_recon", group: "Procurement", icon: "🧮" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
   { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Inventory", icon: "📦" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tangerine?m=inventory_transfers", group: "Inventory", icon: "🔁" },

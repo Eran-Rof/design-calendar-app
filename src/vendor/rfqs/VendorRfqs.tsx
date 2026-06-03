@@ -7,9 +7,19 @@ import { fmtDate } from "../utils";
 
 interface RfqRow {
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
-  rfq: { id: string; title: string; category: string | null; status: string; submission_deadline: string | null; awarded_to_vendor_id: string | null };
+  rfq: { id: string; title: string; category: string | null; status: string; submission_deadline: string | null; delivery_required_by: string | null; awarded_to_vendor_id: string | null };
   quote: { id: string; status: string; total_price: number | null } | null;
+  line_summary: { style: string | null; style_name: string | null; quantity: number | null; line_count: number } | null;
 }
+
+// Thousands separator for quantities (10000 → "10,000"); em-dash when absent.
+const fmtQty = (n: number | null | undefined) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
+
+// Shared column template (header + rows stay aligned). The table can get wide
+// with the added Style / Style name / Qty / Due columns, so it lives inside a
+// horizontal scroller with this min-width.
+const GRID = "1.6fr 110px 1fr 90px 120px 110px 120px 80px";
+const GRID_MIN = 990;
 
 async function token() {
   const { data: { session } } = await supabaseVendor.auth.getSession();
@@ -69,28 +79,37 @@ export default function VendorRfqs() {
         ))}
       </div>
 
-      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 140px 140px 140px 130px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-          <div>Title</div>
-          <div>Category</div>
-          <div>Deadline</div>
-          <div>Status</div>
-          <div style={{ textAlign: "right" }}></div>
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflowX: "auto" }}>
+        <div style={{ minWidth: GRID_MIN }}>
+          <div style={{ display: "grid", gridTemplateColumns: GRID, columnGap: 12, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+            <div>Title</div>
+            <div>Style</div>
+            <div>Style name</div>
+            <div style={{ textAlign: "right" }}>Qty</div>
+            <div>Category</div>
+            <div>Due</div>
+            <div>Status</div>
+            <div style={{ textAlign: "right" }}></div>
+          </div>
+          {visible.length === 0 ? (
+            <div style={{ padding: 30, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No RFQs in this view.</div>
+          ) : visible.map((r) => {
+            const b = badgeForRow(r);
+            const s = r.line_summary;
+            return (
+              <Link key={r.rfq.id} to={`/vendor/rfqs/${r.rfq.id}`} style={{ display: "grid", gridTemplateColumns: GRID, columnGap: 12, padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}>
+                <div style={{ fontWeight: 600, color: TH.text }}>{r.rfq.title}</div>
+                <div style={{ color: TH.textSub }}>{s?.style || "—"}</div>
+                <div style={{ color: TH.textSub }}>{s?.style_name || "—"}</div>
+                <div style={{ textAlign: "right", color: TH.textSub2 }}>{fmtQty(s?.quantity)}</div>
+                <div style={{ color: TH.textSub2 }}>{r.rfq.category || "—"}</div>
+                <div style={{ color: TH.textSub2 }}>{fmtDate(r.rfq.delivery_required_by)}</div>
+                <div><StatusBadge label={b.label} tone={b.tone} /></div>
+                <div style={{ textAlign: "right", color: TH.primary, fontSize: 12, fontWeight: 600 }}>Open →</div>
+              </Link>
+            );
+          })}
         </div>
-        {visible.length === 0 ? (
-          <div style={{ padding: 30, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No RFQs in this view.</div>
-        ) : visible.map((r) => {
-          const b = badgeForRow(r);
-          return (
-            <Link key={r.rfq.id} to={`/vendor/rfqs/${r.rfq.id}`} style={{ display: "grid", gridTemplateColumns: "2fr 140px 140px 140px 130px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}>
-              <div style={{ fontWeight: 600, color: TH.text }}>{r.rfq.title}</div>
-              <div style={{ color: TH.textSub2 }}>{r.rfq.category || "—"}</div>
-              <div style={{ color: TH.textSub2 }}>{fmtDate(r.rfq.submission_deadline)}</div>
-              <div><StatusBadge label={b.label} tone={b.tone} /></div>
-              <div style={{ textAlign: "right", color: TH.primary, fontSize: 12, fontWeight: 600 }}>Open →</div>
-            </Link>
-          );
-        })}
       </div>
     </div>
   );

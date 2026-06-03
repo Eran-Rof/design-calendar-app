@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationRow } from "./types";
-import { eventMatchesApp, type AppKey } from "./notificationApps";
+import { notificationMatchesApp, type AppKey } from "./notificationApps";
 
 interface Props {
   kind: "vendor" | "internal";
@@ -89,7 +89,7 @@ export default function NotificationsShell({
         .limit(20);
       if (cancelled || error) return;
       const all = (data ?? []) as NotificationRow[];
-      const list = appFilter ? all.filter((n) => eventMatchesApp(n.event_type, appFilter)) : all;
+      const list = appFilter ? all.filter((n) => notificationMatchesApp(n, appFilter)) : all;
 
       // New-arrival toast — anything unread AND newer than the last
       // created_at we've observed since mount.

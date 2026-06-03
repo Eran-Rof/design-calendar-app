@@ -24,6 +24,7 @@ const CATEGORY_VARS = {
   contract:      "INTERNAL_CONTRACT_EMAILS",
   onboarding:    "INTERNAL_ONBOARDING_EMAILS",
   procurement:   "INTERNAL_PROCUREMENT_EMAILS",
+  production:    "INTERNAL_PRODUCTION_EMAILS",
   finance:       "INTERNAL_FINANCE_EMAILS",
   edi:           "INTERNAL_EDI_EMAILS",
   vendor_alert:  "INTERNAL_VENDOR_ALERT_EMAILS",
@@ -99,4 +100,136 @@ export function getRoleRecipients(role, options = {}) {
     return { emails: [], empty: true, varsConsulted: [] };
   }
   return getInternalRecipients(category, { ...options, fallback: "compliance" });
+}
+
+// The canonical list of notification categories an internal employee can
+// subscribe to (the keys of CATEGORY_VARS). Exported so the employee handler
+// can validate the per-employee `notification_subscriptions` array and the UI
+// can render one checkbox per category. Keep in sync with the UI labels in
+// src/lib/notificationCategories.ts.
+export const NOTIFICATION_CATEGORIES = Object.keys(CATEGORY_VARS);
+
+/**
+ * Async, DB-aware recipient resolution: env-var recipients (via the sync
+ * getInternalRecipients) UNION any ACTIVE employee who has subscribed to this
+ * category in employees.notification_subscriptions. This is what lets an
+ * operator route a notification to a person by ticking a box on their employee
+ * record, without touching Vercel env vars.
+ *
+ * Dedupes case-insensitively (preserving the first-seen casing). The employee
+ * lookup is wrapped so a DB hiccup degrades to env-only behavior rather than
+ * dropping the notification entirely.
+ *
+ * @param {object} admin       service-role Supabase client (must be in scope)
+ * @param {string} category    one of NOTIFICATION_CATEGORIES
+ * @param {object} [options]   same shape as getInternalRecipients options
+ * @returns {Promise<{emails: string[], empty: boolean, varsConsulted: string[], subscriberCount: number}>}
+ */
+export async function resolveInternalRecipients(admin, category, options = {}) {
+  const base = getInternalRecipients(category, options);
+  const byKey = new Map(); // lower(email) -> original-cased email
+  for (const e of base.emails) byKey.set(e.toLowerCase(), e);
+
+  let subscriberCount = 0;
+  try {
+    if (admin && CATEGORY_VARS[category]) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("email")
+        .eq("is_active", true)
+        .contains("notification_subscriptions", [category]);
+      if (error) throw error;
+      for (const row of data || []) {
+        const raw = (row.email || "").trim();
+        if (!raw) continue;
+        subscriberCount += 1;
+        const key = raw.toLowerCase();
+        if (!byKey.has(key)) byKey.set(key, raw);
+      }
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] employee-subscription lookup failed for category="${category}": ${String(err)}`);
+  }
+
+  const emails = Array.from(byKey.values()).filter(Boolean);
+  return { emails, empty: emails.length === 0, varsConsulted: base.varsConsulted, subscriberCount };
+}
+
+/**
+ * Resolve the Production Manager recipient(s) for an RFQ-award notification.
+ *
+ * Resolution order (most→least specific):
+ *   1. An ACTIVE employee whose title resolves to "Production Manager" —
+ *      either the free-text employees.title or the employee_titles master
+ *      (via title_id). Matched case-insensitively on "production manager".
+ *      Returns one row per matching employee (resolved_via='employee').
+ *   2. Fallback to the env-configured + category-subscribed PROCUREMENT
+ *      recipients (resolveInternalRecipients "procurement", with the
+ *      compliance fallback), since the Production Manager belongs to the
+ *      procurement workflow (resolved_via='internal_procurement').
+ *   3. Nothing resolvable (resolved_via='none') — caller logs + skips email.
+ *
+ * Never throws: a DB hiccup degrades to the env fallback. Returned `employees`
+ * carry { email, name, plm_user_id, apps } so the caller can ALSO target an
+ * in-app notification: the internal NotificationsShell matches the logged-in
+ * user by recipient_internal_id == app_data['users'].id, so we surface the
+ * employee's linked PLM-login slug (employees.metadata.plm_user_id) as
+ * `plm_user_id`. When it's null the in-app bell can't reach the employee —
+ * the caller falls back to email-only. `apps` is the employee's in-app app
+ * routing (employees.apps; null = all apps) mirrored onto the notification as
+ * metadata.target_apps.
+ *
+ * @param {object} admin service-role Supabase client
+ * @param {object} [options] forwarded to the procurement fallback resolver
+ * @returns {Promise<{ resolved_via: "employee"|"internal_procurement"|"none",
+ *                      emails: string[],
+ *                      employees: Array<{email:string,name:string,plm_user_id:string|null,apps:string[]|null}> }>}
+ */
+export async function resolveProductionManager(admin, options = {}) {
+  // 1. Direct employee match on title (free-text OR master).
+  try {
+    if (admin) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("email, display_name, title, apps, metadata, employee_titles:title_id(name)")
+        .eq("is_active", true);
+      if (error) throw error;
+      const isPM = (s) => typeof s === "string" && /production\s*manager/i.test(s);
+      const seen = new Set();
+      const matches = [];
+      for (const row of data || []) {
+        const titleText = row.title || "";
+        const masterName = row.employee_titles?.name || "";
+        if (!isPM(titleText) && !isPM(masterName)) continue;
+        const email = (row.email || "").trim();
+        if (!email) continue;
+        const key = email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const meta = (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)) ? row.metadata : {};
+        const plmUserId = (typeof meta.plm_user_id === "string" && meta.plm_user_id.trim()) ? meta.plm_user_id.trim() : null;
+        const apps = Array.isArray(row.apps) && row.apps.length > 0 ? row.apps : null;
+        matches.push({ email, name: row.display_name || "Production Manager", plm_user_id: plmUserId, apps });
+      }
+      if (matches.length > 0) {
+        return { resolved_via: "employee", emails: matches.map((m) => m.email), employees: matches };
+      }
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] production-manager employee lookup failed: ${String(err)}`);
+  }
+
+  // 2. Env / subscription fallback via the procurement category.
+  const proc = await resolveInternalRecipients(admin, "procurement", { fallback: "compliance", ...options });
+  if (!proc.empty) {
+    return {
+      resolved_via: "internal_procurement",
+      emails: proc.emails,
+      // Env/subscription recipients carry no PLM-login link → email-only
+      // (plm_user_id null) and no app routing (apps null = all apps).
+      employees: proc.emails.map((email) => ({ email, name: "Production / Procurement", plm_user_id: null, apps: null })),
+    };
+  }
+
+  return { resolved_via: "none", emails: [], employees: [] };
 }

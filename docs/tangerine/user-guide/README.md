@@ -1,6 +1,8 @@
-# Tangerine ERP — User Guide (P1)
+# Tangerine ERP — User Guide
 
-The operator + accountant guide for the 6 admin panels shipped in Tangerine Phase 1: **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries**. Tangerine has its own URL and top nav at **`/tangerine`** — separate from the Tanda PO WIP app.
+The operator + accountant guide for the Tangerine ERP. It began (chapters 01–06) as the guide for the 6 admin panels shipped in Phase 1 — **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries** — and now spans through **P18** (Sales, Procurement, B2B, the size-matrix initiative, and brand-scoped accounting). Tangerine has its own URL and top nav at **`/tangerine`** — separate from the Tanda PO WIP app.
+
+> **Coverage:** chapters 01–25 cover P1–P14 (foundation → RBAC/identity). Chapters 26–30 cover P15 (brand scope), P16 (Sales: SO / allocations / shipping / native PO / size matrix), and P18 (B2B portal), plus the P16 master-data / CRM / HR operator batches.
 
 ## Who this is for
 
@@ -38,6 +40,11 @@ Login is the same for both; access to the data inside each panel is gated by Row
 23. [Searchable Dropdowns (Cross-cutter T9)](23-searchable-dropdowns.md) — **T9 COMPLETE (2026-05-28)** — drop-in `<SearchableSelect>` component replacing native `<select>` on every long-list dropdown (DB-backed lists, > 10 options, code + name labels). 25 swaps across 11 panels. ARIA combobox a11y, keyboard nav, 200-item visible cap. Forward rule: every new panel with a long dropdown ships SearchableSelect in the same PR.
 24. [User Access & Permissions (P14 RBAC)](24-user-access-rbac.md) — **P14 schema + middleware shipped, enforcement OFF by default (2026-05-30)** — per-module × per-action permission matrix on top of entity membership. 3 seed roles (admin / accountant / viewer) + per-cell grant/revoke overrides; `v_effective_permissions` = grants ∪ grant-overrides − revoke-overrides. `RBAC_MODE` env rolls out off → log (dry-run) → enforce (403). RBAC tables are anon-read-only; all writes go through the service-role admin API. **User Access** panel (Analytics & Admin) shows the matrix + role dropdown + override checkboxes; every change is T11-audited.
 25. [Sign-in & Per-User Identity (JWT bridge)](25-sign-in-and-identity.md) — **built, inert until `SUPABASE_JWT_SECRET` is set (2026-05-31)** — the MS-OAuth provision endpoint mints a short-lived signed per-user token; the browser attaches it as `Authorization: Bearer` on every internal call and the server verifies it locally. The static deploy token moves to `X-Internal-Token`. This is the prerequisite that makes RBAC `enforce` actually per-user. Activation = add the Supabase JWT secret to Vercel env; zero behavior change until then.
+26. [Brand Master & GL Allocation (P15 + M50)](26-brand-master-gl-allocation.md) — **built, gated by `BRAND_SCOPE_MODE`, default OFF (inert)** — brand as a sub-dimension of entity; stock-pool inventory partitions + partition-aware FIFO; M50 per-brand P&L split across manual-JE / AP / Income-Statement via `{code}-{BRAND}` child accounts. AR is not split. Go-live = assign item brands → flip `BRAND_SCOPE_MODE=enforce`.
+27. [Sales Orders, Allocations & Shipping (P16 — M10 + M18 + M44)](27-sales-orders-allocations-shipping.md) — **P16 Sales core COMPLETE** — SO entry → confirm → draft-AR-invoice lifecycle, factor / credit-insurance ship-gate, multi-store split, M18 allocations (per-SO soft reservation + the cross-SO **Allocations Workbench** with priority tiers & fill modes), M44 carrier shipping. FIFO/COGS posts at AR-invoice post, not at allocation.
+28. [Purchase Orders & the Size Matrix (M11 + Matrix initiative)](28-purchase-orders-and-size-matrix.md) — native **M11 PO** module (draft → issued → in_transit → received), the 6-axis matrix primitive + **Size Scale** master (`SCALE-NNNNN`), matrix grids wired into Inventory / SO / Adjustments, the Inventory Matrix panel, and prepack matrices + Explode-PPK. Consumers must pass `axisValues={{size: scaleSizes}}` for column order.
+29. [B2B Wholesale Portal (P18 — M40 + M41)](29-b2b-wholesale-portal.md) — **MVP shipped; has go-live config TODOs** — the `/b2b` magic-link portal (own GoTrue session via `resolveB2BSession`), per-customer pricing, cart → draft SO (`origin=b2b_portal`), account / invoices / reorder; internal **B2B Buyers** + **Price List** admin panels. `b2b_price_list` is interim pricing pending M43.
+30. [Masters, Sales, CRM & HR — Operator Batch (P16)](30-masters-sales-crm-hr-batch.md) — new reference masters (Countries / Genders / Group-Category-Sub / Factors), auto-generated codes (CUST/VEND/EMP/FAB/FCT/TERM/PPKM/SCALE; GL/Style/Country/Gender/Brand stay manual), customer factoring, 360° scorecards, employees + Wholesale/Closeout commissions (Closeout = margin ≤ 14%), the P&L Dilution line, and the navigation reorg. **Sales Reps is no longer its own master — reps are sales-role employees.**
 
 ## 30-second quickstart
 
@@ -70,6 +77,8 @@ Login is the same for both; access to the data inside each panel is gated by Row
 **P2 cross-cutters phase is feature-complete pending auto-apply.** All schemas, libraries, UI panels, and reusable components have shipped. Outstanding items are operational: (a) DB password sync to unblock auto-apply on the schema migrations; (b) one-time Supabase Storage bucket creation for M29.
 
 ## How this guide stays current
+
+> **NON-NEGOTIABLE WORKING CONVENTION:** at the end of **every phase (and every module that lands)**, this user guide MUST be updated **in the same PR** that ships the feature — a new chapter for a new phase/module, or an edit to the existing chapter for a change to an existing surface. This sits alongside the standing rule to update `docs/tangerine/BUILD-PROGRESS.md` at each phase/module landing. A phase is not "done" until both docs reflect it. Do not defer doc updates to a later sweep.
 
 Forward, this guide ships chunk-by-chunk: every Tangerine PR that adds or changes a UI surface includes the matching guide update in the same PR. This is a doc-maintenance convention, not a contract you need to know about — but if you spot a discrepancy between what you read here and what the panel actually does, that's a stale-doc bug we want to hear about.
 

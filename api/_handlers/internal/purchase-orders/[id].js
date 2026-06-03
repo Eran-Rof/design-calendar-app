@@ -121,6 +121,31 @@ export default async function handler(req, res, params) {
     if (Object.keys(patch).length === 0) return res.status(200).json(po);
     const { data, error } = await admin.from("purchase_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
+
+    // P13/C0 — open-PO commitment tracking (off-balance-sheet, D3).
+    // On first issue, record one po_commitments row per line; on cancel, close them.
+    if ("status" in body) {
+      if (body.status === "issued" && po.status !== "issued") {
+        const { count } = await admin.from("po_commitments")
+          .select("id", { count: "exact", head: true }).eq("purchase_order_id", id);
+        if (!count) {
+          const { data: lines } = await admin.from("purchase_order_lines")
+            .select("id, line_total_cents, qty_ordered").eq("purchase_order_id", id);
+          const rows = (lines || [])
+            .filter((l) => Number(l.qty_ordered) > 0)
+            .map((l) => ({
+              entity_id: data.entity_id, purchase_order_id: id, purchase_order_line_id: l.id,
+              vendor_id: data.vendor_id, committed_amount_cents: Number(l.line_total_cents) || 0,
+              status: "open", expected_in_dc_date: data.expected_date || null,
+            }));
+          if (rows.length) await admin.from("po_commitments").insert(rows);
+        }
+      } else if (body.status === "cancelled") {
+        await admin.from("po_commitments")
+          .update({ status: "cancelled", closed_at: new Date().toISOString() })
+          .eq("purchase_order_id", id).in("status", ["open", "partial"]);
+      }
+    }
     return res.status(200).json(data);
   }
 

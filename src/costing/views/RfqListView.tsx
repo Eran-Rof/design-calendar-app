@@ -8,7 +8,7 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs, deleteRfq } from "../services/costingApi";
+import { listRfqs, deleteRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
@@ -24,6 +24,9 @@ const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
 const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "closed", "awarded"];
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+// Per-unit target cost is a unit price → 2 decimals (e.g. 6.75), unlike the
+// whole-dollar totals (Est Budget).
+const fmtUnit  = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtQty   = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 export default function RfqListView() {
@@ -33,6 +36,10 @@ export default function RfqListView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // RFQ ids with an in-flight Send-to-Vendor publish (disable the button + show "Sending…").
+  const [sending, setSending] = useState<Set<string>>(new Set());
+  // RFQ ids with an in-flight Award (disable + show "Awarding…").
+  const [awarding, setAwarding] = useState<Set<string>>(new Set());
 
   // Debounced search — wait 200ms after the last keystroke before firing.
   useEffect(() => {
@@ -115,6 +122,63 @@ export default function RfqListView() {
     );
   };
 
+  // "Send to Vendor" — publish + notify the invited vendor(s). Idempotent on
+  // the server, so the same action re-sends on an already-published RFQ.
+  const onSend = (r: RfqListRow) => {
+    const vendorLabel = r.vendor_name || "the vendor";
+    const isDraft = r.status === "draft";
+    appConfirm(
+      isDraft
+        ? `Send RFQ "${r.title || r.id}" to ${vendorLabel}? This publishes it and notifies the invited vendor(s).`
+        : `Re-send RFQ "${r.title || r.id}" to ${vendorLabel}? The invited vendor(s) will be notified again.`,
+      isDraft ? "Send" : "Re-send",
+      async () => {
+        setSending((prev) => new Set(prev).add(r.id));
+        try {
+          const result = await publishRfq(r.id);
+          setRows((prev) => prev.map((x) => x.id === r.id ? { ...x, status: "published" } : x));
+          const n = result.notified;
+          setNotice(
+            `RFQ sent to ${vendorLabel} — ${n === 0 ? "no invited vendors to notify yet" : `${n} ${n === 1 ? "vendor has" : "vendors have"} been notified`}.`,
+            "info",
+          );
+        } catch (e) {
+          setNotice(`Could not send to vendor: ${(e as Error).message}`, "error");
+        } finally {
+          setSending((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+        }
+      },
+    );
+  };
+
+  // "Award" — award the RFQ to its invited vendor. The handler requires the
+  // vendor to have a SUBMITTED quote and 409s otherwise; the list row carries
+  // no quote status, so we offer Award on any published RFQ and surface the
+  // handler's error verbatim when the quote isn't ready.
+  const onAward = (r: RfqListRow) => {
+    if (!r.vendor_id) {
+      setNotice("This RFQ has no invited vendor to award.", "error");
+      return;
+    }
+    const vendorLabel = r.vendor_name || "the vendor";
+    appConfirm(
+      `Award this RFQ to ${vendorLabel}? This notifies the vendor and the Production Manager and flows the price into the costing project.`,
+      "Award",
+      async () => {
+        setAwarding((prev) => new Set(prev).add(r.id));
+        try {
+          await awardRfq(r.id, r.vendor_id as string);
+          setRows((prev) => prev.map((x) => x.id === r.id ? { ...x, status: "awarded" } : x));
+          setNotice(`RFQ awarded to ${vendorLabel}. Vendor + Production Manager notified; price flowed into the costing project.`, "info");
+        } catch (e) {
+          setNotice(`Could not award: ${(e as Error).message}`, "error");
+        } finally {
+          setAwarding((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+        }
+      },
+    );
+  };
+
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -188,7 +252,7 @@ export default function RfqListView() {
               <Th align="right">Lines</Th>
               <Th align="right">Est Qty</Th>
               <Th align="right">Est Budget</Th>
-              <Th align="right">Target Cost</Th>
+              <Th align="right">Target Cost / Unit</Th>
               <Th>Status</Th>
               <Th>Due</Th>
               <Th>Created</Th>
@@ -229,7 +293,7 @@ export default function RfqListView() {
                   <Td align="right">{r.line_count}</Td>
                   <Td align="right">{typeof r.estimated_quantity === "number" ? fmtQty.format(r.estimated_quantity) : "—"}</Td>
                   <Td align="right">{typeof r.estimated_budget === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.estimated_budget)}` : "—"}</Td>
-                  <Td align="right">{typeof r.target_cost === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.target_cost)}` : "—"}</Td>
+                  <Td align="right">{typeof r.target_cost === "number" ? `${r.currency || "USD"} ${fmtUnit.format(r.target_cost)}` : "—"}</Td>
                   <Td>
                     <span style={{ background: sc.bg, color: sc.fg, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
                       {r.status}
@@ -238,16 +302,61 @@ export default function RfqListView() {
                   <Td>{(r.due_date || r.delivery_required_by) ? fmtDateDisplay((r.due_date || r.delivery_required_by) as string) : "—"}</Td>
                   <Td>{r.created_at ? fmtDateDisplay(r.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDelete(r); }}
-                      title="Delete this RFQ (with confirmation)"
-                      style={{
-                        background: "transparent", color: "#F87171",
-                        border: "1px solid #7F1D1D", borderRadius: 3,
-                        padding: "2px 8px", fontSize: 11, fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >Delete</button>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      {(r.status === "draft" || r.status === "published") && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onSend(r); }}
+                          disabled={sending.has(r.id)}
+                          title={r.status === "draft"
+                            ? "Send to vendor — publish + notify the invited vendor(s)"
+                            : "Re-send — re-notify the invited vendor(s)"}
+                          style={{
+                            background: r.status === "draft" ? "#1D4ED8" : "transparent",
+                            color: r.status === "draft" ? "#FFFFFF" : "#60A5FA",
+                            border: "1px solid #1D4ED8", borderRadius: 3,
+                            padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                            cursor: sending.has(r.id) ? "wait" : "pointer",
+                            opacity: sending.has(r.id) ? 0.6 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >{sending.has(r.id) ? "Sending…" : r.status === "draft" ? "Send" : "Re-send"}</button>
+                      )}
+                      {r.status === "published" && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onAward(r); }}
+                          disabled={awarding.has(r.id)}
+                          title="Award to the invited vendor — notifies the vendor + Production Manager and flows the price into costing (requires a submitted quote)"
+                          style={{
+                            background: "#047857", color: "#FFFFFF",
+                            border: "1px solid #047857", borderRadius: 3,
+                            padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                            cursor: awarding.has(r.id) ? "wait" : "pointer",
+                            opacity: awarding.has(r.id) ? 0.6 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >{awarding.has(r.id) ? "Awarding…" : "Award"}</button>
+                      )}
+                      {r.status === "awarded" && (
+                        <span
+                          title="This RFQ has been awarded"
+                          style={{
+                            color: "#10B981", border: "1px solid #10B981",
+                            borderRadius: 3, padding: "2px 8px", fontSize: 11, fontWeight: 700,
+                            textTransform: "uppercase", letterSpacing: ".04em", whiteSpace: "nowrap",
+                          }}
+                        >✓ Awarded</span>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(r); }}
+                        title="Delete this RFQ (with confirmation)"
+                        style={{
+                          background: "transparent", color: "#F87171",
+                          border: "1px solid #7F1D1D", borderRadius: 3,
+                          padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >Delete</button>
+                    </div>
                   </Td>
                 </tr>
               );
