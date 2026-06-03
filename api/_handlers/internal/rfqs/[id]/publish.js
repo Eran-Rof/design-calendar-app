@@ -46,6 +46,20 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: error.message });
   }
 
+  // Send gate: costing-generated RFQs carry intended_vendor_id but have NO
+  // invitation until the first send. Create it lazily here so the vendor only
+  // gains portal visibility at the moment "Send to Vendor" is clicked.
+  if (rfq.intended_vendor_id) {
+    const { data: existingInv } = await admin.from("rfq_invitations")
+      .select("id").eq("rfq_id", id).eq("vendor_id", rfq.intended_vendor_id).maybeSingle();
+    if (!existingInv) {
+      const { error: invErr } = await admin.from("rfq_invitations").insert({
+        rfq_id: id, vendor_id: rfq.intended_vendor_id, status: "invited",
+      });
+      if (invErr) return res.status(500).json({ error: `Could not create invitation: ${invErr.message}` });
+    }
+  }
+
   const [{ data: invitations }, { data: lineItems }] = await Promise.all([
     admin.from("rfq_invitations").select("vendor_id").eq("rfq_id", id).eq("status", "invited"),
     admin.from("rfq_line_items").select("id").eq("rfq_id", id),

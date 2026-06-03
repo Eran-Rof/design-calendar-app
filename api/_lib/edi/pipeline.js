@@ -14,7 +14,7 @@
 import { parseEnvelope, interchangeControl, groupControl, transactionControl } from "./parser.js";
 import { build997 } from "./builder.js";
 import { map855, map856, map810, map997 } from "./mappers.js";
-import { getInternalRecipients } from "../internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../internal-recipients.js";
 
 async function resolveVendorFromGs(admin, gsSender, pinnedVendorId) {
   if (pinnedVendorId) {
@@ -66,7 +66,7 @@ export async function readRawBody(req) {
 async function fireEdiProcessingError({ admin, origin, vendor, transactionSet, errorMessage, interchangeId }) {
   if (!origin) return;
   try {
-    const { emails: vendorEmails } = getInternalRecipients("edi", { event: "edi_processing_error" });
+    const { emails: vendorEmails } = await resolveInternalRecipients(admin, "edi", { event: "edi_processing_error" });
     const title = `EDI processing error: ${transactionSet} from ${vendor.name}`;
     const body = `Transaction ${transactionSet} (interchange ${interchangeId || "?"}) failed mapping.\n\nError: ${errorMessage}\n\nCheck the raw envelope in the internal EDI history view.`;
     // Internal
@@ -115,7 +115,7 @@ async function checkAndFireErpSyncError({ admin, origin, integrationId, vendor }
     if (!recent || recent.length < 3) return;
     if (recent.some((r) => r.status !== "error")) return;
 
-    const { emails } = getInternalRecipients("edi", { event: "edi_processing_error" });
+    const { emails } = await resolveInternalRecipients(admin, "edi", { event: "edi_processing_error" });
     if (emails.length === 0) return;
 
     const dayKey = new Date().toISOString().slice(0, 10);

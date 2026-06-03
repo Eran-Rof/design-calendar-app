@@ -18,7 +18,7 @@ interface Workflow {
 interface Detail {
   vendor: { id: string; name: string; status: string };
   workflow: Workflow | null;
-  steps: { step_name: string; status: string; data: Record<string, unknown> | null; completed_at: string | null }[];
+  steps: { step_name: string; status: string; data: Record<string, unknown> | null; completed_at: string | null; skip_reason: string | null }[];
   banking: { id: string; bank_name: string; account_number_last4: string | null; account_type: string; currency: string; verified: boolean }[];
   compliance_document_types: { id: string; name: string; required: boolean }[];
   compliance_documents: { document_type_id: string; status: string; expiry_date: string | null }[];
@@ -225,25 +225,38 @@ function ReviewModal({ vendorId, onClose, onAction }: { vendorId: string; onClos
             <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>{detail.vendor.name}</h3>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", fontWeight: 700 }}>Steps</div>
-              {detail.steps.map((s) => (
-                <div key={s.step_name} style={{ padding: "6px 0", borderBottom: `1px solid ${C.cardBdr}`, display: "grid", gridTemplateColumns: "160px 100px 1fr auto", gap: 10, fontSize: 12, alignItems: "center" }}>
-                  <div style={{ fontWeight: 600 }}>{s.step_name.replace(/_/g, " ")}</div>
-                  <div style={{ color: s.status === "complete" ? C.success : C.textMuted }}>{s.status}</div>
-                  <div style={{ color: C.textSub, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}>
-                    {s.data ? JSON.stringify(s.data).slice(0, 80) : "—"}
+              {detail.steps.map((s) => {
+                const isSkipped = s.status === "skipped";
+                const statusColorVal = s.status === "complete" ? C.success : isSkipped ? C.warn : C.textMuted;
+                return (
+                  <div key={s.step_name} style={{ padding: "6px 0", borderBottom: `1px solid ${C.cardBdr}`, display: "grid", gridTemplateColumns: "160px 100px 1fr auto", gap: 10, fontSize: 12, alignItems: "center" }}>
+                    <div style={{ fontWeight: 600 }}>{s.step_name.replace(/_/g, " ")}</div>
+                    <div style={{ color: statusColorVal, fontWeight: isSkipped ? 700 : 400 }}>
+                      {s.status}
+                      {isSkipped && s.skip_reason && (
+                        <span style={{ display: "block", color: C.textMuted, fontWeight: 400, fontSize: 10, marginTop: 2 }}>
+                          reason: {s.skip_reason}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ color: C.textSub, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}>
+                      {isSkipped
+                        ? `Vendor skipped this step${s.skip_reason === "no_docs" ? " — no compliance documents on file" : ""}.`
+                        : s.data ? JSON.stringify(s.data).slice(0, 80) : "—"}
+                    </div>
+                    {action === "reject" && (
+                      <label style={{ fontSize: 11, color: C.danger, display: "flex", alignItems: "center", gap: 4 }}>
+                        <input type="checkbox" checked={failedSteps.has(s.step_name)} onChange={(e) => {
+                          const next = new Set(failedSteps);
+                          if (e.target.checked) next.add(s.step_name); else next.delete(s.step_name);
+                          setFailedSteps(next);
+                        }} />
+                        Reject
+                      </label>
+                    )}
                   </div>
-                  {action === "reject" && (
-                    <label style={{ fontSize: 11, color: C.danger, display: "flex", alignItems: "center", gap: 4 }}>
-                      <input type="checkbox" checked={failedSteps.has(s.step_name)} onChange={(e) => {
-                        const next = new Set(failedSteps);
-                        if (e.target.checked) next.add(s.step_name); else next.delete(s.step_name);
-                        setFailedSteps(next);
-                      }} />
-                      Reject
-                    </label>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {detail.banking.length > 0 && (

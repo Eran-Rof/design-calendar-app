@@ -77,7 +77,7 @@ function ATSReport() {
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
   const {
     startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus,
-    minATS, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
+    minATS, soWinFrom, soWinTo, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
     lastSync, hoveredCell, pinnedSku, ctxMenu,
@@ -95,6 +95,8 @@ function ATSReport() {
   const setFilterGender      = mk("filterGender");
   const setFilterStatus      = mk("filterStatus");
   const setMinATS            = mk("minATS");
+  const setSoWinFrom         = mk("soWinFrom");
+  const setSoWinTo           = mk("soWinTo");
   const setStoreFilter       = mk("storeFilter");
   const setPoDropOpen        = mk("poDropOpen");
   const setSoDropOpen        = mk("soDropOpen");
@@ -442,9 +444,23 @@ function ATSReport() {
     setCtxMenu(null);
   }
 
+  // Guard against a transient invalid/empty startDate. A native
+  // <input type="date"> fires onChange with "" mid-edit (e.g. while the
+  // operator clears the day segment to retype it), which made
+  // `new Date("" + "T00:00:00")` an Invalid Date. The months/weeks
+  // memos below build columns via Array.from(...) and call fmtDate →
+  // toISOString, which THROWS "Invalid time value" on an Invalid Date,
+  // white-screening the whole app. Fall back to today's date until the
+  // operator finishes typing a valid one; the real value flows through
+  // on the next change.
+  const safeStartDate = useMemo(() => {
+    const d = new Date(startDate + "T00:00:00");
+    return isNaN(d.getTime()) ? fmtDate(new Date()) : startDate;
+  }, [startDate]);
+
   // ── Compute date range (all daily dates, used for ATS computation) ───────
   const dates = useMemo(() => {
-    const start = new Date(startDate + "T00:00:00");
+    const start = new Date(safeStartDate + "T00:00:00");
     let end: Date;
     if (rangeUnit === "days") {
       end = addDays(start, rangeValue);
@@ -459,7 +475,7 @@ function ATSReport() {
     let d = new Date(start);
     while (d < end) { result.push(fmtDate(d)); d = addDays(d, 1); }
     return result;
-  }, [startDate, rangeUnit, rangeValue]);
+  }, [safeStartDate, rangeUnit, rangeValue]);
 
   // ── Display periods: what columns to render in the table ─────────────────
   const displayPeriods = useMemo(() => {
@@ -471,7 +487,7 @@ function ATSReport() {
       return dates.map(d => ({ key: d, periodStart: d, endDate: d, label: fmtDateDisplay(d), isToday: isToday(d), isWeekend: isWeekend(d) }));
     }
     if (rangeUnit === "weeks") {
-      const start = new Date(startDate + "T00:00:00");
+      const start = new Date(safeStartDate + "T00:00:00");
       return Array.from({ length: rangeValue }, (_, i) => {
         const wStart = addDays(start, i * 7);
         const wEnd   = addDays(wStart, 4);
@@ -480,7 +496,7 @@ function ATSReport() {
         return { key: eIso, periodStart: sIso, endDate: eIso, label: `${fmtDateDisplay(sIso)} – ${fmtDateDisplay(eIso)}`, isToday: false, isWeekend: false };
       });
     }
-    const start = new Date(startDate + "T00:00:00");
+    const start = new Date(safeStartDate + "T00:00:00");
     return Array.from({ length: rangeValue }, (_, i) => {
       const m = new Date(start);
       m.setMonth(m.getMonth() + i);
@@ -496,7 +512,7 @@ function ATSReport() {
         isWeekend:   false,
       };
     });
-  }, [startDate, rangeUnit, rangeValue, dates]);
+  }, [safeStartDate, rangeUnit, rangeValue, dates]);
 
   // ── Recompute rows whenever date range, data, or store filters change ───
   // Load saved data from Supabase on mount
@@ -516,14 +532,14 @@ function ATSReport() {
 
   useEffect(() => {
     if (excelData) {
-      let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores);
+      let computed = computeRowsFromExcelData(excelData, dates, poStores, soStores, { start: soWinFrom, end: soWinTo });
       for (const op of mergeHistory) computed = mergeRows(computed, op.fromSku, op.toSku);
       // Phase 1 dark ship: enrich with master fields. Re-runs when masterReady
       // flips so rows pick up master data once the cache loads.
       const enriched = enrichRowsWithItemMaster(computed).rows;
       setRows(enriched);
     }
-  }, [excelData, dates, poStores, soStores, mergeHistory, masterReady]);
+  }, [excelData, dates, poStores, soStores, soWinFrom, soWinTo, mergeHistory, masterReady]);
 
   // Snapshot-path safety net: if rows were populated by the legacy
   // ats_snapshots load before the master cache was ready, re-enrich them
@@ -1055,7 +1071,7 @@ function ATSReport() {
   const panel = atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
     search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus,
-    minATS, setMinATS, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
+    minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
     soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage,
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,
     uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData,

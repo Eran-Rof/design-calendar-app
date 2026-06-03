@@ -62,6 +62,7 @@ type Customer = {
   sales_rep_2_commission_pct: number | string | null;
   default_brand_id: string | null;
   default_channel_id: string | null;
+  price_list_id: string | null;
   default_revenue_account_id: string | null;
   default_returns_account_id: string | null;
   default_cogs_account_id: string | null;
@@ -486,6 +487,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     sales_rep_2_commission_pct:   customer?.sales_rep_2_commission_pct != null ? String(customer.sales_rep_2_commission_pct) : "",
     default_brand_id:             customer?.default_brand_id             ?? "",
     default_channel_id:           customer?.default_channel_id           ?? "",
+    price_list_id:                customer?.price_list_id                ?? "",
     default_revenue_account_id:   customer?.default_revenue_account_id   ?? "",
     default_returns_account_id:   customer?.default_returns_account_id   ?? "",
     default_cogs_account_id:      customer?.default_cogs_account_id      ?? "",
@@ -501,6 +503,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [priceLists, setPriceLists] = useState<{ id: string; code: string; name: string }[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
   const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses">("details");
   const [submitting, setSubmitting] = useState(false);
@@ -522,6 +525,11 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     fetch("/api/internal/channels")
       .then((r) => r.json())
       .then((j: { channels?: Channel[] }) => setChannels(Array.isArray(j?.channels) ? j.channels : []))
+      .catch(() => {});
+    // M43 — price lists for the customer's assigned-list picker.
+    fetch("/api/internal/price-lists")
+      .then((r) => r.json())
+      .then((arr) => setPriceLists(Array.isArray(arr) ? arr.map((l: { id: string; code: string; name: string }) => ({ id: l.id, code: l.code, name: l.name })) : []))
       .catch(() => {});
     // Chunk K — factor / credit-insurance master (operator item 17).
     fetch("/api/internal/factors")
@@ -639,6 +647,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         sales_rep_2_commission_pct:   form.sales_rep_2_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_2_commission_pct),
         default_brand_id:             form.default_brand_id || null,
         default_channel_id:           form.default_channel_id || null,
+        price_list_id:                form.price_list_id || null,
         default_revenue_account_id:   form.default_revenue_account_id || null,
         default_returns_account_id:   form.default_returns_account_id || null,
         default_cogs_account_id:      form.default_cogs_account_id || null,
@@ -944,6 +953,14 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               onChange={(v) => setForm({ ...form, default_channel_id: v })}
               options={channelOptions}
               placeholder="(select)"
+            />
+          </Field>
+          <Field label="Price list">
+            <SearchableSelect
+              value={form.price_list_id || null}
+              onChange={(v) => setForm({ ...form, price_list_id: v })}
+              options={[{ value: "", label: "(default / tier)" }, ...priceLists.map((l) => ({ value: l.id, label: `${l.code} — ${l.name}`, searchHaystack: `${l.code} ${l.name}` }))]}
+              placeholder="(default / tier)"
             />
           </Field>
           <Field label="Default terms">
