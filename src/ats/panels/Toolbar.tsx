@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import S from "../styles";
 import type { ExcelData } from "../types";
+// Shared app-wide dark calendar widget (same one every other app uses) so
+// ATS date fields don't pop the browser's light native calendar.
+import { AppDatePicker } from "../../shared/components/AppDatePicker";
 
 // Mouse-off auto-close for filter dropdowns. 600ms grace timer mirrors
 // the planning grid's MultiSelectDropdown so a brief cursor flicker
@@ -507,21 +510,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           <span style={{ color: active ? "#FCD34D" : "#10B981", fontSize: 11, fontWeight: 600 }}>On-Order</span>
           <label style={S.dateLabel}>from</label>
-          <input
-            type="date"
-            style={S.dateInput}
-            value={soWinFrom}
-            max={soWinTo || undefined}
-            onChange={e => setSoWinFrom(e.target.value)}
-          />
+          <AppDatePicker value={soWinFrom} onCommit={setSoWinFrom} style={S.dateInput} />
           <label style={S.dateLabel}>to</label>
-          <input
-            type="date"
-            style={S.dateInput}
-            value={soWinTo}
-            min={soWinFrom || undefined}
-            onChange={e => setSoWinTo(e.target.value)}
-          />
+          <AppDatePicker value={soWinTo} onCommit={setSoWinTo} style={S.dateInput} />
           {active && (
             <span
               role="button"
@@ -537,12 +528,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     <div style={S.datePicker}>
       <label style={S.dateLabel}>From</label>
-      <input
-        type="date"
-        style={S.dateInput}
-        value={startDate}
-        onChange={e => setStartDate(e.target.value)}
-      />
+      <AppDatePicker value={startDate} onCommit={setStartDate} style={S.dateInput} />
     </div>
 
     <div style={S.datePicker}>
