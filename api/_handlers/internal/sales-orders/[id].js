@@ -168,11 +168,15 @@ export default async function handler(req, res, params) {
       }
     }
 
-    // Replace lines if supplied (drafts only — confirmed SOs are line-locked here).
+    // Replace lines if supplied. Allowed while DRAFT or CONFIRMED (the "Add
+    // styles" flow re-opens a confirmed order to append styles) — but not once
+    // stock is committed: allocated / fulfilling / shipped / invoiced / closed
+    // are line-locked. (A status change in the same PATCH — e.g. the initial
+    // draft→confirm that ships lines together — is always allowed.)
     if (Array.isArray(body.lines)) {
-      if (so.status !== "draft" && !("status" in body)) {
-        // allow line edits only while draft
-        return res.status(409).json({ error: "Lines can only be edited while the order is a draft." });
+      const LINE_EDITABLE = ["draft", "confirmed"];
+      if (!LINE_EDITABLE.includes(so.status) && !("status" in body)) {
+        return res.status(409).json({ error: "Lines can only be edited while the order is draft or confirmed (before allocation / shipping)." });
       }
       // Item 9 — revenue is auto-routed from the customer master (entity fallback),
       // not taken from the per-line payload.

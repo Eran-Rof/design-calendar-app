@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
-import SalesOrderMatrixBody, { type SalesOrderMatrixBodyHandle, type SeedSection, type FlatLine } from "./SalesOrderMatrixBody";
+import SalesOrderMatrixBody, { type SalesOrderMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./SalesOrderMatrixBody";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
@@ -172,7 +172,11 @@ export default function InternalSalesOrders() {
 
 function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers: Customer[]; onClose: () => void; onSaved: () => void }) {
   const isNew = so === null;
-  const editable = isNew || so?.status === "draft";
+  // "Add styles" mode lets a CONFIRMED (not yet allocated/shipped/invoiced) SO
+  // re-open its line grids to append styles. Base editability is draft-only.
+  const [addMode, setAddMode] = useState(false);
+  const editable = isNew || so?.status === "draft" || addMode;
+  const canAddStyles = !isNew && so?.status === "confirmed" && !addMode;
 
   const [customerId, setCustomerId] = useState(so?.customer_id || "");
   const [shipToLocationId, setShipToLocationId] = useState(so?.ship_to_location_id || "");
@@ -189,6 +193,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
   const bodyRef = useRef<SalesOrderMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
+  const [bodyTotals, setBodyTotals] = useState<BodyTotals>({ qty: 0, cents: 0, costCents: 0, marginPct: 0, marginEstimated: true });
   const [stagedDocs, setStagedDocs] = useState<File[]>([]);
   // Item 3 — Factor / credit-insurance approval (manual entry; Rosenthal API auto-fill reserved).
   const [factorStatus, setFactorStatus] = useState(so?.factor_approval_status || "not_submitted");
@@ -488,6 +493,21 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           {fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
         </div>
 
+        {/* Lines header — totals + projected margin, and (on a confirmed SO) an
+            "Add styles" button that re-opens the grids to append more styles. */}
+        <div style={{ marginTop: 4, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 18, alignItems: "baseline", fontSize: 13 }}>
+            <span style={{ color: C.textMuted }}>Total qty <b style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{bodyTotals.qty.toLocaleString()}</b></span>
+            <span style={{ color: C.textMuted }}>Total <b style={{ color: C.success, fontVariantNumeric: "tabular-nums" }}>{fmtCents(bodyTotals.cents)}</b></span>
+            <span style={{ color: C.textMuted, display: "inline-flex", flexDirection: "column" }}>
+              <span>Proj. margin <b style={{ color: bodyTotals.marginPct >= 20 ? C.success : C.warn, fontVariantNumeric: "tabular-nums" }}>{bodyTotals.cents > 0 ? `${bodyTotals.marginPct.toFixed(1)}%` : "—"}</b></span>
+              {bodyTotals.cents > 0 && bodyTotals.marginEstimated && <span style={{ fontSize: 10, color: C.textMuted }}>estimated — no cost data (assumes 21%)</span>}
+            </span>
+          </div>
+          {canAddStyles && <button onClick={() => setAddMode(true)} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} title="Re-open the grids to add more styles to this confirmed order">✏️ Add styles</button>}
+          {addMode && <span style={{ fontSize: 11, color: C.warn }}>Adding styles — Save to apply.</span>}
+        </div>
+
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
             (95% of styles) + a "+ Add non-matrix line" button for one-offs. */}
         <div style={{ marginBottom: 12 }}>
@@ -497,6 +517,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             items={items}
             seed={seed}
             showOnHand={fulfillmentSource !== "production"}
+            onTotalsChange={setBodyTotals}
           />
         </div>
 
@@ -518,8 +539,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
-            {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : "Save draft"}</button>}
-            {editable && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
+            {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
+            {/* Confirm only when the order isn't already confirmed (draft → confirm).
+                In Add-styles mode it's already confirmed, so just Save changes. */}
+            {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
           </div>
         </div>
       </div>
