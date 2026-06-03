@@ -223,8 +223,13 @@ secure_password_change = false
 max_frequency = "1s"
 # Number of characters used in the email OTP.
 otp_length = 6
-# Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 3600
+# Number of seconds before the email OTP / action link (incl. the vendor-portal
+# invite link) expires. 72 hours so vendors have a long window to accept the
+# onboarding invite. NOTE: this config.toml is applied to LOCAL dev only — the
+# CI pipeline runs `supabase db push` (migrations), not `supabase config push`,
+# so the PROD value must be set in the Supabase dashboard (Authentication →
+# Emails → Email OTP Expiration). Keep the two in sync.
+otp_expiry = 259200
 
 # Use a production-ready SMTP server
 # [auth.email.smtp]
