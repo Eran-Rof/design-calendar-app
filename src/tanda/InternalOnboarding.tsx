@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
 interface Workflow {
   id: string;
@@ -115,15 +116,69 @@ export default function InternalOnboarding() {
   );
 }
 
+type VendorOpt = { id: string; name: string };
+
 function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
-  const [vendorName, setVendorName] = useState("");
+  const [vendors, setVendors] = useState<VendorOpt[]>([]);
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [loadingVendors, setLoadingVendors] = useState(true);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  // Load existing vendors for the dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/internal/vendor-master?limit=1000");
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body?.error || `Failed to load vendors (${r.status})`);
+        const rows = (Array.isArray(body) ? body : body?.rows || []) as { id: string; name?: string; legal_name?: string }[];
+        if (cancelled) return;
+        setVendors(rows.map((v) => ({ id: v.id, name: v.legal_name || v.name || "(unnamed)" })));
+      } catch (e: unknown) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoadingVendors(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const options: SearchableSelectOption[] = useMemo(
+    () => vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.id}` })),
+    [vendors],
+  );
+
+  // "Add new vendor" — create through the canonical vendor-master endpoint
+  // (auto-generates code, entity, etc.), then select the new row.
+  async function addVendor(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Could not create vendor (${r.status})`);
+      const created: VendorOpt = { id: body.id, name: body.legal_name || body.name || trimmed };
+      setVendors((prev) => [created, ...prev]);
+      setVendorId(created.id);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
+    if (!vendorId) { setErr("Select an existing vendor or add a new one."); return; }
     if (!email.trim()) { setErr("Email is required."); return; }
     setBusy(true); setErr(null); setNote(null);
     try {
@@ -131,9 +186,10 @@ function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: (
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vendor_name: vendorName.trim() || null,
+          vendor_id: vendorId,
           email: email.trim(),
           display_name: displayName.trim() || null,
+          site_url: window.location.origin,
         }),
       });
       const body = await r.json().catch(() => ({}));
@@ -154,17 +210,26 @@ function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: (
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           Sends a magic-link email so the vendor can set up their portal login and begin onboarding.
         </div>
-        <label style={labelStyle}>Vendor company name (optional — matches/creates vendor record)</label>
-        <input value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="e.g. Sunrise Apparel Co." style={inputStyle} />
+        <label style={labelStyle}>Vendor (select existing or add new)</label>
+        <SearchableSelect
+          value={vendorId}
+          onChange={setVendorId}
+          options={options}
+          placeholder={loadingVendors ? "Loading vendors…" : "Search vendors…"}
+          disabled={busy || loadingVendors}
+          emptyText="No matching vendor — use “Add” below"
+          onAddNew={(q) => void addVendor(q)}
+          addNewLabel={(q) => (q.trim() ? `+ Add new vendor “${q.trim()}”` : "+ Add new vendor")}
+        />
         <label style={labelStyle}>Contact name (optional)</label>
         <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Jane Smith" style={inputStyle} />
         <label style={labelStyle}>Email (required)</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} autoFocus />
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} />
         {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 10 }}>{err}</div>}
         {note && <div style={{ color: C.success, fontSize: 12, marginTop: 10 }}>{note}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
           <button onClick={onClose} disabled={busy} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "transparent", color: C.textSub, cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
-          <button onClick={() => void send()} disabled={busy || !email.trim()} style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: busy || !email.trim() ? C.textMuted : C.primary, color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={() => void send()} disabled={busy || !vendorId || !email.trim()} style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: busy || !vendorId || !email.trim() ? C.textMuted : C.primary, color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
             {busy ? "Sending…" : "Send invite"}
           </button>
         </div>
