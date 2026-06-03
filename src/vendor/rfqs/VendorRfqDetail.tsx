@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import * as XLSX from "xlsx";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge from "../StatusBadge";
@@ -7,7 +8,7 @@ import { fmtDate, fmtMoney } from "../utils";
 
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; delivery_required_by: string | null; estimated_quantity: number | null; estimated_budget: number | null; currency: string };
-  line_items: { id: string; line_index: number; description: string; quantity: number; unit_of_measure: string | null; specifications: string | null }[];
+  line_items: { id: string; line_index: number; description: string; quantity: number; unit_of_measure: string | null; specifications: string | null; target_price: number | null }[];
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
   quote: { id: string; status: string; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[] } | null;
 }
@@ -133,6 +134,39 @@ export default function VendorRfqDetail() {
     }
   }
 
+  // Download the RFQ + the vendor's current entries as an .xlsx so they can
+  // fill / review the quote offline. Mirrors exactly what's on screen.
+  function downloadExcel() {
+    if (!data) return;
+    const { rfq, line_items } = data;
+    const meta: (string | number)[][] = [
+      ["RFQ", rfq.title],
+      ["Status", rfq.status],
+      ["Delivery by", rfq.delivery_required_by ? fmtDate(rfq.delivery_required_by) : ""],
+      ["Submission deadline", rfq.submission_deadline ? fmtDate(rfq.submission_deadline) : ""],
+      ["Est. budget", rfq.estimated_budget != null ? rfq.estimated_budget : ""],
+      [],
+    ];
+    const header = ["#", "Description", "Specs", "Target Unit Price", "Req Qty", "UoM", "Your Unit Price", "Your Qty", "Notes"];
+    const body = line_items.map((li) => [
+      li.line_index,
+      li.description,
+      li.specifications || "",
+      li.target_price ?? "",
+      li.quantity,
+      li.unit_of_measure || "",
+      linePrices[li.id] ? Number(linePrices[li.id]) : "",
+      lineQtys[li.id] ? Number(lineQtys[li.id]) : "",
+      lineNotes[li.id] || "",
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([...meta, header, ...body]);
+    ws["!cols"] = [{ wch: 5 }, { wch: 40 }, { wch: 24 }, { wch: 16 }, { wch: 9 }, { wch: 7 }, { wch: 15 }, { wch: 9 }, { wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "RFQ");
+    const safe = (rfq.title || "rfq").replace(/[^\w-]+/g, "_").slice(0, 40);
+    XLSX.writeFile(wb, `RFQ_${safe}.xlsx`);
+  }
+
   if (loading) return <div style={{ color: "rgba(255,255,255,0.85)" }}>Loading…</div>;
   if (err) return <div style={{ color: TH.primary, padding: 12, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
   if (!data) return null;
@@ -155,20 +189,25 @@ export default function VendorRfqDetail() {
               {quote && <StatusBadge label={`Quote ${quote.status}`} tone={quote.status === "awarded" ? "ok" : quote.status === "rejected" ? "danger" : "info"} />}
             </div>
           </div>
-          <div style={{ textAlign: "right", fontSize: 12, color: TH.textSub2 }}>
+          {/* Operator request: ~25% larger so the key dates/budget read clearly. */}
+          <div style={{ textAlign: "right", fontSize: 15, lineHeight: 1.5, color: TH.textSub, whiteSpace: "nowrap" }}>
             {rfq.submission_deadline && <div>Deadline: <b>{fmtDate(rfq.submission_deadline)}</b>{deadlinePassed && <span style={{ color: TH.primary }}> (passed)</span>}</div>}
-            {rfq.delivery_required_by && <div>Delivery by: {fmtDate(rfq.delivery_required_by)}</div>}
-            {rfq.estimated_budget != null && <div>Est. budget: {fmtMoney(rfq.estimated_budget)}</div>}
+            {rfq.delivery_required_by && <div>Delivery by: <b>{fmtDate(rfq.delivery_required_by)}</b></div>}
+            {rfq.estimated_budget != null && <div>Est. budget: <b>{fmtMoney(rfq.estimated_budget)}</b></div>}
           </div>
         </div>
         {rfq.description && <div style={{ marginTop: 12, color: TH.textSub2, fontSize: 13, lineHeight: 1.5 }}>{rfq.description}</div>}
       </div>
 
-      <h3 style={{ color: "#FFFFFF", marginTop: 20, marginBottom: 10, fontSize: 15 }}>Line items</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 10 }}>
+        <h3 style={{ color: "#FFFFFF", margin: 0, fontSize: 15 }}>Line items</h3>
+        <button onClick={downloadExcel} style={btnSecondary}>⬇ Download Excel</button>
+      </div>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "50px 1.6fr 100px 90px 130px 130px 1fr", padding: "8px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
+        <div style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 14, padding: "9px 16px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textSub2, textTransform: "uppercase", letterSpacing: 0.04 }}>
           <div>#</div>
           <div>Description</div>
+          <div style={{ textAlign: "right" }}>Target unit price</div>
           <div style={{ textAlign: "right" }}>Req qty</div>
           <div>UoM</div>
           <div style={{ textAlign: "right" }}>Your unit price</div>
@@ -176,12 +215,13 @@ export default function VendorRfqDetail() {
           <div>Notes</div>
         </div>
         {lines.map((li) => (
-          <div key={li.id} style={{ display: "grid", gridTemplateColumns: "50px 1.6fr 100px 90px 130px 130px 1fr", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
+          <div key={li.id} style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 14, padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
             <div style={{ color: TH.textSub2 }}>{li.line_index}</div>
             <div style={{ color: TH.text }}>
               <div style={{ fontWeight: 500 }}>{li.description}</div>
               {li.specifications && <div style={{ color: TH.textMuted, fontSize: 11 }}>{li.specifications}</div>}
             </div>
+            <div style={{ textAlign: "right", color: TH.textSub }}>{li.target_price != null ? fmtMoney(li.target_price) : "—"}</div>
             <div style={{ textAlign: "right", color: TH.textSub2 }}>{li.quantity}</div>
             <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
             <div><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, textAlign: "right" }} /></div>
@@ -193,13 +233,16 @@ export default function VendorRfqDetail() {
 
       {canEdit && !deadlinePassed && (
         <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "18px 22px", marginTop: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-            <Field label="Total price"><input value={totalPrice} onChange={(e) => setTotalPrice(e.target.value)} type="number" step="0.01" style={inp} /></Field>
-            <Field label="Lead time (days)"><input value={leadTime} onChange={(e) => setLeadTime(e.target.value)} type="number" style={inp} /></Field>
-            <Field label="Valid until"><input value={validUntil} onChange={(e) => setValidUntil(e.target.value)} type="date" style={inp} /></Field>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <Field label="Notes (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: "vertical" }} /></Field>
+          {/* Constrained width so price / days / date fields aren't oversized. */}
+          <div style={{ maxWidth: 780 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <Field label="Total price"><input value={totalPrice} onChange={(e) => setTotalPrice(e.target.value)} type="number" step="0.01" style={inp} /></Field>
+              <Field label="Lead time (days)"><input value={leadTime} onChange={(e) => setLeadTime(e.target.value)} type="number" style={inp} /></Field>
+              <Field label="Valid until"><input value={validUntil} onChange={(e) => setValidUntil(e.target.value)} type="date" style={inp} /></Field>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <Field label="Notes (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: "vertical" }} /></Field>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
             <button onClick={() => void decline()} style={btnSecondary}>Decline</button>
@@ -230,6 +273,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inp = { width: "100%", padding: "6px 8px", borderRadius: 4, border: `1px solid ${TH.border}`, fontSize: 12, fontFamily: "inherit", boxSizing: "border-box" } as const;
+// Shared column template for the line-items header + rows so they stay aligned.
+// #, Description, Target unit price, Req qty, UoM, Your unit price, Your qty, Notes.
+const GRID_COLS = "34px minmax(160px,1.5fr) 110px 84px 60px 120px 84px minmax(120px,1fr)";
+
+// Inputs were unstyled <input>s, so the browser rendered them with its default
+// (brownish/gray, oversized) field chrome. Give them an explicit dark field bg,
+// light text, and colorScheme:dark so number spinners / the date picker match.
+const inp = {
+  width: "100%", padding: "7px 9px", borderRadius: 5,
+  border: "1px solid #475569", background: "#0B1220", color: TH.text,
+  fontSize: 13, fontFamily: "inherit", boxSizing: "border-box",
+  colorScheme: "dark", outline: "none",
+} as const;
 const btnPrimary = { padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "8px 16px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
