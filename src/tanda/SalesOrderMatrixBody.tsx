@@ -53,9 +53,12 @@ export interface SalesOrderMatrixBodyProps {
    *  fulfillment (the order is being made, not shipped from stock). Default true. */
   showOnHand?: boolean;
   /** ATS fulfillment: the number above each cell is real available-to-ship BY
-   *  SIZE (on-hand − open reservations, from tangerine_size_onhand via
+   *  SIZE (on-hand + inbound − open reservations, from tangerine_size_onhand via
    *  /api/internal/ats-by-size) rather than raw on-hand. Overrides showOnHand. */
   atsMode?: boolean;
+  /** ATS fulfillment ship-date window (the SO's requested ship date). When set,
+   *  available-to-ship ADDS native PO inbound expected to arrive by this date. */
+  atsAsOfDate?: string | null;
   onTotalsChange?: (t: BodyTotals) => void;
 }
 
@@ -63,7 +66,7 @@ export type BodyTotals = { qty: number; cents: number; costCents: number; margin
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMatrixBodyProps>(function SalesOrderMatrixBody(
-  { editable, items, seed, showOnHand = true, atsMode = false, onTotalsChange }, ref,
+  { editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange }, ref,
 ) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -190,7 +193,9 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
     if (ids.length === 0) { setAtsByItem({}); setAtsAsOf(null); return; }
     let cancelled = false;
     setAtsLoading(true);
-    fetch("/api/internal/ats-by-size", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item_ids: ids }) })
+    const reqBody: { item_ids: string[]; as_of_date?: string } = { item_ids: ids };
+    if (atsAsOfDate) reqBody.as_of_date = atsAsOfDate; // window inbound supply to the ship date
+    fetch("/api/internal/ats-by-size", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reqBody) })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => {
         if (cancelled) return;
@@ -201,7 +206,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
       .catch(() => { if (!cancelled) { setAtsByItem({}); setAtsAsOf(null); } })
       .finally(() => { if (!cancelled) setAtsLoading(false); });
     return () => { cancelled = true; };
-  }, [atsMode, allSkuIdsSig]);
+  }, [atsMode, allSkuIdsSig, atsAsOfDate]);
 
   // ── Imperative resolve (called at save) ────────────────────────────────────
   useImperativeHandle(ref, () => ({
@@ -260,8 +265,11 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
 
       {atsMode && (sections.length > 0 || flat.length > 0) && (
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
-          ▲ Number above each cell is <b style={{ color: C.base }}>available-to-ship by size</b> (ATS on-hand − open reservations).
-          {atsLoading ? " Loading…" : atsAsOf ? ` As of ${atsAsOf}.` : " No size on-hand data."}
+          ▲ Number above each cell is <b style={{ color: C.base }}>available-to-ship by size</b>{" "}
+          {atsAsOfDate
+            ? <>by ship date {atsAsOfDate} (on-hand + inbound POs due by then − open reservations).</>
+            : <>(on-hand − open reservations; set a ship date to include inbound POs).</>}
+          {atsLoading ? " Loading…" : atsAsOf ? ` On-hand as of ${atsAsOf}.` : " No size on-hand data."}
         </div>
       )}
 

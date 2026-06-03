@@ -2,6 +2,23 @@
 // to unit-test.
 
 /**
+ * Extract a human-readable message from a thrown value. Supabase/PostgREST
+ * rejections are plain objects with a `.message` (and often `.details`/`.hint`),
+ * NOT Error instances — so `String(e)` renders the useless "[object Object]".
+ * This pulls the real message out so the UI shows what actually failed.
+ */
+export function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    const o = e as { message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [o.message, o.details, o.hint].filter((x) => typeof x === "string" && x.length > 0);
+    if (parts.length > 0) return parts.join(" — ");
+    try { return JSON.stringify(e); } catch { /* fall through */ }
+  }
+  return String(e);
+}
+
+/**
  * Parse a date string as **local midnight** when it has no time component,
  * otherwise as the Date constructor normally would.
  *
