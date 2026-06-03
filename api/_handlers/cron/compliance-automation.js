@@ -18,7 +18,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { writeAudit } from "../../_lib/compliance-audit.js";
-import { getInternalRecipients } from "../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 120 };
 
@@ -147,7 +147,7 @@ export default async function handler(req, res) {
           // send-notification payload (passing the whole list as a single
           // `email` field would either fail validation or send to a
           // malformed address).
-          const { emails: escEmails } = getInternalRecipients("compliance", { event: "compliance_escalation" });
+          const { emails: escEmails } = await resolveInternalRecipients(admin, "compliance", { event: "compliance_escalation" });
           for (const email of escEmails) {
             await sendNotification(origin, {
               event_type: "compliance_escalated",

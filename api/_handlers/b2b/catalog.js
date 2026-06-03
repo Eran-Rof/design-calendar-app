@@ -24,7 +24,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveB2BSession } from "../../_lib/b2b/session.js";
-import { pickBestPrice } from "../../_lib/b2b/pricing.js";
+import { resolvePricesForCustomer } from "../../_lib/b2b/pricing.js";
 
 export const config = { maxDuration: 15 };
 
@@ -56,17 +56,6 @@ export default async function handler(req, res) {
   if (!sess.ok) return res.status(sess.status).json({ error: sess.error });
   const { customer_id } = sess;
 
-  // The customer's tier governs which tier-priced rows apply to this buyer.
-  let tier = null;
-  try {
-    const { data: cust } = await admin
-      .from("customers")
-      .select("customer_tier")
-      .eq("id", customer_id)
-      .maybeSingle();
-    tier = cust?.customer_tier || null;
-  } catch { /* non-fatal: tier rows simply won't apply */ }
-
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
   const brandId = (url.searchParams.get("brand_id") || "").trim();
   const gender = (url.searchParams.get("gender") || "").trim();
@@ -92,22 +81,11 @@ export default async function handler(req, res) {
 
   const styleIds = styles.map((s) => s.id);
 
-  // ── 2. Candidate price rows: ONLY rows that could apply to this customer ─────
-  // (customer-specific for THIS customer) OR (customer_id IS NULL → tier/default).
-  // We never load another customer's customer-specific rows.
-  const { data: priceRows, error: pErr } = await admin
-    .from("b2b_price_list")
-    .select("style_id, customer_id, customer_tier, price_cents, currency, min_qty, effective_from, effective_to, is_active")
-    .eq("is_active", true)
-    .in("style_id", styleIds)
-    .or(`customer_id.eq.${customer_id},customer_id.is.null`);
-  if (pErr) return res.status(500).json({ error: pErr.message });
-
-  const byStyle = new Map();
-  for (const r of priceRows || []) {
-    if (!byStyle.has(r.style_id)) byStyle.set(r.style_id, []);
-    byStyle.get(r.style_id).push(r);
-  }
+  // ── 2. Resolve each style's wholesale price via the unified M43 engine ───────
+  // (customer own list → assigned list → tier list → default list; + promotions).
+  let priceMap = new Map();
+  try { priceMap = await resolvePricesForCustomer(admin, customer_id, styleIds); }
+  catch (e) { return res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
 
   // ── 3. Brand + gender label lookups for display ──────────────────────────────
   const brandIds = [...new Set(styles.map((s) => s.brand_id).filter(Boolean))];
@@ -125,10 +103,8 @@ export default async function handler(req, res) {
     }
   } catch { /* non-fatal: fall back to raw codes */ }
 
-  const today = new Date().toISOString().slice(0, 10);
-
   const out = styles.map((s) => {
-    const best = pickBestPrice(byStyle.get(s.id) || [], today, tier);
+    const best = priceMap.get(s.id);
     return {
       style_id:          s.id,
       style_code:        s.style_code,

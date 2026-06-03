@@ -8,7 +8,9 @@
 // scale CODE (size_scales.code).
 
 import React, { useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { searchSizeScales, type SizeScaleHit } from "../services/costingApi";
+import { usePopoverAnchor } from "../hooks/usePopoverAnchor";
 
 interface Props {
   value: string | null;
@@ -33,6 +35,10 @@ export default function ScalePickerCell({ value, onChange }: Props) {
   const [text, setText] = useState(value || "");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  // Portal the dropdown out of the grid's overflow:hidden cell. Anchor to the
+  // cell wrapper; matches ColorPickerCell.
+  const { anchorRef, pos } = usePopoverAnchor<HTMLDivElement>({ open, minWidth: 240 });
 
   useEffect(() => { setText(value || ""); }, [value]);
 
@@ -46,10 +52,18 @@ export default function ScalePickerCell({ value, onChange }: Props) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   const lowerText = text.trim().toLowerCase();
@@ -67,29 +81,39 @@ export default function ScalePickerCell({ value, onChange }: Props) {
 
   return (
     <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
-      <input
-        value={text}
-        placeholder="Scale"
-        onChange={(e) => { setText(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={(e) => {
-          // Defer so a click on a dropdown row registers first; preserve free
-          // text so a legacy/non-master scale still commits.
-          window.setTimeout(() => { if (!open) onChange(e.target.value || null); }, 100);
-        }}
+      <div
+        ref={anchorRef}
+        title={value ? `Scale: ${value}` : "Click to pick a size scale"}
         style={{
-          width: "100%", padding: "4px 6px", fontSize: 12,
-          background: "transparent", border: "1px solid transparent",
-          color: "#E2E8F0", outline: "none",
+          display: "flex", alignItems: "center", gap: 4,
+          border: `1px ${value ? "solid" : "dashed"} #475569`,
+          borderRadius: 3, cursor: "pointer",
         }}
-      />
-      {open && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 50,
-          minWidth: 240, maxHeight: 280, overflowY: "auto",
+      >
+        <input
+          value={text}
+          placeholder="— pick scale —"
+          onChange={(e) => { setText(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={(e) => {
+            // Defer so a click on a dropdown row registers first; preserve free
+            // text so a legacy/non-master scale still commits.
+            window.setTimeout(() => { if (!open) onChange(e.target.value || null); }, 100);
+          }}
+          style={{
+            flex: 1, minWidth: 0, padding: "4px 6px", fontSize: 12,
+            background: "transparent", border: "none",
+            color: value ? "#E2E8F0" : "#94A3B8", outline: "none",
+          }}
+        />
+        <span style={{ color: "#64748B", fontSize: 9, paddingRight: 4 }}>▾</span>
+      </div>
+      {open && pos && ReactDOM.createPortal(
+        <div ref={popRef} style={{
+          position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+          zIndex: 9999, maxHeight: 280, overflowY: "auto",
           background: "#1E293B", border: "1px solid #475569",
-          borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-          marginTop: 2,
+          borderRadius: 8, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
         }}>
           {value && (
             <button
@@ -121,7 +145,8 @@ export default function ScalePickerCell({ value, onChange }: Props) {
               {scales.length === 0 ? "Loading scales…" : `No scale matches "${text}".`}
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

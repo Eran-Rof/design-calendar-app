@@ -248,6 +248,15 @@ interface ToolbarProps {
   // Min ATS + date range
   minATS: number | "";
   setMinATS: (v: number | "") => void;
+  // On-Order date window (inclusive ISO dates; "" = unbounded). Scopes
+  // ONLY the "On Order" total/column to SO lines whose date falls in
+  // range. The SO date is the Xoro "Date to be Cancelled" (NOT ship
+  // date). Lets the operator reproduce a date-windowed Xoro "Open
+  // Orders" total without touching the projection/ATS columns.
+  soWinFrom: string;
+  setSoWinFrom: (v: string) => void;
+  soWinTo: string;
+  setSoWinTo: (v: string) => void;
   startDate: string;
   setStartDate: (v: string) => void;
   rangeUnit: "days" | "weeks" | "months";
@@ -303,7 +312,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   filterGender, setFilterGender, setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
-  minATS, setMinATS, startDate, setStartDate,
+  minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, startDate, setStartDate,
   rangeUnit, setRangeUnit, rangeValue, setRangeValue,
   excelData, customerFilter, setCustomerFilter,
   customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch,
@@ -344,6 +353,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setFilterStatus("All");
     setStoreFilter(["ROF"]);
     setMinATS("");
+    setSoWinFrom("");
+    setSoWinTo("");
     setCustomerFilter("");
     setCollapseLevel("none");
   };
@@ -480,6 +491,49 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         onChange={e => setMinATS(e.target.value === "" ? "" : Number(e.target.value))}
       />
     </div>
+
+    {/* On-Order date window — scopes ONLY the "On Order" total/column to
+        SO lines whose date (Xoro "Date to be Cancelled", NOT ship date)
+        falls in [from, to] inclusive. Empty = full open book (default).
+        Reproduces a date-windowed Xoro "Open Orders" total. Lights up
+        amber when active so it's obvious the On Order numbers are
+        scoped. The projection/ATS columns are unaffected. */}
+    {(() => {
+      const active = !!(soWinFrom || soWinTo);
+      return (
+        <div
+          title={'Scope the "On Order" total to sales-order lines whose Cancel Date falls in this range. Leave blank for the full open order book. Note: this is the Xoro "Date to be Cancelled", not the ship date.'}
+          style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 8, border: `1px solid ${active ? "#F59E0B" : "#334155"}`, background: active ? "rgba(245,158,11,0.10)" : "transparent", whiteSpace: "nowrap" }}
+        >
+          <span style={{ color: active ? "#FCD34D" : "#10B981", fontSize: 11, fontWeight: 600 }}>On-Order</span>
+          <label style={S.dateLabel}>from</label>
+          <input
+            type="date"
+            style={S.dateInput}
+            value={soWinFrom}
+            max={soWinTo || undefined}
+            onChange={e => setSoWinFrom(e.target.value)}
+          />
+          <label style={S.dateLabel}>to</label>
+          <input
+            type="date"
+            style={S.dateInput}
+            value={soWinTo}
+            min={soWinFrom || undefined}
+            onChange={e => setSoWinTo(e.target.value)}
+          />
+          {active && (
+            <span
+              role="button"
+              aria-label="Clear On-Order window"
+              title="Clear On-Order window"
+              onClick={() => { setSoWinFrom(""); setSoWinTo(""); }}
+              style={{ fontSize: 12, color: "#FCA5A5", cursor: "pointer", padding: "0 2px", lineHeight: 1 }}
+            >×</span>
+          )}
+        </div>
+      );
+    })()}
 
     <div style={S.datePicker}>
       <label style={S.dateLabel}>From</label>

@@ -87,11 +87,31 @@ export default function InternalAllocations() {
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [savingLine, setSavingLine] = useState<string | null>(null);
 
-  // Auto-allocate preview dialog.
+  // Auto-allocate preview dialog. Strategy chosen at run time (re-previews live).
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<Proposal[]>([]);
   const [previewScopeLabel, setPreviewScopeLabel] = useState("");
+  const [previewItemIds, setPreviewItemIds] = useState<string[]>([]);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [strategy, setStrategy] = useState<"priority_full" | "fair_share" | "capped">("priority_full");
+  const [capPct, setCapPct] = useState("50");
+  const [capBasis, setCapBasis] = useState<"sku" | "style_color">("sku");
+
+  // Undo — every allocation captures the prior allocated qty of the affected
+  // lines so the last run (auto / batch / cell) can be reverted in one click.
+  const [lastUndo, setLastUndo] = useState<{ label: string; snapshot: { line_id: string; prev_qty: number }[] } | null>(null);
+  // Batch select — check lines to set/clear their allocation together.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchQty, setBatchQty] = useState("");
+  // Post-allocation summary popup.
+  const [summary, setSummary] = useState<{ label: string; count: number; units: number; pctFilled: number; rows: { so: string; sku: string; size: string; granted: number; newAlloc: number }[] } | null>(null);
+  const [summaryShowRows, setSummaryShowRows] = useState(false);
+  // Configurable allocation priority rules (auto-allocate order + tie-break).
+  const ALLOC_DEFAULT_RULES = { priority_order: ["factor_approved", "credit_card", "oldest"], tie_break: "order_date" };
+  const [rules, setRules] = useState<{ priority_order: string[]; tie_break: string }>(ALLOC_DEFAULT_RULES);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rulesDraft, setRulesDraft] = useState<{ priority_order: string[]; tie_break: string }>(ALLOC_DEFAULT_RULES);
+  const [rulesSaving, setRulesSaving] = useState(false);
 
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(TABLE_KEY, COLUMNS);
   const isVisible = (k: string) => visibleColumns.has(k);
@@ -115,6 +135,34 @@ export default function InternalAllocations() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [customerId, onlyShort, dSearch]);
+
+  // Load the saved priority rules once.
+  useEffect(() => {
+    fetch("/api/internal/allocations/rules").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (j?.priority_order && j?.tie_break) setRules({ priority_order: j.priority_order, tie_break: j.tie_break });
+    }).catch(() => {});
+  }, []);
+  function openRules() { setRulesDraft({ priority_order: [...rules.priority_order], tie_break: rules.tie_break }); setRulesOpen(true); }
+  function moveCriterion(i: number, dir: -1 | 1) {
+    setRulesDraft((p) => {
+      const order = [...p.priority_order]; const j = i + dir;
+      if (j < 0 || j >= order.length) return p;
+      [order[i], order[j]] = [order[j], order[i]];
+      return { ...p, priority_order: order };
+    });
+  }
+  async function saveRules() {
+    setRulesSaving(true);
+    try {
+      const r = await fetch("/api/internal/allocations/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rulesDraft) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
+      setRules({ priority_order: j.priority_order, tie_break: j.tie_break });
+      setRulesOpen(false);
+      notify("Allocation priority rules saved. Re-run auto-allocate to apply.", "success");
+    } finally { setRulesSaving(false); }
+  }
+  const CRITERION_LABEL: Record<string, string> = { factor_approved: "🅕 Factor-approved", credit_card: "💳 Credit-card on file", oldest: "⏱ Oldest (by date) — everyone else" };
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
@@ -153,16 +201,45 @@ export default function InternalAllocations() {
     return [...byRollup.values()].sort((a, b) => a.style.localeCompare(b.style) || a.color.localeCompare(b.color));
   }, [demand, avail]);
 
-  async function applyAllocations(allocations: { line_id: string; qty: number }[]): Promise<boolean> {
+  const demandByLine = useMemo(() => new Map(demand.map((d) => [d.line_id, d])), [demand]);
+
+  // Apply allocations (set allocated qty per line). When trackUndo, snapshot the
+  // PRIOR allocated qty of each touched line so "↩ Undo" can revert the run.
+  async function applyAllocations(allocations: { line_id: string; qty: number }[], label = "Allocation", trackUndo = true): Promise<boolean> {
+    const snapshot = allocations.map((a) => ({ line_id: a.line_id, prev_qty: n(demandByLine.get(a.line_id)?.qty_allocated) }));
     const r = await fetch("/api/internal/allocations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ allocations }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return false; }
+    if (trackUndo && snapshot.length) setLastUndo({ label, snapshot });
     const skipped = Array.isArray(j.skipped) ? j.skipped : [];
     if (skipped.length) notify(`${j.message} ${skipped.map((s: { reason: string }) => s.reason).join("; ")}`, "info");
     else notify(j.message || "Allocated.", "success");
     return true;
+  }
+
+  // Revert the last allocation run to the snapshotted prior quantities.
+  async function undoLast() {
+    if (!lastUndo) return;
+    const ok = await confirmDialog(`Undo "${lastUndo.label}"? This restores ${lastUndo.snapshot.length} line(s) to their previous allocated quantity.`, { confirmText: "Undo", icon: "↩" });
+    if (!ok) return;
+    if (await applyAllocations(lastUndo.snapshot.map((s) => ({ line_id: s.line_id, qty: s.prev_qty })), "undo", false)) {
+      setLastUndo(null); setSummary(null); await load();
+    }
+  }
+
+  // Batch — set/clear the allocation on every checked line.
+  function toggleSelect(lineId: string) { setSelected((p) => { const c = new Set(p); if (c.has(lineId)) c.delete(lineId); else c.add(lineId); return c; }); }
+  function selectAllVisible() { setSelected(new Set(demand.map((d) => d.line_id))); }
+  async function batchApply(qty: number) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(`Set allocated = ${qty} on ${ids.length} selected line(s)? (Cannot drop below already-shipped qty.)`, { confirmText: "Apply", icon: "⚡" });
+    if (!ok) return;
+    if (await applyAllocations(ids.map((id) => ({ line_id: id, qty })), `batch set ${qty} (${ids.length} lines)`)) {
+      setSelected(new Set()); setBatchQty(""); await load();
+    }
   }
 
   async function commitCell(d: Demand) {
@@ -176,30 +253,51 @@ export default function InternalAllocations() {
     finally { setSavingLine(null); }
   }
 
-  async function runAutoAllocate(itemIds: string[], scopeLabel: string) {
+  // Open the dialog for a scope; the live preview is (re)fetched by the effect
+  // below whenever the scope or chosen strategy/cap changes.
+  function runAutoAllocate(itemIds: string[], scopeLabel: string) {
+    setPreviewItemIds(itemIds); setPreviewScopeLabel(scopeLabel); setPreviewRows([]); setPreviewOpen(true);
+  }
+  async function fetchPreview() {
     setPreviewBusy(true);
     try {
+      const payload: Record<string, unknown> = { strategy, item_ids: previewItemIds };
+      if (strategy === "capped") { payload.cap_pct = Number(capPct) || 0; payload.cap_basis = capBasis; }
       const r = await fetch("/api/internal/allocations/preview", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strategy: "priority_full", item_ids: itemIds }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
-      const rows = (Array.isArray(j.proposals) ? j.proposals : []) as Proposal[];
-      const changing = rows.filter((p) => p.grant > 0 || p.blocked_reason);
-      if (changing.length === 0) { notify("Nothing to allocate — no available stock or no open demand in scope.", "info"); return; }
-      setPreviewRows(changing); setPreviewScopeLabel(scopeLabel); setPreviewOpen(true);
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); setPreviewRows([]); return; }
+      setPreviewRows((Array.isArray(j.proposals) ? j.proposals : []) as Proposal[]);
     } finally { setPreviewBusy(false); }
   }
+  useEffect(() => {
+    if (!previewOpen) return;
+    if (strategy === "capped" && (!(Number(capPct) > 0) || Number(capPct) > 100)) { setPreviewRows([]); return; } // wait for a valid %
+    void fetchPreview();
+    /* eslint-disable-next-line */
+  }, [previewOpen, previewItemIds, strategy, capPct, capBasis]);
 
   async function applyPreview() {
-    const allocations = previewRows.filter((p) => p.grant > 0).map((p) => ({ line_id: p.line_id, qty: p.proposed_allocated }));
+    const granted = previewRows.filter((p) => p.grant > 0);
+    const allocations = granted.map((p) => ({ line_id: p.line_id, qty: p.proposed_allocated }));
     if (allocations.length === 0) { setPreviewOpen(false); return; }
     const ok = await confirmDialog(`Apply ${allocations.length} allocation(s) for ${previewScopeLabel}?`, { confirmText: "Apply", icon: "⚡" });
     if (!ok) return;
     setPreviewBusy(true);
-    try { if (await applyAllocations(allocations)) { setPreviewOpen(false); await load(); } }
-    finally { setPreviewBusy(false); }
+    try {
+      if (await applyAllocations(allocations, `auto-allocate (${previewScopeLabel})`)) {
+        // Build the post-allocation summary popup (rows + % of open demand filled).
+        const units = granted.reduce((s, p) => s + p.grant, 0);
+        const openTotal = previewRows.reduce((s, p) => s + n(demandByLine.get(p.line_id)?.open_qty), 0);
+        const pctFilled = openTotal > 0 ? Math.round((units / openTotal) * 100) : 0;
+        const rows = granted.map((p) => ({ so: p.so_number || "(draft)", sku: p.sku_code || "—", size: p.size || "—", granted: p.grant, newAlloc: p.proposed_allocated }));
+        setPreviewOpen(false);
+        setSummaryShowRows(false);
+        setSummary({ label: previewScopeLabel, count: granted.length, units, pctFilled, rows });
+        await load();
+      }
+    } finally { setPreviewBusy(false); }
   }
 
   const exportRows = useMemo(() => demand.map((d) => ({
@@ -216,10 +314,17 @@ export default function InternalAllocations() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>📊 Allocations</h2>
-        <button style={{ ...btnPrimary, background: C.violet }} disabled={previewBusy || loading || demand.length === 0}
-          onClick={() => void runAutoAllocate([], "all visible demand")} title="Priority full-fill across all visible demand">
-          {previewBusy ? "…" : "⚡ Auto-allocate all"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button style={btnSecondary} onClick={openRules} title="Set the auto-allocate priority order (factor / card / oldest) + tie-break">⚙ Rules</button>
+          {lastUndo && (
+            <button style={{ ...btnSecondary, color: C.warn, borderColor: C.warn }} disabled={previewBusy} onClick={() => void undoLast()}
+              title={`Revert: ${lastUndo.label}`}>↩ Undo last</button>
+          )}
+          <button style={{ ...btnPrimary, background: C.violet }} disabled={previewBusy || loading || demand.length === 0}
+            onClick={() => void runAutoAllocate([], "all visible demand")} title="Preview, choose the rule (priority / fair-share / capped %), then apply — across all visible demand">
+            {previewBusy ? "…" : "⚡ Auto-allocate all"}
+          </button>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -245,6 +350,24 @@ export default function InternalAllocations() {
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      {/* Batch bar — check lines (☑ in the SO column) then set or clear their
+          allocation together. */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+        <button style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={selectAllVisible} disabled={demand.length === 0}>☑ Select all ({demand.length})</button>
+        {selected.size > 0 && <button style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => setSelected(new Set())}>Clear selection</button>}
+        {selected.size > 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", border: `1px solid ${C.primary}`, borderRadius: 6 }}>
+            <b style={{ color: C.primary }}>{selected.size} selected</b>
+            <span style={{ color: C.textMuted }}>set allocated</span>
+            <input type="text" inputMode="decimal" value={batchQty} onChange={(e) => setBatchQty(e.target.value)} placeholder="qty" style={{ ...numCell, width: "6ch" }} />
+            <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12, color: C.primary, borderColor: C.primary }} disabled={!(Number(batchQty) >= 0 && batchQty !== "")} onClick={() => void batchApply(Math.round(Number(batchQty)))}>Apply</button>
+            <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12, color: C.danger, borderColor: "#7f1d1d" }} onClick={() => void batchApply(0)} title="Release the allocation on the selected lines">Clear allocated</button>
+          </span>
+        )}
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: C.textMuted }}>Next after allocating → open the order in <b>🛒 Sales Orders</b>, then <b>🚚 Ship</b> the allocated qty and <b>🧾 Create AR invoice</b>.</span>
+      </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -299,7 +422,12 @@ export default function InternalAllocations() {
                         const shipFloor = n(d.qty_shipped);
                         return (
                           <tr key={d.line_id}>
-                            <td style={{ ...td, paddingLeft: 44, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>{d.so_number || "(draft)"}</td>
+                            <td style={{ ...td, paddingLeft: 24, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                                <input type="checkbox" checked={selected.has(d.line_id)} onChange={() => toggleSelect(d.line_id)} />
+                                {d.so_number || "(draft)"}
+                              </label>
+                            </td>
                             {isVisible("customer") && <td style={td}>{d.customer_name || "—"}</td>}
                             {isVisible("tier") && <td style={td}><span title={tier === 9 ? "Factored SO not approved — cannot allocate" : ""} style={{ fontSize: 11, fontWeight: 600, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 4, padding: "1px 6px" }}>{badge.label}</span></td>}
                             {isVisible("start_ship") && <td style={td}>{d.requested_ship_date || "—"}</td>}
@@ -329,10 +457,38 @@ export default function InternalAllocations() {
       {previewOpen && (
         <div onClick={() => !previewBusy && setPreviewOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 760, maxWidth: 980, maxHeight: "86vh", overflowY: "auto", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>⚡ Auto-allocate preview — {previewScopeLabel}</h3>
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
-              Priority full-fill: <b>factor-approved → credit-card → oldest</b>. Allocation resolves per size-level SKU; the lines below get the stock. Blocked rows (factor gate / no stock) are shown but allocate nothing.
+            <h3 style={{ margin: "0 0 10px", fontSize: 18 }}>⚡ Auto-allocate — {previewScopeLabel}</h3>
+
+            {/* Strategy chosen at run time. Priority tiering (factor-approved →
+                credit-card → oldest) applies to every mode; allocation always
+                resolves per size-level SKU, so a % target never fills a 0-stock size. */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {([
+                ["priority_full", "Priority full-fill"],
+                ["fair_share", "Fair-share (pro-rata)"],
+                ["capped", "Capped %"],
+              ] as const).map(([k, lbl]) => (
+                <button key={k} onClick={() => setStrategy(k)}
+                  style={{ ...btnSecondary, padding: "5px 12px", fontSize: 12, color: strategy === k ? "white" : C.textSub, background: strategy === k ? C.violet : "transparent", borderColor: strategy === k ? C.violet : C.cardBdr }}>{lbl}</button>
+              ))}
+              {strategy === "capped" && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <input type="text" inputMode="decimal" value={capPct} onChange={(e) => setCapPct(e.target.value)}
+                    style={{ ...numCell, width: "5ch" }} title="Cap each order to this % of its open qty" />
+                  <span style={{ fontSize: 12, color: C.textMuted }}>% of</span>
+                  <select value={capBasis} onChange={(e) => setCapBasis(e.target.value as "sku" | "style_color")} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}>
+                    <option value="sku">each SKU line</option>
+                    <option value="style_color">each style/color</option>
+                  </select>
+                </span>
+              )}
             </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+              {strategy === "priority_full" && <>Fill each order 100% in priority order (<b>factor-approved → credit-card → oldest</b>) until stock runs out.</>}
+              {strategy === "fair_share" && <>Spread available stock <b>pro-rata</b> across competing orders so each gets the same share of its open qty (leftover by priority).</>}
+              {strategy === "capped" && <>Priority full-fill, but cap each {capBasis === "sku" ? "order line" : "order's style/color total"} at <b>{capPct || "?"}%</b> of its open qty. Bounded by real per-size availability.</>}
+            </div>
+
             <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 14 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>
@@ -340,7 +496,9 @@ export default function InternalAllocations() {
                   <th style={{ ...th, textAlign: "right" }}>Now</th><th style={{ ...th, textAlign: "right" }}>+Grant</th><th style={{ ...th, textAlign: "right" }}>→ New</th>
                 </tr></thead>
                 <tbody>
-                  {previewRows.map((p) => (
+                  {previewBusy && <tr><td style={td} colSpan={7}>Computing…</td></tr>}
+                  {!previewBusy && previewRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>Nothing to allocate — no available stock or open demand in scope.</td></tr>}
+                  {!previewBusy && previewRows.map((p) => (
                     <tr key={p.line_id} style={{ opacity: p.blocked_reason ? 0.6 : 1 }}>
                       <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{p.so_number || "(draft)"}</td>
                       <td style={td}>{p.customer_name || "—"}</td>
@@ -359,6 +517,74 @@ export default function InternalAllocations() {
               <button style={{ ...btnPrimary, background: C.violet }} disabled={previewBusy || previewRows.every((p) => p.grant <= 0)} onClick={() => void applyPreview()}>
                 {previewBusy ? "…" : `Apply ${previewRows.filter((p) => p.grant > 0).length} allocation(s)`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Allocation priority rules — reorder the criteria + pick the tie-break.
+          The auto-allocate engine reads these server-side. */}
+      {rulesOpen && (
+        <div onClick={() => !rulesSaving && setRulesOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>⚙ Allocation priority rules</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>Auto-allocate fills competing orders in this order (top = first). A factored order with no approval is never allocated, whatever the order.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {rulesDraft.priority_order.map((c, i) => (
+                <div key={c} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "8px 10px" }}>
+                  <span><b style={{ color: C.violet, marginRight: 8 }}>{i + 1}</b>{CRITERION_LABEL[c] || c}</span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    <button style={{ ...btnSecondary, padding: "2px 8px", fontSize: 12, opacity: i === 0 ? 0.4 : 1 }} disabled={i === 0} onClick={() => moveCriterion(i, -1)}>↑</button>
+                    <button style={{ ...btnSecondary, padding: "2px 8px", fontSize: 12, opacity: i === rulesDraft.priority_order.length - 1 ? 0.4 : 1 }} disabled={i === rulesDraft.priority_order.length - 1} onClick={() => moveCriterion(i, 1)}>↓</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <span style={{ fontSize: 12, color: C.textMuted }}>Within the same tier, prefer the</span>
+              <select value={rulesDraft.tie_break} onChange={(e) => setRulesDraft((p) => ({ ...p, tie_break: e.target.value }))} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}>
+                <option value="order_date">earliest order date</option>
+                <option value="ship_date">earliest requested ship date</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <button style={{ ...btnSecondary, fontSize: 12 }} disabled={rulesSaving} onClick={() => setRulesDraft({ priority_order: ["factor_approved", "credit_card", "oldest"], tie_break: "order_date" })}>Reset to default</button>
+              <span style={{ display: "flex", gap: 8 }}>
+                <button style={btnSecondary} disabled={rulesSaving} onClick={() => setRulesOpen(false)}>Cancel</button>
+                <button style={btnPrimary} disabled={rulesSaving} onClick={() => void saveRules()}>{rulesSaving ? "Saving…" : "Save rules"}</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post-allocation summary — how many rows + what % of open demand filled.
+          Waits for the user; "Show results" reveals the per-line grants. */}
+      {summary && (
+        <div onClick={() => setSummary(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 460, maxWidth: 720, maxHeight: "82vh", overflowY: "auto", color: C.text }}>
+            <h3 style={{ margin: "0 0 10px", fontSize: 18 }}>✅ Allocation complete</h3>
+            <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
+              <div><div style={{ fontSize: 22, fontWeight: 700, color: C.success, fontVariantNumeric: "tabular-nums" }}>{summary.count}</div><div style={{ fontSize: 11, color: C.textMuted }}>lines allocated</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{summary.units.toLocaleString()}</div><div style={{ fontSize: 11, color: C.textMuted }}>units granted</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 700, color: summary.pctFilled >= 100 ? C.success : C.warn, fontVariantNumeric: "tabular-nums" }}>{summary.pctFilled}%</div><div style={{ fontSize: 11, color: C.textMuted }}>of open demand filled</div></div>
+            </div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>{summary.label}. Use <b>↩ Undo last</b> to revert. Next → ship the order(s) in <b>🛒 Sales Orders → 🚚 Ship</b>, then <b>🧾 Create AR invoice</b>.</div>
+            {summary.rows.length > 0 && (
+              <button style={{ ...btnSecondary, padding: "5px 12px", fontSize: 12, marginBottom: 10 }} onClick={() => setSummaryShowRows((v) => !v)}>{summaryShowRows ? "Hide results" : "Show results"}</button>
+            )}
+            {summaryShowRows && (
+              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={th}>SO #</th><th style={th}>SKU</th><th style={th}>Size</th><th style={{ ...th, textAlign: "right" }}>+Granted</th><th style={{ ...th, textAlign: "right" }}>→ Allocated</th></tr></thead>
+                  <tbody>{summary.rows.map((r, i) => (
+                    <tr key={i}><td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{r.so}</td><td style={td}>{r.sku}</td><td style={td}>{r.size}</td><td style={{ ...td, textAlign: "right", color: C.success, fontWeight: 700 }}>+{r.granted}</td><td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{r.newAlloc}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={btnPrimary} onClick={() => setSummary(null)}>Close</button>
             </div>
           </div>
         </div>
