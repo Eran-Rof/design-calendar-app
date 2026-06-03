@@ -852,23 +852,25 @@ function ImagesTab({
   const [openImage, setOpenImage] = useState<ImageRow | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Shopify link + pull state.
-  const [shopId, setShopId] = useState(shopifyProductId || "");
+  // Shopify link + pull state. `shopifyProductId` is the mirror uuid FK
+  // (truthy = linked); the input takes the NUMERIC Shopify product id.
+  const isLinked = !!shopifyProductId;
+  const [shopId, setShopId] = useState("");
   const [shopBusy, setShopBusy] = useState<"link" | "pull" | null>(null);
-  useEffect(() => { setShopId(shopifyProductId || ""); }, [shopifyProductId]);
 
-  async function linkShopify() {
+  async function linkShopify(unlink = false) {
     setShopBusy("link");
     setErr(null);
     try {
       const r = await fetch(`/api/internal/pim/styles/${styleId}/link-shopify`, {
         method: "POST",
         headers: { "content-type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ shopify_product_id: shopId.trim() || null }),
+        body: JSON.stringify({ shopify_product_id: unlink ? null : (shopId.trim() || null) }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      notify(j.linked ? `Linked to Shopify product ${j.shopify_product_id}` : "Unlinked from Shopify", "success");
+      notify(j.linked ? `Linked to Shopify product ${j.shopify_numeric_id}${j.title ? ` (${j.title})` : ""}` : "Unlinked from Shopify", "success");
+      if (j.linked) setShopId("");
       await onReload();
     } catch (e: unknown) {
       setErr(`Link failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -1024,29 +1026,43 @@ function ImagesTab({
 
       {/* Shopify: link a product, then re-host its images into this style. */}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: C.textSub, marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.textSub, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
           🛍️ Shopify product images
+          {isLinked && (
+            <span style={{ background: C.tangerine, color: "#000", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>
+              ✓ LINKED
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <input
             type="text"
             value={shopId}
             onChange={(e) => setShopId(e.target.value)}
-            placeholder="Shopify product ID (digits)"
-            style={{ ...inputStyle, width: 220 }}
+            placeholder={isLinked ? "Enter a new Shopify product ID to re-link" : "Shopify product ID (digits)"}
+            style={{ ...inputStyle, width: 240 }}
           />
           <button
-            onClick={() => void linkShopify()}
-            disabled={shopBusy != null || shopId.trim() === (shopifyProductId || "")}
-            style={{ ...btnSecondary, opacity: shopBusy != null ? 0.6 : 1 }}
+            onClick={() => void linkShopify(false)}
+            disabled={shopBusy != null || shopId.trim() === ""}
+            style={{ ...btnSecondary, opacity: (shopBusy != null || shopId.trim() === "") ? 0.6 : 1 }}
           >
-            {shopBusy === "link" ? "Saving…" : "Save link"}
+            {shopBusy === "link" ? "Saving…" : isLinked ? "Re-link" : "Link product"}
           </button>
+          {isLinked && (
+            <button
+              onClick={() => void linkShopify(true)}
+              disabled={shopBusy != null}
+              style={{ ...btnSecondary, opacity: shopBusy != null ? 0.6 : 1 }}
+            >
+              Unlink
+            </button>
+          )}
           <button
             onClick={() => void pullShopify()}
-            disabled={shopBusy != null || !shopifyProductId}
-            title={!shopifyProductId ? "Link a Shopify product first" : "Re-host this product's Shopify images"}
-            style={{ ...btnPrimary, opacity: (shopBusy != null || !shopifyProductId) ? 0.6 : 1 }}
+            disabled={shopBusy != null || !isLinked}
+            title={!isLinked ? "Link a Shopify product first" : "Re-host this product's Shopify images"}
+            style={{ ...btnPrimary, opacity: (shopBusy != null || !isLinked) ? 0.6 : 1 }}
           >
             {shopBusy === "pull" ? "Pulling…" : "Pull from Shopify"}
           </button>
