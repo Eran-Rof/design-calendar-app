@@ -37,6 +37,21 @@ export function normalizeSize(raw) {
   if (raw == null) return raw;
   return LETTER_SIZE_CANON[String(raw).trim().toUpperCase()] || raw;
 }
+// Inverse: a canonical label → every raw token that maps to it. Lets the SKU
+// resolver MATCH an existing row whatever spelling it was stored with (so a
+// caller asking for "SMALL" reuses a legacy "SML"/"S" row instead of forking a
+// new one — the root cause of the duplicate-SKU sprawl).
+const SIZE_VARIANTS = (() => {
+  const m = {};
+  for (const [tok, canon] of Object.entries(LETTER_SIZE_CANON)) (m[canon] ||= new Set()).add(tok);
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, [...v]]));
+})();
+// All DB size tokens that mean the same size as `raw` (incl. raw itself).
+export function sizeVariantsOf(raw) {
+  if (raw == null) return [];
+  const canon = normalizeSize(raw);
+  return SIZE_VARIANTS[canon] || [String(raw).trim()];
+}
 
 // Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
@@ -366,18 +381,29 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
 }
 
 /** Find (or create) the ip_item_master SKU for one matrix cell. */
-export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }) {
+export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }, opts = {}) {
   if (!style_id || !size) return { error: "style_id and size required" };
+  const isApparel = opts.isApparel !== false; // default true; ingest passes false
   const colorVal = color ? String(color).trim() : null;
-  const sizeVal = String(size).trim();
+  const canonSize = String(normalizeSize(String(size).trim()));   // store + create canonical
   const inseamVal = inseam ? String(inseam).trim() : null;
 
-  // Find existing (style, color, size, inseam).
-  let q = admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("style_id", style_id).eq("size", sizeVal);
+  // Find existing — match ANY stored spelling of this size (SML/S/SMALL all
+  // resolve to the same row) so we REUSE rather than fork a duplicate. Tolerate
+  // multiple legacy dups: pick deterministically (prefer the canonical spelling,
+  // then oldest) instead of erroring — the old `.maybeSingle()` threw on 2+ rows
+  // and the caller then created a THIRD, which is how the catalog fragmented.
+  let q = admin.from("ip_item_master").select("id, size, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
   q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
   q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
-  const { data: existing } = await q.maybeSingle();
-  if (existing?.id) return { id: existing.id, created: false };
+  const { data: matches, error: findErr } = await q;
+  if (findErr) return { error: findErr.message };
+  if (matches && matches.length) {
+    const best = matches.slice().sort((a, b) =>
+      (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical first
+      || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0];
+    return { id: best.id, created: false };
+  }
 
   // Need the style_code if not supplied.
   let sc = style_code;
@@ -386,19 +412,20 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
     sc = st?.style_code || null;
   }
 
-  const base = [SKU_SAFE(sc), SKU_SAFE(colorVal), SKU_SAFE(sizeVal), inseamVal ? SKU_SAFE(inseamVal) : ""].filter(Boolean).join("-");
+  const base = [SKU_SAFE(sc), SKU_SAFE(colorVal), SKU_SAFE(canonSize), inseamVal ? SKU_SAFE(inseamVal) : ""].filter(Boolean).join("-");
   // sku_code is globally UNIQUE — retry with a numeric suffix on collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const skuCode = attempt === 0 ? base : `${base}-${attempt}`;
     const { data: created, error } = await admin
       .from("ip_item_master")
-      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: sizeVal, inseam: inseamVal, is_apparel: true })
+      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, is_apparel: isApparel })
       .select("id")
       .single();
     if (!error && created) return { id: created.id, created: true };
     if (error && error.code !== "23505") return { error: error.message };
-    // 23505 → sku_code collided; if it's the same combo that raced in, re-find.
-    const { data: again } = await admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("style_id", style_id).eq("size", sizeVal).eq("sku_code", skuCode).maybeSingle();
+    // 23505 → sku_code collided; re-find by the colliding sku_code (race) or
+    // by the tuple (a variant row landed) and reuse it.
+    const { data: again } = await admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("sku_code", skuCode).maybeSingle();
     if (again?.id) return { id: again.id, created: false };
   }
   return { error: "could not allocate a unique sku_code" };
