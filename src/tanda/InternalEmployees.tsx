@@ -29,6 +29,7 @@ import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { NOTIFICATION_CATEGORIES } from "../lib/notificationCategories";
+import { SB_URL, SB_HEADERS } from "../utils/supabase";
 
 type Employee = {
   id: string;
@@ -53,9 +54,32 @@ type Employee = {
   phone: string | null;
   // Internal notification categories this employee receives email alerts for.
   notification_subscriptions: string[] | null;
+  // Internal apps where this employee receives IN-APP notifications.
+  // null = all apps (back-compat).
+  apps: string[] | null;
+  // metadata.plm_user_id links the employee to their PLM login
+  // (app_data['users'].id) so in-app notifications actually reach them.
+  metadata: { plm_user_id?: string; [k: string]: unknown } | null;
   created_at: string;
   updated_at: string;
 };
+
+// Internal apps an employee can receive in-app notifications in. Keys MUST
+// match the AppKey values in src/components/notifications/notificationApps.ts
+// AND the ALLOWED_APP_KEYS list in the employees API handlers. The external
+// vendor / b2b portals are intentionally excluded.
+const IN_APP_NOTIFICATION_APPS: { key: string; label: string }[] = [
+  { key: "tanda",    label: "PO WIP" },
+  { key: "design",   label: "Design Calendar" },
+  { key: "ats",      label: "ATS" },
+  { key: "techpack", label: "Tech Packs" },
+  { key: "gs1",      label: "GTIN Creation" },
+  { key: "planning", label: "Inventory Planning" },
+  { key: "rof",      label: "Phase Reviews" },
+];
+
+// A PLM login (app_data['users'] entry) the employee can be linked to.
+type PlmUser = { id: string; username?: string; name?: string };
 
 // P16 — reference-master rows fetched for the title / department pickers.
 type EmployeeTitle = { id: string; name: string; is_sales_role: boolean };
@@ -375,6 +399,11 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     phone: formatPhone(employee?.phone ?? ""),
     is_active: employee?.is_active ?? true,
     notification_subscriptions: employee?.notification_subscriptions ?? [],
+    // In-app notification apps. Empty array in the form = "all apps" (the
+    // server stores it as NULL). We seed from the row's apps (null → []).
+    apps: employee?.apps ?? [],
+    // PLM-login link (app_data['users'].id) read from metadata.plm_user_id.
+    plm_user_id: (employee?.metadata?.plm_user_id as string | undefined) ?? "",
   });
 
   // Toggle a notification category on/off in the form's subscription list.
@@ -386,6 +415,31 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
         : [...f.notification_subscriptions, key],
     }));
   }
+
+  // Toggle an in-app notification app on/off in the form's apps list.
+  function toggleApp(key: string) {
+    setForm((f) => ({
+      ...f,
+      apps: f.apps.includes(key) ? f.apps.filter((k) => k !== key) : [...f.apps, key],
+    }));
+  }
+
+  // Load the PLM logins (app_data['users']) for the link picker, lazily on mount.
+  const [plmUsers, setPlmUsers] = useState<PlmUser[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.users&select=value`, { headers: SB_HEADERS });
+        if (!res.ok) return;
+        const rows = await res.json();
+        const raw = Array.isArray(rows) && rows[0]?.value ? rows[0].value : "[]";
+        const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as PlmUser[];
+        if (!cancelled && Array.isArray(parsed)) setPlmUsers(parsed);
+      } catch { /* non-fatal: picker shows empty, link is optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -423,6 +477,10 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
         phone: form.phone.trim() || null,
         is_active: form.is_active,
         notification_subscriptions: form.notification_subscriptions,
+        // In-app notification apps: empty selection = all apps (send null).
+        apps: form.apps.length > 0 ? form.apps : null,
+        // PLM-login link (app_data['users'].id) — empty clears it server-side.
+        plm_user_id: form.plm_user_id.trim() || null,
       };
       // Chunk M — code is server-generated; never sent from the client.
       // auth_user_id is no longer collected in the form (operator request);
@@ -489,6 +547,17 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     () => titles.some((t) => t.id === form.title_id && t.is_sales_role),
     [titles, form.title_id],
   );
+
+  // PLM-login picker options (app_data['users']).
+  const plmUserOptions: SearchableSelectOption[] = useMemo(() => {
+    return [
+      { value: "", label: "(not linked)" },
+      ...plmUsers.map((u) => {
+        const label = u.name ? `${u.name} (${u.username || u.id})` : (u.username || u.id);
+        return { value: u.id, label, searchHaystack: `${u.name ?? ""} ${u.username ?? ""} ${u.id}` };
+      }),
+    ];
+  }, [plmUsers]);
 
   return (
     <div style={{
@@ -638,6 +707,51 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
                 </label>
               ))}
             </div>
+          </div>
+
+          {/* In-app notification apps — which internal apps this employee sees
+              this person's notifications in. Blank = all apps. */}
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <label style={{ display: "block", marginBottom: 6, color: C.textSub, fontSize: 12, fontWeight: 600 }}>
+              In-app notification apps
+            </label>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
+              Apps where this employee receives in-app notifications (blank = all). Requires a linked PLM login below.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+              {IN_APP_NOTIFICATION_APPS.map((app) => (
+                <label
+                  key={app.key}
+                  style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textSub, cursor: "pointer" }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.apps.includes(app.key)}
+                    onChange={() => toggleApp(app.key)}
+                  />
+                  {app.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* PLM login link — without this the in-app bell can't match this
+              employee (the internal shell keys on app_data['users'].id). */}
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <Field label="Linked PLM login (for in-app delivery)">
+              <SearchableSelect
+                value={form.plm_user_id || null}
+                onChange={(v) => set("plm_user_id", v ?? "")}
+                options={plmUserOptions}
+                placeholder="(not linked)"
+                emptyText="No matching logins"
+              />
+            </Field>
+            {!form.plm_user_id && (
+              <div style={{ fontSize: 11, color: "#F59E0B", marginTop: 4 }}>
+                Not linked — in-app notifications won't reach this employee (email still works). Pick their PLM login to enable the in-app bell.
+              </div>
+            )}
           </div>
         </div>
 

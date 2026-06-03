@@ -27,6 +27,50 @@ function parseSubscriptions(raw) {
   return { value: out };
 }
 
+// Internal app keys an employee may receive in-app notifications in.
+// Mirrors the AppKey values in src/components/notifications/notificationApps.ts;
+// the external vendor / b2b portals are intentionally excluded. A NULL apps
+// column = all apps (back-compat).
+const ALLOWED_APP_KEYS = ["tanda", "design", "ats", "techpack", "gs1", "planning", "rof"];
+
+// Validate + normalize an `apps` value into a deduped string[] of allowed
+// keys, or null (= all apps). An empty array normalizes to null so an
+// operator who unchecks everything doesn't silence the employee everywhere.
+// Returns { value } or { error }.
+function parseApps(raw) {
+  if (raw == null) return { value: null };
+  if (!Array.isArray(raw)) return { error: "apps must be an array of app keys or null" };
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return { error: "apps entries must be strings" };
+    const key = item.trim();
+    if (!key) continue;
+    if (!ALLOWED_APP_KEYS.includes(key)) {
+      return { error: `unknown app key: ${JSON.stringify(item)} (allowed: ${ALLOWED_APP_KEYS.join(", ")})` };
+    }
+    if (!out.includes(key)) out.push(key);
+  }
+  return { value: out.length > 0 ? out : null };
+}
+
+// The PLM-login link (app_data['users'].id slug) is stored inside the
+// employee.metadata jsonb under `plm_user_id`. It's what lets the internal
+// NotificationsShell — which matches the logged-in user by
+// recipient_internal_id == app_data['users'].id — actually deliver an in-app
+// notification to this person. Validate it's a short string or null and merge
+// it into the metadata object. Returns { metadata } or { error }.
+function mergePlmUserId(metadata, raw) {
+  const base = (metadata && typeof metadata === "object" && !Array.isArray(metadata)) ? { ...metadata } : {};
+  if (raw === undefined) return { metadata: base };
+  if (raw === null || raw === "") { delete base.plm_user_id; return { metadata: base }; }
+  if (typeof raw !== "string") return { error: "plm_user_id must be a string or null" };
+  const id = raw.trim();
+  if (!id) { delete base.plm_user_id; return { metadata: base }; }
+  if (id.length > 64) return { error: "plm_user_id too long" };
+  base.plm_user_id = id;
+  return { metadata: base };
+}
+
 // Chunk M — employee codes are server-generated + read-only (operator item 14).
 const CODE_PREFIX = "EMP-";
 
@@ -161,6 +205,10 @@ export function validateInsert(body) {
   if (closeoutPct.error) return { error: `commission_closeout_pct: ${closeoutPct.error}` };
   const subs = parseSubscriptions(body.notification_subscriptions);
   if (subs.error) return { error: subs.error };
+  const apps = parseApps(body.apps);
+  if (apps.error) return { error: apps.error };
+  const metaMerge = mergePlmUserId(body.metadata, body.plm_user_id);
+  if (metaMerge.error) return { error: metaMerge.error };
 
   return {
     data: {
@@ -181,7 +229,8 @@ export function validateInsert(body) {
       auth_user_id: auth_user_id_trimmed || null,
       manager_employee_id: manager_id_trimmed || null,
       notification_subscriptions: subs.value,
-      metadata: body.metadata || {},
+      apps: apps.value,
+      metadata: metaMerge.metadata,
     },
   };
 }

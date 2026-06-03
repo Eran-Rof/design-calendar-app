@@ -170,13 +170,20 @@ export async function resolveInternalRecipients(admin, category, options = {}) {
  *   3. Nothing resolvable (resolved_via='none') — caller logs + skips email.
  *
  * Never throws: a DB hiccup degrades to the env fallback. Returned `employees`
- * carry { email, name } so the caller can target an in-app notification by
- * email and personalize the body.
+ * carry { email, name, plm_user_id, apps } so the caller can ALSO target an
+ * in-app notification: the internal NotificationsShell matches the logged-in
+ * user by recipient_internal_id == app_data['users'].id, so we surface the
+ * employee's linked PLM-login slug (employees.metadata.plm_user_id) as
+ * `plm_user_id`. When it's null the in-app bell can't reach the employee —
+ * the caller falls back to email-only. `apps` is the employee's in-app app
+ * routing (employees.apps; null = all apps) mirrored onto the notification as
+ * metadata.target_apps.
  *
  * @param {object} admin service-role Supabase client
  * @param {object} [options] forwarded to the procurement fallback resolver
  * @returns {Promise<{ resolved_via: "employee"|"internal_procurement"|"none",
- *                      emails: string[], employees: Array<{email:string,name:string}> }>}
+ *                      emails: string[],
+ *                      employees: Array<{email:string,name:string,plm_user_id:string|null,apps:string[]|null}> }>}
  */
 export async function resolveProductionManager(admin, options = {}) {
   // 1. Direct employee match on title (free-text OR master).
@@ -184,7 +191,7 @@ export async function resolveProductionManager(admin, options = {}) {
     if (admin) {
       const { data, error } = await admin
         .from("employees")
-        .select("email, display_name, title, employee_titles:title_id(name)")
+        .select("email, display_name, title, apps, metadata, employee_titles:title_id(name)")
         .eq("is_active", true);
       if (error) throw error;
       const isPM = (s) => typeof s === "string" && /production\s*manager/i.test(s);
@@ -199,7 +206,10 @@ export async function resolveProductionManager(admin, options = {}) {
         const key = email.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        matches.push({ email, name: row.display_name || "Production Manager" });
+        const meta = (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)) ? row.metadata : {};
+        const plmUserId = (typeof meta.plm_user_id === "string" && meta.plm_user_id.trim()) ? meta.plm_user_id.trim() : null;
+        const apps = Array.isArray(row.apps) && row.apps.length > 0 ? row.apps : null;
+        matches.push({ email, name: row.display_name || "Production Manager", plm_user_id: plmUserId, apps });
       }
       if (matches.length > 0) {
         return { resolved_via: "employee", emails: matches.map((m) => m.email), employees: matches };
@@ -215,7 +225,9 @@ export async function resolveProductionManager(admin, options = {}) {
     return {
       resolved_via: "internal_procurement",
       emails: proc.emails,
-      employees: proc.emails.map((email) => ({ email, name: "Production / Procurement" })),
+      // Env/subscription recipients carry no PLM-login link → email-only
+      // (plm_user_id null) and no app routing (apps null = all apps).
+      employees: proc.emails.map((email) => ({ email, name: "Production / Procurement", plm_user_id: null, apps: null })),
     };
   }
 
