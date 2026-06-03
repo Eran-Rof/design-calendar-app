@@ -576,3 +576,42 @@ export async function publishRfq(rfqId: string): Promise<PublishRfqResult> {
     headers: { "Content-Type": "application/json" },
   }));
 }
+
+export interface AwardRfqResult {
+  ok: true;
+  rfq_id: string;
+  awarded_to: string;
+  /** Count of losing vendors that received an rfq_not_awarded notification. */
+  losers_notified: number;
+  /** Whether the Production-Manager in-app/email notification was sent, and how the recipient was resolved. */
+  pm_notify?: {
+    sent: boolean;
+    /** 'employee' = matched a Production-Manager employee; 'internal_procurement' = env fallback; 'none' = no recipient resolvable. */
+    resolved_via: "employee" | "internal_procurement" | "none";
+    recipients: number;
+  };
+  /** Costing write-back diagnostics (see award handler). */
+  costing_writeback?: {
+    written: number;
+    skipped_reason: string | null;
+    errors: Array<Record<string, unknown>>;
+  };
+}
+
+/**
+ * "Award" — award the RFQ to its invited vendor.
+ *
+ * POSTs to api/_handlers/internal/rfqs/:id/award/:vendor_id.js (routes.js).
+ * The handler flips rfqs.status → 'awarded', marks the winning rfq_quote
+ * 'awarded' + losers 'rejected', notifies the winner (rfq_awarded) and every
+ * loser (rfq_not_awarded), notifies + emails the Production Manager, fires the
+ * rfq_awarded workflow event, AND flows the awarded quote back into the source
+ * costing project. It requires the awarded vendor to have a SUBMITTED quote —
+ * returns 409 with a descriptive message otherwise (surfaced to the caller).
+ */
+export async function awardRfq(rfqId: string, vendorId: string): Promise<AwardRfqResult> {
+  return json<AwardRfqResult>(await fetch(`/api/internal/rfqs/${rfqId}/award/${vendorId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }));
+}

@@ -8,7 +8,7 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs, deleteRfq, publishRfq } from "../services/costingApi";
+import { listRfqs, deleteRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
@@ -38,6 +38,8 @@ export default function RfqListView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // RFQ ids with an in-flight Send-to-Vendor publish (disable the button + show "Sending…").
   const [sending, setSending] = useState<Set<string>>(new Set());
+  // RFQ ids with an in-flight Award (disable + show "Awarding…").
+  const [awarding, setAwarding] = useState<Set<string>>(new Set());
 
   // Debounced search — wait 200ms after the last keystroke before firing.
   useEffect(() => {
@@ -144,6 +146,34 @@ export default function RfqListView() {
           setNotice(`Could not send to vendor: ${(e as Error).message}`, "error");
         } finally {
           setSending((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+        }
+      },
+    );
+  };
+
+  // "Award" — award the RFQ to its invited vendor. The handler requires the
+  // vendor to have a SUBMITTED quote and 409s otherwise; the list row carries
+  // no quote status, so we offer Award on any published RFQ and surface the
+  // handler's error verbatim when the quote isn't ready.
+  const onAward = (r: RfqListRow) => {
+    if (!r.vendor_id) {
+      setNotice("This RFQ has no invited vendor to award.", "error");
+      return;
+    }
+    const vendorLabel = r.vendor_name || "the vendor";
+    appConfirm(
+      `Award this RFQ to ${vendorLabel}? This notifies the vendor and the Production Manager and flows the price into the costing project.`,
+      "Award",
+      async () => {
+        setAwarding((prev) => new Set(prev).add(r.id));
+        try {
+          await awardRfq(r.id, r.vendor_id as string);
+          setRows((prev) => prev.map((x) => x.id === r.id ? { ...x, status: "awarded" } : x));
+          setNotice(`RFQ awarded to ${vendorLabel}. Vendor + Production Manager notified; price flowed into the costing project.`, "info");
+        } catch (e) {
+          setNotice(`Could not award: ${(e as Error).message}`, "error");
+        } finally {
+          setAwarding((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
         }
       },
     );
@@ -290,6 +320,31 @@ export default function RfqListView() {
                             whiteSpace: "nowrap",
                           }}
                         >{sending.has(r.id) ? "Sending…" : r.status === "draft" ? "Send" : "Re-send"}</button>
+                      )}
+                      {r.status === "published" && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onAward(r); }}
+                          disabled={awarding.has(r.id)}
+                          title="Award to the invited vendor — notifies the vendor + Production Manager and flows the price into costing (requires a submitted quote)"
+                          style={{
+                            background: "#047857", color: "#FFFFFF",
+                            border: "1px solid #047857", borderRadius: 3,
+                            padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                            cursor: awarding.has(r.id) ? "wait" : "pointer",
+                            opacity: awarding.has(r.id) ? 0.6 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >{awarding.has(r.id) ? "Awarding…" : "Award"}</button>
+                      )}
+                      {r.status === "awarded" && (
+                        <span
+                          title="This RFQ has been awarded"
+                          style={{
+                            color: "#10B981", border: "1px solid #10B981",
+                            borderRadius: 3, padding: "2px 8px", fontSize: 11, fontWeight: 700,
+                            textTransform: "uppercase", letterSpacing: ".04em", whiteSpace: "nowrap",
+                          }}
+                        >✓ Awarded</span>
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); onDelete(r); }}
