@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtDate, fmtMoney } from "../utils";
+import { fmtDate, fmtMoney, errMsg } from "../utils";
 import POMessageThread, { type Sender } from "./POMessageThread";
 import VendorPhasesView from "./VendorPhasesView";
 
@@ -102,19 +102,22 @@ export default function VendorPODetail() {
           });
         }
 
-        const [poRes, lineRes, shipRes, invRes, ackRes, msgRes] = await Promise.all([
+        const [poRes, lineRes, shipRes, msgRes] = await Promise.all([
           supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id").eq("uuid_id", id).maybeSingle(),
           supabaseVendor.from("po_line_items").select("id, line_index, item_number, description, qty_ordered, qty_received, unit_price, line_total").eq("po_id", id).order("line_index"),
           supabaseVendor.from("shipments").select("id, number, number_type, asn_number, carrier, ship_date, estimated_delivery, current_status, workflow_status").eq("po_id", id).order("created_at", { ascending: false }),
-          Promise.resolve(null),
-          vu ? supabaseVendor.from("po_acknowledgments").select("id").eq("vendor_user_id", vu.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
           supabaseVendor.from("po_messages").select("id, sender_type, read_by_vendor").eq("po_id", id),
         ]);
 
+        // The PO header is the only essential query — fail hard only if it can't
+        // load. Line items / shipments / messages drive secondary tabs; if one
+        // of those errors (e.g. a table-permission gap that only bites certain
+        // legacy POs) we degrade that section to empty rather than blanking the
+        // whole page with an opaque error.
         if (poRes.error) throw poRes.error;
-        if (lineRes.error) throw lineRes.error;
-        if (shipRes.error) throw shipRes.error;
-        if (msgRes.error) throw msgRes.error;
+        if (lineRes.error) console.warn("[VendorPODetail] line items load failed:", errMsg(lineRes.error));
+        if (shipRes.error) console.warn("[VendorPODetail] shipments load failed:", errMsg(shipRes.error));
+        if (msgRes.error) console.warn("[VendorPODetail] messages load failed:", errMsg(msgRes.error));
 
         setPO(poRes.data as PORow | null);
         setLines((lineRes.data ?? []) as POLineItem[]);
@@ -162,7 +165,7 @@ export default function VendorPODetail() {
           .filter((m) => m.sender_type === "internal" && !m.read_by_vendor).length;
         setUnreadCount(unread);
       } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : String(e));
+        setErr(errMsg(e));
       } finally {
         setLoading(false);
       }
