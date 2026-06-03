@@ -37,6 +37,8 @@ export default async function handler(req, res) {
   const display_name = String(body?.display_name || "").trim();
   const legacy_blob_id = String(body?.legacy_blob_id || "").trim();
   const vendor_name = String(body?.vendor_name || "").trim();
+  // Precise existing-vendor selection from the Onboarding dropdown (vendors.id).
+  const vendor_id = String(body?.vendor_id || "").trim();
   // Fall back to current origin for callers that don't pass site_url —
   // the Onboarding panel in TandA doesn't know the absolute URL.
   const site_url = (() => {
@@ -50,8 +52,8 @@ export default async function handler(req, res) {
   if (!email) {
     return res.status(400).json({ error: "email is required" });
   }
-  if (!legacy_blob_id && !vendor_name) {
-    return res.status(400).json({ error: "Either legacy_blob_id or vendor_name is required" });
+  if (!vendor_id && !legacy_blob_id && !vendor_name) {
+    return res.status(400).json({ error: "Select an existing vendor or enter a new vendor name" });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: "Invalid email" });
@@ -63,11 +65,17 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   try {
-    // Resolve vendor by legacy_blob_id (preferred) OR vendor_name
-    // (Onboarding flow that doesn't know the blob id). If nothing
-    // matches and vendor_name was provided, create a new vendors row.
+    // Resolve vendor by vendor_id (existing-vendor dropdown — preferred &
+    // precise) → legacy_blob_id → vendor_name (typed name; create if no match).
     let vendor = null;
-    if (legacy_blob_id) {
+    if (vendor_id) {
+      const { data, error: vErr } = await admin
+        .from("vendors").select("id, name")
+        .eq("id", vendor_id).maybeSingle();
+      if (vErr) return res.status(500).json({ error: "Vendor lookup failed: " + vErr.message });
+      vendor = data;
+      if (!vendor) return res.status(404).json({ error: "Selected vendor not found." });
+    } else if (legacy_blob_id) {
       const { data, error: vErr } = await admin
         .from("vendors").select("id, name")
         .eq("legacy_blob_id", legacy_blob_id).maybeSingle();
