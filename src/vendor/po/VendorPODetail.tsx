@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate, fmtMoney, errMsg } from "../utils";
 import POMessageThread, { type Sender } from "./POMessageThread";
 import VendorPhasesView from "./VendorPhasesView";
+import VendorPoMatrix from "./VendorPoMatrix";
 
 interface PORow {
   uuid_id: string;
@@ -189,7 +190,9 @@ export default function VendorPODetail() {
     BuyerName?: string; StatusName?: string; DateOrder?: string;
     DateExpectedDelivery?: string; TotalAmount?: number; CurrencyCode?: string;
   };
-  const lineTotal = useMemo(() => lines.reduce((a, l) => a + (Number(l.line_total) || (Number(l.qty_ordered) || 0) * (Number(l.unit_price) || 0)), 0), [lines]);
+  // Size-matrix line items come from the Xoro PO payload (data.Items), same
+  // source the Tanda PO matrix uses — SKU encodes base/color/size.
+  const matrixItems = ((po?.data as any)?.Items ?? (po?.data as any)?.PoLineArr ?? []) as any[];
 
   if (loading) return <div style={{ color: "#FFFFFF" }}>Loading PO…</div>;
   if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
@@ -248,32 +251,9 @@ export default function VendorPODetail() {
       </div>
 
       {tab === "overview" && (
-        <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ padding: "12px 20px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 14, fontWeight: 700, color: TH.text }}>Line items</div>
-          {lines.length === 0 ? (
-            <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No line items materialized yet.</div>
-          ) : (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-                <div>#</div><div>Item</div><div>Description</div><div>Qty ord.</div><div>Qty shipped</div><div>Qty rcv.</div><div>Unit price</div><div style={{ textAlign: "right" }}>Line total</div>
-              </div>
-              {lines.map((l) => (
-                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-                  <div style={{ color: TH.textMuted }}>{l.line_index}</div>
-                  <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{l.item_number ?? "—"}</div>
-                  <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
-                  <div style={{ color: TH.textSub2 }}>{l.qty_ordered ?? "—"}</div>
-                  <div style={{ color: TH.textSub2 }}>{shippedByLine[l.id] ?? 0}</div>
-                  <div style={{ color: TH.textSub2 }}>{l.qty_received ?? "—"}</div>
-                  <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
-                  <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(l.line_total ?? (Number(l.qty_ordered) || 0) * (Number(l.unit_price) || 0))}</div>
-                </div>
-              ))}
-              <div style={{ padding: "12px 20px", display: "flex", justifyContent: "flex-end", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}` }}>
-                <div style={{ fontSize: 14, color: TH.text }}>Lines total <strong style={{ color: TH.primary, marginLeft: 10, fontSize: 16 }}>{fmtMoney(lineTotal)}</strong></div>
-              </div>
-            </>
-          )}
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: TH.text, marginBottom: 10 }}>Line items</div>
+          <VendorPoMatrix items={matrixItems} />
         </div>
       )}
 
