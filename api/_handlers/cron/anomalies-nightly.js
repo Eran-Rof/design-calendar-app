@@ -25,7 +25,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { fireWorkflowEvent } from "../../_lib/workflow.js";
-import { getInternalRecipients } from "../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 60 };
 
@@ -45,7 +45,7 @@ async function fireHighSeverityAlert(admin, origin, vendor, flag) {
     const anomalyCategories = ["procurement", "finance", "vendor_alert", "compliance"];
     let emails = [];
     for (const cat of anomalyCategories) {
-      const result = getInternalRecipients(cat, { event: "anomaly_detected" });
+      const result = await resolveInternalRecipients(admin, cat, { event: "anomaly_detected" });
       if (result.emails.length > 0) { emails = result.emails; break; }
     }
     if (emails.length === 0) return;

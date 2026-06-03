@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationRow } from "./types";
-import { eventMatchesApp, type AppKey } from "./notificationApps";
+import { notificationMatchesApp, type AppKey } from "./notificationApps";
 
 interface Props {
   kind: "vendor" | "internal";
@@ -121,7 +121,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
         .limit(500);
       if (error) return;
       const all = (data ?? []) as NotificationRow[];
-      const scoped = appFilter ? all.filter((n) => eventMatchesApp(n.event_type, appFilter)) : all;
+      const scoped = appFilter ? all.filter((n) => notificationMatchesApp(n, appFilter)) : all;
       setItems(scoped);
     } finally {
       setLoading(false);

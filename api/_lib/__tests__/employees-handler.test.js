@@ -81,3 +81,37 @@ describe("employees validatePatch", () => {
     expect(Object.keys(v.data)).toHaveLength(0);
   });
 });
+
+describe("employees notification_subscriptions", () => {
+  it("defaults to empty array on create", () => {
+    const v = validateInsert({ first_name: "E", last_name: "B", email: "x@y.com" });
+    expect(v.data.notification_subscriptions).toEqual([]);
+  });
+  it("accepts and dedupes valid categories on create", () => {
+    const v = validateInsert({
+      first_name: "E", last_name: "B", email: "x@y.com",
+      notification_subscriptions: ["onboarding", "invoice", "onboarding"],
+    });
+    expect(v.error).toBeUndefined();
+    expect(v.data.notification_subscriptions).toEqual(["onboarding", "invoice"]);
+  });
+  it("rejects an unknown category on create", () => {
+    expect(validateInsert({
+      first_name: "E", last_name: "B", email: "x@y.com",
+      notification_subscriptions: ["not_a_real_category"],
+    }).error).toMatch(/unknown notification category/);
+  });
+  it("rejects a non-array on create", () => {
+    expect(validateInsert({
+      first_name: "E", last_name: "B", email: "x@y.com",
+      notification_subscriptions: "onboarding",
+    }).error).toMatch(/must be an array/);
+  });
+  it("accepts a valid subscription patch", () => {
+    const v = validatePatch({ notification_subscriptions: ["dispute"] });
+    expect(v.data.notification_subscriptions).toEqual(["dispute"]);
+  });
+  it("rejects an unknown category on patch", () => {
+    expect(validatePatch({ notification_subscriptions: ["bogus"] }).error).toMatch(/unknown notification category/);
+  });
+});

@@ -21,7 +21,9 @@
 // and mirrors the first element into the legacy fabric_code column.
 
 import React, { useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { searchFabrics, type FabricHit } from "../services/costingApi";
+import { usePopoverAnchor } from "../hooks/usePopoverAnchor";
 
 interface Props {
   value: string[];
@@ -35,14 +37,26 @@ export default function FabricPickerCell({ value, onChange }: Props) {
   const [dbRows, setDbRows] = useState<FabricHit[]>([]);
   const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  // Portal the dropdown out of the grid's overflow:hidden cell so it isn't
+  // clipped. Anchor to the cell wrapper; matches ColorPickerCell.
+  const { anchorRef, pos } = usePopoverAnchor<HTMLDivElement>({ open, minWidth: 280 });
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   // Debounced DB search. Fires unconditionally — the handler returns the
@@ -85,10 +99,14 @@ export default function FabricPickerCell({ value, onChange }: Props) {
   return (
     <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
       <div
+        ref={anchorRef}
         onClick={() => setOpen(true)}
+        title={selected.length ? `Fabrics: ${selected.join(", ")}` : "Click to pick fabric(s)"}
         style={{
           display: "flex", flexWrap: "wrap", gap: 3, alignItems: "center",
-          minHeight: 26, padding: "2px 4px", cursor: "text",
+          minHeight: 26, padding: "2px 4px", cursor: "pointer",
+          border: `1px ${selected.length ? "solid" : "dashed"} #475569`,
+          borderRadius: 3,
         }}
       >
         {selected.map((c) => (
@@ -115,7 +133,7 @@ export default function FabricPickerCell({ value, onChange }: Props) {
         ))}
         <input
           value={text}
-          placeholder={selected.length === 0 ? "Fabric" : ""}
+          placeholder={selected.length === 0 ? "— pick fabric —" : ""}
           onChange={(e) => { setText(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
@@ -130,16 +148,17 @@ export default function FabricPickerCell({ value, onChange }: Props) {
             flex: 1, minWidth: 50, padding: "2px 2px", fontSize: 12,
             background: "transparent", border: "none",
             color: "#E2E8F0", outline: "none",
+            ...(selected.length === 0 ? { color: "#94A3B8" } : null),
           }}
         />
+        <span style={{ color: "#64748B", fontSize: 9, marginLeft: "auto", paddingRight: 2 }}>▾</span>
       </div>
-      {open && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 50,
-          minWidth: 280, maxHeight: 280, overflowY: "auto",
+      {open && pos && ReactDOM.createPortal(
+        <div ref={popRef} style={{
+          position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+          zIndex: 9999, maxHeight: 280, overflowY: "auto",
           background: "#1E293B", border: "1px solid #475569",
-          borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-          marginTop: 2,
+          borderRadius: 8, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
         }}>
           {loading && <div style={{ padding: 8, fontSize: 11, color: "#94A3B8" }}>Searching…</div>}
 
@@ -178,7 +197,8 @@ export default function FabricPickerCell({ value, onChange }: Props) {
               }}
             >+ Add fabric: <strong>{text.trim()}</strong></button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

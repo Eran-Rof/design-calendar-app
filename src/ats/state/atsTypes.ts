@@ -28,6 +28,14 @@ export interface ATSState {
   filterGender: string[];
   filterStatus: string;
   minATS: number | "";
+  // On-Order date window (inclusive, ISO YYYY-MM-DD; "" = unbounded on
+  // that side). Scopes ONLY the "On Order" total/column/exports to SO
+  // lines whose date falls in the range — lets the operator reproduce a
+  // date-windowed Xoro "Open Orders" total. The SO date is the Xoro
+  // "Date to be Cancelled" (see ats-parse.js), NOT ship date. Empty on
+  // both sides = no window (full open book, the default).
+  soWinFrom: string;
+  soWinTo: string;
   storeFilter: string[];
   // Dropdowns
   poDropOpen: boolean;
@@ -148,6 +156,8 @@ export function createInitialState(startDate: string): ATSState {
     filterGender: [],
     filterStatus: "All",
     minATS: "",
+    soWinFrom: "",
+    soWinTo: "",
     // Default to ROF only (the primary customer-facing inventory).
     // PT and ROF ECOM stay OFF by default — operator flips them on
     // when they want to look at the secondary or ecom pool. Updated

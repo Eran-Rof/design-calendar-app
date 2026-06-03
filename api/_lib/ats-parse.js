@@ -210,10 +210,24 @@ export function parseExcelRows(invRows, purRows, ordRows) {
   let soTotal = 0, soNoDate = 0, soNoOrderNum = 0, soNoCustName = 0, soNoUnitPrice = 0;
   const soNoDateItems = [];
 
+  // Open-orders only. A fully-shipped / cancelled / voided / closed line has
+  // no open commitment, so it must NOT count toward On Order or the ATS
+  // projection. The nightly feed is Xoro's "All Orders Report" (every
+  // status) and these CSVs carry no "Qty Remaining to Ship" column, so
+  // without this guard a Shipped line was counted at full ordered qty —
+  // overstating On Order (e.g. MMG cancel 5/9-6/16 read 92,980 vs the
+  // open-only 87,512; the 5,468 delta was Shipped lines). Keep Released +
+  // Partially Shipped (and any other non-terminal status); drop terminal.
+  const TERMINAL_SO_STATUSES = new Set([
+    "shipped", "fully shipped", "cancelled", "canceled",
+    "void", "voided", "closed", "complete", "completed",
+  ]);
   for (const r of ordRows) {
     const base  = str(r["Base Part"]);
     const color = str(r["Option 1 Value"]);
     if (!base) continue;
+    const soStatus = str(r["Order Line Status"] || r["Order Status"] || r["Status"] || "").toLowerCase();
+    if (TERMINAL_SO_STATUSES.has(soStatus)) continue;
     const sku = color ? `${base} - ${color}` : base;
     const qty = toNum(r["Total Sum of Qty Ordered"] ?? r["Qty Ordered"]);
 

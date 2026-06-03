@@ -198,9 +198,20 @@ Prepacks (PPK) hold inventory in **packs**, not eaches: a pack SKU has a `style_
 `src/tanda/InternalPrepackMatrix.tsx` over migration `20260715100000_prepack_matrix_driver.sql`:
 
 - **`prepack_matrices`** — one row per prepack: server-generated `code` (**`PPKM-NNNNN`**, read-only), name, `ppk_style_code` (the PPK `style_code` exactly as in `ip_item_master`), `pack_token`, optional `pack_total`. A partial unique index enforces one matrix per `(entity, lower(ppk_style_code))`.
-- **`prepack_matrix_sizes`** — the composition: `(matrix_id, size, qty_per_pack)`. `SUM(qty_per_pack)` over a matrix = one pack's total units; `size` matches the **sized sibling** style's size labels.
+- **`prepack_matrix_sizes`** — the composition: `(matrix_id, size, qty_per_pack, inner_pack_qty)`. The **Pack Token** (e.g. `PPK24`) names the **carton** contents (24 units); the carton is built from **inner packs**. Per size: **`qty_per_pack`** = "Qty Per Box" (carton units of that size) and **`inner_pack_qty`** = how many inner packs of that size. **Carton total = `SUM(qty_per_pack)`** (24 for PPK24); **inner packs = `SUM(inner_pack_qty)`**. `size` matches the **sized sibling** style's size labels. Seeded example `RYB059430PPK` / PPK24: sizes 30·31·33·36 = 1 inner pack × 3 units, 32·34 = 2 inner packs × 6 → **8 inner packs, 24 units**.
 
-The panel supports CRUD plus an XLSX import (columns like `PPK Style Code`, `Size`, `Qty Per Pack`) that upserts matrices by `ppk_style_code`.
+The panel supports CRUD plus a **styled** xlsx/csv template round-trip that upserts matrices by `ppk_style_code`. The template (xlsx-js-style) is **colour-coded**:
+- **White = pre-filled by the system** — PPK Style Code, Matrix Name (from the master), Pack Token, Carton Qty.
+- **Yellow = you fill** — one uniform **Units / Inner Pack** for the style, plus each **Size <x>** cell = the **number of inner packs** of that size.
+- **Green = auto formula** — **Num Inner Packs** (`= Carton Qty ÷ Units/Inner Pack`), **Inner Pack Total** (`= Σ size cells`), **Unit Total** (`= Inner Pack Total × Units/Inner Pack`), **Status** (`OK` when Unit Total = Carton Qty, else `CHECK`).
+
+So **carton units for a size = inner packs × Units/Inner Pack**. Example `RYB059430PPK` / Edge Slim / PPK24: Units/Inner Pack = 3, sizes 30·31·33·36 = 1 inner pack, 32·34 = 2 → 8 inner packs × 3 = **24 units**.
+
+- **Download template** ships the one filled Edge Slim example on a single styled sheet.
+- **⬇ Download all PPK** fetches every PPK style still lacking a matrix (from `v_prepack_ppk_needed`, via `GET /api/internal/prepack-matrices/needed`) and writes one workbook with **one styled sheet per size scale** — white cells pre-filled from the master (names never guessed), yellow cells blank. Fill it in and upload the whole file in one go.
+- **Upload** reads **every sheet** and is section-aware (title / `INNER PACK` band / blank / legend rows skipped; a `PPK Style Code` header re-establishes the columns). It accepts the **inner-pack** format (above), the **long** format (`…| Size | Inner Pack Qty | Qty Per Box`), and **legacy wide** (paired `<size> Inner`/`<size> Box`, or a plain `<size>` = carton units), in `.xlsx` **or `.csv`**. The add/edit modal's composition field (`size:innerPacks:qtyPerBox`, e.g. `32:2:6`) is the manual equivalent.
+
+**Name from master, never guessed.** On create, a blank `name` is resolved from `style_master.style_name` (the PPK code, then its base sibling), falling back to the sibling's `ip_item_master.description` — exactly what `v_prepack_ppk_needed` exposes. The list + editor show composition as **stacked cells (size on top, carton qty below)** — no inner-pack annotation.
 
 ### Explode-PPK on the Inventory Matrix
 

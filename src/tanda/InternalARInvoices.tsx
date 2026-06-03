@@ -709,6 +709,26 @@ function ARInvoiceModal({
     setLines((ll) => ll.filter((_, i) => i !== idx));
   }
 
+  // M43 — suggest a unit price from the Pricing Engine for the line's SKU +
+  // this invoice's customer + qty. Prefills only when the unit-price box is empty
+  // (manual entries/edits preserved); `force` overwrites (the ↻ button). The
+  // engine prices at style level; the resolve endpoint maps the SKU → style.
+  const [priceSrc, setPriceSrc] = useState<Record<number, string>>({});
+  async function suggestPrice(lineKey: number, itemId: string, qtyStr: string, force: boolean) {
+    if (!itemId || !customerId) return;
+    try {
+      const p = new URLSearchParams({ customer_id: customerId, item_id: itemId });
+      const qn = Number(qtyStr); if (Number.isFinite(qn) && qn > 0) p.set("qty", String(qn));
+      const r = await fetch(`/api/internal/pricing/resolve?${p.toString()}`);
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j?.price_cents == null) { if (force) notify("No price found for this style/customer.", "info"); return; }
+      const dollars = centsToDollarsStr(j.price_cents);
+      setLines((prev) => prev.map((l) => l.key === lineKey ? (force || !l.unit_price_dollars ? { ...l, unit_price_dollars: dollars } : l) : l));
+      if (j.source_list_code) setPriceSrc((m) => ({ ...m, [lineKey]: j.source_list_code }));
+    } catch { /* non-fatal — operator can type the price */ }
+  }
+
   const totalCents = useMemo(() => {
     let total = 0n;
     for (const l of lines) {
@@ -994,7 +1014,7 @@ function ARInvoiceModal({
                       <td style={td}>
                         <SearchableSelect
                           value={l.inventory_item_id || null}
-                          onChange={(v) => updateLine(idx, { inventory_item_id: v })}
+                          onChange={(v) => { updateLine(idx, { inventory_item_id: v }); if (v) void suggestPrice(l.key, v, l.quantity, false); }}
                           options={(() => {
                             const opts = [
                               { value: "", label: "(select)" },
@@ -1017,7 +1037,11 @@ function ARInvoiceModal({
                         <input type="number" min="0" step="0.0001" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })} disabled={!editable} style={inputStyle} />
                       </td>
                       <td style={td}>
-                        <input type="text" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="unit $" style={inputStyle} />
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <input type="text" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="unit $" style={inputStyle} />
+                          {editable && l.inventory_item_id && customerId && <button type="button" title="Suggest price from the pricing engine" onClick={() => void suggestPrice(l.key, l.inventory_item_id, l.quantity, true)} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 12 }}>↻</button>}
+                        </div>
+                        {priceSrc[l.key] && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>from {priceSrc[l.key]}</div>}
                       </td>
                       <td style={td}>
                         <input type="text" value={l.line_total_dollars} onChange={(e) => updateLine(idx, { line_total_dollars: e.target.value })} disabled={!editable || (!!l.unit_price_dollars && !!l.quantity)} placeholder="0.00" style={inputStyle} />

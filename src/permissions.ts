@@ -35,7 +35,9 @@ export type PermissionAppId =
   | "techpack"
   | "ats"
   | "costing"
-  | "vendor";
+  | "vendor"
+  | "gs1"
+  | "planning";
 
 export interface PermissionUser {
   id?: string;
@@ -48,6 +50,8 @@ export interface PermissionUser {
     ats?: AtsPermission;
     costing?: AppPermission;
     vendor?: AppPermission;
+    gs1?: AppPermission;
+    planning?: AppPermission;
   };
 }
 
@@ -112,6 +116,25 @@ export function canSeeCostingTabFromSession(): boolean {
   if (!u) return true;
   if (u.role === "admin") return true;
   return u.permissions?.costing?.access !== false;
+}
+
+// Generic per-app access gate read from the PLM session. Drives the launcher
+// card lock in PLM.tsx and the route guards in main.tsx. Default-true: no
+// session, an unparseable blob, admins, or a missing permission entry all
+// resolve to "access granted", so users predating a gate keep working — only
+// an explicit `access: false` blocks.
+export function canAccessAppFromSession(app: PermissionAppId): boolean {
+  const u = readSessionUser();
+  if (!u) return true;
+  if (u.role === "admin") return true;
+  return u.permissions?.[app]?.access !== false;
+}
+
+// True when the current session user may open the standalone Costing app
+// (launcher card + the /costing route guard in main.tsx). Same permission
+// key as the Tech Packs Costing tab above.
+export function canAccessCostingFromSession(): boolean {
+  return canAccessAppFromSession("costing");
 }
 
 // True when the Vendor Portal card should render on the PLM dashboard for

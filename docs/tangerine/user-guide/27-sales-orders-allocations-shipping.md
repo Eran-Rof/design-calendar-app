@@ -76,12 +76,26 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 
 ### Lines & the size-matrix entry
 
-Each line carries `inventory_item_id` (a **size-level SKU**, FK into `ip_item_master.id`), `qty_ordered`, and `unit_price_cents` (entered in dollars). There are two entry paths:
+Each line carries `inventory_item_id` (a **size-level SKU**, FK into `ip_item_master.id`), `qty_ordered`, and `unit_price_cents` (entered in dollars). **The line body IS the size matrix** (≈95% of styles are matrix-driven), not a flat line list:
 
-1. **Line-by-line** — one `SearchableSelect` per SKU + qty + unit $. A fresh empty row auto-appends once the last row has a SKU and qty > 0.
-2. **➕ Add by matrix (size grid)** — pick a style, then type quantities directly into an editable color × size (× inseam) grid, with a per-row Unit $ and a "set all rows" bulk field. Each filled cell is resolved to an `ip_item_master` SKU (find-or-create) and folded into the normal line state, so it submits through the same create/PATCH path. The matrix mechanics (size-scale resolution, find-or-create) belong to the matrix primitive — see **chapter 28 (Inventory Matrix)**.
+1. **➕ Add style (matrix)** — pick a style; it loads an editable **color × size (× inseam) grid** (the same `EditableSizeMatrix` the Inventory Matrix uses) where you type ordered quantities straight into the cells, with a per-row **Unit $** and a "set all rows" bulk field. Add more styles to stack more grids. The grids ARE the order — there is no separate "add to order" step.
+2. **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU/qty/$ row.
+
+On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-create via `/api/internal/style-matrix/resolve-sku`) and the flat lines are appended — all submitting through the same create/PATCH path. **Editing** an existing draft rebuilds the grids: the detail endpoint decorates each line with its `style_code`/`color`/`size`, so lines regroup into per-style matrices (anything without a style/size falls to the non-matrix list). The matrix mechanics belong to the matrix primitive — see **chapter 28 (Inventory Matrix)**.
+
+**Header totals + projected margin.** Above the grids a live readout shows **Total qty**, **Total $**, and **Projected margin %** = `(revenue − cost) / revenue`. Per cell the cost is the SKU's `avg_cost_cents` (Xoro/Excel history). When a style has **no cost history**, the cell falls back to a **21% assumed gross margin**, and when *no* line has real cost data the margin shows an **"estimated — no cost data (assumes 21%)"** note.
+
+**Adding styles to a confirmed order.** Once confirmed, the grids collapse to **only the color rows that carry a quantity** (the order, read-only). An **✏️ Add styles** button re-opens the full editable grids so you can append more styles (or edit) and **Save changes** — the line PATCH is now allowed while `draft` *or* `confirmed` (still blocked once allocated / shipped / invoiced). Re-confirming isn't required.
 
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
+
+### Fulfillment source — Production vs ATS
+
+Above the matrix grids, a **Fulfillment source** dropdown (`sales_orders.fulfillment_source`):
+- **Production** — the order is being *made*. The grids **hide the on-hand hint** (irrelevant), and **on confirm** the **Production Manager** is notified by **email + in-app** (Tanda bell) via the new **"Production"** notification category. Configure the recipient by ticking **Production** on the Production Manager's employee record (Employees → notification subscriptions) or by setting `INTERNAL_PRODUCTION_EMAILS`. If none is configured, confirming still works and the UI flags that no one was alerted.
+- **ATS** — the order ships from available stock. *(Showing live available-to-ship **by size** above each cell — from `tangerine_size_onhand` — is the next increment; today ATS mode still shows the matrix on-hand.)*
+
+The alert fires once per SO (deduped on the SO id), through the same `resolveInternalRecipients` + `/api/send-notification` path as the vendor-alert / invoice alerts.
 
 ### Confirming — SO number assignment
 
@@ -171,7 +185,17 @@ Style · Color   (on-hand · reserved · avail · demand)
 | **Fair-share (pro-rata)** | Water-fill: spread each SKU's available pool pro-rata by remaining open qty across competing orders; the rounding tail and leftover go by priority. |
 | **Capped %** | Priority full-fill but cap each order at *N%* of its open qty — basis is either **each SKU line** or **each style/color total**. Bounded by real per-size availability, so a % target can never fill a zero-stock size. |
 
-Reviewing the preview shows per-line **Now / +Grant / → New** (blocked lines show their reason). **Apply** confirms, then POSTs the granted set to `apply_allocations`, which **re-validates** — a stale preview is safe.
+Reviewing the preview shows per-line **Now / +Grant / → New** (blocked lines show their reason). **Apply** confirms, then POSTs the granted set to `apply_allocations`, which **re-validates** — a stale preview is safe. The preview dialog **is** where you change the per-run **fill mode** (priority / fair-share / capped %) before applying.
+
+**⚙ Rules — the persistent priority order.** The header **⚙ Rules** button opens an editor to reorder the three priority criteria (**factor-approved · credit-card · oldest**, top = filled first) and pick the within-tier tie-break (earliest **order date** vs **requested ship date**). Saved per entity in `allocation_priority_rules` and read server-side by `allocations/preview` on every run (`GET/PUT /api/internal/allocations/rules`, h602). A missing config = the historical default (factor → card → oldest, by order date). The **hard factor-credit gate** (a factored SO with no approval is never allocated) is independent of this order and always applies.
+
+After applying, a **summary popup** reports how many lines were allocated, the units granted, and the **% of open demand filled**; **Show results** lists the per-line grants. It waits for you to close.
+
+**Undo + batch (not one-way):**
+- **↩ Undo last** (header, appears after any allocation) reverts the last run — auto-allocate, batch, or a single cell — to the prior allocated quantities. Every allocation snapshots what it changed.
+- **☑ Select all** / per-line checkboxes (in the SO column) → a **batch bar** to **set** the allocation to a value or **Clear allocated** (release) across all checked lines at once, instead of editing line by line.
+
+**Next step after allocating:** allocation only *reserves* stock. To fulfil, open the order in **🛒 Sales Orders**, **🚚 Ship** the allocated quantities (records a carrier shipment; the SO moves to `fulfilling`/`shipped`), then **🧾 Create AR invoice** (which books the revenue + FIFO COGS in AR).
 
 ### The hard factor-credit gate (workbench)
 
@@ -202,7 +226,7 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 
 ## 27.7 Day-to-day workflow
 
-1. **Take the order.** 🛒 Sales Orders → **+ New** → pick customer (brand/channel/terms prefill) → add lines (line-by-line or **➕ Add by matrix**) → optionally set Factor/Ins Approval → **Save & Confirm**. The SO gets its `SO-YYYY-NNNNN` number.
+1. **Take the order.** 🛒 Sales Orders → **+ New** → pick customer (brand/channel/terms prefill) → add lines (the size-matrix body — **➕ Add style** per style, **+ Add non-matrix line** for one-offs) → optionally set Factor/Ins Approval → **Save & Confirm**. The SO gets its `SO-YYYY-NNNNN` number.
 2. *(Optional)* **Split across stores** while still a draft (🏬 Ship to multiple stores) → adjust + confirm each child.
 3. **Reserve stock.** Either per-SO **📦 Allocate stock**, or open **📊 Allocations** to arbitrate across competing orders — pick a fill mode, preview, apply. Factored orders only fill when approved and within the approved $.
 4. **Ship.** 🚚 Ship → enter carrier + tracking → confirm. SO → `shipped` (or `fulfilling` if partial). Blocked at 409 if the customer is factored and not approved.
@@ -223,7 +247,7 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 
 ## 27.9 Code map
 
-- **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixEntry.tsx` (matrix line entry), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog).
+- **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixBody.tsx` (the size-matrix line body — per-style grids + non-matrix flat lines + save-time SKU resolve), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog).
 - **SO handlers:** `api/_handlers/internal/sales-orders/index.js` (GET list / POST create), `.../[id].js` (GET / PATCH incl. confirm + ship-gate / DELETE), `.../create-invoice.js`, `.../allocate.js`, `.../ship.js`, `.../split.js`.
 - **Allocations handlers:** `api/_handlers/internal/allocations/index.js` (GET demand+availability / POST `apply_allocations`), `.../allocations/preview.js` (fill-mode preview compute).
 - **Schema:** `supabase/migrations/20260712110000_p16_m10a_sales_orders_schema.sql` (`sales_orders` + `sales_order_lines`), `20260712120000_p16_m10c_so_invoice_link.sql`, `20260712150000_p16_so_multistore_split.sql`, `20260712200000_p16_m18_allocations.sql` (`v_inventory_available` + `allocate_sales_order()`), `20260714010000_p16_m18_allocations_workbench.sql` (`v_allocation_demand` + `apply_allocations()`), `20260712210000_p16_m44_shipments.sql` (`sales_order_shipments` + `_lines`).

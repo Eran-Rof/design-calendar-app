@@ -39,6 +39,13 @@ import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
 import InternalAllocations        from "./tanda/InternalAllocations";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
+import InternalReceiving          from "./tanda/InternalReceiving";
+import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
+import InternalQCInspections      from "./tanda/InternalQCInspections";
+import InternalCustomsEntries     from "./tanda/InternalCustomsEntries";
+import InternalBrokerInvoices     from "./tanda/InternalBrokerInvoices";
+import InternalThreeWayMatch      from "./tanda/InternalThreeWayMatch";
+import InternalProcurementRecon   from "./tanda/InternalProcurementRecon";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
@@ -86,6 +93,9 @@ import InternalUserAccess              from "./tanda/InternalUserAccess";
 // P14-4 — client menu hide driven by the caller's effective permissions.
 import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
 import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
+// M31 — surface the standalone Planning app inside the Tangerine shell; gate by
+// the shared PLM per-app permission (`permissions.planning.access`, default-true).
+import { canAccessAppFromSession } from "./permissions";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -169,6 +179,13 @@ type ModuleKey =
   | "inventory_matrix"
   | "prepack_matrices"
   | "purchase_orders"
+  | "receiving"
+  | "bookkeeper_approval"
+  | "qc_inspections"
+  | "customs_entries"
+  | "broker_invoices"
+  | "three_way_match"
+  | "procurement_recon"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -314,7 +331,16 @@ const MODULES: ModuleDef[] = [
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
-  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
+  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Procurement" },
+  // P13/C1 — Receiving + bookkeeper approval (procurement operational layer).
+  { key: "receiving",           label: "Receiving",         emoji: "📥", group: "Procurement" },
+  { key: "bookkeeper_approval", label: "Bookkeeper Approval", emoji: "🧾", group: "Procurement" },
+  // P13/C2-C4 — QC + trade compliance + 3-way match.
+  { key: "qc_inspections",      label: "QC Inspections",    emoji: "🔍", group: "Procurement" },
+  { key: "customs_entries",     label: "Customs Entries",   emoji: "🛃", group: "Procurement" },
+  { key: "broker_invoices",     label: "Broker Invoices",   emoji: "🚢", group: "Procurement" },
+  { key: "three_way_match",     label: "3-Way Match",       emoji: "⚖️", group: "Procurement" },
+  { key: "procurement_recon",   label: "Procurement Recon", emoji: "🧮", group: "Procurement" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
   { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
@@ -366,6 +392,19 @@ const APPS: AppLink[] = [
   { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
   { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
   { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
+];
+
+// M31 — the standalone Planning app's screens, surfaced as first-class deep
+// links inside the Tangerine shell (header nav + home landing). The Planning
+// app keeps its own shell once you land there; these are entry points. No data
+// plumbing yet — Planning still reads its own Xoro/Shopify-backed tables.
+const PLANNING_SCREENS: AppLink[] = [
+  { href: "/planning/wholesale", label: "Wholesale", emoji: "🛒", description: "Wholesale demand forecast" },
+  { href: "/planning/ecom",      label: "Ecom",      emoji: "🛍️", description: "Shopify weekly forecast" },
+  { href: "/planning/supply",    label: "Supply",    emoji: "⚖️", description: "Supply reconciliation + buy recs" },
+  { href: "/planning/scenarios", label: "Scenarios", emoji: "🔀", description: "What-if planning + exports" },
+  { href: "/planning/accuracy",  label: "Accuracy",  emoji: "🎯", description: "Forecast accuracy + AI" },
+  { href: "/planning/execution", label: "Execution", emoji: "🚀", description: "Approved buy-plan batches" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -583,6 +622,13 @@ export default function Tangerine() {
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
         {activeModule === "sales_allocations" && <InternalAllocations />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
+        {activeModule === "receiving"         && <InternalReceiving />}
+        {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
+        {activeModule === "qc_inspections"    && <InternalQCInspections />}
+        {activeModule === "customs_entries"   && <InternalCustomsEntries />}
+        {activeModule === "broker_invoices"   && <InternalBrokerInvoices />}
+        {activeModule === "three_way_match"   && <InternalThreeWayMatch />}
+        {activeModule === "procurement_recon" && <InternalProcurementRecon />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
@@ -1129,6 +1175,27 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           );
         })}
 
+        {/* M31 — Planning is a separate app (own shell + nav); surface it as a
+            first-class header link. Opens in a new tab so the Tangerine session
+            is preserved. Gated by the shared planning permission. */}
+        {canAccessAppFromSession("planning") && (
+          <a
+            href="/planning/wholesale"
+            target="_blank"
+            rel="noopener"
+            title="Inventory planning — forecasting, supply, scenarios (opens in a new tab)"
+            style={{
+              background: "transparent", border: "1px solid transparent", color: C.textSub,
+              padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
+          >
+            <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+          </a>
+        )}
+
         {/* Menu-item finder — type-ahead jump to any panel, separate from the
             section dropdowns. Respects the same permission filter. */}
         <MenuSearch items={searchItems} onSelect={handleSelect} />
@@ -1338,6 +1405,19 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
           {inventoryModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
+
+      {/* M31 — the standalone Planning app's screens as first-class deep links.
+          Separate app (own shell, own Xoro/Shopify-backed data); opens in a new
+          tab. Gated by the shared planning permission. */}
+      {canAccessAppFromSession("planning") && (
+        <Section title="Planning (M31)">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            {PLANNING_SCREENS.map((s) => (
+              <ExternalLinkCard key={s.href} href={s.href} label={s.label} emoji={s.emoji} sublabel={s.description} />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="Customer Service (P7)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>

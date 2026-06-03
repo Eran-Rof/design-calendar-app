@@ -5,7 +5,7 @@
 // onboarding_submitted notification to INTERNAL_ONBOARDING_EMAILS.
 
 import { createClient } from "@supabase/supabase-js";
-import { getInternalRecipients } from "../../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
 
   // Notify internal review team
   try {
-    const { emails } = getInternalRecipients("onboarding", { event: "onboarding_submitted" });
+    const { emails } = await resolveInternalRecipients(admin, "onboarding", { event: "onboarding_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";
