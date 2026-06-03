@@ -90,10 +90,22 @@ export default async function handler(req, res) {
       }
     }
 
+    // Intended vendor: on a not-yet-sent draft there are no invitations, so
+    // surface the destined vendor (stamped at generation) for the header strip
+    // + the "Send to Vendor" confirmation label.
+    let intendedVendor = null;
+    if (rfq.intended_vendor_id) {
+      const { data: iv } = await admin.from("vendors")
+        .select("id, code, name, legal_name, country, default_currency")
+        .eq("id", rfq.intended_vendor_id).maybeSingle();
+      intendedVendor = iv || null;
+    }
+
     return res.status(200).json({
       rfq,
       line_items: items || [],
       invitations: invitations || [],
+      intended_vendor: intendedVendor,
       source_project: project,
     });
   }
