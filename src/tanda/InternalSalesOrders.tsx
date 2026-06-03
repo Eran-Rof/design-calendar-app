@@ -45,6 +45,7 @@ type SO = {
   brand_id: string | null; channel_id: string | null; order_date: string; requested_ship_date: string | null;
   cancel_date: string | null; status: string; payment_terms_id: string | null; ar_account_id: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
+  fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
 };
@@ -182,6 +183,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [cancelDate, setCancelDate] = useState(so?.cancel_date || "");
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
   const [notes, setNotes] = useState(so?.notes || "");
+  const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
   // few non-matrix flat lines. The body owns its state; we read it at save via
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
@@ -277,6 +279,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
         payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: resolvedLines,
+        fulfillment_source: fulfillmentSource || null,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
         factor_reference: factorReference.trim() || null,
@@ -301,7 +304,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       if (confirm && soId) {
         const r = await fetch(`/api/internal/sales-orders/${soId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "confirmed" }) });
         if (!r.ok) throw new Error(`Saved, but confirm failed: ${(await r.json().catch(() => ({}))).error || `HTTP ${r.status}`}`);
+        const cj = await r.json().catch(() => ({}));
         notify("Sales order confirmed — SO number assigned.", "success");
+        if (cj?.production_notice?.skipped) notify(cj.production_notice.reason || "Production order: no Production recipient configured.", "info");
+        else if (cj?.production_notice?.sent) notify(`Production Manager notified (${cj.production_notice.sent} recipient${cj.production_notice.sent === 1 ? "" : "s"}).`, "success");
       }
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -470,14 +476,27 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
         )}
 
+        {/* Fulfillment source — Production (make it; notify the Production
+            Manager, hide on-hand) or ATS (ship from stock; show available qty). */}
+        <div style={{ marginTop: 16, marginBottom: 4, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source</span>
+          <select value={fulfillmentSource} onChange={(e) => setFulfillmentSource(e.target.value)} disabled={!editable} style={{ ...inputStyle, width: 280 }}>
+            <option value="">(not set)</option>
+            <option value="production">Production — make it (notifies Production Mgr)</option>
+            <option value="ats">ATS — ship from available stock</option>
+          </select>
+          {fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
+        </div>
+
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
             (95% of styles) + a "+ Add non-matrix line" button for one-offs. */}
-        <div style={{ marginTop: 16, marginBottom: 12 }}>
+        <div style={{ marginBottom: 12 }}>
           <SalesOrderMatrixBody
             ref={bodyRef}
             editable={editable}
             items={items}
             seed={seed}
+            showOnHand={fulfillmentSource !== "production"}
           />
         </div>
 

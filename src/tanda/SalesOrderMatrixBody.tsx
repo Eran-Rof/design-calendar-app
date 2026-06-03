@@ -49,11 +49,14 @@ export interface SalesOrderMatrixBodyProps {
   editable: boolean;
   items: FlatItem[];                         // 500-item list for the non-matrix picker
   seed?: { sections: SeedSection[]; flat: FlatLine[] } | null;
+  /** Show the faint on-hand number above each size cell. Off for Production
+   *  fulfillment (the order is being made, not shipped from stock). Default true. */
+  showOnHand?: boolean;
   onTotalsChange?: (t: { qty: number; cents: number }) => void;
 }
 
 const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMatrixBodyProps>(function SalesOrderMatrixBody(
-  { editable, items, seed, onTotalsChange }, ref,
+  { editable, items, seed, showOnHand = true, onTotalsChange }, ref,
 ) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -210,7 +213,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
       {sections.map((s) => {
         const rows = rowsFor(s.payload);
         const onHand: Record<string, number> = {};
-        if (s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (sk?.on_hand_qty != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(sk.on_hand_qty) || 0); } }
+        if (showOnHand && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (sk?.on_hand_qty != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(sk.on_hand_qty) || 0); } }
         return (
           <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, marginBottom: 12, background: C.card, padding: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>

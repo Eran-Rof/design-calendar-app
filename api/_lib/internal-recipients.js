@@ -24,6 +24,7 @@ const CATEGORY_VARS = {
   contract:      "INTERNAL_CONTRACT_EMAILS",
   onboarding:    "INTERNAL_ONBOARDING_EMAILS",
   procurement:   "INTERNAL_PROCUREMENT_EMAILS",
+  production:    "INTERNAL_PRODUCTION_EMAILS",
   finance:       "INTERNAL_FINANCE_EMAILS",
   edi:           "INTERNAL_EDI_EMAILS",
   vendor_alert:  "INTERNAL_VENDOR_ALERT_EMAILS",

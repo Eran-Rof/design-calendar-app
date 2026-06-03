@@ -20,6 +20,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   { key: "message",      label: "PO messages",         description: "A vendor sends a new message on a purchase order" },
   { key: "contract",     label: "Contracts",           description: "A contract is signed or is expiring soon" },
   { key: "procurement",  label: "Procurement / RFQ",   description: "RFQ quotes, declines, and AI procurement insights" },
+  { key: "production",   label: "Production",          description: "A sales order is confirmed for Production fulfillment (Production Manager)" },
   { key: "finance",      label: "Finance",             description: "Supply-chain-finance requests and accepted discount offers" },
   { key: "vendor_alert", label: "Vendor alerts",       description: "A vendor is flagged or its health score drops" },
   { key: "edi",          label: "EDI errors",          description: "An EDI / ERP-sync transaction fails processing" },
