@@ -582,6 +582,8 @@ import h601 from "./internal/planning/buy-plan-to-po.js";
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
 import h576 from "./internal/allocations/index.js";
 import h577 from "./internal/allocations/preview.js";
+// h602 = GET/PUT /api/internal/allocations/rules (configurable priority order)
+import h602 from "./internal/allocations/rules.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1011,6 +1013,7 @@ export const ROUTES = [
   { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
   { pattern: "/api/internal/purchase-orders",                 handler: h572 },
   // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/rules",               handler: h602 },
   { pattern: "/api/internal/allocations/preview",             handler: h577 },
   { pattern: "/api/internal/allocations",                     handler: h576 },
   // M43 — Pricing Engine resolve (suggested unit price).

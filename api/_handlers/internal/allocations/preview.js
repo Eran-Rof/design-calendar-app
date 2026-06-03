@@ -22,6 +22,7 @@
 // The apply RPC re-validates, so a stale preview is safe.
 
 import { createClient } from "@supabase/supabase-js";
+import { getAllocationRules } from "./rules.js";
 
 export const config = { maxDuration: 20 };
 
@@ -42,21 +43,31 @@ async function resolveDefaultEntityId(admin) {
   return data?.id || null;
 }
 
-// Priority tier: 1 = factor-approved, 2 = credit-card, 3 = oldest/other, 9 = blocked.
-function tierOf(d) {
+// Priority tier from the configurable `order` (a permutation of factor_approved
+// / credit_card / oldest). tier = 1-based position of the first criterion the
+// line matches; 9 = blocked (a factored SO without approval — independent of the
+// order, the hard gate always wins). "oldest" matches everyone (the fallback).
+function tierOf(d, order) {
   if (d.is_factored) {
     const ok = d.factor_approval_status === "approved" && String(d.factor_reference || "").trim() !== "";
-    return ok ? { tier: 1 } : { tier: 9, reason: d.factor_approval_status !== "approved" ? "factor not approved" : "factor reference missing" };
+    if (!ok) return { tier: 9, reason: d.factor_approval_status !== "approved" ? "factor not approved" : "factor reference missing" };
   }
-  if (d.has_card) return { tier: 2 };
-  return { tier: 3 };
+  for (let i = 0; i < order.length; i++) {
+    const c = order[i];
+    if (c === "factor_approved" && d.is_factored) return { tier: i + 1 };
+    if (c === "credit_card" && d.has_card) return { tier: i + 1 };
+    if (c === "oldest") return { tier: i + 1 };
+  }
+  return { tier: order.length + 1 };
 }
-// Compare by tier, then oldest order_date, then earliest ship date.
-function byPriority(a, b) {
+// Compare by tier, then the configured tie-break date, then the other date.
+function byPriority(a, b, tieBreak) {
   if (a.tier !== b.tier) return a.tier - b.tier;
-  const ao = a.r.order_date || "9999", bo = b.r.order_date || "9999";
-  if (ao !== bo) return ao < bo ? -1 : 1;
-  const as = a.r.requested_ship_date || "9999", bs = b.r.requested_ship_date || "9999";
+  const primary = tieBreak === "ship_date" ? "requested_ship_date" : "order_date";
+  const secondary = tieBreak === "ship_date" ? "order_date" : "requested_ship_date";
+  const ap = a.r[primary] || "9999", bp = b.r[primary] || "9999";
+  if (ap !== bp) return ap < bp ? -1 : 1;
+  const as = a.r[secondary] || "9999", bs = b.r[secondary] || "9999";
   return as < bs ? -1 : as > bs ? 1 : 0;
 }
 
@@ -69,6 +80,11 @@ export default async function handler(req, res) {
   if (!admin) return res.status(500).json({ error: "Server not configured" });
   const entityId = await resolveDefaultEntityId(admin);
   if (!entityId) return res.status(500).json({ error: "Default entity (ROF) not found" });
+
+  // Operator-configured priority order + tie-break (default factor → card →
+  // oldest, by order date). `cmp` is the comparator used by every strategy.
+  const rules = await getAllocationRules(admin, entityId);
+  const cmp = (a, b) => byPriority(a, b, rules.tie_break);
 
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
@@ -106,7 +122,7 @@ export default async function handler(req, res) {
 
   // Enrich + per-line accumulator. blocked lines (tier 9) never receive stock.
   const E = rows.map((r) => {
-    const t = tierOf(r);
+    const t = tierOf(r, rules.priority_order);
     return { r, tier: t.tier, open: Math.max(Number(r.qty_ordered) - Number(r.qty_allocated), 0), grant: 0, blocked: t.tier === 9 ? t.reason : undefined };
   });
 
@@ -131,12 +147,12 @@ export default async function handler(req, res) {
 
   if (strategy === "priority_full") {
     // Each line filled 100% in priority order until the item pool runs out.
-    for (const e of [...E].sort(byPriority)) grant(e, e.open);
+    for (const e of [...E].sort(cmp)) grant(e, e.open);
 
   } else if (strategy === "capped") {
     if (capBasis === "sku") {
       // Per-line ceiling = round(open × pct%); priority full-fill within it.
-      for (const e of [...E].sort(byPriority)) grant(e, Math.round(e.open * capPct / 100));
+      for (const e of [...E].sort(cmp)) grant(e, Math.round(e.open * capPct / 100));
     } else {
       // Per (SO, style/color) budget = round(groupOpen × pct%); spread across its
       // sizes in priority order, bounded by per-size pool.
@@ -146,13 +162,13 @@ export default async function handler(req, res) {
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(e);
       }
-      const ordered = [...groups.values()].sort((ga, gb) => byPriority(
+      const ordered = [...groups.values()].sort((ga, gb) => cmp(
         ga.reduce((m, x) => (x.tier < m.tier ? x : m), ga[0]),
         gb.reduce((m, x) => (x.tier < m.tier ? x : m), gb[0]),
       ));
       for (const g of ordered) {
         let budget = Math.round(g.reduce((s, e) => s + e.open, 0) * capPct / 100);
-        for (const e of [...g].sort(byPriority)) {
+        for (const e of [...g].sort(cmp)) {
           if (budget <= 0) break;
           budget -= grant(e, Math.min(e.open, budget));
         }
@@ -174,12 +190,12 @@ export default async function handler(req, res) {
         const totalOpen = active.reduce((s, e) => s + (e.open - e.grant), 0);
         if (totalOpen <= 0) break;
         let progressed = false;
-        for (const e of [...active].sort(byPriority)) {
+        for (const e of [...active].sort(cmp)) {
           const share = Math.floor(avail * (e.open - e.grant) / totalOpen);
           if (share > 0 && grant(e, share) > 0) progressed = true;
         }
         if (!progressed) { // rounding tail: hand out remaining units 1-by-1 by priority
-          for (const e of [...active].sort(byPriority)) { if ((pool[itemId] || 0) <= 0) break; grant(e, 1); }
+          for (const e of [...active].sort(cmp)) { if ((pool[itemId] || 0) <= 0) break; grant(e, 1); }
           break;
         }
       }
