@@ -442,24 +442,33 @@ export const GridTable: React.FC<GridTableProps> = ({
                 inventory state across all three:
                   • B Inven = sum(onHand_qty × avg_cost)  per the
                     planner's rule (= sums.onHand.cost)
-                  • E Inven = B + open-POs $ − total period COGS $
-                    Receipts side uses the static open-PO commitment $
-                    (sums.onPO.cost); deductions use the actual SO
-                    event flows totalled across every displayed period
-                    (sum of periodCogsValue across the horizon), not
-                    sums.onOrder.cost — open-SO qty isn't quite the
-                    same as the SO-events that ship during the visible
-                    window.
+                  • E Inven = B + receipts$ − COGS$, both totalled over
+                    the SAME displayed window as the period chain below.
+                    Receipts$ = sum of periodReceiptsValue (PO arrivals
+                    DATED INSIDE the visible window), NOT sums.onPO.cost
+                    (the entire open-PO book). Using the full open-PO
+                    commitment over-stated the badge by the $ of POs
+                    arriving AFTER the window while only subtracting the
+                    in-window COGS — so the sticky E never matched the
+                    last period column's cumulative E. Now they tie out
+                    exactly: stickyE == E of the final displayed period.
+                    Deductions use periodCogsValue summed over the
+                    horizon (not sums.onOrder.cost — open-SO qty isn't
+                    the same as the SO-events shipping in the window).
                 Period cells below each carry their own per-period B/E
                 via the running chain — first period inherits B from
-                the sticky's E. */}
+                the sticky's B. */}
             {(() => {
               const stickyB = sums.onHand.cost;
               let totalPeriodCogs = 0;
+              let totalPeriodReceipts = 0;
               for (const p of displayPeriods) {
                 totalPeriodCogs += sums.periodCogsValue[p.key] ?? 0;
+                totalPeriodReceipts += sums.periodReceiptsValue[p.key] ?? 0;
               }
-              const stickyE = stickyB + sums.onPO.cost - totalPeriodCogs;
+              // Mirror the period chain (B + Σreceipts − Σcogs) so the
+              // badge equals the end-of-window column to the dollar.
+              const stickyE = stickyB + totalPeriodReceipts - totalPeriodCogs;
               return (
                 <>
                   {!isHidden("onHand") && (
