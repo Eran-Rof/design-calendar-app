@@ -15,8 +15,9 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
-import { getRfq, updateRfq, publishRfq } from "../services/costingApi";
+import { getRfq, updateRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
+import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
 import type { RfqDetail, RfqListRow, RfqPatch, RfqStatus, RfqLineItem, RfqInvitation } from "../types";
 
@@ -38,6 +39,7 @@ export default function RfqEditView() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [awarding, setAwarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Undo stack — capped at UNDO_LIMIT. Each snapshot is the form state
   // BEFORE the change that pushed it.
@@ -146,6 +148,40 @@ export default function RfqEditView() {
     }
   }, [id, detail, setNotice]);
 
+  // "Award" — award the RFQ to its invited vendor. The award handler requires
+  // the vendor to have a SUBMITTED quote (it 409s otherwise); we also gate the
+  // button on the invitation showing status='submitted' so we don't offer an
+  // action that's going to bounce. Confirm → award → reflect status='awarded'.
+  const onAward = useCallback(() => {
+    if (!id || !detail) return;
+    const inv = (detail.invitations || []).find((i) => i.status === "submitted")
+      || (detail.invitations || [])[0];
+    if (!inv) {
+      setNotice("No invited vendor to award.", "error");
+      return;
+    }
+    const vendorLabel = inv.vendors?.name || inv.vendors?.legal_name || inv.vendors?.code || inv.vendor_id;
+    appConfirm(
+      `Award this RFQ to ${vendorLabel}? This notifies the vendor and the Production Manager and flows the price into the costing project.`,
+      "Award",
+      async () => {
+        setAwarding(true);
+        try {
+          await awardRfq(id, inv.vendor_id);
+          // Reflect awarded locally so the header + status dropdown update
+          // without a full reload.
+          setDetail((prev) => prev ? { ...prev, rfq: { ...prev.rfq, status: "awarded" } } : prev);
+          setForm((prev) => ({ ...prev, status: "awarded" }));
+          setNotice(`RFQ awarded to ${vendorLabel}. Vendor + Production Manager notified; price flowed into the costing project.`, "info");
+        } catch (e) {
+          setNotice(`Could not award: ${(e as Error).message}`, "error");
+        } finally {
+          setAwarding(false);
+        }
+      },
+    );
+  }, [id, detail, setNotice]);
+
   const onUndo = () => {
     setUndoStack((stack) => {
       if (stack.length === 0) return stack;
@@ -203,7 +239,9 @@ export default function RfqEditView() {
             const isDraft = (detail.rfq.status || "draft") === "draft";
             const canSend = detail.rfq.status === "draft" || detail.rfq.status === "published";
             if (!canSend) {
-              // closed / awarded — publish is rejected server-side; show state only.
+              // awarded is shown by the dedicated "✓ Awarded" badge below;
+              // here just surface the 'closed' state (publish rejected server-side).
+              if (detail.rfq.status === "awarded") return null;
               return (
                 <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
                   {detail.rfq.status}
@@ -228,6 +266,42 @@ export default function RfqEditView() {
                 }}
               >
                 {publishing ? "Sending…" : isDraft ? "Send to Vendor" : "✓ Sent · Re-send"}
+              </button>
+            );
+          })()}
+          {detail && (() => {
+            const status = detail.rfq.status || "draft";
+            if (status === "awarded") {
+              return (
+                <span style={{
+                  fontSize: 11, color: "#10B981", fontWeight: 700,
+                  textTransform: "uppercase", letterSpacing: ".04em",
+                  border: "1px solid #10B981", borderRadius: 4, padding: "4px 10px",
+                }}>✓ Awarded</span>
+              );
+            }
+            // Only offer Award once the RFQ is published. (draft = not sent yet;
+            // closed = no longer awardable here.)
+            if (status !== "published") return null;
+            const hasSubmitted = (detail.invitations || []).some((i) => i.status === "submitted");
+            return (
+              <button
+                onClick={onAward}
+                disabled={awarding || !hasSubmitted}
+                title={hasSubmitted
+                  ? "Award this RFQ to the invited vendor — notifies the vendor + Production Manager and flows the price into costing"
+                  : "Award unlocks once the invited vendor submits a quote"}
+                style={{
+                  background: hasSubmitted ? "#047857" : "transparent",
+                  color: hasSubmitted ? "#FFFFFF" : "#475569",
+                  border: `1px solid ${hasSubmitted ? "#047857" : "#334155"}`,
+                  padding: "6px 14px", borderRadius: 4,
+                  cursor: awarding ? "wait" : hasSubmitted ? "pointer" : "not-allowed",
+                  fontSize: 13, fontWeight: 600,
+                  opacity: awarding ? 0.6 : hasSubmitted ? 1 : 0.55,
+                }}
+              >
+                {awarding ? "Awarding…" : "Award"}
               </button>
             );
           })()}

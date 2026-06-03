@@ -12,6 +12,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { fireWorkflowEvent } from "../../../../../_lib/workflow.js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
+import { resolveProductionManager } from "../../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -53,6 +54,27 @@ export default async function handler(req, res) {
   if (!vendor) return res.status(404).json({ error: "Vendor not found" });
   if (rfq.status === "awarded") return res.status(409).json({ error: "RFQ is already awarded" });
 
+  // Fetch all quotes UP FRONT so we can gate the award on the winning vendor
+  // having actually submitted one. Awarding to a vendor who never quoted would
+  // leave the costing write-back + winner notification meaningless.
+  const { data: allQuotes } = await admin
+    .from("rfq_quotes")
+    .select("id, vendor_id, status, total_price")
+    .eq("rfq_id", rfq_id);
+  const winning = (allQuotes || []).find((q) => q.vendor_id === vendor_id);
+
+  // Gate: the awarded vendor must have a SUBMITTED (or under-review / already
+  // awarded) quote. Draft / declined / missing quotes can't win — return a
+  // descriptive 409 the UI surfaces verbatim.
+  const SUBMITTED_STATES = ["submitted", "under_review", "awarded"];
+  if (!winning || !SUBMITTED_STATES.includes(winning.status)) {
+    return res.status(409).json({
+      error: winning
+        ? `Cannot award: ${vendor.name || "this vendor"}'s quote is "${winning.status}", not submitted yet.`
+        : `Cannot award: ${vendor.name || "this vendor"} has not submitted a quote for this RFQ.`,
+    });
+  }
+
   const nowIso = new Date().toISOString();
 
   // 1. Set RFQ to awarded
@@ -64,8 +86,6 @@ export default async function handler(req, res) {
   }).eq("id", rfq_id);
 
   // 2 & 3. Update quotes
-  const { data: allQuotes } = await admin.from("rfq_quotes").select("id, vendor_id").eq("rfq_id", rfq_id);
-  const winning = (allQuotes || []).find((q) => q.vendor_id === vendor_id);
   if (winning) {
     await admin.from("rfq_quotes").update({ status: "awarded", updated_at: nowIso }).eq("id", winning.id);
   }
@@ -256,6 +276,55 @@ export default async function handler(req, res) {
     } catch { /* swallow */ }
   }
 
+  // 5b. Production Manager notification + email (additive — must never break
+  // the award). The PM is resolved data-first (an active employee titled
+  // "Production Manager") with an env/subscription fallback to the procurement
+  // recipients. Fires one in-app notification + email per resolved recipient,
+  // deduped server-side by (rfq_id, recipient).
+  const awardedTotal = Number.isFinite(Number(winning?.total_price)) ? Number(winning.total_price) : null;
+  const totalLabel = awardedTotal != null
+    ? awardedTotal.toLocaleString(undefined, { style: "currency", currency: rfq.currency || "USD" })
+    : "—";
+  // Prefer linking to the source costing project; fall back to the RFQ list.
+  const pmLink = rfq.source_costing_project_id
+    ? `/costing?view=project-edit&id=${rfq.source_costing_project_id}`
+    : "/costing?view=rfq-list";
+  const pmNotify = { sent: false, resolved_via: "none", recipients: 0 };
+  try {
+    const pm = await resolveProductionManager(admin, { event: "rfq_awarded" });
+    pmNotify.resolved_via = pm.resolved_via;
+    if (pm.employees.length > 0) {
+      await Promise.all(pm.employees.map((recipient) =>
+        fetch(`${origin}/api/send-notification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "rfq_awarded_internal",
+            title: `RFQ awarded: ${rfq.title} → ${vendor.name}`,
+            body: `"${rfq.title}" has been awarded to ${vendor.name} at ${totalLabel}. The price has flowed into the costing project.`,
+            link: pmLink,
+            metadata: {
+              rfq_id, vendor_id, rfq_title: rfq.title,
+              vendor_name: vendor.name, awarded_total: awardedTotal,
+              source_costing_project_id: rfq.source_costing_project_id || null,
+            },
+            recipient: { internal_id: "production_manager", email: recipient.email },
+            dedupe_key: `rfq_awarded_internal_${rfq_id}_${recipient.email}`,
+            email: true,
+          }),
+        }).catch(() => {})
+      ));
+      pmNotify.sent = true;
+      pmNotify.recipients = pm.employees.length;
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn(`[rfq-award] no Production Manager recipient resolved rfq=${rfq_id}. Tag an active employee with a "Production Manager" title, or set INTERNAL_PROCUREMENT_EMAILS.`);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[rfq-award] production-manager notification issue rfq=${rfq_id}: ${e && e.message ? e.message : String(e)}`);
+  }
+
   // 6. Workflow event
   try {
     await fireWorkflowEvent({
@@ -269,7 +338,7 @@ export default async function handler(req, res) {
         vendor_name: vendor.name,
         rfq_title: rfq.title,
         category: rfq.category,
-        amount: winning ? null : null, // quote total_price can be added here via a second lookup if needed
+        amount: awardedTotal,
       },
     });
   } catch { /* non-blocking */ }
@@ -279,6 +348,7 @@ export default async function handler(req, res) {
     rfq_id,
     awarded_to: vendor_id,
     losers_notified: losingVendors.length,
+    pm_notify: pmNotify,
     costing_writeback: costingWriteback,
   });
 }
