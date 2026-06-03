@@ -550,3 +550,29 @@ export async function updateRfq(id: string, patch: RfqPatch): Promise<RfqListRow
 export async function deleteRfq(id: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/rfqs/${id}`, { method: "DELETE" }));
 }
+
+export interface PublishRfqResult {
+  ok: true;
+  id: string;
+  status: "published";
+  /** Number of invited vendors that were (re-)notified via rfq_invited. */
+  notified: number;
+}
+
+/**
+ * "Send to Vendor" — publish the RFQ and notify every invited vendor.
+ *
+ * POSTs to the internal publish handler (api/_handlers/internal/rfqs/:id/publish.js,
+ * routes.js h49). That handler flips rfqs.status draft → published and fires the
+ * rfq_invited notification to each invited vendor; it is idempotent (re-publishing
+ * a published RFQ re-sends, deduped server-side by rfq_id+vendor_id), so the
+ * caller can offer a "Re-send" affordance safely. Same authenticateInternalCaller
+ * gate the rest of /api/internal/costing/* uses, so it is reachable from the
+ * costing app's auth context.
+ */
+export async function publishRfq(rfqId: string): Promise<PublishRfqResult> {
+  return json<PublishRfqResult>(await fetch(`/api/internal/rfqs/${rfqId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }));
+}
