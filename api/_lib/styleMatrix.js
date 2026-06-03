@@ -16,6 +16,28 @@
 
 const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
+// Canonical letter-size labels (match the size_scales master: "Mens S–2XL" =
+// SMALL/MEDIUM/LARGE/XLARGE/2XLARGE, "Kids XS–XL" = XSMALL…). The catalog's
+// ip_item_master.size carries Xoro abbreviations (SML/MED/LRG/XLG/XXL/…) and a
+// mix of single-letter forms (S/M/L/XL) that DON'T line up with the scale
+// columns, so a letter-size style renders columns its SKUs can't match. We map
+// every variant to one canonical label for the matrix VIEW (display + cell
+// match). Non-letter tokens (numeric waists, OS, PPKxx, "S/8", "XS(5-6)") pass
+// through unchanged. Presentation-only — ip_item_master is NOT mutated.
+const LETTER_SIZE_CANON = {
+  XS: "XSMALL", XSM: "XSMALL", "X-SMALL": "XSMALL", XSMALL: "XSMALL",
+  S: "SMALL", SM: "SMALL", SML: "SMALL", SMALL: "SMALL",
+  M: "MEDIUM", MD: "MEDIUM", MED: "MEDIUM", MEDIUM: "MEDIUM",
+  L: "LARGE", LG: "LARGE", LRG: "LARGE", LARGE: "LARGE",
+  XL: "XLARGE", XLG: "XLARGE", "X-LARGE": "XLARGE", XLARGE: "XLARGE",
+  XXL: "2XLARGE", "2X": "2XLARGE", "2XL": "2XLARGE", XXLARGE: "2XLARGE", "2XLARGE": "2XLARGE",
+  XXXL: "3XLARGE", "3X": "3XLARGE", "3XL": "3XLARGE", "3XLARGE": "3XLARGE",
+};
+export function normalizeSize(raw) {
+  if (raw == null) return raw;
+  return LETTER_SIZE_CANON[String(raw).trim().toUpperCase()] || raw;
+}
+
 // Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
 const WH_UNASSIGNED = "(unassigned)";
@@ -72,7 +94,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
 
   if (sizes.length === 0) {
     const seen = new Set();
-    for (const s of skus) { if (s.size && !seen.has(s.size)) { seen.add(s.size); sizes.push(s.size); } }
+    for (const s of skus) { const sz = normalizeSize(s.size); if (sz && !seen.has(sz)) { seen.add(sz); sizes.push(sz); } }
   }
   const colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
   const inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
@@ -181,15 +203,47 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       packs_unmatched: explode.unmatched,    // [{ ppk_style_code, color, pack_token, qty }]
       ppk_styles: explode.ppkStyles,         // distinct PPK sibling style_codes found
     } : (explodePpk ? { enabled: true, cells: [], packs_exploded: 0, packs_unmatched: [], ppk_styles: [] } : undefined),
-    skus: skus.map((s) => ({
-      ...s,
-      on_hand_qty: onHand.get(s.id) || 0,
-      on_hand_by_wh: onHandByWh.get(s.id) || {},
-      available_qty: avail.has(s.id) ? avail.get(s.id) : null,
-      avg_cost_cents: s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null,
-      last_received: lastReceived.has(s.id) ? lastReceived.get(s.id) : null,
-    })),
+    skus: mergeSkusByCell(skus, { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku }),
   };
+}
+
+// Collapse SKUs that share a (color, normalized-size, inseam) cell into ONE
+// entry for the matrix view. The catalog has many duplicate SKUs — straight
+// dups (two "SML" rows) and split letter forms ("L" + "LRG") — that would
+// otherwise render twice or hide each other's on-hand (consumers match a cell
+// with `.find`, so only the first dup's stock would show). We sum on-hand /
+// available / per-warehouse, take the latest received, a representative avg
+// cost, and keep ONE primary SKU id per cell — preferring the dup that actually
+// carries on-hand so the SO resolves against the stocked row. Size is the
+// canonical scale label so cells line up with the scale-driven columns.
+// Non-destructive: ip_item_master rows are untouched.
+function mergeSkusByCell(skus, maps) {
+  const { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku } = maps;
+  const cells = new Map(); // `${color}|${size}|${inseam}` → merged sku (+ _primaryOnHand)
+  for (const s of skus) {
+    const size = normalizeSize(s.size);
+    const key = `${s.color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
+    const oh = onHand.get(s.id) || 0;
+    const av = avail.has(s.id) ? avail.get(s.id) : null;
+    const avgC = s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null;
+    const lr = lastReceived.has(s.id) ? lastReceived.get(s.id) : null;
+    let cell = cells.get(key);
+    if (!cell) {
+      cell = { ...s, size, on_hand_qty: 0, on_hand_by_wh: {}, available_qty: null, avg_cost_cents: null, last_received: null, _primaryOnHand: -1 };
+      cells.set(key, cell);
+    }
+    // Primary (id + sku-level attrs) = the dup with the most on-hand; first wins ties.
+    if (oh > cell._primaryOnHand) {
+      cell._primaryOnHand = oh;
+      cell.id = s.id; cell.sku_code = s.sku_code; cell.length = s.length; cell.fit = s.fit; cell.rise = s.rise;
+    }
+    cell.on_hand_qty += oh;
+    for (const [wh, q] of Object.entries(onHandByWh.get(s.id) || {})) cell.on_hand_by_wh[wh] = (cell.on_hand_by_wh[wh] || 0) + q;
+    if (av != null) cell.available_qty = (cell.available_qty || 0) + av;
+    if (avgC != null && cell.avg_cost_cents == null) cell.avg_cost_cents = avgC;
+    if (lr && (!cell.last_received || lr > cell.last_received)) cell.last_received = lr;
+  }
+  return [...cells.values()].map(({ _primaryOnHand, ...rest }) => rest);
 }
 
 /**
@@ -286,7 +340,8 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
     packsExploded += 1;
     const color = ppk.color || "—";
     extraColors.add(color);
-    for (const { size, qty_per_pack } of comp) {
+    for (const { size: rawSize, qty_per_pack } of comp) {
+      const size = normalizeSize(rawSize); // align pack sizes with the canonical grid columns
       if (!size || !(qty_per_pack > 0)) continue;
       extraSizes.add(size);
       const key = `${color}|${size}`;
