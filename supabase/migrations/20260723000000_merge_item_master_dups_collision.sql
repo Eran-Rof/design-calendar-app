@@ -23,18 +23,18 @@ BEGIN
   PERFORM 1 FROM ip_item_master WHERE id = p_survivor;
   IF NOT FOUND THEN RAISE EXCEPTION 'survivor % not found', p_survivor; END IF;
 
-  -- 1. tangerine_size_onhand — FOLD colliding loser qty into survivor (real
-  --    inventory), delete the folded loser rows, then repoint the rest.
-  UPDATE tangerine_size_onhand sv SET qty_on_hand = sv.qty_on_hand + agg.q, updated_at = now()
-  FROM (SELECT entity_id, warehouse_code, snapshot_date, source, sum(qty_on_hand) q
-        FROM tangerine_size_onhand WHERE item_id = ANY (p_losers)
-        GROUP BY entity_id, warehouse_code, snapshot_date, source) agg
-  WHERE sv.item_id = p_survivor AND sv.entity_id = agg.entity_id AND sv.warehouse_code = agg.warehouse_code
-    AND sv.snapshot_date = agg.snapshot_date AND sv.source = agg.source;
-  DELETE FROM tangerine_size_onhand l WHERE l.item_id = ANY (p_losers) AND EXISTS (
-    SELECT 1 FROM tangerine_size_onhand sv WHERE sv.item_id = p_survivor AND sv.entity_id = l.entity_id
-      AND sv.warehouse_code = l.warehouse_code AND sv.snapshot_date = l.snapshot_date AND sv.source = l.source);
-  UPDATE tangerine_size_onhand SET item_id = p_survivor, updated_at = now() WHERE item_id = ANY (p_losers);
+  -- 1. tangerine_size_onhand — aggregate ALL losers' qty per grain and upsert
+  --    into the survivor (sum on conflict), then drop every loser row. Handles
+  --    any number of losers sharing a grain whether or not the survivor already
+  --    has that row (a per-loser repoint would violate the unique key when 2+
+  --    losers share a grain that the survivor lacks).
+  INSERT INTO tangerine_size_onhand (entity_id, item_id, warehouse_code, snapshot_date, source, qty_on_hand)
+  SELECT entity_id, p_survivor, warehouse_code, snapshot_date, source, sum(qty_on_hand)
+  FROM tangerine_size_onhand WHERE item_id = ANY (p_losers)
+  GROUP BY entity_id, warehouse_code, snapshot_date, source
+  ON CONFLICT (entity_id, item_id, warehouse_code, snapshot_date, source)
+  DO UPDATE SET qty_on_hand = tangerine_size_onhand.qty_on_hand + EXCLUDED.qty_on_hand, updated_at = now();
+  DELETE FROM tangerine_size_onhand WHERE item_id = ANY (p_losers);
   GET DIAGNOSTICS onhand_repointed = ROW_COUNT;
 
   -- 2. Every other FK column — collision-aware repoint.
