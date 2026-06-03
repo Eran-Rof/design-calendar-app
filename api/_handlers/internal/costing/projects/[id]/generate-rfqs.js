@@ -163,11 +163,19 @@ export default async function handler(req, res) {
         continue;
       }
       const existingRfqIds = Array.from(new Set((invRows || []).map((r) => r.rfq_id).filter(Boolean)));
-      if (existingRfqIds.length === 0) continue;
+      // Also include not-yet-sent drafts: these carry intended_vendor_id but no
+      // invitation yet (the send gate), so the invitation-based lookup above
+      // wouldn't find them. Fail-open if the column is missing (pre-migration).
+      let draftIds = [];
+      const { data: draftRfqs, error: draftErr } = await admin.from("rfqs")
+        .select("id").eq("intended_vendor_id", vendorId).eq("entity_id", entityId);
+      if (!draftErr) draftIds = (draftRfqs || []).map((r) => r.id).filter(Boolean);
+      const allExistingIds = Array.from(new Set([...existingRfqIds, ...draftIds]));
+      if (allExistingIds.length === 0) continue;
 
       const { data: existingItems, error: itemsLookupErr } = await admin.from("rfq_line_items")
         .select("style_code, color")
-        .in("rfq_id", existingRfqIds);
+        .in("rfq_id", allExistingIds);
       if (itemsLookupErr) {
         // Almost certainly "column style_code does not exist" pre-migration.
         // Fail-open so generation isn't blocked.
@@ -253,7 +261,20 @@ export default async function handler(req, res) {
       ...baseInsert,
       ...projectDates,
       source_costing_project_id: project.id,
+      // Send gate: record the destined vendor but DON'T invite yet. The
+      // rfq_invitations row (which exposes the RFQ in the vendor portal) is
+      // created only on the explicit "Send to Vendor" / publish step.
+      intended_vendor_id: vendorId,
     }).select("id").maybeSingle());
+    // Pre-migration fallback: drop intended_vendor_id if its column isn't there
+    // yet, then fall through to the date/source ladder below.
+    if (rfqErr && /intended_vendor_id/.test(rfqErr.message || "")) {
+      ({ data: rfq, error: rfqErr } = await admin.from("rfqs").insert({
+        ...baseInsert,
+        ...projectDates,
+        source_costing_project_id: project.id,
+      }).select("id").maybeSingle());
+    }
     // Fallback ladder for pre-migration deploys: strip the new date columns
     // first, then strip source_costing_project_id, then bare baseInsert.
     if (rfqErr && /column .* does not exist/i.test(rfqErr.message || "")) {
@@ -339,14 +360,10 @@ export default async function handler(req, res) {
       // visible. Operator can re-run if line_items are missing.
     }
 
-    const { error: inviteErr } = await admin.from("rfq_invitations").insert({
-      rfq_id: rfq.id,
-      vendor_id: vendorId,
-      status: "invited",
-    });
-    if (inviteErr) {
-      errors.push({ vendor_id: vendorId, vendor: vendorLabel, error: `invitation insert failed: ${inviteErr.message}` });
-    }
+    // NOTE: no rfq_invitations row is created here anymore. The vendor only
+    // sees the RFQ once an internal user clicks "Send to Vendor" (publish),
+    // which creates the invitation from intended_vendor_id. This keeps a
+    // freshly generated RFQ a private draft until it's deliberately sent.
 
     created.push({
       rfq_id: rfq.id,
