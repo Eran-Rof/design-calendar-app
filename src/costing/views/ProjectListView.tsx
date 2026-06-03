@@ -10,6 +10,7 @@ import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates
 import { appConfirm } from "../../utils/theme";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { stripExcelPrefix } from "../services/costingApi";
+import { tabStyle } from "./tabStyle";
 import type { CostingProject, CostingStatus } from "../types";
 
 // Canonical dark-slate palette (matches the Tangerine Internal* modals).
@@ -286,19 +287,5 @@ function rowBtn(color: string): React.CSSProperties {
   return {
     background: "transparent", color, border: `1px solid ${color}`,
     padding: "3px 10px", borderRadius: 3, cursor: "pointer", fontSize: 11, marginRight: 4,
-  };
-}
-// Fused WIP tab button — active tab merges into the panel below (no bottom
-// border, -1px overlap). Lifted verbatim from the Tanda PO-detail tab strip.
-function tabStyle(active: boolean): React.CSSProperties {
-  return {
-    flex: 1, padding: "11px 18px", fontSize: 14, cursor: "pointer", fontWeight: 700,
-    fontFamily: "inherit",
-    border: "1px solid #334155", borderBottom: active ? "none" : "1px solid #334155",
-    background: active ? "#1E293B" : "#0F172A",
-    color: active ? "#60A5FA" : "#6B7280",
-    borderRadius: "10px 10px 0 0",
-    marginBottom: active ? -1 : 0,
-    position: "relative", zIndex: active ? 1 : 0,
   };
 }
