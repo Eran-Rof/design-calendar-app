@@ -76,10 +76,12 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 
 ### Lines & the size-matrix entry
 
-Each line carries `inventory_item_id` (a **size-level SKU**, FK into `ip_item_master.id`), `qty_ordered`, and `unit_price_cents` (entered in dollars). There are two entry paths:
+Each line carries `inventory_item_id` (a **size-level SKU**, FK into `ip_item_master.id`), `qty_ordered`, and `unit_price_cents` (entered in dollars). **The line body IS the size matrix** (≈95% of styles are matrix-driven), not a flat line list:
 
-1. **Line-by-line** — one `SearchableSelect` per SKU + qty + unit $. A fresh empty row auto-appends once the last row has a SKU and qty > 0.
-2. **➕ Add by matrix (size grid)** — pick a style, then type quantities directly into an editable color × size (× inseam) grid, with a per-row Unit $ and a "set all rows" bulk field. Each filled cell is resolved to an `ip_item_master` SKU (find-or-create) and folded into the normal line state, so it submits through the same create/PATCH path. The matrix mechanics (size-scale resolution, find-or-create) belong to the matrix primitive — see **chapter 28 (Inventory Matrix)**.
+1. **➕ Add style (matrix)** — pick a style; it loads an editable **color × size (× inseam) grid** (the same `EditableSizeMatrix` the Inventory Matrix uses) where you type ordered quantities straight into the cells, with a per-row **Unit $** and a "set all rows" bulk field. Add more styles to stack more grids. The grids ARE the order — there is no separate "add to order" step.
+2. **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU/qty/$ row.
+
+On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-create via `/api/internal/style-matrix/resolve-sku`) and the flat lines are appended — all submitting through the same create/PATCH path. **Editing** an existing draft rebuilds the grids: the detail endpoint decorates each line with its `style_code`/`color`/`size`, so lines regroup into per-style matrices (anything without a style/size falls to the non-matrix list). The matrix mechanics belong to the matrix primitive — see **chapter 28 (Inventory Matrix)**.
 
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
@@ -202,7 +204,7 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 
 ## 27.7 Day-to-day workflow
 
-1. **Take the order.** 🛒 Sales Orders → **+ New** → pick customer (brand/channel/terms prefill) → add lines (line-by-line or **➕ Add by matrix**) → optionally set Factor/Ins Approval → **Save & Confirm**. The SO gets its `SO-YYYY-NNNNN` number.
+1. **Take the order.** 🛒 Sales Orders → **+ New** → pick customer (brand/channel/terms prefill) → add lines (the size-matrix body — **➕ Add style** per style, **+ Add non-matrix line** for one-offs) → optionally set Factor/Ins Approval → **Save & Confirm**. The SO gets its `SO-YYYY-NNNNN` number.
 2. *(Optional)* **Split across stores** while still a draft (🏬 Ship to multiple stores) → adjust + confirm each child.
 3. **Reserve stock.** Either per-SO **📦 Allocate stock**, or open **📊 Allocations** to arbitrate across competing orders — pick a fill mode, preview, apply. Factored orders only fill when approved and within the approved $.
 4. **Ship.** 🚚 Ship → enter carrier + tracking → confirm. SO → `shipped` (or `fulfilling` if partial). Blocked at 409 if the customer is factored and not approved.
@@ -223,7 +225,7 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 
 ## 27.9 Code map
 
-- **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixEntry.tsx` (matrix line entry), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog).
+- **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixBody.tsx` (the size-matrix line body — per-style grids + non-matrix flat lines + save-time SKU resolve), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog).
 - **SO handlers:** `api/_handlers/internal/sales-orders/index.js` (GET list / POST create), `.../[id].js` (GET / PATCH incl. confirm + ship-gate / DELETE), `.../create-invoice.js`, `.../allocate.js`, `.../ship.js`, `.../split.js`.
 - **Allocations handlers:** `api/_handlers/internal/allocations/index.js` (GET demand+availability / POST `apply_allocations`), `.../allocations/preview.js` (fill-mode preview compute).
 - **Schema:** `supabase/migrations/20260712110000_p16_m10a_sales_orders_schema.sql` (`sales_orders` + `sales_order_lines`), `20260712120000_p16_m10c_so_invoice_link.sql`, `20260712150000_p16_so_multistore_split.sql`, `20260712200000_p16_m18_allocations.sql` (`v_inventory_available` + `allocate_sales_order()`), `20260714010000_p16_m18_allocations_workbench.sql` (`v_allocation_demand` + `apply_allocations()`), `20260712210000_p16_m44_shipments.sql` (`sales_order_shipments` + `_lines`).

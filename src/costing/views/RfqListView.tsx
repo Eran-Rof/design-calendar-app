@@ -8,7 +8,7 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs, deleteRfq } from "../services/costingApi";
+import { listRfqs, deleteRfq, publishRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
@@ -36,6 +36,8 @@ export default function RfqListView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // RFQ ids with an in-flight Send-to-Vendor publish (disable the button + show "Sending…").
+  const [sending, setSending] = useState<Set<string>>(new Set());
 
   // Debounced search — wait 200ms after the last keystroke before firing.
   useEffect(() => {
@@ -113,6 +115,35 @@ export default function RfqListView() {
           setNotice(`Deleted ${ids.length} RFQ${ids.length === 1 ? "" : "s"}.`, "info");
         } else {
           setNotice(`Deleted ${deleted.size} of ${ids.length}; ${failed.length} failed.`, "error");
+        }
+      },
+    );
+  };
+
+  // "Send to Vendor" — publish + notify the invited vendor(s). Idempotent on
+  // the server, so the same action re-sends on an already-published RFQ.
+  const onSend = (r: RfqListRow) => {
+    const vendorLabel = r.vendor_name || "the vendor";
+    const isDraft = r.status === "draft";
+    appConfirm(
+      isDraft
+        ? `Send RFQ "${r.title || r.id}" to ${vendorLabel}? This publishes it and notifies the invited vendor(s).`
+        : `Re-send RFQ "${r.title || r.id}" to ${vendorLabel}? The invited vendor(s) will be notified again.`,
+      isDraft ? "Send" : "Re-send",
+      async () => {
+        setSending((prev) => new Set(prev).add(r.id));
+        try {
+          const result = await publishRfq(r.id);
+          setRows((prev) => prev.map((x) => x.id === r.id ? { ...x, status: "published" } : x));
+          const n = result.notified;
+          setNotice(
+            `RFQ sent to ${vendorLabel} — ${n === 0 ? "no invited vendors to notify yet" : `${n} ${n === 1 ? "vendor has" : "vendors have"} been notified`}.`,
+            "info",
+          );
+        } catch (e) {
+          setNotice(`Could not send to vendor: ${(e as Error).message}`, "error");
+        } finally {
+          setSending((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
         }
       },
     );
@@ -241,16 +272,36 @@ export default function RfqListView() {
                   <Td>{(r.due_date || r.delivery_required_by) ? fmtDateDisplay((r.due_date || r.delivery_required_by) as string) : "—"}</Td>
                   <Td>{r.created_at ? fmtDateDisplay(r.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDelete(r); }}
-                      title="Delete this RFQ (with confirmation)"
-                      style={{
-                        background: "transparent", color: "#F87171",
-                        border: "1px solid #7F1D1D", borderRadius: 3,
-                        padding: "2px 8px", fontSize: 11, fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >Delete</button>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      {(r.status === "draft" || r.status === "published") && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onSend(r); }}
+                          disabled={sending.has(r.id)}
+                          title={r.status === "draft"
+                            ? "Send to vendor — publish + notify the invited vendor(s)"
+                            : "Re-send — re-notify the invited vendor(s)"}
+                          style={{
+                            background: r.status === "draft" ? "#1D4ED8" : "transparent",
+                            color: r.status === "draft" ? "#FFFFFF" : "#60A5FA",
+                            border: "1px solid #1D4ED8", borderRadius: 3,
+                            padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                            cursor: sending.has(r.id) ? "wait" : "pointer",
+                            opacity: sending.has(r.id) ? 0.6 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >{sending.has(r.id) ? "Sending…" : r.status === "draft" ? "Send" : "Re-send"}</button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(r); }}
+                        title="Delete this RFQ (with confirmation)"
+                        style={{
+                          background: "transparent", color: "#F87171",
+                          border: "1px solid #7F1D1D", borderRadius: 3,
+                          padding: "2px 8px", fontSize: 11, fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >Delete</button>
+                    </div>
                   </Td>
                 </tr>
               );

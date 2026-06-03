@@ -4,9 +4,9 @@
 // AR-invoice modal patterns (customer/ship-to/brand/channel pickers, item
 // SearchableSelect, supporting docs). SO number is system-assigned on Confirm.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
-import SalesOrderMatrixEntry, { type MatrixLineAdd } from "./SalesOrderMatrixEntry";
+import SalesOrderMatrixBody, { type SalesOrderMatrixBodyHandle, type SeedSection, type FlatLine } from "./SalesOrderMatrixBody";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
@@ -37,10 +37,8 @@ const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid 
 // dark-on-dark default — matches the Inventory Matrix inputs.
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 // Item 7 — ~8-char numeric box with no browser spinner arrows (type=text + inputMode=decimal).
-const numInputStyle: React.CSSProperties = { ...inputStyle, width: "8ch", textAlign: "right" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
-const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borderColor: "#7f1d1d", padding: "2px 8px" };
 
 type SO = {
   id: string; so_number: string | null; customer_id: string; ship_to_location_id: string | null;
@@ -50,7 +48,6 @@ type SO = {
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
 };
-type SOLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
@@ -185,8 +182,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [cancelDate, setCancelDate] = useState(so?.cancel_date || "");
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
   const [notes, setNotes] = useState(so?.notes || "");
-  const [lines, setLines] = useState<SOLine[]>([{ key: 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]);
-  const [matrixOpen, setMatrixOpen] = useState(false);
+  // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
+  // few non-matrix flat lines. The body owns its state; we read it at save via
+  // the imperative resolve() handle. `seed` rebuilds the grids when editing.
+  const bodyRef = useRef<SalesOrderMatrixBodyHandle>(null);
+  const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
   const [stagedDocs, setStagedDocs] = useState<File[]>([]);
   // Item 3 — Factor / credit-insurance approval (manual entry; Rosenthal API auto-fill reserved).
   const [factorStatus, setFactorStatus] = useState(so?.factor_approval_status || "not_submitted");
@@ -209,15 +209,30 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);
 
-  // Load existing SO lines when editing.
+  // Load an existing SO's lines when editing → rebuild the matrix body. Lines
+  // that decompose to style_code + size group into per-style matrix sections
+  // (qty per color×size cell); anything else (no style/size) falls to the
+  // non-matrix flat list. The detail endpoint decorates each line with its
+  // style_code/color/size/sku_code.
   useEffect(() => {
     if (isNew || !so) return;
+    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; sku_code: string | null };
     fetch(`/api/internal/sales-orders/${so.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full?.lines) return;
-      setLines(full.lines.map((l: { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number }, i: number) => ({
-        key: i + 1, inventory_item_id: l.inventory_item_id || "",
-        qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: l.unit_price_cents != null ? (l.unit_price_cents / 100).toFixed(2) : "",
-      })));
+      const byStyle = new Map<string, SeedSection>();
+      const flat: FlatLine[] = [];
+      let fk = 1;
+      for (const l of (full.lines as DLine[])) {
+        const dollars = l.unit_price_cents != null ? (l.unit_price_cents / 100).toFixed(2) : "";
+        if (l.style_code && l.size) {
+          let sec = byStyle.get(l.style_code);
+          if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
+          sec.cells.push({ color: l.color, size: l.size, qty: Number(l.qty_ordered) || 0, unit: dollars || undefined });
+        } else {
+          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : undefined });
+        }
+      }
+      setSeed({ sections: [...byStyle.values()], flat });
     }).catch(() => {});
   }, [isNew, so]);
 
@@ -241,100 +256,27 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     if (c.default_channel_id) setChannelId((cur) => cur || c.default_channel_id || "");
   }
 
-  function updateLine(idx: number, patch: Partial<SOLine>) { setLines((p) => p.map((l, i) => i === idx ? { ...l, ...patch } : l)); }
-  function addLine() { setLines((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]); }
-  function removeLine(idx: number) { setLines((p) => p.filter((_, i) => i !== idx)); }
-
-  // M43 — suggest a unit price from the Pricing Engine for the line's SKU +
-  // customer + qty. Prefills only when the price box is empty (manual entry/edits
-  // are preserved); `force` overwrites (the ↻ button). Records the source list
-  // for the hint. The engine prices at style level; the endpoint resolves the
-  // SKU's style itself.
-  const [priceSrc, setPriceSrc] = useState<Record<number, string>>({});
-  async function suggestPrice(lineKey: number, itemId: string, qtyStr: string, force: boolean) {
-    if (!itemId || !customerId) return;
-    try {
-      const p = new URLSearchParams({ customer_id: customerId, item_id: itemId });
-      const qn = Number(qtyStr); if (Number.isFinite(qn) && qn > 0) p.set("qty", String(qn));
-      const r = await fetch(`/api/internal/pricing/resolve?${p.toString()}`);
-      if (!r.ok) return;
-      const j = await r.json();
-      if (j?.price_cents == null) { if (force) notify("No price found for this style/customer.", "info"); return; }
-      const dollars = (Number(j.price_cents) / 100).toFixed(2);
-      setLines((prev) => prev.map((l) => l.key === lineKey ? (force || !l.unit_price_dollars ? { ...l, unit_price_dollars: dollars } : l) : l));
-      if (j.source_list_code) setPriceSrc((m) => ({ ...m, [lineKey]: j.source_list_code }));
-    } catch { /* non-fatal — operator can type the price */ }
-  }
-
-  // MX-SO — append lines produced by the matrix size-grid sub-panel. Each add
-  // is a resolved SKU id + qty + (optional) per-row unit price. If a line for
-  // that SKU already exists, fold the qty into it; otherwise append a new line.
-  // A blank unit price means the server stamps the per-customer revenue routing,
-  // same as manual entry.
-  function appendMatrixLines(adds: MatrixLineAdd[]) {
-    setLines((prev) => {
-      // Drop any trailing fully-empty row so the merge math is clean; the
-      // auto-append effect re-adds a fresh trailing row afterward.
-      const base = prev.filter((l) => l.inventory_item_id || l.qty_ordered || l.unit_price_dollars);
-      let nextKey = (base.reduce((m, l) => Math.max(m, l.key), 0)) + 1;
-      // Fresh objects only — never mutate the previous state's line objects.
-      const out: SOLine[] = base.map((l) => ({ ...l }));
-      for (const a of adds) {
-        const existing = out.find((l) => l.inventory_item_id === a.inventory_item_id);
-        if (existing) {
-          existing.qty_ordered = String((Number(existing.qty_ordered) || 0) + a.qty_ordered);
-          // Adopt the grid's unit price only when the existing line had none.
-          if (a.unit_price_dollars && !existing.unit_price_dollars) existing.unit_price_dollars = a.unit_price_dollars;
-        } else {
-          out.push({ key: nextKey++, inventory_item_id: a.inventory_item_id, qty_ordered: String(a.qty_ordered), unit_price_dollars: a.unit_price_dollars || "" });
-        }
-      }
-      return out;
-    });
-  }
-
-  // Item 11 — auto-append a fresh row once the LAST row is complete (Style + qty>0)
-  // and there isn't already a trailing empty row. Avoids infinite growth.
-  useEffect(() => {
-    if (!editable) return;
-    setLines((p) => {
-      const last = p[p.length - 1];
-      if (last && last.inventory_item_id && Number(last.qty_ordered) > 0) {
-        return [...p, { key: (last.key ?? 0) + 1, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }];
-      }
-      return p;
-    });
-  }, [lines, editable]);
-
-  const totalCents = useMemo(() => lines.reduce((s, l) => {
-    const qty = Number(l.qty_ordered) || 0; const unit = Math.round((Number(l.unit_price_dollars) || 0) * 100);
-    return s + Math.round(qty * unit);
-  }, 0), [lines]);
-  const totalQty = useMemo(() => lines.reduce((s, l) => s + (Number(l.qty_ordered) || 0), 0), [lines]);
-
-  function apiLines() {
-    return lines
-      .filter((l) => Number(l.qty_ordered) > 0)
-      .map((l) => ({
-        // Item 9 — no per-line revenue_account_id; the server stamps it from the
-        // customer's default_revenue_account_id (entity default as fallback).
-        inventory_item_id: l.inventory_item_id || null,
-        qty_ordered: Number(l.qty_ordered),
-        unit_price_cents: Math.round((Number(l.unit_price_dollars) || 0) * 100),
-      }));
-  }
-
   async function save(confirm: boolean) {
     setErr(null);
     if (!customerId) { setErr("Pick a customer."); return; }
-    if (apiLines().length === 0) { setErr("Add at least one line with a quantity."); return; }
     setSubmitting(true);
+    // Resolve the matrix grids + flat lines → SO line payload (find-or-create
+    // SKUs). Done before the header build so a resolve error surfaces cleanly.
+    let resolvedLines: { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number }[] = [];
+    try {
+      resolvedLines = (await bodyRef.current?.resolve()) || [];
+    } catch (e) {
+      setErr(`Could not resolve order lines: ${e instanceof Error ? e.message : String(e)}`);
+      setSubmitting(false);
+      return;
+    }
+    if (resolvedLines.length === 0) { setErr("Add at least one line with a quantity."); setSubmitting(false); return; }
     try {
       const body: Record<string, unknown> = {
         customer_id: customerId, ship_to_location_id: shipToLocationId || null,
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
-        payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: apiLines(),
+        payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: resolvedLines,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
         factor_reference: factorReference.trim() || null,
@@ -528,61 +470,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
         )}
 
-        <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-          {editable && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setMatrixOpen((v) => !v)} style={{ ...btnSecondary, color: matrixOpen ? C.primary : C.textSub, borderColor: matrixOpen ? C.primary : C.cardBdr }} title="Enter quantities into a color × size grid for a whole style at once">
-                ➕ Add by matrix (size grid)
-              </button>
-              <button onClick={addLine} style={btnSecondary}>+ Add line</button>
-            </div>
-          )}
-        </div>
-
-        {/* MX-SO — matrix size-grid entry. Resolves each filled cell to a SKU id
-            and appends normal SO lines; submits through the existing path. */}
-        {editable && matrixOpen && (
-          <div style={{ border: `1px solid ${C.primary}`, borderRadius: 8, marginBottom: 12, background: C.card }}>
-            <SalesOrderMatrixEntry
-              onAdd={appendMatrixLines}
-              onClose={() => setMatrixOpen(false)}
-            />
-          </div>
-        )}
-        <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /><col style={{ width: 36 }} /></colgroup>
-            <thead><tr>
-              <th style={th}>#</th><th style={th}>Style</th><th style={th}>Qty</th><th style={th}>Unit $</th><th style={th}></th>
-            </tr></thead>
-            <tbody>
-              {lines.map((l, idx) => (
-                <tr key={l.key}>
-                  <td style={td}>{idx + 1}</td>
-                  <td style={td}>
-                    <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => { updateLine(idx, { inventory_item_id: v }); if (v) void suggestPrice(l.key, v, l.qty_ordered, false); }}
-                      options={[{ value: "", label: "(select)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
-                      placeholder="(pick style…)" disabled={!editable} />
-                  </td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateLine(idx, { qty_ordered: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0" style={numInputStyle} /></td>
-                  <td style={td}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0.00" style={numInputStyle} />
-                      {editable && l.inventory_item_id && customerId && <button type="button" title="Suggest price from the pricing engine" onClick={() => void suggestPrice(l.key, l.inventory_item_id, l.qty_ordered, true)} style={{ ...btnSecondary, padding: "2px 6px", fontSize: 12 }}>↻</button>}
-                    </div>
-                    {priceSrc[l.key] && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>from {priceSrc[l.key]}</div>}
-                  </td>
-                  <td style={td}>{editable && lines.length > 1 && <button type="button" onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot><tr>
-              <td style={{ ...td, textAlign: "right" }} colSpan={2}><span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Total</span></td>
-              <td style={{ ...td, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} title="Total quantity">{totalQty.toLocaleString()}</td>
-              <td style={{ ...td, fontWeight: 700, fontVariantNumeric: "tabular-nums" }} colSpan={2} title="Total amount">{fmtCents(totalCents)}</td>
-            </tr></tfoot>
-          </table>
+        {/* MX-SO — the line body IS the size matrix: per-style color×size grids
+            (95% of styles) + a "+ Add non-matrix line" button for one-offs. */}
+        <div style={{ marginTop: 16, marginBottom: 12 }}>
+          <SalesOrderMatrixBody
+            ref={bodyRef}
+            editable={editable}
+            items={items}
+            seed={seed}
+          />
         </div>
 
         {/* Supporting documents — staged on new, in-place on existing. */}
