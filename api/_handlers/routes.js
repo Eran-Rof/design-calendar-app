@@ -584,6 +584,8 @@ import h576 from "./internal/allocations/index.js";
 import h577 from "./internal/allocations/preview.js";
 // h602 = GET/PUT /api/internal/allocations/rules (configurable priority order)
 import h602 from "./internal/allocations/rules.js";
+// h603 = POST /api/internal/ats-by-size (size-grain available-to-ship for the SO ATS mode)
+import h603 from "./internal/ats-by-size.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1102,6 +1104,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
+  { pattern: "/api/internal/ats-by-size", handler: h603 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
