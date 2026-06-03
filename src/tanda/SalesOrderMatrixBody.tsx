@@ -31,7 +31,7 @@ const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fon
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 
 type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null };
-type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; on_hand_qty?: number };
+type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; on_hand_qty?: number; avg_cost_cents?: number | null };
 type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
 
@@ -52,8 +52,11 @@ export interface SalesOrderMatrixBodyProps {
   /** Show the faint on-hand number above each size cell. Off for Production
    *  fulfillment (the order is being made, not shipped from stock). Default true. */
   showOnHand?: boolean;
-  onTotalsChange?: (t: { qty: number; cents: number }) => void;
+  onTotalsChange?: (t: BodyTotals) => void;
 }
+
+export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
+const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMatrixBodyProps>(function SalesOrderMatrixBody(
   { editable, items, seed, showOnHand = true, onTotalsChange }, ref,
@@ -132,19 +135,36 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
     return out;
   }
 
-  // ── Totals ────────────────────────────────────────────────────────────────
-  const totals = useMemo(() => {
-    let qty = 0, cents = 0;
+  // ── Totals + projected margin ───────────────────────────────────────────────
+  //   margin % = (revenue − cost) / revenue. Per cell the cost is the SKU's
+  //   avg_cost_cents (Xoro/Excel history). When a cell has NO cost history we
+  //   fall back to the assumed 21% gross margin (cost = price × 0.79) and flag
+  //   the order's margin as "estimated" only when NO line had real cost data.
+  const totals = useMemo<BodyTotals>(() => {
+    let qty = 0, cents = 0, costCents = 0, realCostCells = 0;
     for (const s of sections) {
+      const byCell = new Map<string, MatrixSku>();
+      for (const sk of s.payload?.skus || []) byCell.set(skuCellKey(sk.color, sk.size, sk.inseam || null), sk);
       for (const [cell, n] of Object.entries(s.qty)) {
         if (!(n > 0)) continue;
-        const rowKey = cell.split("__")[0];
+        const [rowKey, size] = cell.split("__");
+        const [color, inseam] = rowKey.split("|");
         const unit = Math.round((Number(s.unit[rowKey]) || 0) * 100);
         qty += n; cents += Math.round(n * unit);
+        const sku = byCell.get(skuCellKey(color || null, size, inseam || null));
+        const ac = sku?.avg_cost_cents != null ? Number(sku.avg_cost_cents) : null;
+        if (ac != null && ac > 0) { costCents += Math.round(n * ac); realCostCells += 1; }
+        else costCents += Math.round(n * unit * (1 - MARGIN_FALLBACK));
       }
     }
-    for (const l of flat) { const q = Number(l.qty_ordered) || 0; qty += q; cents += Math.round(q * Math.round((Number(l.unit_price_dollars) || 0) * 100)); }
-    return { qty, cents };
+    for (const l of flat) {
+      const q = Number(l.qty_ordered) || 0; if (!(q > 0)) continue;
+      const unit = Math.round((Number(l.unit_price_dollars) || 0) * 100);
+      qty += q; cents += Math.round(q * unit);
+      costCents += Math.round(q * unit * (1 - MARGIN_FALLBACK)); // flat lines have no matrix cost source
+    }
+    const marginPct = cents > 0 ? ((cents - costCents) / cents) * 100 : 0;
+    return { qty, cents, costCents, marginPct, marginEstimated: realCostCells === 0 };
   }, [sections, flat]);
   useEffect(() => { onTotalsChange?.(totals); }, [totals, onTotalsChange]);
 
@@ -211,7 +231,11 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
 
       {/* Per-style matrix sections. */}
       {sections.map((s) => {
-        const rows = rowsFor(s.payload);
+        const allRows = rowsFor(s.payload);
+        // When locked (a confirmed order viewed read-only) show ONLY the color
+        // rows that carry a quantity — the order, not the whole scale. Editable
+        // (draft or "Add styles" mode) shows every color so any can be filled.
+        const rows = editable ? allRows : allRows.filter((r) => (s.payload?.sizes || []).some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
         const onHand: Record<string, number> = {};
         if (showOnHand && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (sk?.on_hand_qty != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(sk.on_hand_qty) || 0); } }
         return (

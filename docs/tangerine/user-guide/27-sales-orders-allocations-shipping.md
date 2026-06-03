@@ -83,6 +83,10 @@ Each line carries `inventory_item_id` (a **size-level SKU**, FK into `ip_item_ma
 
 On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-create via `/api/internal/style-matrix/resolve-sku`) and the flat lines are appended — all submitting through the same create/PATCH path. **Editing** an existing draft rebuilds the grids: the detail endpoint decorates each line with its `style_code`/`color`/`size`, so lines regroup into per-style matrices (anything without a style/size falls to the non-matrix list). The matrix mechanics belong to the matrix primitive — see **chapter 28 (Inventory Matrix)**.
 
+**Header totals + projected margin.** Above the grids a live readout shows **Total qty**, **Total $**, and **Projected margin %** = `(revenue − cost) / revenue`. Per cell the cost is the SKU's `avg_cost_cents` (Xoro/Excel history). When a style has **no cost history**, the cell falls back to a **21% assumed gross margin**, and when *no* line has real cost data the margin shows an **"estimated — no cost data (assumes 21%)"** note.
+
+**Adding styles to a confirmed order.** Once confirmed, the grids collapse to **only the color rows that carry a quantity** (the order, read-only). An **✏️ Add styles** button re-opens the full editable grids so you can append more styles (or edit) and **Save changes** — the line PATCH is now allowed while `draft` *or* `confirmed` (still blocked once allocated / shipped / invoiced). Re-confirming isn't required.
+
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
 ### Fulfillment source — Production vs ATS
