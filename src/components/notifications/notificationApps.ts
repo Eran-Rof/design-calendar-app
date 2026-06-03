@@ -29,7 +29,7 @@ const TANDA_EVENTS = [
   "shipment_created", "shipment_delivered", "shipment_delayed",
   "compliance_expiring_soon", "compliance_submitted", "compliance_approved", "compliance_rejected",
   "onboarding_submitted", "onboarding_approved", "onboarding_rejected",
-  "rfq_invited", "rfq_awarded", "rfq_published", "rfq_closed", "rfq_quote_received",
+  "rfq_invited", "rfq_awarded", "rfq_awarded_internal", "rfq_published", "rfq_closed", "rfq_quote_received",
   "anomaly_detected",
   "discount_offer_made", "discount_offer_accepted",
   "scf_funded", "scf_requested",
@@ -111,4 +111,35 @@ export function eventMatchesApp(eventType: string, app: AppKey): boolean {
 
 export function appAllowedEvents(app: AppKey): string[] | null {
   return APP_EVENTS[app];
+}
+
+// Per-recipient app routing.
+//
+// An internal employee can choose which apps they receive in-app
+// notifications in. When a notification is addressed to such an employee,
+// the sender mirrors the employee's selected apps onto the row as
+// `metadata.target_apps` (a string[] of AppKey values). A notification then
+// shows in app X only when BOTH:
+//   1. its event_type matches app X (eventMatchesApp), AND
+//   2. target_apps is absent/null/empty/not-an-array (= all apps) OR includes X.
+//
+// Rows WITHOUT target_apps behave exactly as before (event-type filter only),
+// so this is fully back-compat — existing and vendor-path notifications are
+// unaffected.
+export function targetAppsAllow(metadata: Record<string, unknown> | null | undefined, app: AppKey): boolean {
+  const raw = metadata?.target_apps;
+  if (raw == null) return true;            // absent/null → all apps
+  if (!Array.isArray(raw)) return true;    // malformed → fail open (show)
+  if (raw.length === 0) return true;       // empty → all apps
+  return raw.includes(app);
+}
+
+// Combined predicate used by NotificationsShell + useAppUnreadCount: a
+// notification is shown in `app` when its event matches AND its target_apps
+// (if any) permits this app.
+export function notificationMatchesApp(
+  n: { event_type: string; metadata?: Record<string, unknown> | null },
+  app: AppKey,
+): boolean {
+  return eventMatchesApp(n.event_type, app) && targetAppsAllow(n.metadata ?? null, app);
 }

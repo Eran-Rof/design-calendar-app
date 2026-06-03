@@ -28,6 +28,29 @@ export function validateSubscriptions(raw) {
   return { value: out };
 }
 
+// Internal app keys an employee may receive in-app notifications in.
+// Mirrors the AppKey values in src/components/notifications/notificationApps.ts.
+// NULL apps = all apps (back-compat).
+const ALLOWED_APP_KEYS = ["tanda", "design", "ats", "techpack", "gs1", "planning", "rof"];
+
+// Validate + normalize an `apps` value into a deduped string[] of allowed
+// keys, or null (= all apps). Empty array → null. Returns { value } or { error }.
+export function validateApps(raw) {
+  if (raw == null) return { value: null };
+  if (!Array.isArray(raw)) return { error: "apps must be an array of app keys or null" };
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return { error: "apps entries must be strings" };
+    const key = item.trim();
+    if (!key) continue;
+    if (!ALLOWED_APP_KEYS.includes(key)) {
+      return { error: `unknown app key: ${JSON.stringify(item)} (allowed: ${ALLOWED_APP_KEYS.join(", ")})` };
+    }
+    if (!out.includes(key)) out.push(key);
+  }
+  return { value: out.length > 0 ? out : null };
+}
+
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, PATCH, DELETE, OPTIONS");
@@ -72,12 +95,30 @@ export default async function handler(req, res, params) {
     }
     const v = validatePatch(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
-    if (Object.keys(v.data).length === 0) {
+
+    // plm_user_id is merged into the existing metadata jsonb (read-modify-write)
+    // so it can't clobber other metadata keys. Only runs when the field is
+    // present in the body (string sets it, null/"" clears it).
+    const updatePayload = { ...v.data };
+    if (body && Object.prototype.hasOwnProperty.call(body, "plm_user_id")) {
+      const { data: existing, error: readErr } = await admin
+        .from("employees").select("metadata").eq("id", id).maybeSingle();
+      if (readErr) return res.status(500).json({ error: readErr.message });
+      if (!existing) return res.status(404).json({ error: "Employee not found" });
+      const meta = (existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata))
+        ? { ...existing.metadata } : {};
+      const raw = body.plm_user_id;
+      const id_str = typeof raw === "string" ? raw.trim() : "";
+      if (id_str) meta.plm_user_id = id_str; else delete meta.plm_user_id;
+      updatePayload.metadata = meta;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
       return res.status(400).json({ error: "No mutable fields supplied" });
     }
     const { data, error } = await admin
       .from("employees")
-      .update(v.data)
+      .update(updatePayload)
       .eq("id", id)
       .select()
       .single();
@@ -207,6 +248,24 @@ export function validatePatch(body) {
     const s = validateSubscriptions(body.notification_subscriptions);
     if (s.error) return { error: s.error };
     data.notification_subscriptions = s.value;
+  }
+  if ("apps" in body) {
+    const a = validateApps(body.apps);
+    if (a.error) return { error: a.error };
+    data.apps = a.value;
+  }
+  // plm_user_id is validated here but APPLIED in the handler via a
+  // read-modify-write merge into metadata (so it doesn't clobber other
+  // metadata keys). We only validate its shape; presence is signalled by
+  // returning it on the result so the handler knows to merge.
+  if ("plm_user_id" in body) {
+    const v = body.plm_user_id;
+    if (v !== null && v !== "" && typeof v !== "string") {
+      return { error: "plm_user_id must be a string or null" };
+    }
+    if (typeof v === "string" && v.trim().length > 64) {
+      return { error: "plm_user_id too long" };
+    }
   }
 
   return { data };
