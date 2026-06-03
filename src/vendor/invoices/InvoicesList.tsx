@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
+import { resolveVendorId } from "../vendorId";
 import { fmtDate, fmtMoney } from "../utils";
 
 interface InvoiceRow {
@@ -39,9 +40,13 @@ export default function InvoicesList() {
       setLoading(true);
       setErr(null);
       try {
+        // Scope to this vendor explicitly — RLS is permissive (see vendorId.ts).
+        const vendorId = await resolveVendorId();
+        if (!vendorId) { setRows([]); return; }
         const { data, error } = await supabaseVendor
           .from("invoices")
           .select("id, invoice_number, po_id, invoice_date, due_date, total, currency, status, submitted_at, paid_at")
+          .eq("vendor_id", vendorId)
           .order("submitted_at", { ascending: false });
         if (error) throw error;
         setRows((data ?? []) as InvoiceRow[]);

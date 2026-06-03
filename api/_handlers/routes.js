@@ -577,11 +577,20 @@ import h599 from "./internal/prepack-matrices/needed.js";
 import h600 from "./internal/procurement/qc/dispositions.js";
 // h601 = POST /api/internal/planning/buy-plan-to-po (M31: buy plan → draft Tangerine POs)
 import h601 from "./internal/planning/buy-plan-to-po.js";
+// P11-10 — Shopify product image pull. APPEND ONLY.
+//   h604 = POST /api/internal/pim/styles/:style_id/link-shopify
+//   h605 = POST /api/internal/pim/styles/:style_id/pull-shopify-images
+import h604 from "./internal/pim/styles/[style_id]/link-shopify.js";
+import h605 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
 import h576 from "./internal/allocations/index.js";
 import h577 from "./internal/allocations/preview.js";
+// h602 = GET/PUT /api/internal/allocations/rules (configurable priority order)
+import h602 from "./internal/allocations/rules.js";
+// h603 = POST /api/internal/ats-by-size (size-grain available-to-ship for the SO ATS mode)
+import h603 from "./internal/ats-by-size.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1011,6 +1020,7 @@ export const ROUTES = [
   { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
   { pattern: "/api/internal/purchase-orders",                 handler: h572 },
   // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/rules",               handler: h602 },
   { pattern: "/api/internal/allocations/preview",             handler: h577 },
   { pattern: "/api/internal/allocations",                     handler: h576 },
   // M43 — Pricing Engine resolve (suggested unit price).
@@ -1099,6 +1109,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
+  { pattern: "/api/internal/ats-by-size", handler: h603 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
@@ -1260,6 +1271,9 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
   { pattern: "/api/internal/pim/styles/:style_id/description",         handler: h376 },
   { pattern: "/api/internal/pim/styles/:style_id/attributes",          handler: h375 },
+  // P11-10 — Shopify link + image pull. MUST precede bare /:style_id.
+  { pattern: "/api/internal/pim/styles/:style_id/pull-shopify-images", handler: h605 },
+  { pattern: "/api/internal/pim/styles/:style_id/link-shopify",        handler: h604 },
   { pattern: "/api/internal/pim/styles/:style_id",                     handler: h374 },
   { pattern: "/api/internal/pim/attribute-defs/:id",                   handler: h373 },
   { pattern: "/api/internal/pim/attribute-defs",                       handler: h372 },

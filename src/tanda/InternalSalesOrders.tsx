@@ -491,6 +491,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <option value="ats">ATS — ship from available stock</option>
           </select>
           {fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
+          {fulfillmentSource === "ats" && <span style={{ fontSize: 11, color: C.primary }}>Cell numbers show available-to-ship by size{reqShip ? ` by ${reqShip}` : " (set a ship date to include inbound POs)"}.</span>}
         </div>
 
         {/* Lines header — totals + projected margin, and (on a confirmed SO) an
@@ -517,6 +518,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             items={items}
             seed={seed}
             showOnHand={fulfillmentSource !== "production"}
+            atsMode={fulfillmentSource === "ats"}
+            atsAsOfDate={reqShip || null}
             onTotalsChange={setBodyTotals}
           />
         </div>
