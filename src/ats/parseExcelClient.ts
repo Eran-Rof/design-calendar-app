@@ -246,11 +246,24 @@ export async function parseExcelFiles(
   let soTotal = 0, soNoDate = 0, soNoOrderNum = 0, soNoCustName = 0, soNoUnitPrice = 0;
   const soNoDateItems: { sku: string; qty: number; orderNumber?: string; customerName?: string }[] = [];
 
+  // Open-orders only — drop terminal-status lines (Shipped / Cancelled /
+  // Void / Closed). They carry no open commitment, so counting them
+  // overstates On Order and double-subtracts from the ATS projection
+  // (on-hand already reflects the shipment). Keep Released + Partially
+  // Shipped. Mirrors api/_lib/ats-parse.js. (When a "Qty Remaining to
+  // Ship" column is present this is belt-and-suspenders; for All-Orders
+  // CSVs without it, it's load-bearing.)
+  const TERMINAL_SO_STATUSES = new Set([
+    "shipped", "fully shipped", "cancelled", "canceled",
+    "void", "voided", "closed", "complete", "completed",
+  ]);
   let ordParsed = 0;
   for (const r of ordRows) {
     const base = pickCell(r, BASE_PART_COLS);
     const color = str(r["Option 1 Value"]) || str(r["Option1Value"]);
     if (!base) continue;
+    const soStatus = (str(r["Order Line Status"]) || str(r["Order Status"]) || str(r["Status"]) || "").toLowerCase();
+    if (TERMINAL_SO_STATUSES.has(soStatus)) continue;
     ordParsed++;
     const sku = color ? `${base} - ${color}` : base;
     // Qty priority: "Qty Remaining to Ship" first — that's the
