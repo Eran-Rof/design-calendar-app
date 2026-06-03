@@ -289,13 +289,25 @@ export default async function handler(req, res) {
   const pmLink = rfq.source_costing_project_id
     ? `/costing?view=project-edit&id=${rfq.source_costing_project_id}`
     : "/costing?view=rfq-list";
-  const pmNotify = { sent: false, resolved_via: "none", recipients: 0 };
+  const pmNotify = { sent: false, resolved_via: "none", recipients: 0, in_app_delivered: 0, email_only: 0 };
   try {
     const pm = await resolveProductionManager(admin, { event: "rfq_awarded" });
     pmNotify.resolved_via = pm.resolved_via;
     if (pm.employees.length > 0) {
-      await Promise.all(pm.employees.map((recipient) =>
-        fetch(`${origin}/api/send-notification`, {
+      await Promise.all(pm.employees.map((recipient) => {
+        // In-app delivery only works when the PM employee is linked to a PLM
+        // login (employees.metadata.plm_user_id): the internal NotificationsShell
+        // matches the logged-in user by recipient_internal_id == app_data['users'].id.
+        // Without that link we can't address the bell — fall back to email-only
+        // by writing the row under a sentinel internal_id (carries the email; the
+        // in-app row is intentionally undeliverable + logged below).
+        const hasInAppTarget = typeof recipient.plm_user_id === "string" && recipient.plm_user_id;
+        const internalId = hasInAppTarget ? recipient.plm_user_id : "production_manager";
+        // Mirror the employee's app selection onto the row so the bell only
+        // shows it in their chosen apps. null apps → omit (= all apps).
+        const targetApps = Array.isArray(recipient.apps) && recipient.apps.length > 0 ? recipient.apps : null;
+        if (hasInAppTarget) pmNotify.in_app_delivered += 1; else pmNotify.email_only += 1;
+        return fetch(`${origin}/api/send-notification`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -307,15 +319,20 @@ export default async function handler(req, res) {
               rfq_id, vendor_id, rfq_title: rfq.title,
               vendor_name: vendor.name, awarded_total: awardedTotal,
               source_costing_project_id: rfq.source_costing_project_id || null,
+              ...(targetApps ? { target_apps: targetApps } : {}),
             },
-            recipient: { internal_id: "production_manager", email: recipient.email },
+            recipient: { internal_id: internalId, email: recipient.email },
             dedupe_key: `rfq_awarded_internal_${rfq_id}_${recipient.email}`,
             email: true,
           }),
-        }).catch(() => {})
-      ));
+        }).catch(() => {});
+      }));
       pmNotify.sent = true;
       pmNotify.recipients = pm.employees.length;
+      if (pmNotify.email_only > 0) {
+        // eslint-disable-next-line no-console
+        console.warn(`[rfq-award] ${pmNotify.email_only} Production Manager recipient(s) have no linked PLM login (employees.metadata.plm_user_id) — they got the EMAIL only, not the in-app bell. Link them to a PLM login in the Employees panel to enable in-app delivery. rfq=${rfq_id}`);
+      }
     } else {
       // eslint-disable-next-line no-console
       console.warn(`[rfq-award] no Production Manager recipient resolved rfq=${rfq_id}. Tag an active employee with a "Production Manager" title, or set INTERNAL_PROCUREMENT_EMAILS.`);

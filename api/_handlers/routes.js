@@ -587,6 +587,10 @@ import h603 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
 import h576 from "./internal/allocations/index.js";
 import h577 from "./internal/allocations/preview.js";
+// h602 = GET/PUT /api/internal/allocations/rules (configurable priority order)
+import h602 from "./internal/allocations/rules.js";
+// h603 = POST /api/internal/ats-by-size (size-grain available-to-ship for the SO ATS mode)
+import h603 from "./internal/ats-by-size.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1016,6 +1020,7 @@ export const ROUTES = [
   { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
   { pattern: "/api/internal/purchase-orders",                 handler: h572 },
   // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/rules",               handler: h602 },
   { pattern: "/api/internal/allocations/preview",             handler: h577 },
   { pattern: "/api/internal/allocations",                     handler: h576 },
   // M43 — Pricing Engine resolve (suggested unit price).
@@ -1104,6 +1109,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
+  { pattern: "/api/internal/ats-by-size", handler: h603 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
