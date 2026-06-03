@@ -780,6 +780,11 @@ import h563 from "./b2b/orders/index.js";
 import h564 from "./b2b/orders/[id].js";
 import h565 from "./b2b/account.js";
 
+// Xoro AP-bill REST mirror — consumer of rest_ap_sync.py.
+//   h607 = POST /api/ap/sync-bills (gzipped CSV multipart upload)
+// Separate from /api/internal/ap-invoices (manual-entry Tangerine AP UI).
+import h607 from "./ap/sync-bills.js";
+
 export const ROUTES = [
   // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
   { pattern: "/api/b2b/session", handler: h557 },
@@ -1439,6 +1444,8 @@ export const ROUTES = [
   { pattern: "/api/internal/channels",                                 handler: h533 },
   { pattern: "/api/internal/users-access/override",                    handler: h530 },
   { pattern: "/api/internal/users-access",                             handler: h529 },
+  // Xoro AP-bill REST mirror (consumer of rest_ap_sync.py).
+  { pattern: "/api/ap/sync-bills",                                     handler: h607 },
 ];
 
 export function compileRoutes(routes) {
