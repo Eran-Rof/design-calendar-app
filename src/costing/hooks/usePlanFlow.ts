@@ -48,6 +48,28 @@ export function stageLabel(s: PlanFlowStage): string { return STAGE_LABEL[s]; }
 export function stageIcon(s: PlanFlowStage): string  { return STAGE_ICON[s]; }
 export function stageColor(s: PlanFlowStage)         { return STAGE_COLOR[s]; }
 
+const STAGE_RANK: Record<PlanFlowStage, number> = {
+  draft: 0, in_progress: 1, quoted: 2, awarded: 3, closed: 4,
+};
+
+// Project-level derived stage = the highest line stage present (any awarded
+// line ⇒ "awarded", any live quote ⇒ "quoted", any style chosen ⇒
+// "in_progress", else "draft"). Project-level closed/cancelled are terminal and
+// handled by the caller, so we pass projectStatus=null to get the pure line
+// stage. Empty project ⇒ "draft". Used to auto-advance costing_projects.status
+// so the Projects list (buckets by status) agrees with the in-project strip.
+export function deriveProjectStage(
+  lines: CostingLine[],
+  vendorQuotes: Record<string, CostingLineVendor[] | undefined>,
+): PlanFlowStage {
+  let best: PlanFlowStage = "draft";
+  for (const line of lines) {
+    const st = deriveLineStage(line, vendorQuotes[line.id], null);
+    if (STAGE_RANK[st] > STAGE_RANK[best]) best = st;
+  }
+  return best;
+}
+
 export interface PlanFlowBucket {
   stage: PlanFlowStage;
   count: number;
