@@ -185,7 +185,15 @@ Style · Color   (on-hand · reserved · avail · demand)
 | **Fair-share (pro-rata)** | Water-fill: spread each SKU's available pool pro-rata by remaining open qty across competing orders; the rounding tail and leftover go by priority. |
 | **Capped %** | Priority full-fill but cap each order at *N%* of its open qty — basis is either **each SKU line** or **each style/color total**. Bounded by real per-size availability, so a % target can never fill a zero-stock size. |
 
-Reviewing the preview shows per-line **Now / +Grant / → New** (blocked lines show their reason). **Apply** confirms, then POSTs the granted set to `apply_allocations`, which **re-validates** — a stale preview is safe.
+Reviewing the preview shows per-line **Now / +Grant / → New** (blocked lines show their reason). **Apply** confirms, then POSTs the granted set to `apply_allocations`, which **re-validates** — a stale preview is safe. The preview dialog **is** where you change the allocation rule (mode + cap %) before applying.
+
+After applying, a **summary popup** reports how many lines were allocated, the units granted, and the **% of open demand filled**; **Show results** lists the per-line grants. It waits for you to close.
+
+**Undo + batch (not one-way):**
+- **↩ Undo last** (header, appears after any allocation) reverts the last run — auto-allocate, batch, or a single cell — to the prior allocated quantities. Every allocation snapshots what it changed.
+- **☑ Select all** / per-line checkboxes (in the SO column) → a **batch bar** to **set** the allocation to a value or **Clear allocated** (release) across all checked lines at once, instead of editing line by line.
+
+**Next step after allocating:** allocation only *reserves* stock. To fulfil, open the order in **🛒 Sales Orders**, **🚚 Ship** the allocated quantities (records a carrier shipment; the SO moves to `fulfilling`/`shipped`), then **🧾 Create AR invoice** (which books the revenue + FIFO COGS in AR).
 
 ### The hard factor-credit gate (workbench)
 
