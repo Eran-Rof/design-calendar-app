@@ -699,6 +699,27 @@ describe("deriveSalesGrainFields — avgCostPerRawQty override", () => {
     }
   });
 
+  it("treats a per-EACH avg_cost on a PPK pack row as per-unit, not per-pack (RCB* mis-keyed cost)", () => {
+    // canonSku("RCB1459W-NAVY-PPK48") strips the PPK token → the avg_cost
+    // lookup hits the per-EACH row "RCB1459W-NAVY" = $4.45. Pre-fix this
+    // was multiplied by the native pack qty (cogs = 7 × 4.45 = $31.15 on
+    // a 336-unit / $2352 sale → fake 98.7% margin). The plausibility
+    // resolver keeps 4.45 as per-unit (4.45 <= 2× the $7/unit price).
+    const out = deriveSalesGrainFields({
+      rawItemNumber: "RCB1459W-NAVY-PPK48",
+      qty: 7,
+      netAmount: 2352,
+      master: { pack_size: 48, unit_cost: 4.45 },
+      avgCostPerRawQty: 4.45,
+    });
+    expect(out.qty_grain).toBe("pack");
+    expect(out.qty_units).toBe(336);
+    expect(out.unit_cost_at_sale).toBeCloseTo(4.45, 5);
+    expect(out.cogs_amount).toBeCloseTo(336 * 4.45, 2); // $1495.20, not $31.15
+    expect(out.margin_pct).toBeGreaterThan(0.30);
+    expect(out.margin_pct).toBeLessThan(0.40); // ~36%, not 98.7%
+  });
+
   it("avgCostPerRawQty wins even when master.unit_cost is null (data-gap recovery)", () => {
     // Newly-added master row with no cost yet — avg-cost table fills the gap.
     const out = deriveSalesGrainFields({

@@ -270,32 +270,37 @@ export function detectPackPricedAsUnit({
   return sibling;
 }
 
-// avgCostPerRawQty (optional): per-row-qty cost looked up from
-// ip_item_avg_cost — keyed by the FULL raw Xoro sku (with size/PPK
-// suffix), so PPK lines see the per-pack cost and size lines see the
-// per-each cost. When present it's authoritative: cogs = qty ×
-// avgCostPerRawQty, no pack arithmetic needed. When absent we fall
-// back to the master.unit_cost smart-cost rule.
+// avgCostPerRawQty (optional): cost looked up from ip_item_avg_cost,
+// keyed by the CANONICALISED raw Xoro sku. Intended grain is per native
+// qty — per-pack on a PPK row, per-each on a size row — and when that
+// holds it's the authoritative, size-granular cost.
+//
+// But the key is canonicalised (PPK token stripped), so a PPK pack line
+// can collapse onto a per-EACH avg_cost row: the RCB* family, where
+// canonSku("RCB1459W-NAVY-PPK48") = "RCB1459W-NAVY" → $4.45 per-each.
+// Multiplying that per-each cost by the native PACK qty collapses cogs
+// ~pack_size× and fakes a ~99% wholesale margin. So the avg cost is run
+// through the SAME per-unit-vs-per-pack plausibility resolver as master
+// cost (judged against the per-unit sale price) instead of being
+// multiplied by native qty blindly. For genuine per-pack / per-each avg
+// rows the result is identical to qty × avgCost — only the mis-keyed
+// pathological rows change. When no avg cost, fall back to master.unit_cost.
 export function deriveSalesGrainFields({ rawItemNumber, qty, netAmount, master, avgCostPerRawQty }) {
   const packSize = Math.max(1, Number(master?.pack_size) || 1);
   const grain = inferQtyGrain(rawItemNumber, packSize);
   const qtyUnits = toQtyUnits(qty, grain, packSize);
-  let perUnitCost;
-  let cogsAmount;
   const ac = Number(avgCostPerRawQty);
-  if (Number.isFinite(ac) && ac > 0) {
-    cogsAmount = Number(qty) * ac;
-    perUnitCost = qtyUnits > 0 ? cogsAmount / qtyUnits : null;
-  } else {
-    perUnitCost = resolvePerUnitCost({
-      masterUnitCost: master?.unit_cost ?? null,
-      packSize,
-      grain,
-      netAmount,
-      qtyUnits,
-    });
-    cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
-  }
+  const candidateCost = (Number.isFinite(ac) && ac > 0)
+    ? ac
+    : (master?.unit_cost ?? null);
+  const perUnitCost = resolvePerUnitCost({
+    masterUnitCost: candidateCost,
+    packSize,
+    grain,
+    netAmount,
+    qtyUnits,
+  });
+  const cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
   const { amount, pct } = computeRowMargin({
     netAmount,
     qtyUnits,
