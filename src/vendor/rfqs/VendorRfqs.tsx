@@ -18,8 +18,8 @@ const fmtQty = (n: number | null | undefined) => (n == null ? "—" : Number(n).
 // Shared column template (header + rows stay aligned). The table can get wide
 // with the added Style / Style name / Qty / Due columns, so it lives inside a
 // horizontal scroller with this min-width.
-const GRID = "1.6fr 110px 1fr 90px 120px 110px 110px 120px 80px";
-const GRID_MIN = 1100;
+const GRID = "1.6fr 110px 1fr 90px 120px 110px 120px 80px";
+const GRID_MIN = 990;
 
 async function token() {
   const { data: { session } } = await supabaseVendor.auth.getSession();
@@ -87,7 +87,6 @@ export default function VendorRfqs() {
             <div>Style name</div>
             <div style={{ textAlign: "right" }}>Qty</div>
             <div>Category</div>
-            <div>Deadline</div>
             <div>Due</div>
             <div>Status</div>
             <div style={{ textAlign: "right" }}></div>
@@ -104,7 +103,6 @@ export default function VendorRfqs() {
                 <div style={{ color: TH.textSub }}>{s?.style_name || "—"}</div>
                 <div style={{ textAlign: "right", color: TH.textSub2 }}>{fmtQty(s?.quantity)}</div>
                 <div style={{ color: TH.textSub2 }}>{r.rfq.category || "—"}</div>
-                <div style={{ color: TH.textSub2 }}>{fmtDate(r.rfq.submission_deadline)}</div>
                 <div style={{ color: TH.textSub2 }}>{fmtDate(r.rfq.delivery_required_by)}</div>
                 <div><StatusBadge label={b.label} tone={b.tone} /></div>
                 <div style={{ textAlign: "right", color: TH.primary, fontSize: 12, fontWeight: 600 }}>Open →</div>

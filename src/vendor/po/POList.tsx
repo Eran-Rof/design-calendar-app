@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtDate, fmtMoney, daysUntil, parseLocalDate } from "../utils";
+import { fmtDate, fmtMoney, daysUntil, parseLocalDate, errMsg } from "../utils";
+
+// Only surface current POs. Anything ordered before this date is legacy Xoro
+// history the vendor doesn't need to act on. Keyed on tanda_pos.date_order
+// (the PO order/creation date).
+const MIN_PO_DATE = "2025-12-01";
 import { showAlert } from "../ui/AppDialog";
 
 // tanda_pos row shape (subset we care about in the portal). RLS scopes the
@@ -92,6 +97,7 @@ export default function POList() {
           supabaseVendor
             .from("tanda_pos")
             .select("id, uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id")
+            .gte("date_order", MIN_PO_DATE)
             .order("date_order", { ascending: false }),
         ]);
         if (vuErr) throw vuErr;
@@ -137,7 +143,7 @@ export default function POList() {
           if (!cancelled) setShippedPoIds(shipped);
         }
       } catch (e: unknown) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(errMsg(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
