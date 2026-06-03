@@ -153,3 +153,70 @@ export async function resolveInternalRecipients(admin, category, options = {}) {
   const emails = Array.from(byKey.values()).filter(Boolean);
   return { emails, empty: emails.length === 0, varsConsulted: base.varsConsulted, subscriberCount };
 }
+
+/**
+ * Resolve the Production Manager recipient(s) for an RFQ-award notification.
+ *
+ * Resolution order (most→least specific):
+ *   1. An ACTIVE employee whose title resolves to "Production Manager" —
+ *      either the free-text employees.title or the employee_titles master
+ *      (via title_id). Matched case-insensitively on "production manager".
+ *      Returns one row per matching employee (resolved_via='employee').
+ *   2. Fallback to the env-configured + category-subscribed PROCUREMENT
+ *      recipients (resolveInternalRecipients "procurement", with the
+ *      compliance fallback), since the Production Manager belongs to the
+ *      procurement workflow (resolved_via='internal_procurement').
+ *   3. Nothing resolvable (resolved_via='none') — caller logs + skips email.
+ *
+ * Never throws: a DB hiccup degrades to the env fallback. Returned `employees`
+ * carry { email, name } so the caller can target an in-app notification by
+ * email and personalize the body.
+ *
+ * @param {object} admin service-role Supabase client
+ * @param {object} [options] forwarded to the procurement fallback resolver
+ * @returns {Promise<{ resolved_via: "employee"|"internal_procurement"|"none",
+ *                      emails: string[], employees: Array<{email:string,name:string}> }>}
+ */
+export async function resolveProductionManager(admin, options = {}) {
+  // 1. Direct employee match on title (free-text OR master).
+  try {
+    if (admin) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("email, display_name, title, employee_titles:title_id(name)")
+        .eq("is_active", true);
+      if (error) throw error;
+      const isPM = (s) => typeof s === "string" && /production\s*manager/i.test(s);
+      const seen = new Set();
+      const matches = [];
+      for (const row of data || []) {
+        const titleText = row.title || "";
+        const masterName = row.employee_titles?.name || "";
+        if (!isPM(titleText) && !isPM(masterName)) continue;
+        const email = (row.email || "").trim();
+        if (!email) continue;
+        const key = email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        matches.push({ email, name: row.display_name || "Production Manager" });
+      }
+      if (matches.length > 0) {
+        return { resolved_via: "employee", emails: matches.map((m) => m.email), employees: matches };
+      }
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] production-manager employee lookup failed: ${String(err)}`);
+  }
+
+  // 2. Env / subscription fallback via the procurement category.
+  const proc = await resolveInternalRecipients(admin, "procurement", { fallback: "compliance", ...options });
+  if (!proc.empty) {
+    return {
+      resolved_via: "internal_procurement",
+      emails: proc.emails,
+      employees: proc.emails.map((email) => ({ email, name: "Production / Procurement" })),
+    };
+  }
+
+  return { resolved_via: "none", emails: [], employees: [] };
+}
