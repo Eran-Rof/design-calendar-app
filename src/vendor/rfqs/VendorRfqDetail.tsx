@@ -17,6 +17,10 @@ interface RfqDetail {
   }[];
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
   quote: { id: string; status: string; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[] } | null;
+  // Documents attached to the source costing lines (tech packs, spec sheets,
+  // reference images), each with a short-lived signed URL. Images render as a
+  // product-image strip; other kinds as a downloadable list.
+  documents?: { id: string; title: string; kind: string; mime: string; is_image: boolean; byte_size: number | null; line_index: number | null; url: string }[];
 }
 
 async function token() {
@@ -34,6 +38,12 @@ const parseQty = (s: string) => parseInt((s || "").replace(/[^\d]/g, ""), 10);
 const qtyInput = (raw: string) => {
   const d = (raw || "").replace(/[^\d]/g, "");
   return d ? Number(d).toLocaleString("en-US") : "";
+};
+// Human-readable byte size (e.g. 1536 → "1.5 KB").
+const fmtBytes = (n: number) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 };
 // The style name is the tail of the costing-built description after " — ".
 const styleNameOf = (description: string) => {
@@ -183,14 +193,14 @@ export default function VendorRfqDetail() {
       ["Est. budget", rfq.estimated_budget != null ? rfq.estimated_budget : ""],
       [],
     ];
-    const header = ["#", "Style", "Wash", "Size", "Fabric", "Style Name", "Target Unit Price", "Req Qty", "UoM", "Your Unit Price", "Your Qty", "Notes"];
+    const header = ["#", "Style", "Style Name", "Wash", "Size", "Fabric", "Target Unit Price", "Req Qty", "UoM", "Your Unit Price", "Your Qty", "Notes"];
     const body = line_items.map((li) => [
       li.line_index,
       li.style_code || "",
+      styleNameOf(li.description),
       li.color || "",
       li.size_scale_label || "",
       li.fabric_name || li.fabric_code || "",
-      styleNameOf(li.description),
       li.target_price ?? "",
       li.quantity,
       li.unit_of_measure || "",
@@ -199,7 +209,7 @@ export default function VendorRfqDetail() {
       lineNotes[li.id] || "",
     ]);
     const ws = XLSX.utils.aoa_to_sheet([...meta, header, ...body]);
-    ws["!cols"] = [{ wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 9 }, { wch: 6 }, { wch: 15 }, { wch: 9 }, { wch: 24 }];
+    ws["!cols"] = [{ wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 9 }, { wch: 6 }, { wch: 15 }, { wch: 9 }, { wch: 24 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "RFQ");
     const safe = (rfq.title || "rfq").replace(/[^\w-]+/g, "_").slice(0, 40);
@@ -211,6 +221,10 @@ export default function VendorRfqDetail() {
   if (!data) return null;
 
   const { rfq, line_items: lines, invitation, quote } = data;
+  // Costing-line documents, split into product images vs. downloadable files.
+  const docs = data.documents || [];
+  const images = docs.filter((d) => d.is_image);
+  const files = docs.filter((d) => !d.is_image);
   const canEdit = invitation.status !== "declined" && (!quote || quote.status === "draft") && (rfq.status === "published" || rfq.status === "draft");
   const deadlinePassed = rfq.submission_deadline && new Date(rfq.submission_deadline) < new Date();
 
@@ -229,14 +243,41 @@ export default function VendorRfqDetail() {
             </div>
           </div>
           {/* Operator request: ~25% larger so the key dates/budget read clearly. */}
-          <div style={{ textAlign: "right", fontSize: 15, lineHeight: 1.5, color: TH.textSub, whiteSpace: "nowrap" }}>
-            {rfq.submission_deadline && <div>Deadline: <b>{fmtDate(rfq.submission_deadline)}</b>{deadlinePassed && <span style={{ color: TH.primary }}> (passed)</span>}</div>}
-            {rfq.delivery_required_by && <div>Delivery by: <b>{fmtDate(rfq.delivery_required_by)}</b></div>}
-            {rfq.estimated_budget != null && <div>Est. budget: <b>{fmtMoney(rfq.estimated_budget)}</b></div>}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
+            <div style={{ textAlign: "right", fontSize: 15, lineHeight: 1.5, color: TH.textSub, whiteSpace: "nowrap" }}>
+              {rfq.submission_deadline && <div>Deadline: <b>{fmtDate(rfq.submission_deadline)}</b>{deadlinePassed && <span style={{ color: TH.primary }}> (passed)</span>}</div>}
+              {rfq.delivery_required_by && <div>Delivery by: <b>{fmtDate(rfq.delivery_required_by)}</b></div>}
+              {rfq.estimated_budget != null && <div>Est. budget: <b>{fmtMoney(rfq.estimated_budget)}</b></div>}
+            </div>
+            {/* Product images from the costing line(s) — multiple side by side,
+                wrapping as needed. Click to open full-size. */}
+            {images.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end", maxWidth: 360 }}>
+                {images.map((img) => (
+                  <a key={img.id} href={img.url} target="_blank" rel="noreferrer" title={img.title} style={{ display: "block", lineHeight: 0 }}>
+                    <img src={img.url} alt={img.title} style={{ width: 96, height: 96, objectFit: "cover", borderRadius: 8, border: `1px solid ${TH.border}`, background: "#0B1220" }} />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-        {rfq.description && <div style={{ marginTop: 12, color: TH.textSub2, fontSize: 13, lineHeight: 1.5 }}>{rfq.description}</div>}
       </div>
+
+      {files.length > 0 && (
+        <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "14px 18px", marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, marginBottom: 10 }}>📎 Documents <span style={{ color: TH.textMuted, fontWeight: 400 }}>({files.length})</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {files.map((f) => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+                <span style={{ color: TH.text, fontWeight: 500 }}>{f.title}</span>
+                <span style={{ color: TH.textMuted, fontSize: 11 }}>{f.kind}{f.byte_size ? ` · ${fmtBytes(f.byte_size)}` : ""}</span>
+                <a href={f.url} target="_blank" rel="noreferrer" style={{ ...btnSecondary, marginLeft: "auto", textDecoration: "none", display: "inline-block" }}>⬇ Download</a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 10 }}>
         <h3 style={{ color: "#FFFFFF", margin: 0, fontSize: 15 }}>Line items</h3>
@@ -249,10 +290,10 @@ export default function VendorRfqDetail() {
           <div style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 12, padding: "9px 16px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textSub2, textTransform: "uppercase", letterSpacing: 0.04 }}>
             <div>#</div>
             <div>Style</div>
+            <div>Style name</div>
             <div>Wash</div>
             <div>Size</div>
             <div>Fabric</div>
-            <div>Style name</div>
             <div style={{ textAlign: "right" }}>Target unit price</div>
             <div style={{ textAlign: "right" }}>Req qty</div>
             <div>UoM</div>
@@ -265,10 +306,10 @@ export default function VendorRfqDetail() {
             <div key={li.id} style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 12, padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
               <div style={{ color: TH.textSub2 }}>{li.line_index}</div>
               <div style={{ color: TH.text, fontWeight: 500 }}>{li.style_code || "—"}</div>
+              <div style={{ color: TH.textSub }}>{styleNameOf(li.description) || "—"}</div>
               <div style={{ color: TH.textSub }}>{li.color || "—"}</div>
               <div style={{ color: TH.textSub }}>{li.size_scale_label || "—"}</div>
               <div style={{ color: TH.textSub }}>{li.fabric_name || li.fabric_code || "—"}</div>
-              <div style={{ color: TH.textSub }}>{styleNameOf(li.description) || "—"}</div>
               <div style={{ textAlign: "right", color: TH.textSub }}>{li.target_price != null ? fmtUsd(li.target_price) : "—"}</div>
               <div style={{ textAlign: "right", color: TH.textSub2 }}>{fmtQty(li.quantity)}</div>
               <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
@@ -294,10 +335,6 @@ export default function VendorRfqDetail() {
             <Field label="Valid until">
               <input value={validUntil} onChange={(e) => setValidUntil(e.target.value)} type="date" style={{ ...inp, width: 170 }} />
             </Field>
-            {/* Reserved placeholder — product image will live here in a future pass. */}
-            <div style={{ marginLeft: "auto", width: 200, height: 130, border: `1px dashed ${TH.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: TH.textMuted, fontSize: 12, lineHeight: 1.4 }}>
-              Product image<br />(coming soon)
-            </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
             <button onClick={() => void decline()} style={btnSecondary}>Decline</button>
@@ -329,9 +366,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // Shared column template for the line-items header + rows so they stay aligned.
-// #, Style, Wash, Size, Fabric, Style name, Target unit price, Req qty, UoM,
+// #, Style, Style name, Wash, Size, Fabric, Target unit price, Req qty, UoM,
 // Your unit price, Your qty, Notes. Wrapped in a min-width scroller (GRID_MIN).
-const GRID_COLS = "30px 100px 150px 96px 120px 120px 110px 88px 46px 120px 100px minmax(140px,1fr)";
+const GRID_COLS = "30px 100px 120px 150px 96px 120px 110px 88px 46px 120px 100px minmax(140px,1fr)";
 const GRID_MIN = 1180;
 
 // Inputs were unstyled <input>s, so the browser rendered them with its default
