@@ -292,6 +292,10 @@ export default async function handler(req, res) {
       return {
         rfq_id: rfq.id,
         line_index: idx + 1,
+        // Back-pointer to the originating costing line (migration
+        // 20260719000000). Drives the RFQ-award → costing write-back. Stripped
+        // by the pre-migration fallback below if the column doesn't exist yet.
+        costing_line_id:  ln.id,
         description,
         quantity: Math.max(1, Math.round(Number(ln.target_qty) || 1)),
         unit_of_measure: "ea",
