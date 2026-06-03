@@ -8,7 +8,13 @@ import { fmtDate, fmtMoney } from "../utils";
 
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; delivery_required_by: string | null; estimated_quantity: number | null; estimated_budget: number | null; currency: string };
-  line_items: { id: string; line_index: number; description: string; quantity: number; unit_of_measure: string | null; specifications: string | null; target_price: number | null }[];
+  line_items: {
+    id: string; line_index: number; description: string; quantity: number;
+    unit_of_measure: string | null; specifications: string | null; target_price: number | null;
+    // Costing-derived attributes, surfaced as their own columns.
+    style_code: string | null; color: string | null; size_scale_label: string | null;
+    fabric_code: string | null; fabric_name: string | null; fit: string | null;
+  }[];
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
   quote: { id: string; status: string; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[] } | null;
 }
@@ -17,6 +23,23 @@ async function token() {
   const { data: { session } } = await supabaseVendor.auth.getSession();
   return session?.access_token || "";
 }
+
+// Thousands separator for quantities (10000 → "10,000").
+const fmtQty = (n: number) => Number(n).toLocaleString("en-US");
+// USD with 2 decimals (7 → "$7.00").
+const fmtUsd = (n: number) => Number(n).toLocaleString("en-US", { style: "currency", currency: "USD" });
+// Parse a comma-formatted quantity input back to an integer.
+const parseQty = (s: string) => parseInt((s || "").replace(/[^\d]/g, ""), 10);
+// Format a free-typed quantity into a comma string (empty stays empty).
+const qtyInput = (raw: string) => {
+  const d = (raw || "").replace(/[^\d]/g, "");
+  return d ? Number(d).toLocaleString("en-US") : "";
+};
+// The style name is the tail of the costing-built description after " — ".
+const styleNameOf = (description: string) => {
+  const i = (description || "").lastIndexOf(" — ");
+  return i >= 0 ? description.slice(i + 3).trim() : "";
+};
 
 export default function VendorRfqDetail() {
   const { id } = useParams<{ id: string }>();
@@ -31,9 +54,21 @@ export default function VendorRfqDetail() {
   const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
   const [leadTime, setLeadTime] = useState("");
   const [validUntil, setValidUntil] = useState("");
-  const [notes, setNotes] = useState("");
-  const [totalPrice, setTotalPrice] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Total price is auto-calculated from each line's (your unit price × your qty)
+  // — the vendor no longer types it. Falls back to the RFQ's req qty when the
+  // vendor hasn't entered their own qty for a line.
+  function computeTotal() {
+    if (!data) return 0;
+    return data.line_items.reduce((sum, li) => {
+      const up = parseFloat(linePrices[li.id] || "");
+      if (!Number.isFinite(up)) return sum;
+      const qtyStr = lineQtys[li.id];
+      const qty = qtyStr ? parseQty(qtyStr) : li.quantity;
+      return sum + up * (Number.isFinite(qty) ? qty : 0);
+    }, 0);
+  }
 
   async function load() {
     setLoading(true);
@@ -49,14 +84,12 @@ export default function VendorRfqDetail() {
       if (d.quote) {
         setLeadTime(d.quote.lead_time_days?.toString() || "");
         setValidUntil(d.quote.valid_until || "");
-        setNotes(d.quote.notes || "");
-        setTotalPrice(d.quote.total_price?.toString() || "");
         const p: Record<string, string> = {};
         const q: Record<string, string> = {};
         const n: Record<string, string> = {};
         for (const l of d.quote.lines || []) {
           p[l.rfq_line_item_id] = l.unit_price?.toString() || "";
-          q[l.rfq_line_item_id] = l.quantity?.toString() || "";
+          q[l.rfq_line_item_id] = l.quantity != null ? fmtQty(l.quantity) : "";
           n[l.rfq_line_item_id] = l.notes || "";
         }
         setLinePrices(p); setLineQtys(q); setLineNotes(n);
@@ -77,17 +110,20 @@ export default function VendorRfqDetail() {
       const lines = data.line_items.map((li) => ({
         rfq_line_item_id: li.id,
         unit_price: linePrices[li.id] ? Number(linePrices[li.id]) : null,
-        quantity: lineQtys[li.id] ? parseInt(lineQtys[li.id], 10) : li.quantity,
+        quantity: lineQtys[li.id] ? parseQty(lineQtys[li.id]) : li.quantity,
         notes: lineNotes[li.id] || null,
       }));
+      const total = computeTotal();
       const r = await fetch(`/api/vendor/rfqs/${id}/quotes`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
         body: JSON.stringify({
-          total_price: totalPrice ? Number(totalPrice) : null,
+          // Auto-calculated from the line entries; no longer typed by the vendor.
+          total_price: total > 0 ? total : null,
           lead_time_days: leadTime ? parseInt(leadTime, 10) : null,
           valid_until: validUntil || null,
-          notes: notes || null,
+          // Quote-level notes removed as redundant with per-line Notes.
+          notes: null,
           lines,
         }),
       });
@@ -147,20 +183,23 @@ export default function VendorRfqDetail() {
       ["Est. budget", rfq.estimated_budget != null ? rfq.estimated_budget : ""],
       [],
     ];
-    const header = ["#", "Description", "Specs", "Target Unit Price", "Req Qty", "UoM", "Your Unit Price", "Your Qty", "Notes"];
+    const header = ["#", "Style", "Wash", "Size", "Fabric", "Style Name", "Target Unit Price", "Req Qty", "UoM", "Your Unit Price", "Your Qty", "Notes"];
     const body = line_items.map((li) => [
       li.line_index,
-      li.description,
-      li.specifications || "",
+      li.style_code || "",
+      li.color || "",
+      li.size_scale_label || "",
+      li.fabric_name || li.fabric_code || "",
+      styleNameOf(li.description),
       li.target_price ?? "",
       li.quantity,
       li.unit_of_measure || "",
       linePrices[li.id] ? Number(linePrices[li.id]) : "",
-      lineQtys[li.id] ? Number(lineQtys[li.id]) : "",
+      lineQtys[li.id] ? parseQty(lineQtys[li.id]) : "",
       lineNotes[li.id] || "",
     ]);
     const ws = XLSX.utils.aoa_to_sheet([...meta, header, ...body]);
-    ws["!cols"] = [{ wch: 5 }, { wch: 40 }, { wch: 24 }, { wch: 16 }, { wch: 9 }, { wch: 7 }, { wch: 15 }, { wch: 9 }, { wch: 30 }];
+    ws["!cols"] = [{ wch: 5 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 9 }, { wch: 6 }, { wch: 15 }, { wch: 9 }, { wch: 24 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "RFQ");
     const safe = (rfq.title || "rfq").replace(/[^\w-]+/g, "_").slice(0, 40);
@@ -203,45 +242,61 @@ export default function VendorRfqDetail() {
         <h3 style={{ color: "#FFFFFF", margin: 0, fontSize: 15 }}>Line items</h3>
         <button onClick={downloadExcel} style={btnSecondary}>⬇ Download Excel</button>
       </div>
-      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 14, padding: "9px 16px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textSub2, textTransform: "uppercase", letterSpacing: 0.04 }}>
-          <div>#</div>
-          <div>Description</div>
-          <div style={{ textAlign: "right" }}>Target unit price</div>
-          <div style={{ textAlign: "right" }}>Req qty</div>
-          <div>UoM</div>
-          <div style={{ textAlign: "right" }}>Your unit price</div>
-          <div style={{ textAlign: "right" }}>Your qty</div>
-          <div>Notes</div>
-        </div>
-        {lines.map((li) => (
-          <div key={li.id} style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 14, padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
-            <div style={{ color: TH.textSub2 }}>{li.line_index}</div>
-            <div style={{ color: TH.text }}>
-              <div style={{ fontWeight: 500 }}>{li.description}</div>
-              {li.specifications && <div style={{ color: TH.textMuted, fontSize: 11 }}>{li.specifications}</div>}
-            </div>
-            <div style={{ textAlign: "right", color: TH.textSub }}>{li.target_price != null ? fmtMoney(li.target_price) : "—"}</div>
-            <div style={{ textAlign: "right", color: TH.textSub2 }}>{li.quantity}</div>
-            <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
-            <div><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, textAlign: "right" }} /></div>
-            <div><input disabled={!canEdit} value={lineQtys[li.id] || ""} onChange={(e) => setLineQtys({ ...lineQtys, [li.id]: e.target.value })} type="number" style={{ ...inp, textAlign: "right" }} placeholder={String(li.quantity)} /></div>
-            <div><input disabled={!canEdit} value={lineNotes[li.id] || ""} onChange={(e) => setLineNotes({ ...lineNotes, [li.id]: e.target.value })} style={inp} /></div>
+      {/* Costing-derived attributes are split into their own columns. The table
+          can get wide, so allow horizontal scroll on narrow screens. */}
+      <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflowX: "auto" }}>
+        <div style={{ minWidth: GRID_MIN }}>
+          <div style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 12, padding: "9px 16px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textSub2, textTransform: "uppercase", letterSpacing: 0.04 }}>
+            <div>#</div>
+            <div>Style</div>
+            <div>Wash</div>
+            <div>Size</div>
+            <div>Fabric</div>
+            <div>Style name</div>
+            <div style={{ textAlign: "right" }}>Target unit price</div>
+            <div style={{ textAlign: "right" }}>Req qty</div>
+            <div>UoM</div>
+            {/* Centered over its (half-width) input field. */}
+            <div style={{ textAlign: "center" }}>Your unit price</div>
+            <div style={{ textAlign: "right" }}>Your qty</div>
+            <div>Notes</div>
           </div>
-        ))}
+          {lines.map((li) => (
+            <div key={li.id} style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 12, padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
+              <div style={{ color: TH.textSub2 }}>{li.line_index}</div>
+              <div style={{ color: TH.text, fontWeight: 500 }}>{li.style_code || "—"}</div>
+              <div style={{ color: TH.textSub }}>{li.color || "—"}</div>
+              <div style={{ color: TH.textSub }}>{li.size_scale_label || "—"}</div>
+              <div style={{ color: TH.textSub }}>{li.fabric_name || li.fabric_code || "—"}</div>
+              <div style={{ color: TH.textSub }}>{styleNameOf(li.description) || "—"}</div>
+              <div style={{ textAlign: "right", color: TH.textSub }}>{li.target_price != null ? fmtUsd(li.target_price) : "—"}</div>
+              <div style={{ textAlign: "right", color: TH.textSub2 }}>{fmtQty(li.quantity)}</div>
+              <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
+              {/* Half-size input, centered under its header. */}
+              <div style={{ textAlign: "center" }}><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, width: "50%", textAlign: "right" }} /></div>
+              <div><input disabled={!canEdit} value={lineQtys[li.id] || ""} onChange={(e) => setLineQtys({ ...lineQtys, [li.id]: qtyInput(e.target.value) })} inputMode="numeric" style={{ ...inp, textAlign: "right" }} placeholder={fmtQty(li.quantity)} /></div>
+              <div><input disabled={!canEdit} value={lineNotes[li.id] || ""} onChange={(e) => setLineNotes({ ...lineNotes, [li.id]: e.target.value })} style={inp} /></div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {canEdit && !deadlinePassed && (
         <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "18px 22px", marginTop: 16 }}>
-          {/* Constrained width so price / days / date fields aren't oversized. */}
-          <div style={{ maxWidth: 780 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <Field label="Total price"><input value={totalPrice} onChange={(e) => setTotalPrice(e.target.value)} type="number" step="0.01" style={inp} /></Field>
-              <Field label="Lead time (days)"><input value={leadTime} onChange={(e) => setLeadTime(e.target.value)} type="number" style={inp} /></Field>
-              <Field label="Valid until"><input value={validUntil} onChange={(e) => setValidUntil(e.target.value)} type="date" style={inp} /></Field>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <Field label="Notes (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: "vertical" }} /></Field>
+          <div style={{ display: "flex", gap: 20, alignItems: "flex-end", flexWrap: "wrap" }}>
+            {/* Compact fields. Total price is auto-calculated + read-only. */}
+            <Field label="Total price (auto)">
+              <div style={{ ...inp, width: 150, color: TH.text, fontWeight: 600, cursor: "default" }}>{fmtUsd(computeTotal())}</div>
+            </Field>
+            <Field label="Lead time (days)">
+              <input value={leadTime} onChange={(e) => setLeadTime(e.target.value)} type="number" style={{ ...inp, width: 110 }} />
+            </Field>
+            <Field label="Valid until">
+              <input value={validUntil} onChange={(e) => setValidUntil(e.target.value)} type="date" style={{ ...inp, width: 170 }} />
+            </Field>
+            {/* Reserved placeholder — product image will live here in a future pass. */}
+            <div style={{ marginLeft: "auto", width: 200, height: 130, border: `1px dashed ${TH.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", color: TH.textMuted, fontSize: 12, lineHeight: 1.4 }}>
+              Product image<br />(coming soon)
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
@@ -274,8 +329,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // Shared column template for the line-items header + rows so they stay aligned.
-// #, Description, Target unit price, Req qty, UoM, Your unit price, Your qty, Notes.
-const GRID_COLS = "34px minmax(160px,1.5fr) 110px 84px 60px 120px 84px minmax(120px,1fr)";
+// #, Style, Wash, Size, Fabric, Style name, Target unit price, Req qty, UoM,
+// Your unit price, Your qty, Notes. Wrapped in a min-width scroller (GRID_MIN).
+const GRID_COLS = "30px 100px 150px 96px 120px 120px 110px 88px 46px 120px 100px minmax(140px,1fr)";
+const GRID_MIN = 1180;
 
 // Inputs were unstyled <input>s, so the browser rendered them with its default
 // (brownish/gray, oversized) field chrome. Give them an explicit dark field bg,
