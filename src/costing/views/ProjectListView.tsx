@@ -10,7 +10,7 @@ import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates
 import { appConfirm } from "../../utils/theme";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { stripExcelPrefix } from "../services/costingApi";
-import type { CostingProject } from "../types";
+import type { CostingProject, CostingStatus } from "../types";
 
 // Canonical dark-slate palette (matches the Tangerine Internal* modals).
 const C = {
@@ -18,6 +18,18 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", inputBg: "#0b1220",
 };
+
+// WIP-pipeline tab split (modeled on the Tanda PO detail fused-tab strip).
+// "Active" folds the three working stages; the outcome stages each get a tab.
+type TabKey = "all" | "active" | "awarded" | "closed" | "cancelled";
+const ACTIVE_STATUSES: CostingStatus[] = ["draft", "in_progress", "quoted"];
+const TABS: { key: TabKey; label: string; match: (s: CostingStatus) => boolean }[] = [
+  { key: "all",       label: "All",       match: () => true },
+  { key: "active",    label: "Active",    match: (s) => ACTIVE_STATUSES.includes(s) },
+  { key: "awarded",   label: "Awarded",   match: (s) => s === "awarded" },
+  { key: "closed",    label: "Closed",    match: (s) => s === "closed" },
+  { key: "cancelled", label: "Cancelled", match: (s) => s === "cancelled" },
+];
 
 export default function ProjectListView() {
   const projects = useCostingStore((s) => s.projects);
@@ -33,7 +45,23 @@ export default function ProjectListView() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Active WIP tab — filters the grid by status bucket.
+  const [tab, setTab] = useState<TabKey>("all");
+
   useEffect(() => { list(); }, [list]);
+
+  // Per-tab counts (off the full list) + the rows the active tab shows.
+  const tabCounts = React.useMemo(() => {
+    const counts: Record<TabKey, number> = { all: 0, active: 0, awarded: 0, closed: 0, cancelled: 0 };
+    for (const t of TABS) counts[t.key] = projects.filter((p) => t.match(p.status)).length;
+    return counts;
+  }, [projects]);
+
+  const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
+  const visible = React.useMemo(
+    () => projects.filter((p) => activeTab.match(p.status)),
+    [projects, activeTab],
+  );
 
   const onNew = React.useCallback(() => { setNewName(""); setNewModalOpen(true); }, []);
 
@@ -74,7 +102,8 @@ export default function ProjectListView() {
     );
   };
 
-  const exportRows = projects.map((p) => ({
+  // Export follows the active tab — what you see is what you export.
+  const exportRows = visible.map((p) => ({
     project_name: p.project_name,
     brand: p.brand || "",
     gender_code: p.gender_code || "",
@@ -99,7 +128,20 @@ export default function ProjectListView() {
       {loading && <div style={{ color: "#94A3B8", fontSize: 13 }}>Loading…</div>}
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4 }}>{error}</div>}
 
-      <div style={{ overflowX: "auto", border: "1px solid #334155", borderRadius: 6, background: "#1E293B" }}>
+      {/* WIP tab strip — fused into the panel below (Tanda PO-detail model). */}
+      <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
+        {TABS.map((t) => (
+          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
+            {t.label}
+            <span style={{
+              marginLeft: 8, fontSize: 12, fontWeight: 700, fontFamily: "monospace",
+              color: t.key === tab ? "#93C5FD" : "#64748B",
+            }}>{tabCounts[t.key]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead style={{ background: "#0F172A" }}>
             <tr>
@@ -115,10 +157,14 @@ export default function ProjectListView() {
             </tr>
           </thead>
           <tbody>
-            {projects.length === 0 && !loading && (
-              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>No projects yet — click "+ New" in the top nav to get started.</td></tr>
+            {visible.length === 0 && !loading && (
+              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+                {projects.length === 0
+                  ? 'No projects yet — click "+ New" in the top nav to get started.'
+                  : `No ${activeTab.label.toLowerCase()} projects.`}
+              </td></tr>
             )}
-            {projects.map((p) => {
+            {visible.map((p) => {
               const sc = statusColor(p.status);
               return (
                 <tr
@@ -240,5 +286,19 @@ function rowBtn(color: string): React.CSSProperties {
   return {
     background: "transparent", color, border: `1px solid ${color}`,
     padding: "3px 10px", borderRadius: 3, cursor: "pointer", fontSize: 11, marginRight: 4,
+  };
+}
+// Fused WIP tab button — active tab merges into the panel below (no bottom
+// border, -1px overlap). Lifted verbatim from the Tanda PO-detail tab strip.
+function tabStyle(active: boolean): React.CSSProperties {
+  return {
+    flex: 1, padding: "11px 18px", fontSize: 14, cursor: "pointer", fontWeight: 700,
+    fontFamily: "inherit",
+    border: "1px solid #334155", borderBottom: active ? "none" : "1px solid #334155",
+    background: active ? "#1E293B" : "#0F172A",
+    color: active ? "#60A5FA" : "#6B7280",
+    borderRadius: "10px 10px 0 0",
+    marginBottom: active ? -1 : 0,
+    position: "relative", zIndex: active ? 1 : 0,
   };
 }
