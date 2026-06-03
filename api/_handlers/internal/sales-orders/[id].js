@@ -65,7 +65,19 @@ export default async function handler(req, res, params) {
     const { data: lines, error: lErr } = await admin.from("sales_order_lines")
       .select("*").eq("sales_order_id", id).order("line_number", { ascending: true });
     if (lErr) return res.status(500).json({ error: lErr.message });
-    return res.status(200).json({ ...so, lines: lines || [] });
+    // Decorate each line with its SKU decomposition (style_code / color / size /
+    // sku_code) so the SO modal can rebuild the size-matrix body when editing.
+    const ids = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
+    let skuById = new Map();
+    if (ids.length) {
+      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, sku_code").in("id", ids);
+      skuById = new Map((skus || []).map((s) => [s.id, s]));
+    }
+    const decorated = (lines || []).map((l) => {
+      const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, sku_code: s?.sku_code ?? null };
+    });
+    return res.status(200).json({ ...so, lines: decorated });
   }
 
   if (req.method === "DELETE") {
