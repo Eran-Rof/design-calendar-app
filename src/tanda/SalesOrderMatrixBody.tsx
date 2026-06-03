@@ -52,6 +52,10 @@ export interface SalesOrderMatrixBodyProps {
   /** Show the faint on-hand number above each size cell. Off for Production
    *  fulfillment (the order is being made, not shipped from stock). Default true. */
   showOnHand?: boolean;
+  /** ATS fulfillment: the number above each cell is real available-to-ship BY
+   *  SIZE (on-hand − open reservations, from tangerine_size_onhand via
+   *  /api/internal/ats-by-size) rather than raw on-hand. Overrides showOnHand. */
+  atsMode?: boolean;
   onTotalsChange?: (t: BodyTotals) => void;
 }
 
@@ -59,11 +63,14 @@ export type BodyTotals = { qty: number; cents: number; costCents: number; margin
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMatrixBodyProps>(function SalesOrderMatrixBody(
-  { editable, items, seed, showOnHand = true, onTotalsChange }, ref,
+  { editable, items, seed, showOnHand = true, atsMode = false, onTotalsChange }, ref,
 ) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [flat, setFlat] = useState<FlatLine[]>([]);
+  const [atsByItem, setAtsByItem] = useState<Record<string, number>>({});
+  const [atsAsOf, setAtsAsOf] = useState<string | null>(null);
+  const [atsLoading, setAtsLoading] = useState(false);
   const nextSectionId = useRef(1);
   const nextFlatKey = useRef(1);
   const seeded = useRef(false);
@@ -168,6 +175,34 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
   }, [sections, flat]);
   useEffect(() => { onTotalsChange?.(totals); }, [totals, onTotalsChange]);
 
+  // ── ATS-by-size availability ────────────────────────────────────────────────
+  //   When the SO is set to ATS fulfillment, fetch real available-to-ship by
+  //   size for every SKU currently in the loaded grids and show it above each
+  //   cell (instead of raw on-hand). Re-runs when the set of SKUs changes.
+  const allSkuIdsSig = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of sections) for (const sk of s.payload?.skus || []) if (sk.id) ids.add(sk.id);
+    return [...ids].sort().join(",");
+  }, [sections]);
+  useEffect(() => {
+    if (!atsMode) { setAtsByItem({}); setAtsAsOf(null); return; }
+    const ids = allSkuIdsSig ? allSkuIdsSig.split(",") : [];
+    if (ids.length === 0) { setAtsByItem({}); setAtsAsOf(null); return; }
+    let cancelled = false;
+    setAtsLoading(true);
+    fetch("/api/internal/ats-by-size", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item_ids: ids }) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j) => {
+        if (cancelled) return;
+        const map: Record<string, number> = {};
+        for (const [id, v] of Object.entries(j.availability || {})) map[id] = Math.max(0, Number((v as { available?: number })?.available) || 0);
+        setAtsByItem(map); setAtsAsOf(j.as_of || null);
+      })
+      .catch(() => { if (!cancelled) { setAtsByItem({}); setAtsAsOf(null); } })
+      .finally(() => { if (!cancelled) setAtsLoading(false); });
+    return () => { cancelled = true; };
+  }, [atsMode, allSkuIdsSig]);
+
   // ── Imperative resolve (called at save) ────────────────────────────────────
   useImperativeHandle(ref, () => ({
     async resolve(): Promise<ResolvedLine[]> {
@@ -223,6 +258,13 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
         )}
       </div>
 
+      {atsMode && (sections.length > 0 || flat.length > 0) && (
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+          ▲ Number above each cell is <b style={{ color: C.base }}>available-to-ship by size</b> (ATS on-hand − open reservations).
+          {atsLoading ? " Loading…" : atsAsOf ? ` As of ${atsAsOf}.` : " No size on-hand data."}
+        </div>
+      )}
+
       {sections.length === 0 && flat.length === 0 && (
         <div style={{ color: C.textMuted, fontSize: 13, padding: "16px 12px", border: `1px dashed ${C.cardBdr}`, borderRadius: 8, marginBottom: 12 }}>
           {editable ? "Click ➕ Add style (matrix) and type ordered quantities into the color × size grid. Most styles are matrix-driven; use + Add non-matrix line for the rare one-off SKU." : "No lines."}
@@ -237,7 +279,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
         // (draft or "Add styles" mode) shows every color so any can be filled.
         const rows = editable ? allRows : allRows.filter((r) => (s.payload?.sizes || []).some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
         const onHand: Record<string, number> = {};
-        if (showOnHand && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (sk?.on_hand_qty != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(sk.on_hand_qty) || 0); } }
+        if ((showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
         return (
           <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, marginBottom: 12, background: C.card, padding: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>
