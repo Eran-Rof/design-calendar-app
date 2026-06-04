@@ -136,8 +136,23 @@ Files upload to the `tangerine-documents` Supabase storage bucket. Signed URLs a
 | POST | `/api/internal/ap-invoices/:id/pay` | Record a payment |
 | POST | `/api/internal/ap-invoices/:id/void` | Void + reverse JEs |
 | GET  | `/api/internal/ap-payments` | Read-only ledger |
+| POST | `/api/ap/sync-bills` | Bulk ingest of real Xoro vendor bills (CSV) — see below |
 
 Money is in BigInt cents on the wire. The UI converts dollars ↔ cents at the form boundary.
+
+## Xoro real-bill feed (`source='xoro_ap'`)
+
+While Xoro remains the system of record (pre-Tangerine go-live), the actual posted vendor bills flow in automatically from Xoro's `bill/getbill` endpoint. The nightly `rof_xoro_project/scripts/rest_ap_sync.py` downloads the bills and POSTs the gzipped `BillDetail*.csv` to **`POST /api/ap/sync-bills`** (multipart field `bills`, `design-calendar-api` Bearer token — same upload shape as `/api/master/sync`). Each bill lands as one `invoices` row (`source='xoro_ap'`, `invoice_kind='vendor_bill'`) plus its `invoice_line_items`.
+
+**Supersede rule.** These real bills are authoritative. On a `(vendor_id, invoice_number)` collision:
+
+| Existing `source` | Action |
+|---|---|
+| `manual` (or any non-xoro source) | **Skipped** — an operator-typed bill is never overwritten |
+| `xoro_mirror` (T10 PO-derived synthetic) | **Updated in place** — the real bill supersedes the mirror-derived one |
+| `xoro_ap` | **Updated in place** — idempotent re-sync |
+
+This is the *operational* AP record. It is deliberately **not** wired into the T10 shadow-mirror GL engine, whose summary JEs sum only `source='xoro_mirror'` (see [22. Shadow Mirror](22-shadow-mirror.md)). Vendors are matched by **Vendor Name** against `vendors.code` / `vendors.aliases` (the CSV "Vendor Code" is the Xoro internal id and does not map); unmatched vendors are skipped and returned in the response so the operator can add a vendor or alias. At Tangerine go-live, native AP entry takes over and this feed is retired.
 
 ## Sub-decisions defaults (P3-1 → P3-2)
 
@@ -187,3 +202,5 @@ Recipients can opt out per (kind, channel) via the **Notification preferences** 
 - `api/_lib/accounting/posting/rules/apInvoiceReceived.js` — posting rule (P3-1)
 - `api/_lib/accounting/posting/rules/apInvoicePaid.js` — payment rule (P3-1)
 - `api/_lib/accounting/posting/rules/apInvoiceVoided.js` — void/reverse rule (P3-1)
+- `api/_handlers/ap/sync-bills.js` — Xoro real-bill ingest (`source='xoro_ap'`, supersede)
+- `api/_lib/ap-bill-sync.js` — pure CSV→bill parsing/mapping core (+ `__tests__/ap-bill-sync.test.js`)

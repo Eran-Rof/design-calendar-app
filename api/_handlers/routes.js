@@ -829,6 +829,8 @@ import h562 from "./b2b/catalog.js";
 import h563 from "./b2b/orders/index.js";
 import h564 from "./b2b/orders/[id].js";
 import h565 from "./b2b/account.js";
+// h628 = POST /api/ap/sync-bills (REST AP-bill ingest from Xoro bill/getbill)
+import h628 from "./ap/sync-bills.js";
 
 // Inventory Planning crons — predate the dispatcher pattern; migrated to
 // _handlers/cron in this commit so they route through dispatch like every
@@ -1519,6 +1521,7 @@ export const ROUTES = [
   { pattern: "/api/internal/channels",                                 handler: h533 },
   { pattern: "/api/internal/users-access/override",                    handler: h530 },
   { pattern: "/api/internal/users-access",                             handler: h529 },
+  { pattern: "/api/ap/sync-bills",                                     handler: h628 },
   // Inventory Planning crons (scheduled in vercel.json).
   { pattern: "/api/cron/ip-normalize",                                 handler: h800 },
   { pattern: "/api/cron/ip-freshness-refresh",                         handler: h801 },
