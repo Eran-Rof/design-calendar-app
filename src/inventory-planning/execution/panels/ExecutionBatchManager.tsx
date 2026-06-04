@@ -17,6 +17,7 @@ import {
 } from "../services";
 import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
 import type { IpScenario } from "../../scenarios/types/scenarios";
+import { confirmDialog } from "../../../shared/ui/warn";
 import { S, PAL, formatDate } from "../../components/styles";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
@@ -92,6 +93,26 @@ export default function ExecutionBatchManager() {
     setAudit(au);
   }, [selected]);
 
+  async function deleteSelectedBatch() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      `Permanently DELETE execution batch "${selected.batch_name}" (${selected.status})?\n\n` +
+      `This removes the batch and all its actions. It cannot be undone. ` +
+      `Any Tangerine POs already created from it are NOT affected.`,
+      { title: "Delete batch", confirmText: "Delete", icon: "🗑" },
+    );
+    if (!ok) return;
+    try {
+      await executionRepo.deleteBatch(selected.id);
+      setSelectedId(null);
+      setTab("list");
+      setToast({ text: "Batch deleted", kind: "success" });
+      await refresh();
+    } catch (e) {
+      setToast({ text: "Delete failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    }
+  }
+
   useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
   useEffect(() => { void loadSelected(); /* eslint-disable-line */ }, [selectedId]);
 
@@ -133,6 +154,13 @@ export default function ExecutionBatchManager() {
               <button style={S.btnSecondary} onClick={() => setShowAudit(true)}>
                 Audit ({audit.length})
               </button>
+            )}
+            {selected && (
+              <button
+                style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
+                onClick={deleteSelectedBatch}
+                title="Permanently delete this batch and its actions"
+              >🗑 Delete</button>
             )}
           </div>
           <div style={{ color: PAL.textMuted, fontSize: 12 }}>
@@ -276,7 +304,9 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   const [scenarioId, setScenarioId] = useState("");
   const [runId, setRunId] = useState(runs[0]?.id ?? "");
   const [batchType, setBatchType] = useState<IpExecutionBatchType>("buy_plan");
-  const [name, setName] = useState(`Buy plan ${new Date().toISOString().slice(0, 10)}`);
+  const [name, setName] = useState("");
+  // Once the planner types a name we stop auto-rewriting it.
+  const [nameEdited, setNameEdited] = useState(false);
   const [note, setNote] = useState("");
   const [allowUnapproved, setAllowUnapproved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -298,6 +328,19 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   }, []);
 
   const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
+
+  // Auto-name: include the scenario name when building from a scenario, e.g.
+  // "0412 june 2026 — Buy plan 2026-06-04". Stops once the planner edits it.
+  useEffect(() => {
+    if (nameEdited) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const label = batchType.replace(/_/g, " ");
+    const base = label.charAt(0).toUpperCase() + label.slice(1);
+    const scen = source === "scenario"
+      ? scenarios.find((s) => s.id === scenarioId && s.status === "approved")
+      : undefined;
+    setName(scen ? `${scen.scenario_name} — ${base} ${today}` : `${base} ${today}`);
+  }, [source, scenarioId, batchType, scenarios, nameEdited]);
 
   async function save() {
     setSaving(true);
@@ -396,7 +439,8 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
             </div>
             <div>
               <label style={S.label}>Batch name</label>
-              <input style={{ ...S.input, width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} />
+              <input style={{ ...S.input, width: "100%" }} value={name}
+                     onChange={(e) => { setName(e.target.value); setNameEdited(true); }} />
             </div>
             <div>
               <label style={S.label}>Note</label>
