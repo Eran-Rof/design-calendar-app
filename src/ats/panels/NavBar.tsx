@@ -12,6 +12,8 @@ import type { ReportPayload } from "../reportPayload";
 import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
 import { getItemMasterById } from "../itemMasterLookup";
+import { periodAvail } from "../compute";
+import { distribute } from "../sizeMatrixDistribute";
 import { filterRows } from "../filter";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
@@ -861,68 +863,125 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    // By Size Matrix worksheet: size-grain ATS-available per style (color ×
-    // size + PPK pack count) fetched from /api/internal/ats-size-matrix, plus
-    // a bulk SO/PO overlay per (style, color) from the visible color-grain
-    // rows. Fetch failure simply skips the worksheet — the main report still
-    // exports. The size data is unit-grain eaches; r.onOrder/r.onPO are already
-    // unit-grain (compute.ts applied the pack multiplier), so SO/PO match.
+    // By Size Matrix worksheet(s). The MAIN report (sheet 1) is correct: its
+    // per-color ATS is netted against the color-grain Xoro On Order and uses
+    // the ATS-snapshot scope — neither available at size grain. So we REPROJECT
+    // the main report by size: take each color's already-correct ATS (the same
+    // periodAvail the main sheet renders) and split it across sizes in
+    // proportion to a size SHAPE from /api/internal/ats-size-matrix
+    // (on-hand/incoming size mix). Totals tie out to the main report exactly;
+    // the size split is the best estimate. SO/PO are the main report's loose
+    // On Order / On PO; PPK packs come from the PPK style rows' ATS.
     let sizeMatrix: AtsSizeMatrixResponse | undefined;
     let bulkByStyleColor: Map<string, { so: number; po: number }> | undefined;
     let periodMatrices: Array<{ name: string; matrix: AtsSizeMatrixResponse }> | undefined;
     if (opts.bySizeMatrix) {
-      const styleOf = (r: ATSRow) =>
-        (r.master_style && r.master_style.trim()) || String(r.sku || "").split(" - ")[0].trim();
-      const colorOf = (r: ATSRow) =>
-        (r.master_color && r.master_color.trim()) || String(r.sku || "").split(" - ").slice(1).join(" - ").trim();
-      const styleSet = new Set<string>();
-      bulkByStyleColor = new Map();
+      const stemOf = (s: string) => s.replace(/-?PPK\d*$/i, "").toUpperCase();
+      const isPpk = (s: string) => /PPK/i.test(s);
+      const styleOf = (r: ATSRow) => (r.master_style && r.master_style.trim()) || String(r.sku || "").split(" - ")[0].trim();
+      const colorOf = (r: ATSRow) => (r.master_color && r.master_color.trim()) || String(r.sku || "").split(" - ").slice(1).join(" - ").trim();
+      const nPer = periods.length;
+
+      type CAcc = { color: string; so: number; po: number; total: number; per: number[]; ppkUnitsTotal: number; ppkUnitsPer: number[] };
+      const byStem = new Map<string, { packSize: number; colors: Map<string, CAcc> }>();
+      const ensureStem = (stem: string) => { let s = byStem.get(stem); if (!s) { s = { packSize: 0, colors: new Map() }; byStem.set(stem, s); } return s; };
+      const ensureColor = (st: { colors: Map<string, CAcc> }, color: string) => {
+        const k = color.toUpperCase(); let c = st.colors.get(k);
+        if (!c) { c = { color, so: 0, po: 0, total: 0, per: Array(nPer).fill(0), ppkUnitsTotal: 0, ppkUnitsPer: Array(nPer).fill(0) }; st.colors.set(k, c); }
+        return c;
+      };
       for (const r of finalRows) {
-        if (r.__collapsed) continue; // aggregate rows would double-count SO/PO
-        const style = styleOf(r);
-        if (!style) continue;
-        styleSet.add(style);
-        const k = `${style.toUpperCase()}|${colorOf(r).toUpperCase()}`;
-        const cur = bulkByStyleColor.get(k) ?? { so: 0, po: 0 };
-        cur.so += Number(r.onOrder) || 0;
-        cur.po += Number(r.onPO) || 0;
-        bulkByStyleColor.set(k, cur);
+        if (r.__collapsed) continue; // aggregate rows would double-count
+        const styleRaw = styleOf(r); if (!styleRaw) continue;
+        const st = ensureStem(stemOf(styleRaw));
+        const ca = ensureColor(st, colorOf(r));
+        const perVals = periods.map((_, i) => periodAvail(r, periods, i));
+        const tot = perVals.reduce((a, b) => a + b, 0);
+        if (isPpk(styleRaw)) {
+          const mult = (r.ppkMult && r.ppkMult > 1) ? r.ppkMult : 1;
+          if (mult > 1) st.packSize = mult;
+          ca.ppkUnitsTotal += tot;
+          perVals.forEach((v, i) => { ca.ppkUnitsPer[i] += v; });
+        } else {
+          ca.so += Number(r.onOrder) || 0;
+          ca.po += Number(r.onPO) || 0;
+          ca.total += tot;
+          perVals.forEach((v, i) => { ca.per[i] += v; });
+        }
       }
-      if (styleSet.size > 0) {
-        const styleCodes = [...styleSet];
-        const fetchMatrix = async (asOf?: string): Promise<AtsSizeMatrixResponse | null> => {
+
+      // Bulk SO/PO (loose On Order / On PO) for the matrix builder.
+      bulkByStyleColor = new Map();
+      for (const [stem, st] of byStem) for (const ca of st.colors.values()) bulkByStyleColor.set(`${stem}|${ca.color.toUpperCase()}`, { so: ca.so, po: ca.po });
+
+      const styleCodes = [...byStem.keys()];
+      if (styleCodes.length > 0) {
+        const fetchShape = async (asOf?: string): Promise<AtsSizeMatrixResponse | null> => {
           try {
             const resp = await fetch("/api/internal/ats-size-matrix", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
+              method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify(asOf ? { style_codes: styleCodes, as_of_date: asOf } : { style_codes: styleCodes }),
             });
             return resp.ok ? await resp.json() : null;
           } catch { return null; }
         };
-        // Snapshot (total) matrix.
-        sizeMatrix = (await fetchMatrix()) ?? undefined;
+        // stem(upper) → { sizes, style_name, packFromShape, shapeByColor: colorUpper → by_size }
+        const indexShape = (resp: AtsSizeMatrixResponse | null) => {
+          const m = new Map<string, { sizes: string[]; style_name: string; packFromShape: number; shapeByColor: Map<string, Record<string, number>> }>();
+          for (const s of resp?.styles ?? []) {
+            const shapeByColor = new Map<string, Record<string, number>>();
+            for (const c of s.colors ?? []) shapeByColor.set(String(c.color).toUpperCase(), c.by_size || {});
+            m.set(String(s.style_code).toUpperCase(), { sizes: s.sizes || [], style_name: s.style_name || s.style_code, packFromShape: s.pack_size || 0, shapeByColor });
+          }
+          return m;
+        };
+        // Reproject one display matrix from per-(stem,color) totals + a shape.
+        const buildDisplay = (
+          metaIdx: ReturnType<typeof indexShape>,
+          shapeIdx: ReturnType<typeof indexShape>,
+          pickTotal: (ca: CAcc) => number,
+          pickPpkUnits: (ca: CAcc) => number,
+        ): AtsSizeMatrixResponse => {
+          const styles: AtsSizeMatrixResponse["styles"] = [];
+          for (const [stem, st] of byStem) {
+            const meta = metaIdx.get(stem) || { sizes: [], style_name: stem, packFromShape: 0, shapeByColor: new Map() };
+            const packSize = st.packSize || meta.packFromShape || 0;
+            const shapeStem = shapeIdx.get(stem);
+            const colors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+            for (const ca of st.colors.values()) {
+              const total = pickTotal(ca);
+              const ppkPacks = packSize > 1 ? Math.round(pickPpkUnits(ca) / packSize) : 0;
+              if (total <= 0 && ppkPacks <= 0) continue;
+              const shape = shapeStem?.shapeByColor.get(ca.color.toUpperCase()) || {};
+              colors.push({ color: ca.color, by_size: distribute(total, shape, meta.sizes), total_eachs: total, ppk_packs: ppkPacks });
+            }
+            if (colors.length) styles.push({ style_code: stem, style_name: meta.style_name, sizes: meta.sizes, pack_size: packSize, colors: colors.sort((a, b) => a.color.localeCompare(b.color)) });
+          }
+          return { as_of: null, styles };
+        };
 
-        // One matrix per selected report period, AS OF that period's end date.
-        // Capped to keep the workbook + fetch fan-out reasonable.
         const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
         const toIso = (d: string): string | null => {
           if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-          const dt = new Date(d);
-          return isNaN(dt.getTime()) ? null : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+          const dt = new Date(d); return isNaN(dt.getTime()) ? null : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
         };
-        const nameOf = (endDate: string, label: string) => {
-          const dt = new Date(endDate);
-          return isNaN(dt.getTime()) ? label : `${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`;
-        };
+        const nameOf = (endDate: string, label: string) => { const dt = new Date(endDate); return isNaN(dt.getTime()) ? label : `${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`; };
+
+        // Snapshot shape (on-hand by size) → metadata + the snapshot tab's shape.
+        const metaIdx = indexShape(await fetchShape());
+
+        // Per-period shapes (as_of), in parallel, capped.
         const periodsToFetch = displayPeriods.slice(0, 24);
-        const fetched = await Promise.all(periodsToFetch.map(async (p) => {
-          const iso = toIso(p.endDate);
-          if (!iso) return null;
-          const matrix = await fetchMatrix(iso);
-          return matrix ? { name: nameOf(p.endDate, p.label), matrix } : null;
-        }));
-        periodMatrices = fetched.filter(Boolean) as Array<{ name: string; matrix: AtsSizeMatrixResponse }>;
+        const shapeResps = await Promise.all(periodsToFetch.map(async (p, i) => ({ p, i, shape: indexShape(toIso(p.endDate) ? await fetchShape(toIso(p.endDate)!) : null) })));
+
+        // Snapshot tab = main-report Total per color, distributed by the on-hand shape.
+        sizeMatrix = buildDisplay(metaIdx, metaIdx, (ca) => ca.total, (ca) => ca.ppkUnitsTotal);
+        // One tab per period = that period's main-report value, distributed by that period's shape.
+        periodMatrices = [];
+        for (const { p, i, shape } of shapeResps) {
+          const display = buildDisplay(metaIdx, shape, (ca) => ca.per[i], (ca) => ca.ppkUnitsPer[i]);
+          if (display.styles.length) periodMatrices.push({ name: nameOf(p.endDate, p.label), matrix: display });
+        }
       }
     }
 
