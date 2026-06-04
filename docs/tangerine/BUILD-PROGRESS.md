@@ -8,9 +8,9 @@
 
 | Metric | Done | Total | % |
 |---|---|---|---|
-| **Phases / slots (P1–P25)** | 12 + P14-slot (RBAC) + P15-slot (Brand Master) ✅; **P13 build complete (PO→receive→QC→customs→3-way→close)**, **P16 core complete (M10/M18/M44 + M11 PO + matrix)**, **P18 B2B portal MVP live** | 25 | **~68%** |
-| **Modules (M1–M49 + ➕M50)** | ~35 + ➕M50; M10 SO + M18 alloc + M44 carrier + M11 PO + **M43 Pricing** + **M26 QC / M38 Receiving / M48 Trade Compliance** done; size-matrix; M40/M41 B2B portal; Customer/Vendor 360° + Employee masters | 49 (+ins) | **~67%** |
-| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15 + P16 core + P18 portal + **P13 build complete** (cutover = operator parallel-run) | 23 | **~70%** |
+| **Phases / slots (P1–P25)** | **14 code-complete** (P1–P10, P12, **P13** build+GL, P15, P16) + **9 MVP/🟡** (P11, P17–P22, P24, P25); only **P23** (Xoro cutover, operator-gated) + the P14 PLM-ext slot remain ⬜ (RBAC filled P14). Weighted by scope **≈78%**; 14/25 fully shipped = 56% | 25 | **~78%** |
+| **Modules (M1–M49 + ➕M50)** | ~43 + ➕M50; prior set + **M23 Returns/RMA · M49 Drop-ship · M13 3PL · M14 EDI (surfaced) · M9 reporting hub · M20 1099 · M21 Fixed Assets · M22 Budgets**; remaining: M15 Public API, M19 Sales Tax, M46 BI charts, M32/M33 PLM-ext | 49 (+ins) | **~78%** |
+| **Path to Xoro retirement (P1–P23)** | through P12 + P14/P15 + P16 core + P18 portal + **P13 build+GL complete** + P17 planning surfaced + P19–P22 MVPs; **P23 cutover itself = 0%** (operator parallel-run, first gate Cash ~2026-07-28) | 23 | **~78%** |
 
 > Note: the **P14/P15 slots** hold operator insertions (RBAC, Brand Master), not the original roadmap scope (PLM-ext, Pricing — deferred). The brand / allocation / partition work is **built but GATED** (`BRAND_SCOPE_MODE` off) — shipped code, not yet *enforced* in prod.
 
