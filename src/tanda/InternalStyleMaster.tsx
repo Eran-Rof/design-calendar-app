@@ -213,6 +213,7 @@ export default function InternalStyleMaster() {
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
+  const [assigningScales, setAssigningScales] = useState(false);
   // Universal row-click primitive (operator ask #4) — click anywhere on a
   // row (except Edit/Delete buttons) to open the edit modal. Soft-deleted
   // rows are non-interactive.
@@ -338,6 +339,39 @@ export default function InternalStyleMaster() {
     }
   }
 
+  // Bulk best-match size-scale assignment. Previews first (no write), shows the
+  // per-scale breakdown, then applies on confirm. Only styles WITHOUT a scale
+  // are touched (nothing is overwritten). Per-style manual override stays in the
+  // edit modal's "Size Scale" field.
+  async function autoAssignScales() {
+    setAssigningScales(true);
+    try {
+      const pr = await fetch("/api/internal/style-master/auto-assign-scales");
+      const prev = await pr.json();
+      if (!pr.ok) throw new Error(prev.error || `HTTP ${pr.status}`);
+      if (!prev.matched) { notify(prev.error || "No unscaled styles could be matched to a size scale.", "info"); return; }
+      const breakdown = Object.entries(prev.by_scale || {})
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .map(([k, v]) => `${k}: ${v}`).join(" · ");
+      const ok = await confirmDialog(
+        `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on their size variants)?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
+        { title: "Auto-assign size scales", icon: "🎯", confirmText: `Assign ${prev.matched}` },
+      );
+      if (!ok) return;
+      const ar = await fetch("/api/internal/style-master/auto-assign-scales", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const applied = await ar.json();
+      if (!ar.ok) throw new Error(applied.error || `HTTP ${ar.status}`);
+      notify(`Assigned size scales to ${applied.updated ?? prev.matched} styles.`, "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`Auto-assign failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setAssigningScales(false);
+    }
+  }
+
   // Refresh hook handed to the modal so a successful save can repaint both
   // the row list AND the dim-value cache (in case a brand-new classifier
   // was added).
@@ -350,7 +384,17 @@ export default function InternalStyleMaster() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Style Master</h2>
-        <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => void autoAssignScales()}
+            style={btnSecondary}
+            disabled={assigningScales}
+            title="Match each unscaled style to the best-fitting size scale by its size variants (preview before applying)"
+          >
+            {assigningScales ? "Assigning…" : "🎯 Auto-assign size scales"}
+          </button>
+          <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>

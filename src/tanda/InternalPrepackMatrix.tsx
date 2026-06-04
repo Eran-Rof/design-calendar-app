@@ -284,25 +284,50 @@ function downloadTemplate() {
   XLSXStyle.writeFile(wb, "prepack-matrix-template.xlsx");
 }
 
-type NeededRow = { ppk_style_code: string; style_name: string; pack_token: string | null; carton_total: number | null; sizes: string[] };
+type NeededRow = {
+  ppk_style_code: string; style_name: string; pack_token: string | null; carton_total: number | null; sizes: string[];
+  size_scale_id?: string | null; scale_code?: string | null; scale_name?: string | null; scale_sizes?: string[];
+};
 // Bulk workbook: every PPK style still needing a matrix, one styled SHEET per
-// size scale (white cells pre-filled from the master, yellow blank to fill).
+// SIZE SCALE — all styles sharing a scale land on the same tab, with the scale's
+// canonical ordered sizes as the columns. Styles with no assigned scale fall back
+// to grouping by their raw size-set (the legacy behaviour). White cells are
+// pre-filled from the master, yellow are blank to fill in.
+type SheetGroup = { key: string; label: string; sizes: string[]; items: NeededRow[]; isScale: boolean };
 function buildNeededWorkbook(rows: NeededRow[]) {
-  const groups = new Map<string, { sizes: string[]; items: NeededRow[] }>();
+  const groups = new Map<string, SheetGroup>();
   const noSizes: NeededRow[] = [];
   for (const r of rows) {
-    if (!r.sizes || r.sizes.length === 0) { noSizes.push(r); continue; }
-    const key = r.sizes.join("|");
-    if (!groups.has(key)) groups.set(key, { sizes: r.sizes, items: [] });
-    groups.get(key)!.items.push(r);
+    const scaleSizes = r.scale_sizes && r.scale_sizes.length ? r.scale_sizes : null;
+    if (scaleSizes && r.scale_code) {
+      // Group by the assigned size scale; columns = the scale's ordered sizes.
+      const key = `scale:${r.scale_code}`;
+      if (!groups.has(key)) groups.set(key, { key, label: r.scale_name || r.scale_code, sizes: scaleSizes, items: [], isScale: true });
+      groups.get(key)!.items.push(r);
+    } else if (r.sizes && r.sizes.length) {
+      // Fallback: no scale assigned → group by the exact size-set.
+      const key = `set:${r.sizes.join("|")}`;
+      if (!groups.has(key)) groups.set(key, { key, label: `${r.sizes[0]}-${r.sizes[r.sizes.length - 1]}`, sizes: r.sizes, items: [], isScale: false });
+      groups.get(key)!.items.push(r);
+    } else {
+      noSizes.push(r);
+    }
   }
-  const ordered = [...groups.values()].sort((a, b) => a.sizes.length - b.sizes.length || a.sizes.join().localeCompare(b.sizes.join()));
+  // Scale tabs first (alpha by name), then the fallback size-set tabs (by width).
+  const ordered = [...groups.values()].sort((a, b) => {
+    if (a.isScale !== b.isScale) return a.isScale ? -1 : 1;
+    if (a.isScale) return a.label.localeCompare(b.label);
+    return a.sizes.length - b.sizes.length || a.sizes.join().localeCompare(b.sizes.join());
+  });
   const wb = XLSXStyle.utils.book_new();
   let n = 0;
   for (const g of ordered) {
+    // Skip one-size groups (e.g. the ONE-SIZE scale or a lone size) — a single-
+    // column prepack template is useless, so it doesn't get its own tab.
+    if (g.sizes.length <= 1) continue;
     n++;
     const items: FillItem[] = g.items.map((it) => ({ ppk_style_code: it.ppk_style_code, style_name: it.style_name, pack_token: it.pack_token, carton_qty: it.carton_total }));
-    const label = `${n}. ${g.sizes[0]}-${g.sizes[g.sizes.length - 1]} (${g.items.length})`;
+    const label = `${n}. ${g.label} (${g.items.length})`;
     XLSXStyle.utils.book_append_sheet(wb, buildPrepackSheet(g.sizes, items), sheetName(label));
   }
   if (noSizes.length) {
@@ -463,6 +488,7 @@ export default function InternalPrepackMatrix() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PrepackMatrix | null>(null);
@@ -485,7 +511,7 @@ export default function InternalPrepackMatrix() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/prepack-matrices?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -497,7 +523,10 @@ export default function InternalPrepackMatrix() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  // Debounce the search box so results refresh AS YOU TYPE (no Enter / button).
+  useEffect(() => { const t = setTimeout(() => setQDebounced(q), 250); return () => clearTimeout(t); }, [q]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   // Instant client-side filter as you type (code / name / PPK style). The
   // Search button + Enter still hit the server (for large sets / fresh data),
