@@ -209,7 +209,7 @@ The panel lists existing matrices; **below them, a dashed "PPK styles still need
 The panel supports CRUD plus a **styled** xlsx/csv template round-trip that upserts matrices by `ppk_style_code`. The template (xlsx-js-style) is **colour-coded**:
 - **White = pre-filled by the system** — PPK Style Code, Matrix Name (from the master), Pack Token, Carton Qty.
 - **Yellow = you fill** — one uniform **Units / Inner Pack** for the style, plus each **Size <x>** cell = the **number of inner packs** of that size.
-- **Green = auto formula** — **Num Inner Packs** (`= Carton Qty ÷ Units/Inner Pack`), **Inner Pack Total** (`= Σ size cells`), **Unit Total** (`= Inner Pack Total × Units/Inner Pack`), **Status** (`OK` when Unit Total = Carton Qty, else `CHECK`).
+- **Green = auto formula** — **Num Inner Packs** (`= Σ of the per-size inner packs`), **Unit Total** (`= Num Inner Packs × Units/Inner Pack`), **Status** (`OK` when Unit Total = Carton Qty, else `CHECK`).
 
 So **carton units for a size = inner packs × Units/Inner Pack**. Example `RYB059430PPK` / Edge Slim / PPK24: Units/Inner Pack = 3, sizes 30·31·33·36 = 1 inner pack, 32·34 = 2 → 8 inner packs × 3 = **24 units**.
 
