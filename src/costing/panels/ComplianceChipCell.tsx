@@ -9,6 +9,7 @@
 import React from "react";
 import { useCostingStore } from "../store/costingStore";
 import type { CostingLineCompliance } from "../types";
+import { promptDialog } from "../../shared/ui/warn";
 
 interface Props {
   lineId: string;
@@ -33,7 +34,7 @@ export default function ComplianceChipCell({ lineId }: Props) {
   const onPick = async (raw: string) => {
     if (!raw) return;
     if (raw === "__add__") {
-      const v = window.prompt("Add new compliance requirement code:");
+      const v = await promptDialog("Add new compliance requirement code:", { title: "New compliance code", icon: "➕", required: true });
       if (!v || !v.trim()) return;
       const clean = v.trim().toUpperCase();
       await addMaster("compliance", clean);

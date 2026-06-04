@@ -40,7 +40,7 @@ const SKIP_LABEL: Record<string, string> = {
 };
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";
-import { confirmDialog } from "../../../shared/ui/warn";
+import { confirmDialog, promptDialog } from "../../../shared/ui/warn";
 import { StatCell } from "../../components/StatCell";
 import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
@@ -232,7 +232,7 @@ export default function ExecutionBatchDetail({
 
   async function editApprovedQty(action: IpExecutionAction) {
     const current = action.approved_qty ?? action.suggested_qty;
-    const raw = window.prompt(`Approved qty for ${action.action_type}`, String(current));
+    const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", icon: "🔢", inputType: "number", defaultValue: String(current) });
     if (raw == null) return;
     const n = Number(raw);
     if (!Number.isFinite(n)) { onToast({ text: "Invalid number", kind: "error" }); return; }

@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
-import { notify, confirmDialog } from "../shared/ui/warn";
+import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -288,7 +288,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
     await patch({ action: "approve" }, "AP invoice draft created — post it from the AP panel.", "success");
   }
   async function reject() {
-    const reason = window.prompt("Reason for rejecting this vendor invoice?");
+    const reason = await promptDialog("Reason for rejecting this vendor invoice?", { title: "Reject invoice", icon: "✋", multiline: true, required: true });
     if (reason === null) return;
     if (!reason.trim()) { notify("A reason is required to reject.", "error"); return; }
     if (!(await confirmDialog(`Reject this invoice?\n\n${reason.trim()}`, { confirmText: "Reject", title: "Reject invoice" }))) return;

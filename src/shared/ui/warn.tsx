@@ -17,7 +17,7 @@
 // state/props. One toast and one confirm at a time (latest wins), matching the
 // existing single-toast behaviour in ATS/TandA.
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Toast, { type ToastKind, type ToastMessage } from "./Toast";
 
 export type { ToastKind };
@@ -40,13 +40,39 @@ interface ConfirmRequest extends Required<Pick<ConfirmOptions, "title" | "icon" 
   resolve: (ok: boolean) => void;
 }
 
+export interface PromptOptions {
+  title?: string;
+  icon?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  confirmText?: string;
+  cancelText?: string;
+  /** Render a multi-line textarea instead of a single-line input. */
+  multiline?: boolean;
+  /** "number" gives a numeric input; value is still returned as a string. */
+  inputType?: "text" | "number";
+  /** When true, OK is disabled until the field is non-empty. */
+  required?: boolean;
+}
+
+interface PromptRequest extends Required<Pick<PromptOptions, "title" | "icon" | "confirmText" | "cancelText">> {
+  message: string;
+  defaultValue: string;
+  placeholder: string;
+  multiline: boolean;
+  inputType: "text" | "number";
+  required: boolean;
+  resolve: (value: string | null) => void;
+}
+
 interface WarnState {
   toast: ToastMessage | null;
   confirm: ConfirmRequest | null;
+  prompt: PromptRequest | null;
 }
 
 // ─── store ───────────────────────────────────────────────────────────────────
-let state: WarnState = { toast: null, confirm: null };
+let state: WarnState = { toast: null, confirm: null, prompt: null };
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -94,6 +120,31 @@ export function confirmDialog(message: string, opts: ConfirmOptions = {}): Promi
   });
 }
 
+/**
+ * App-colored replacement for window.prompt(). Resolves the entered string, or
+ * null on Cancel / overlay / Escape (same contract as window.prompt).
+ *
+ *   const note = await promptDialog("Reason?"); if (note === null) return;
+ */
+export function promptDialog(message: string, opts: PromptOptions = {}): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    state.prompt = {
+      message,
+      title: opts.title ?? "Enter a value",
+      icon: opts.icon ?? "✏️",
+      confirmText: opts.confirmText ?? "OK",
+      cancelText: opts.cancelText ?? "Cancel",
+      defaultValue: opts.defaultValue ?? "",
+      placeholder: opts.placeholder ?? "",
+      multiline: opts.multiline ?? false,
+      inputType: opts.inputType ?? "text",
+      required: opts.required ?? false,
+      resolve,
+    };
+    emit();
+  });
+}
+
 // ─── host component ────────────────────────────────────────────────────────--
 export function WarnHost() {
   const s = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -104,9 +155,16 @@ export function WarnHost() {
     emit();
   };
 
+  const closePrompt = (value: string | null) => {
+    s.prompt?.resolve(value);
+    state.prompt = null;
+    emit();
+  };
+
   return (
     <>
       <Toast toast={s.toast} onDismiss={() => { state.toast = null; emit(); }} />
+      {s.prompt && <PromptModal req={s.prompt} onClose={closePrompt} />}
       {s.confirm && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center" }}
@@ -148,5 +206,68 @@ export function WarnHost() {
         </div>
       )}
     </>
+  );
+}
+
+// ─── prompt modal (app-colored window.prompt replacement) ────────────────────
+const PROMPT_COLOR = "#3B82F6";
+function PromptModal({ req, onClose }: { req: PromptRequest; onClose: (value: string | null) => void }) {
+  const [value, setValue] = useState(req.defaultValue);
+  const disabled = req.required && value.trim() === "";
+  const submit = () => { if (!disabled) onClose(value); };
+
+  const fieldStyle: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
+    border: "1px solid #334155", background: "#0F172A", color: "#F1F5F9",
+    fontFamily: "inherit", fontSize: 14, outline: "none",
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={() => onClose(null)}
+    >
+      <div
+        style={{ background: "#1E293B", borderRadius: 16, width: 440, maxWidth: "92vw", border: `1px solid ${PROMPT_COLOR}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ background: `${PROMPT_COLOR}15`, padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: `${PROMPT_COLOR}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{req.icon}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>{req.title}</div>
+        </div>
+        <div style={{ padding: "20px 24px" }}>
+          <p style={{ color: "#D1D5DB", fontSize: 14, margin: "0 0 12px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{req.message}</p>
+          {req.multiline ? (
+            <textarea
+              autoFocus value={value} placeholder={req.placeholder}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); if (e.key === "Escape") onClose(null); }}
+              rows={4} style={{ ...fieldStyle, resize: "vertical" }}
+            />
+          ) : (
+            <input
+              autoFocus type={req.inputType} value={value} placeholder={req.placeholder}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onClose(null); }}
+              style={fieldStyle}
+            />
+          )}
+          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+            <button
+              onClick={() => onClose(null)}
+              style={{ flex: 1, padding: "10px 20px", borderRadius: 8, border: "1px solid #334155", background: "none", color: "#94A3B8", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600 }}
+            >
+              {req.cancelText}
+            </button>
+            <button
+              onClick={submit} disabled={disabled}
+              style={{ flex: 1, padding: "10px 20px", borderRadius: 8, border: "none", background: disabled ? "#334155" : `linear-gradient(135deg, ${PROMPT_COLOR}, ${PROMPT_COLOR}CC)`, color: "#fff", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1, fontFamily: "inherit", fontSize: 14, fontWeight: 700 }}
+            >
+              {req.confirmText}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

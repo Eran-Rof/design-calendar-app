@@ -6,6 +6,7 @@
 
 import React from "react";
 import { useCostingStore, type MasterKind } from "../store/costingStore";
+import { promptDialog } from "../../shared/ui/warn";
 
 interface Props {
   kind: MasterKind;
@@ -25,7 +26,7 @@ export default function MasterSelectCell({ kind, value, onChange, cellStyle }: P
 
   const onSelect = async (raw: string) => {
     if (raw === "__add__") {
-      const newName = window.prompt(`Add new ${kind}:`);
+      const newName = await promptDialog(`Add new ${kind}:`, { title: `New ${kind}`, icon: "➕", required: true });
       if (!newName || !newName.trim()) return;
       const clean = newName.trim();
       await addMaster(kind, clean);
