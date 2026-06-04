@@ -844,6 +844,14 @@ import h800 from "./cron/ip-normalize.js";
 import h801 from "./cron/ip-freshness-refresh.js";
 import h802 from "./cron/ip-integration-health.js";
 
+// RFQ-stage messaging — vendor ⇄ Ring-of-Fire thread keyed to an RFQ (mirrors
+// PO messages). Vendor gated to invited RFQs; internal gated by
+// authenticateInternalCaller. APPEND ONLY.
+//   h805 = GET/POST /api/vendor/rfqs/:id/messages
+//   h806 = GET/POST /api/internal/rfqs/:id/messages
+import h805 from "./vendor/rfqs/[id]/messages/index.js";
+import h806 from "./internal/rfqs/[id]/messages/index.js";
+
 export const ROUTES = [
   // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
   { pattern: "/api/b2b/session", handler: h557 },
@@ -1000,6 +1008,10 @@ export const ROUTES = [
   { pattern: "/api/vendor/api-keys/:id", handler: h145 },
   { pattern: "/api/vendor/disputes/:id", handler: h146 },
   { pattern: "/api/vendor/invoices/:id", handler: h147 },
+  // RFQ-stage messaging — subpath /:id/messages BEFORE the bare /:id routes
+  // (first-match-wins) so the message thread isn't captured as the RFQ detail.
+  { pattern: "/api/internal/rfqs/:id/messages", handler: h806 },
+  { pattern: "/api/vendor/rfqs/:id/messages", handler: h805 },
   { pattern: "/api/internal/rfqs/:id", handler: h148 },
   { pattern: "/api/vendor/bulk/:id", handler: h149 },
   { pattern: "/api/vendor/rfqs/:id", handler: h150 },
