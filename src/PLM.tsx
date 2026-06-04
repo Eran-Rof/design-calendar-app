@@ -260,7 +260,9 @@ export default function PLMApp() {
   }
 
   function openApp(path: string) {
-    window.location.href = path;
+    // Apps in the suite open in their own browser tab so the launcher stays put
+    // (operator preference). Same-origin, so per-app localStorage/session is shared.
+    window.open(path, "_blank", "noopener");
   }
 
   // ── LOGIN SCREEN ────────────────────────────────────────────────────────────
