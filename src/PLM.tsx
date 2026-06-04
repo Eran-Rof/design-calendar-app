@@ -49,6 +49,7 @@ interface User {
     vendor?: AppPermission;
     gs1?: AppPermission;
     planning?: AppPermission;
+    tangerine?: AppPermission;
   };
 }
 
@@ -149,6 +150,14 @@ const APPS = [
     icon: "💰",
     color: "#EAB308",
     path: "/costing",
+  },
+  {
+    id: "tangerine" as const,
+    name: "Tangerine ERP",
+    description: "Accounting, inventory, sales, procurement & finance — the Xoro replacement",
+    icon: "🍊",
+    color: "#F97316",
+    path: "/tangerine",
   },
 ];
 
@@ -601,6 +610,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
     { id: "planning", label: "Inv. Planning",   color: "#F59E0B" },
     { id: "gs1",      label: "GTIN Creation",   color: "#0891B2" },
+    { id: "tangerine", label: "Tangerine ERP",  color: "#F97316" },
   ];
 
   const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [
