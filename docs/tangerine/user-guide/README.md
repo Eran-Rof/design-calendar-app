@@ -54,6 +54,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 37. [EDI — Electronic Data Interchange (P22 / M14)](37-edi.md) — surfaces the existing vendor-side X12 engine: enable EDI for a vendor (partner/ISA ID) + a global message log (850 PO · 855 ack · 856 ASN · 810 invoice · 820 payment · 997). Transport + retailer-side EDI deferred.
 38. [Reports & Analytics hub (P24 / M9-full + M46)](38-reports-hub.md) — one landing tying together every financial + operational report, with live finance KPI tiles (open AR/AP, inventory @ cost, open SOs, current period).
 39. [Fixed Assets · Budgets · 1099 (P25)](39-finance-fixed-assets-budgets-1099.md) — fixed-asset register + straight-line depreciation (M21), GL budgets + budget-vs-actual (M22), and a year-end 1099-NEC worksheet (M20). Sales Tax + Public API deferred.
+40. [Inventory Planning — Reports (P17)](40-planning-reports.md) — the **📊 Reports** hub at `/planning/reports`: four analytical reports (Sales Performance with YoY + ABC, Inventory Health with weeks-of-supply + stockout/excess, Forecast Accuracy MAPE/bias, Buy Plan & Supply), each viewable on screen and one-click **Excel** export.
 
 ## 30-second quickstart
 
