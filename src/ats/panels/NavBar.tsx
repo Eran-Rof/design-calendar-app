@@ -882,12 +882,12 @@ export const NavBar: React.FC<NavBarProps> = ({
       const colorOf = (r: ATSRow) => (r.master_color && r.master_color.trim()) || String(r.sku || "").split(" - ").slice(1).join(" - ").trim();
       const nPer = periods.length;
 
-      type CAcc = { color: string; so: number; po: number; total: number; per: number[]; ppkUnitsTotal: number; ppkUnitsPer: number[] };
+      type CAcc = { color: string; so: number; po: number; total: number; per: number[]; ppkSo: number; ppkPo: number; ppkUnitsTotal: number; ppkUnitsPer: number[] };
       const byStem = new Map<string, { packSize: number; colors: Map<string, CAcc> }>();
       const ensureStem = (stem: string) => { let s = byStem.get(stem); if (!s) { s = { packSize: 0, colors: new Map() }; byStem.set(stem, s); } return s; };
       const ensureColor = (st: { colors: Map<string, CAcc> }, color: string) => {
         const k = color.toUpperCase(); let c = st.colors.get(k);
-        if (!c) { c = { color, so: 0, po: 0, total: 0, per: Array(nPer).fill(0), ppkUnitsTotal: 0, ppkUnitsPer: Array(nPer).fill(0) }; st.colors.set(k, c); }
+        if (!c) { c = { color, so: 0, po: 0, total: 0, per: Array(nPer).fill(0), ppkSo: 0, ppkPo: 0, ppkUnitsTotal: 0, ppkUnitsPer: Array(nPer).fill(0) }; st.colors.set(k, c); }
         return c;
       };
       for (const r of finalRows) {
@@ -900,6 +900,8 @@ export const NavBar: React.FC<NavBarProps> = ({
         if (isPpk(styleRaw)) {
           const mult = (r.ppkMult && r.ppkMult > 1) ? r.ppkMult : 1;
           if (mult > 1) st.packSize = mult;
+          ca.ppkSo += Number(r.onOrder) || 0;
+          ca.ppkPo += Number(r.onPO) || 0;
           ca.ppkUnitsTotal += tot;
           perVals.forEach((v, i) => { ca.ppkUnitsPer[i] += v; });
         } else {
@@ -910,9 +912,14 @@ export const NavBar: React.FC<NavBarProps> = ({
         }
       }
 
-      // Bulk SO/PO (loose On Order / On PO) for the matrix builder.
+      // Bulk SO/PO for the matrix builder: loose On Order / On PO keyed by the
+      // loose stem; when exploding, PPK rows become their own block keyed by
+      // "<stem>PPK" so they pick up the PPK style's own On Order / On PO.
       bulkByStyleColor = new Map();
-      for (const [stem, st] of byStem) for (const ca of st.colors.values()) bulkByStyleColor.set(`${stem}|${ca.color.toUpperCase()}`, { so: ca.so, po: ca.po });
+      for (const [stem, st] of byStem) for (const ca of st.colors.values()) {
+        bulkByStyleColor.set(`${stem}|${ca.color.toUpperCase()}`, { so: ca.so, po: ca.po });
+        bulkByStyleColor.set(`${stem}PPK|${ca.color.toUpperCase()}`, { so: ca.ppkSo, po: ca.ppkPo });
+      }
 
       const styleCodes = [...byStem.keys()];
       if (styleCodes.length > 0) {
@@ -947,15 +954,33 @@ export const NavBar: React.FC<NavBarProps> = ({
             const meta = metaIdx.get(stem) || { sizes: [], style_name: stem, packFromShape: 0, shapeByColor: new Map() };
             const packSize = st.packSize || meta.packFromShape || 0;
             const shapeStem = shapeIdx.get(stem);
-            const colors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+
+            // Loose block — units by size. When Explode PPK is OFF the PPK pack
+            // count rides as a column here; when ON, PPK becomes its own block
+            // below so this column stays empty.
+            const looseColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
             for (const ca of st.colors.values()) {
               const total = pickTotal(ca);
-              const ppkPacks = packSize > 1 ? Math.round(pickPpkUnits(ca) / packSize) : 0;
+              const ppkPacks = (!explodePpk && packSize > 1) ? Math.round(pickPpkUnits(ca) / packSize) : 0;
               if (total <= 0 && ppkPacks <= 0) continue;
               const shape = shapeStem?.shapeByColor.get(ca.color.toUpperCase()) || {};
-              colors.push({ color: ca.color, by_size: distribute(total, shape, meta.sizes), total_eachs: total, ppk_packs: ppkPacks });
+              looseColors.push({ color: ca.color, by_size: distribute(total, shape, meta.sizes), total_eachs: total, ppk_packs: ppkPacks });
             }
-            if (colors.length) styles.push({ style_code: stem, style_name: meta.style_name, sizes: meta.sizes, pack_size: packSize, colors: colors.sort((a, b) => a.color.localeCompare(b.color)) });
+            if (looseColors.length) styles.push({ style_code: stem, style_name: meta.style_name, sizes: meta.sizes, pack_size: packSize, colors: looseColors.sort((a, b) => a.color.localeCompare(b.color)) });
+
+            // Explode ON → PPK style as its OWN block (main-report row format):
+            // exploded units as a BULK number in the ATS/Total Eachs column
+            // (size cells blank until prepack compositions are configured), with
+            // the pack count alongside (PPK / Total PPK<n>). e.g. 10 PPK24 = 240.
+            if (explodePpk && packSize > 1) {
+              const ppkColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+              for (const ca of st.colors.values()) {
+                const units = pickPpkUnits(ca);
+                if (units <= 0) continue;
+                ppkColors.push({ color: ca.color, by_size: {}, total_eachs: units, ppk_packs: Math.round(units / packSize) });
+              }
+              if (ppkColors.length) styles.push({ style_code: `${stem}PPK`, style_name: `${meta.style_name} — Prepacks (exploded units)`, sizes: meta.sizes, pack_size: packSize, colors: ppkColors.sort((a, b) => a.color.localeCompare(b.color)) });
+            }
           }
           return { as_of: null, styles };
         };
