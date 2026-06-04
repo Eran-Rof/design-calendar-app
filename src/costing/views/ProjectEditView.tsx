@@ -5,11 +5,10 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { ALL_STATUSES, statusLabel, statusColor, navigate, getEditId } from "../helpers";
-import type { CostingStatus, CostingProjectPatch } from "../types";
+import { navigate, getEditId } from "../helpers";
+import type { CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
-import ProjectStatusBadge from "../panels/ProjectStatusBadge";
 import CompliancePanel from "../panels/CompliancePanel";
 import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
@@ -18,7 +17,6 @@ import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
-import { deriveProjectStage } from "../hooks/usePlanFlow";
 
 // Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
 const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
@@ -160,29 +158,12 @@ export default function ProjectEditView() {
     setForm((f) => ({ ...f, [k]: v }));
   };
 
-  // Auto-advance the project status to match line-level progress (the operator
-  // chose this over a manual status). Rule: highest line stage wins — any
-  // awarded line ⇒ Awarded, etc. FORWARD-ONLY: never downgrades, and leaves the
-  // manual terminal states (closed/cancelled) alone. Runs whenever lines/quotes
-  // change AND on open, so a project awarded before this shipped self-heals the
-  // moment it's viewed. Reuses the form autosave path (setField → debounced PUT).
-  const statusRank = (s: CostingStatus) =>
-    s === "awarded" ? 3 : s === "quoted" ? 2 : s === "in_progress" ? 1 : 0;
-  React.useEffect(() => {
-    if (!project) return;
-    const cur = (form.status || project.status) as CostingStatus;
-    if (cur === "closed" || cur === "cancelled") return;
-    const derived = deriveProjectStage(lines, vendorQuotes) as CostingStatus;
-    if (statusRank(derived) > statusRank(cur)) setField("status", derived);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, vendorQuotes, project, form.status]);
+  // Status is per LINE now (set in the grid), not per project — no project-level
+  // status control or auto-advance here anymore.
 
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        {/* Project status quick-dropdown — moved here from the PlanFlow strip,
-            into the spot the old "← Projects" back-link occupied. */}
-        <ProjectStatusBadge />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {project?.project_name || "Loading…"}
         </h2>
@@ -242,20 +223,6 @@ export default function ProjectEditView() {
           </select>
         </Field>
 
-        <Field label="Status">
-          {(() => {
-            const sc = statusColor((form.status || "draft") as CostingStatus);
-            return (
-              <select
-                value={form.status || "draft"}
-                onChange={(e) => setField("status", e.target.value as CostingStatus)}
-                style={{ ...inp, background: sc.bg, color: sc.fg, border: `1px solid ${sc.border}`, fontWeight: 600 }}
-              >
-                {ALL_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-              </select>
-            );
-          })()}
-        </Field>
         <Field label="Customer">
           <CustomerPickerCell
             // Use the joined customer record's display name (name → company → code)
