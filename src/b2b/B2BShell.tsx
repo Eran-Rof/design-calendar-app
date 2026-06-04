@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { B } from "./theme";
 import type { B2BSession, CartLine } from "./types";
-import { useCart } from "./useCart";
+import { useCart, formatMoney } from "./useCart";
 import B2BCatalog from "./B2BCatalog";
 import B2BOrders from "./B2BOrders";
 import B2BAccount from "./B2BAccount";
@@ -46,6 +46,11 @@ export default function B2BShell({
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {cart.totalUnits > 0 && (
+            <button type="button" onClick={() => setTab("orders")} style={cartChip} title="View cart">
+              🛒 {cart.totalUnits} · {formatMoney(cart.totalCents)}
+            </button>
+          )}
           <span style={{ color: B.textMuted, fontSize: 13, whiteSpace: "nowrap" }}>
             {session.display_name || "Buyer"}
           </span>
@@ -107,6 +112,11 @@ const cartBadge: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", justifyContent: "center",
   minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
   background: B.primary, color: "#fff", fontSize: 11, fontWeight: 700,
+};
+const cartChip: React.CSSProperties = {
+  padding: "6px 12px", borderRadius: 999, border: `1px solid ${B.primary}`,
+  background: B.surface, color: B.primary, fontWeight: 700, fontSize: 13,
+  cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
 };
 const logoutBtn: React.CSSProperties = {
   padding: "7px 14px", borderRadius: 8, border: `1px solid ${B.border}`,
