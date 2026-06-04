@@ -491,12 +491,18 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
   }
 
   const wholesaleDemand = new Map<string, { total: number; by_customer: Map<string, number> }>();
+  // Phase 1 planned buys summed per (sku, period) — fed to the projected row's
+  // inbound_planned_buy_qty. MUST be set (the column is NOT NULL): without it
+  // buildProjectedInventory does Math.max(0, undefined) → NaN → serialized as
+  // null → "violates not-null constraint" on ip_projected_inventory.
+  const plannedBuysByGrain = new Map<string, number>();
   for (const f of wholesaleForecast) {
     const k = `${f.sku_id}:${f.period_start}`;
     const entry = wholesaleDemand.get(k) ?? { total: 0, by_customer: new Map() };
     entry.total += f.final_forecast_qty;
     entry.by_customer.set(f.customer_id, (entry.by_customer.get(f.customer_id) ?? 0) + f.final_forecast_qty);
     wholesaleDemand.set(k, entry);
+    plannedBuysByGrain.set(k, (plannedBuysByGrain.get(k) ?? 0) + (f.planned_buy_qty ?? 0));
   }
   const ecomDemand = new Map<string, {
     total: number; protected: number;
@@ -546,6 +552,7 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
         ats_qty: beginning === (onHandBySku.get(skuId)?.qty ?? 0) ? ats : 0,
         inbound_receipts_qty: receiptsByGrain.get(grainKey) ?? 0,
         inbound_po_qty: inboundPoByGrain.get(grainKey) ?? 0,
+        inbound_planned_buy_qty: plannedBuysByGrain.get(grainKey) ?? 0,
         wip_qty: 0,
       };
       const demand = {
@@ -567,6 +574,9 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
         supply, demand,
         rules: applicableRules,
         po_detail: poDetailByGrain.get(grainKey),
+        // Honor the run's flag, same as the Supply-screen reconciliation, so
+        // planned buys net into supply consistently across both paths.
+        count_planned_buys: !!run.recon_include_planned_buys,
       });
       projectedRows.push(row);
 
