@@ -12,7 +12,7 @@ export const MODEL = "claude-haiku-4-5";
 // accounting/inventory schema AND the user guide, where answer quality matters
 // more than the latency edge that picked Haiku for the grid apps — so it runs on
 // Opus (operator request). Other apps (ats / po_wip / dc) stay on the default.
-export const MODEL_BY_APP = { tangerine: "claude-opus-4-7" };
+export const MODEL_BY_APP = { tangerine: "claude-opus-4-8" };
 export function modelForApp(app) {
   return (app && MODEL_BY_APP[app]) || MODEL;
 }
