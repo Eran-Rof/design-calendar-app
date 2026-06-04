@@ -315,6 +315,9 @@ import h303 from "./internal/payment-terms/[id].js";
 // Size Scale Master — ordered size lists (text[]) reused by Style Master.
 import h702 from "./internal/size-scales/index.js";
 import h569 from "./internal/size-scales/[id].js";
+// Season Master — auto-coded merchandising seasons (FW26, SS27…) for Style Master.
+import h803 from "./internal/seasons/index.js";
+import h804 from "./internal/seasons/[id].js";
 // Matrix shared endpoints — style matrix payload + find/create SKU per cell.
 import h570 from "./internal/style-matrix/index.js";
 import h571 from "./internal/style-matrix/resolve-sku.js";
@@ -1169,6 +1172,9 @@ export const ROUTES = [
   // Size Scales — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/size-scales/:id", handler: h569 },
   { pattern: "/api/internal/size-scales", handler: h702 },
+  // Seasons — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/seasons/:id", handler: h804 },
+  { pattern: "/api/internal/seasons", handler: h803 },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.

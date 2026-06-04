@@ -47,6 +47,29 @@ The form rejects empty style code, missing description, invalid enum values, and
 
 Same shape as Add, with **one difference**: `Style code` is locked. Codes are intentionally immutable — they're the human-readable identifier that historical references depend on. To change a style code, soft-delete and re-create.
 
+The **Season** field is a searchable dropdown sourced from the Season Master (below). Pick an existing season, or — as an admin — type a new one and choose **"+ Add new season"** to add it to the master inline. The chosen season name is stored on the style as plain text, so older free-text seasons that predate the master still display correctly.
+
+## 🍂 Season Master
+
+Find it under **Master Data → Seasons** (`/tangerine?m=season_master`). A season is a named merchandising window — `FW26`, `SS27`, `HOLIDAY26` — that styles are tagged with.
+
+### What a season row is
+
+| Field | Notes |
+|-------|-------|
+| **Code** | Server-generated, read-only (`SEASON-00001`, `SEASON-00002`, …). Allocated on save; you never type it. |
+| **Name** | The label that appears on styles and in the Season dropdown, e.g. `FW26`. Required. |
+| **Sort order** | Controls list ordering (ascending); ties break by code. |
+| **Active** | Inactive seasons drop out of the Style Master picker but stay in the table (toggle **Show inactive** to see them). |
+
+### How it relates to Style Master
+
+The master simply **curates the picklist**. `style_master.season` remains a free-text column storing the chosen season **name** — there is no foreign key. This keeps the change backward-compatible: existing styles keep their season text whether or not it's in the master, and the dropdown surfaces the style's current season even if it was later deactivated or never added.
+
+### Delete protection
+
+Deleting a season is a hard delete, but it is **rejected (409)** if any style is still tagged with that season name — reassign those styles first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master
