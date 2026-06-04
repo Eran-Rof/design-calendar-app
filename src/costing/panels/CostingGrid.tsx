@@ -12,9 +12,10 @@
 import React, { useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
-import { usePlanFlow } from "../hooks/usePlanFlow";
+import { usePlanFlow, effectiveLineStatus } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
 import MasterPickerCell from "./MasterPickerCell";
+import LineStatusCell from "./LineStatusCell";
 import ColorPickerCell from "./ColorPickerCell";
 import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
@@ -67,10 +68,11 @@ interface ColumnDef {
 const COLUMNS: ColumnDef[] = [
   { key: "_drag",          label: "",         width: 24,  align: "center" },
   { key: "_select",        label: "",         width: 28,  align: "center" },
+  { key: "_status",        label: "Status",   width: 110 },
   { key: "style_code",     label: "Style#",   width: 130 },
   { key: "description",    label: "Description", width: 220 },
   { key: "size_scale_label", label: "Scale",  width: 80 },
-  { key: "fabric_code",    label: "Fabric",   width: 110 },
+  { key: "fabric_code",    label: "Fabric",   width: 200 },
   { key: "fit",            label: "Fit",      width: 90 },
   { key: "color",          label: "Color",    width: 100 },
   { key: "bottom_closure", label: "Closures", width: 100 },
@@ -514,11 +516,12 @@ export default function CostingGrid() {
         {visibleLines.map((line) => {
           const math = computeLineMath(line);
           const isFocused = selectedLineId === line.id;
-          // Awarded line (a vendor quote selected) → render the whole row's
-          // fonts green. The scoped `.costing-row-awarded *` rule below uses
+          // Awarded line → render the whole row's fonts green. Keyed on the
+          // EFFECTIVE per-line status (a Closed line that was awarded is no
+          // longer green). The scoped `.costing-row-awarded *` rule below uses
           // !important to override the cells' inline colors; popovers portal to
           // document.body so they stay unaffected.
-          const isAwarded = !!line.selected_vendor_quote_id;
+          const isAwarded = effectiveLineStatus(line) === "awarded";
           return (
             <div
               key={line.id}
@@ -576,6 +579,18 @@ export default function CostingGrid() {
                         checked={selectedRowIds.has(line.id)}
                         onChange={() => toggleRow(line.id)}
                         title="Include this row in the Vendor RFQ batch"
+                      />
+                    </div>
+                  );
+                }
+
+                // Per-line status pill (Draft / On RFQ / Awarded / Closed).
+                if (c.key === "_status") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <LineStatusCell
+                        line={line}
+                        onChange={(s) => updateLine(line.id, { status: s })}
                       />
                     </div>
                   );

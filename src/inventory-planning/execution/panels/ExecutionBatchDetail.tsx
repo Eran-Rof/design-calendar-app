@@ -39,6 +39,7 @@ const SKIP_LABEL: Record<string, string> = {
 };
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";
+import { confirmDialog } from "../../../shared/ui/warn";
 import { StatCell } from "../../components/StatCell";
 import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
@@ -127,7 +128,7 @@ export default function ExecutionBatchDetail({
     } finally { setBusy(false); }
   }
   async function archive() {
-    if (!window.confirm("Archive this batch?")) return;
+    if (!(await confirmDialog("Archive this batch?"))) return;
     setBusy(true);
     try {
       await transitionBatch({ batch, to: "archived" });
@@ -170,7 +171,7 @@ export default function ExecutionBatchDetail({
       onToast({ text: "Fix validation errors before submitting", kind: "error" });
       return;
     }
-    if (!window.confirm("Submit approved actions for writeback? Live mode will hit ERP endpoints when enabled.")) return;
+    if (!(await confirmDialog("Submit approved actions for writeback? Live mode will hit ERP endpoints when enabled.", { title: "Submit for writeback", confirmText: "Submit" }))) return;
     setBusy(true);
     try {
       const r = await submitBatch({ batch, actions });
@@ -199,7 +200,10 @@ export default function ExecutionBatchDetail({
   // M31 (direction A) — create DRAFT native Tangerine POs from this buy plan
   // (one draft PO per vendor). Operator issues them in Tangerine Procurement.
   async function createPos() {
-    if (!window.confirm("Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).\n\nTip: use \"Preview POs\" first to see what will be created and which actions will skip.")) return;
+    if (!(await confirmDialog(
+      "Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).\n\nTip: use \"Preview POs\" first to see what will be created and which actions will skip.",
+      { title: "Create Tangerine POs", confirmText: "Create POs", icon: "🍊", confirmColor: "#EA580C" },
+    ))) return;
     setBusy(true);
     try {
       const r = await createTangerinePos({ batch });
@@ -247,7 +251,7 @@ export default function ExecutionBatchDetail({
     }
   }
   async function remove(action: IpExecutionAction) {
-    if (!window.confirm("Remove this action from the batch?")) return;
+    if (!(await confirmDialog("Remove this action from the batch?"))) return;
     try {
       await removeAction({ batch, action });
       await onChange();
