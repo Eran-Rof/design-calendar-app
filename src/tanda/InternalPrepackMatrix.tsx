@@ -838,6 +838,57 @@ function packQtyFromToken(token: string | null | undefined): number | null {
 // One editable composition row in the matrix grid (strings while typing).
 type EditRow = { size: string; inner: string; box: string };
 
+// Size sort so added sizes slot into the right position on BOTH grids. Class 0 =
+// number-bearing (numeric / 2T / 0-3M / combined "L/12" → by the number); class
+// 1 = known alpha (S<M<L…, 2XL after XL); class 2 = unknown. Mirrors the
+// download builder's cmpSize.
+const SIZE_ALPHA_ORDER = ["XXS", "XS", "XSM", "S", "SM", "SML", "SMALL", "M", "MED", "MEDIUM", "L", "LG", "LRG", "LARGE", "XL", "XLG", "XLARGE", "XXL", "2XL", "XXXL", "3XL", "XXXXL", "4XL", "OS", "ONE SIZE"];
+function sizeSortKey(s: string): [number, number, string] {
+  const t = String(s).toUpperCase().trim();
+  if (t.includes("/")) { const m = t.match(/\d+(\.\d+)?/); return [0, m ? Number(m[0]) : 999, t]; }
+  const ar = SIZE_ALPHA_ORDER.indexOf(t);
+  if (ar >= 0) return [1, ar, t];
+  const m = t.match(/\d+(\.\d+)?/);
+  if (m) return [0, Number(m[0]), t];
+  return [2, 999, t];
+}
+function cmpSizeLabel(a: string, b: string): number {
+  const ka = sizeSortKey(a), kb = sizeSortKey(b);
+  return ka[0] - kb[0] || ka[1] - kb[1] || ka[2].localeCompare(kb[2]);
+}
+function sortRows(rs: EditRow[]): EditRow[] {
+  return [...rs].sort((a, b) => cmpSizeLabel(a.size, b.size));
+}
+
+// Editable horizontal size grid (size label on top, number input below) — the
+// editable twin of SizeBoxGrid, so data entry mirrors the row display.
+function EditableSizeGrid({ rows, field, onChange, onRemove }: {
+  rows: EditRow[];
+  field: "inner" | "box";
+  onChange: (i: number, v: string) => void;
+  onRemove?: (i: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      {rows.map((r, i) => (
+        <div key={r.size} style={{ minWidth: 38, textAlign: "center", border: `1px solid ${C.cardBdr}`, borderRadius: 4, overflow: "hidden", fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+          <div
+            onClick={onRemove ? () => onRemove(i) : undefined}
+            title={onRemove ? "Click to remove this size" : undefined}
+            style={{ background: "#0b1220", color: C.textSub, fontSize: 10, padding: "1px 5px", borderBottom: `1px solid ${C.cardBdr}`, cursor: onRemove ? "pointer" : "default" }}
+          >{r.size}</div>
+          <input
+            type="number" min={0}
+            value={r[field]}
+            onChange={(e) => onChange(i, e.target.value)}
+            style={{ width: 38, border: 0, background: "transparent", color: C.text, fontSize: 12, fontWeight: 600, textAlign: "center", padding: "3px 2px", boxSizing: "border-box" }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
   const [name, setName] = useState(matrix?.name ?? "");
   const [ppk, setPpk] = useState(matrix?.ppk_style_code ?? "");
@@ -855,11 +906,11 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
   })();
   const [upp, setUpp] = useState(derivedUpp);
   const [rows, setRows] = useState<EditRow[]>(
-    (matrix?.sizes || []).map((s) => ({
+    sortRows((matrix?.sizes || []).map((s) => ({
       size: s.size,
       inner: s.inner_pack_qty ? String(s.inner_pack_qty) : "",
       box: s.qty_per_pack ? String(s.qty_per_pack) : "",
-    })),
+    }))),
   );
   const [newSize, setNewSize] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -887,7 +938,7 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
   function addSize() {
     const s = newSize.trim();
     if (!s) return;
-    if (!rows.some((r) => r.size.toLowerCase() === s.toLowerCase())) setRows((rs) => [...rs, { size: s, inner: "", box: "" }]);
+    if (!rows.some((r) => r.size.toLowerCase() === s.toLowerCase())) setRows((rs) => sortRows([...rs, { size: s, inner: "", box: "" }]));
     setNewSize("");
   }
   function removeSize(i: number) { setRows((rs) => rs.filter((_, idx) => idx !== i)); }
@@ -896,7 +947,6 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
   const totalBox = rows.reduce((a, r) => a + (parseInt(r.box, 10) || 0), 0);
   const packQty = packQtyFromToken(packToken);
   const mismatch = packQty != null && totalBox !== packQty;
-  const sizeInput: React.CSSProperties = { ...inputStyle, width: 80, textAlign: "center" };
 
   async function submit() {
     setSubmitting(true);
@@ -959,54 +1009,42 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
           </Field>
         </div>
 
-        {/* Composition grid — per size: Inner Packs + Box Qty. Box auto-fills from
-            Inner Packs × Units/Inner Pack (still editable). Carton total checks
-            against the pack token's qty. */}
+        {/* Composition — horizontal twin of the row display: an INNER PACKS grid
+            (user enters) × Units/Inner Pack = the CARTON grid (auto, editable).
+            Sizes stay in sort order on both. Carton total checks the pack qty. */}
         <div style={{ marginTop: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
             <strong style={{ fontSize: 13 }}>Composition</strong>
-            <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
-              Units / Inner Pack
-              <input type="number" min={0} value={upp} onChange={(e) => changeUpp(e.target.value)} style={{ ...inputStyle, width: 70, textAlign: "center" }} placeholder="e.g. 8" />
-            </label>
-            <span style={{ fontSize: 11, color: C.textMuted }}>Box Qty auto-fills = Inner Packs × Units/Inner Pack (you can still override it).</span>
+            <span style={{ fontSize: 11, color: C.textMuted }}>Enter the number of inner packs per size; Box Qty = inner packs × Units/Inner Pack (editable). Carton must total the pack qty.</span>
           </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>
-              <th style={th}>Size</th>
-              <th style={{ ...th, textAlign: "center" }}>Inner Packs</th>
-              <th style={{ ...th, textAlign: "center" }}>Box Qty</th>
-              <th style={{ ...th, width: 40 }}></th>
-            </tr></thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr><td colSpan={4} style={{ ...td, color: C.textMuted, fontStyle: "italic" }}>Add a size below to start the composition.</td></tr>
-              )}
-              {rows.map((r, i) => (
-                <tr key={`${r.size}-${i}`}>
-                  <td style={{ ...td, fontWeight: 600 }}>{r.size}</td>
-                  <td style={{ ...td, textAlign: "center" }}><input type="number" min={0} value={r.inner} onChange={(e) => setInner(i, e.target.value)} style={sizeInput} /></td>
-                  <td style={{ ...td, textAlign: "center" }}><input type="number" min={0} value={r.box} onChange={(e) => setBox(i, e.target.value)} style={sizeInput} /></td>
-                  <td style={{ ...td, textAlign: "center" }}><button onClick={() => removeSize(i)} title="Remove size" style={{ ...btnSecondary, color: C.danger, padding: "2px 8px" }}>×</button></td>
-                </tr>
-              ))}
-              <tr>
-                <td style={td}>
-                  <input type="text" value={newSize} onChange={(e) => setNewSize(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSize(); } }} style={{ ...inputStyle, width: 90 }} placeholder="+ size" />
-                </td>
-                <td style={td} colSpan={3}><button onClick={addSize} style={btnSecondary}>+ Add size</button></td>
-              </tr>
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
-                <td style={{ ...td, fontWeight: 700 }}>Totals</td>
-                <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{totalInner} inner pack{totalInner === 1 ? "" : "s"}</td>
-                <td style={{ ...td, textAlign: "center", fontWeight: 700, color: mismatch ? C.danger : (packQty != null ? C.success : C.text) }}>{totalBox}{packQty != null ? ` / ${packQty}` : ""}</td>
-                <td style={td}></td>
-              </tr>
-            </tfoot>
-          </table>
+          {rows.length === 0 ? (
+            <div style={{ color: C.textMuted, fontStyle: "italic", fontSize: 12, marginBottom: 10 }}>Add a size below to start the composition.</div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
+              {/* INNER PACKS — user enters */}
+              <div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>inner packs = <span style={{ color: C.warn, fontWeight: 700 }}>{totalInner}</span></div>
+                <EditableSizeGrid rows={rows} field="inner" onChange={setInner} onRemove={removeSize} />
+              </div>
+              {/* × Units per Inner Pack */}
+              <div style={{ alignSelf: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.textSub }}>×</span>
+                <input type="number" min={0} value={upp} onChange={(e) => changeUpp(e.target.value)} title="Units / Inner Pack" style={{ ...inputStyle, width: 52, textAlign: "center", padding: "4px 4px" }} placeholder="8" />
+              </div>
+              {/* CARTON TOTAL — box qty (auto = inner × units, still editable) */}
+              <div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>carton total = <span style={{ color: mismatch ? C.danger : (packQty != null ? C.success : C.warn), fontWeight: 700 }}>{totalBox}{packQty != null ? ` / ${packQty}` : ""}</span></div>
+                <EditableSizeGrid rows={rows} field="box" onChange={setBox} onRemove={removeSize} />
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input type="text" value={newSize} onChange={(e) => setNewSize(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSize(); } }} style={{ ...inputStyle, width: 90 }} placeholder="+ size" />
+            <button onClick={addSize} style={btnSecondary}>+ Add size</button>
+            {rows.length > 0 && <span style={{ fontSize: 11, color: C.textMuted }}>added sizes slot into sort order · click a size label to remove it</span>}
+          </div>
 
           {mismatch && (
             <div style={{ marginTop: 8, padding: "8px 12px", background: "#7f1d1d", color: "white", borderRadius: 6, fontSize: 12 }}>
