@@ -16,7 +16,7 @@ The portal lives at **`/b2b`** on the same origin as the rest of the suite. It i
 | **Orders** | Review the cart, submit an order, see order history, **Reorder** |
 | **Account** | See open AR balance + invoice list (status-filterable) |
 
-The header shows the buyer's customer name and display name; the **Orders** tab carries a live cart-unit badge. The cart is owned by the shell (`B2BShell.tsx`) so it survives tab switches.
+The header shows the buyer's customer name and display name; when the cart is non-empty a **🛒 cart chip** (units · running $ total) appears in the header and jumps to the Orders tab, and the **Orders** tab carries a live cart-unit badge. The cart is owned by the shell (`B2BShell.tsx`) so it survives tab switches.
 
 Everything the buyer sees is **scoped server-side to exactly one customer**. The browser never sends a `customer_id` or a price — the server derives the customer from the verified session and re-resolves every price itself. This is the load-bearing security property of the whole portal.
 
@@ -64,7 +64,7 @@ sequenceDiagram
 
 ## 29.3 Catalog & per-customer pricing
 
-The Catalog page (`GET /api/b2b/catalog`) lists active styles with search + brand + gender filters (debounced 200 ms; filter options are derived from the loaded set, no extra endpoint).
+The Catalog page (`GET /api/b2b/catalog`) lists active styles with **search + brand + gender + category filters** and a **sort** control (style code / name / price ↑↓), plus a live **result count**. Search/brand/gender hit the server (debounced 200 ms); category + sort refine the loaded set on the client so browsing 2,000+ styles stays instant. Each card has a **product-image slot** — the API returns a signed URL for the style's primary `product_images` row when one exists (it's empty until images are uploaded / pulled from Shopify), otherwise the card shows a branded placeholder so the grid stays uniform. The `min_qty` floor is shown on priced cards.
 
 Pricing is resolved **server-side only** by `resolvePricesForCustomer` (`api/_lib/b2b/pricing.js`) against the `b2b_price_list` table. The resolver loads only rows that *can* apply to this buyer — its own customer-specific rows plus `customer_id IS NULL` tier/default rows — never another customer's prices. For each style it picks the single best row **most-specific-first**:
 

@@ -1,16 +1,26 @@
 // api/_lib/rbac/index.js
 //
-// P14 RBAC — enforcement core. CHUNK 2 = LOG-ONLY.
+// P14 RBAC — enforcement core.
 //
 // `rbacObserve()` is called by the dispatcher after a route matches. It
 // resolves the caller's effective permission set (from the P14-1
 // v_effective_permissions view) and the permission the matched route requires
 // (from routePermissions.js), then console.warns a structured line if the
 // caller WOULD be denied. It NEVER throws, NEVER mutates the response, and
-// NEVER blocks — chunk 3 adds the actual reject path behind RBAC_MODE=enforce.
+// NEVER blocks — only the rbacEnforce path can reject.
 //
-// Gated by RBAC_MODE (default "off" → total no-op, zero added latency). Set
-// RBAC_MODE=log on the deployment to start collecting would-deny telemetry.
+// `rbacEnforce()` is the rejection gate. Behavior depends on RBAC_MODE:
+//   - "off"     — total no-op, zero added latency
+//   - "log"     — observe + warn on would-denies, NEVER block
+//   - "enforce" — reject AUTHENTICATED callers missing the permission with 403.
+//                 Unauthenticated callers (no JWT) pass through unchanged —
+//                 enforcement is incrementally adoptable, NOT a hard cutover.
+//   - "strict"  — same as enforce PLUS reject unauthenticated callers with 401
+//                 on every MAPPED route. This is the "every internal endpoint
+//                 requires a real per-user JWT" mode. Flip to "strict" only
+//                 after every operator is on the MS-OAuth flow + every legacy
+//                 anon-key caller has migrated; otherwise legacy calls will
+//                 401. Rolling order: off → log → enforce → strict.
 //
 // NOTE: distinct from api/_lib/ip-permissions.js (the legacy PLM permission
 // check) — different module path, different names, no overlap.
@@ -20,10 +30,10 @@ import { authenticateCaller } from "../auth.js";
 import { resolveCallerEntity } from "../auth/resolve-entity.js";
 import { routePermissionFor } from "./routePermissions.js";
 
-/** "off" | "log" | "enforce". Default off. ("enforce" still only logs in chunk 2.) */
+/** "off" | "log" | "enforce" | "strict". Default off. */
 export function rbacMode() {
   const m = String(process.env.RBAC_MODE || "off").toLowerCase();
-  return (m === "log" || m === "enforce") ? m : "off";
+  return (m === "log" || m === "enforce" || m === "strict") ? m : "off";
 }
 
 let _admin = null;
@@ -94,36 +104,49 @@ export async function rbacObserve(req, pathname, method) {
 }
 
 /**
- * Dispatcher gate — chunk 3 REJECT path. Only active when RBAC_MODE=enforce.
- * Returns true when the request was REJECTED (a 403 has been sent on `res` and
- * the dispatcher must stop); false to allow the request through.
+ * Dispatcher gate — REJECT path. Active when RBAC_MODE is "enforce" or "strict".
+ * Returns true when the request was REJECTED (a 401 or 403 has been sent on `res`
+ * and the dispatcher must stop); false to allow the request through.
  *
  * Safety rails:
- *  - Only rejects an AUTHENTICATED caller who is missing the permission. A
- *    request with no Supabase bearer (the legacy anon-key surface that hasn't
- *    adopted the MS-auth session yet) passes through unchanged — enforcement
- *    is incrementally adoptable, not a hard cutover.
+ *  - "enforce" mode: only rejects an AUTHENTICATED caller who is missing the
+ *    permission. A request with no Supabase bearer (the legacy anon-key surface
+ *    that hasn't adopted the MS-auth session yet) passes through unchanged.
+ *  - "strict" mode: same as enforce PLUS rejects unauthenticated callers with
+ *    401 on every MAPPED route. Use this once every operator is on MS-OAuth.
  *  - No entity context → pass (don't block non-entity-scoped routes here).
  *  - FAILS OPEN: any internal error logs + allows. An RBAC bug must never lock
  *    the operator out of their own ERP.
  */
 export async function rbacEnforce(req, res, pathname, method) {
   try {
-    if (rbacMode() !== "enforce") return false;
+    const mode = rbacMode();
+    if (mode !== "enforce" && mode !== "strict") return false;
     const required = routePermissionFor(pathname, method);
     if (!required) return false;
     const sb = getAdmin();
     if (!sb) return false;
     const auth = await authenticateCaller(req, sb);
-    if (!auth || !auth.ok || !auth.authId) return false; // unauthenticated → anon model
+    if (!auth || !auth.ok || !auth.authId) {
+      if (mode !== "strict") return false; // enforce mode → legacy anon callers pass
+      // strict mode → unauthenticated callers on mapped routes get rejected.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[RBAC strict] DENY ${method} ${pathname} — unauthenticated; needs ${required.module}:${required.action}`,
+      );
+      if (res && !res.headersSent) {
+        res.status(401).json({ error: "authentication_required", module: required.module, action: required.action });
+      }
+      return true;
+    }
     const ent = await resolveCallerEntity(req, sb, auth.authId);
     if (!ent || !ent.entity_id) return false;            // no entity context → pass
     const perms = await loadEffectivePermissions(sb, auth.authId, ent.entity_id);
     if (isAllowed(perms, required.module, required.action)) return false;
-    // Denied.
+    // Denied — authenticated but missing permission.
     // eslint-disable-next-line no-console
     console.warn(
-      `[RBAC enforce] DENY ${method} ${pathname} — user=${auth.authId} ` +
+      `[RBAC ${mode}] DENY ${method} ${pathname} — user=${auth.authId} ` +
       `entity=${ent.entity_id} needs ${required.module}:${required.action}`,
     );
     if (res && !res.headersSent) {

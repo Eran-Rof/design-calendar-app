@@ -90,8 +90,11 @@ Then **Run reconciliation** on the Tangerine-source run to apply it.
 **Notes & current state.**
 - On-hand maps directly: a Tangerine inventory layer's `item_id` is the same SKU id (`ip_item_master.id`) the planner already uses — no remapping.
 - Today Tangerine on-hand totals ~**1.35M units across ~7,700 SKUs** (it ties exactly to the FIFO layer sum). Native open POs are **0** until you issue POs in Procurement (e.g. from a buy plan via direction A), so the Tangerine open-PO input is empty until then.
-- WIP (in-production) qty is not yet fed from Tangerine — that remains a later enhancement.
 - The sync is safe to re-run (idempotent on-hand upsert; open-PO full rebuild) and only touches `source='tangerine'` rows, never your Xoro/manual data.
+
+### WIP timing (inbound PO = WIP)
+
+For the **Xoro/ATS** supply source, an open PO *is* the work-in-progress — its quantity is already counted as incoming supply, so there's no separate "WIP" number to add (adding one would double-count). What the Tanda milestones contribute is **timing**: each open PO's expected-arrival month is now taken from the ops-maintained **"In House / DDP"** milestone (the `days_before_ddp = 0` step — its actual date once entered, else its expected date), falling back to the Xoro PO date when there's no milestone. So when the Production team updates a PO's DDP in Tanda, that WIP lands in the right month in the planning projection on the next **Sync open POs** + reconcile. (Today this re-times 9 of 166 open POs, some across a month boundary.)
 
 ---
 
