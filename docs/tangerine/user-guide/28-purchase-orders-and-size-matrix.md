@@ -211,7 +211,9 @@ So **carton units for a size = inner packs × Units/Inner Pack**. Example `RYB05
 - **⬇ Download all PPK** fetches every PPK style still lacking a matrix (from `v_prepack_ppk_needed`, via `GET /api/internal/prepack-matrices/needed`) and writes one workbook with **one styled sheet per size scale** — white cells pre-filled from the master (names never guessed), yellow cells blank. Fill it in and upload the whole file in one go.
 - **Upload** reads **every sheet** and is section-aware (title / `INNER PACK` band / blank / legend rows skipped; a `PPK Style Code` header re-establishes the columns). It accepts the **inner-pack** format (above), the **long** format (`…| Size | Inner Pack Qty | Qty Per Box`), and **legacy wide** (paired `<size> Inner`/`<size> Box`, or a plain `<size>` = carton units), in `.xlsx` **or `.csv`**. The add/edit modal's composition field (`size:innerPacks:qtyPerBox`, e.g. `32:2:6`) is the manual equivalent.
 
-**Name from master, never guessed.** On create, a blank `name` is resolved from `style_master.style_name` (the PPK code, then its base sibling), falling back to the sibling's `ip_item_master.description` — exactly what `v_prepack_ppk_needed` exposes. The list + editor show composition as **stacked cells (size on top, carton qty below)** — no inner-pack annotation.
+**Name from master, never guessed.** On create, a blank `name` is resolved from `style_master.style_name` (the PPK code, then its base sibling), falling back to the sibling's `ip_item_master.description` — exactly what `v_prepack_ppk_needed` exposes.
+
+**Composition display (paired view).** The list **and** the edit-modal preview show the composition the way the carton actually breaks down: the per-size **inner-packs** grid `× Units/Inner Pack` = the per-size **carton** grid, with both totals (`inner packs = N` and `carton total = M`). Legacy matrices that carry no inner-pack data fall back to the single carton grid. The **Search** box filters the list **instantly as you type** (code / name / PPK style) — no button press needed (Enter / the Search button still refresh from the server for large sets).
 
 ### Explode-PPK on the Inventory Matrix
 
