@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos } from "../planning-sync.js";
+import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap } from "../planning-sync.js";
 
 // Minimal Supabase admin stub. Each test wires up only the table
 // methods it actually needs; the rest fall through to a generic empty
@@ -278,5 +278,51 @@ describe("syncOpenPosFromTandaPos — happy path", () => {
       customer_id: "cust-acme",
       source: "xoro",
     });
+  });
+});
+
+describe("buildDdpDateMap — WIP timing from Tanda milestones", () => {
+  const ms = (po, dbd, exp, act = null) => ({ data: { po_number: po, days_before_ddp: dbd, expected_date: exp, actual_date: act } });
+
+  it("maps each PO to its In-House/DDP (days_before_ddp=0) expected date", () => {
+    const m = buildDdpDateMap([
+      ms("ROF-P1", 120, "2026-08-03"),
+      ms("ROF-P1", 0, "2026-12-01"),
+      ms("ROF-P2", 0, "2026-09-15"),
+    ]);
+    expect(m.get("ROF-P1")).toBe("2026-12-01");
+    expect(m.get("ROF-P2")).toBe("2026-09-15");
+  });
+
+  it("ignores non-DDP milestones (days_before_ddp != 0)", () => {
+    const m = buildDdpDateMap([ms("ROF-P1", 30, "2026-11-01"), ms("ROF-P1", 10, "2026-11-20")]);
+    expect(m.has("ROF-P1")).toBe(false);
+  });
+
+  it("prefers actual_date over expected_date once set", () => {
+    const m = buildDdpDateMap([ms("ROF-P1", 0, "2026-12-01", "2026-12-10")]);
+    expect(m.get("ROF-P1")).toBe("2026-12-10");
+  });
+
+  it("takes the latest date when a PO has several DDP rows (variants)", () => {
+    const m = buildDdpDateMap([ms("ROF-P1", 0, "2026-12-01"), ms("ROF-P1", 0, "2026-12-20")]);
+    expect(m.get("ROF-P1")).toBe("2026-12-20");
+  });
+
+  it("tolerates string days_before_ddp, missing data, and blank dates", () => {
+    const m = buildDdpDateMap([
+      { data: { po_number: "ROF-P1", days_before_ddp: "0", expected_date: "2026-12-01" } },
+      { data: null },
+      { data: { po_number: "ROF-P2", days_before_ddp: 0, expected_date: "" } },
+      {},
+    ]);
+    expect(m.get("ROF-P1")).toBe("2026-12-01");
+    expect(m.has("ROF-P2")).toBe(false);
+    expect(m.size).toBe(1);
+  });
+
+  it("returns an empty map for empty/nullish input", () => {
+    expect(buildDdpDateMap([]).size).toBe(0);
+    expect(buildDdpDateMap(null).size).toBe(0);
   });
 });
