@@ -491,10 +491,12 @@ export default function InternalPrepackMatrix() {
   const [qDebounced, setQDebounced] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [addPrefill, setAddPrefill] = useState<Partial<PrepackMatrix> | null>(null);
   const [editing, setEditing] = useState<PrepackMatrix | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [needing, setNeeding] = useState(false);
+  const [needed, setNeeded] = useState<NeededRow[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(TABLE_KEY, COLUMNS);
@@ -528,15 +530,42 @@ export default function InternalPrepackMatrix() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
-  // Instant client-side filter as you type (code / name / PPK style). The
-  // Search button + Enter still hit the server (for large sets / fresh data),
-  // but the list narrows immediately without a round-trip.
+  // PPK styles that still NEED a matrix — so the search also brings up STYLES,
+  // not just already-created matrices. Refreshed whenever the matrix list changes
+  // (creating one drops it from "needed").
+  async function loadNeeded() {
+    try {
+      const r = await fetch("/api/internal/prepack-matrices/needed");
+      if (!r.ok) return;
+      const d = await r.json();
+      setNeeded(Array.isArray(d) ? d as NeededRow[] : []);
+    } catch { /* non-fatal */ }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadNeeded(); }, [rows]);
+
+  // Instant client-side filter as you type (code / name / PPK style).
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return rows;
     return rows.filter((m) =>
       [m.code, m.name, m.ppk_style_code].some((f) => (f || "").toLowerCase().includes(needle)));
   }, [rows, q]);
+
+  // Needed styles that don't already have a matrix, filtered by the search box.
+  const neededFiltered = useMemo(() => {
+    const have = new Set(rows.map((m) => (m.ppk_style_code || "").toLowerCase()));
+    const base = needed.filter((x) => !have.has((x.ppk_style_code || "").toLowerCase()));
+    const needle = q.trim().toLowerCase();
+    if (!needle) return base;
+    return base.filter((x) =>
+      [x.ppk_style_code, x.style_name, x.pack_token].some((f) => (f || "").toLowerCase().includes(needle)));
+  }, [needed, rows, q]);
+
+  function createFromNeeded(x: NeededRow) {
+    setAddPrefill({ ppk_style_code: x.ppk_style_code, name: x.style_name || "", pack_token: x.pack_token || "" } as Partial<PrepackMatrix>);
+    setAddOpen(true);
+  }
 
   async function del(m: PrepackMatrix) {
     if (!(await confirmDialog(`Delete prepack matrix ${m.code} (${m.name})?\nIts size composition is removed too.`))) return;
@@ -737,8 +766,47 @@ export default function InternalPrepackMatrix() {
         )}
       </div>
 
+      {/* PPK styles still needing a matrix — so the search surfaces STYLES too,
+          not only existing matrices. Click "Create" to open the add form
+          pre-filled with the style's PPK code, name and pack token. */}
+      {neededFiltered.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>
+            <strong style={{ color: C.warn }}>{neededFiltered.length}</strong> PPK style{neededFiltered.length === 1 ? "" : "s"} still need{neededFiltered.length === 1 ? "s" : ""} a matrix{q.trim() ? ` matching “${q.trim()}”` : ""}
+          </div>
+          <div style={{ background: C.card, border: `1px dashed ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>
+                <th style={th}>PPK Style</th><th style={th}>Name</th><th style={th}>Pack</th><th style={th}>Sizes</th><th style={{ ...th, width: 120 }}></th>
+              </tr></thead>
+              <tbody>
+                {neededFiltered.slice(0, 100).map((x) => (
+                  <tr key={x.ppk_style_code}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{x.ppk_style_code}</td>
+                    <td style={td}>{x.style_name || "—"}</td>
+                    <td style={{ ...td, color: C.textSub }}>{x.pack_token || "—"}</td>
+                    <td style={{ ...td, color: C.textSub }}>{Array.isArray(x.sizes) && x.sizes.length ? x.sizes.join(", ") : "—"}</td>
+                    <td style={{ ...td, textAlign: "right" }}>
+                      <button onClick={() => createFromNeeded(x)} style={btnSecondary}>+ Create</button>
+                    </td>
+                  </tr>
+                ))}
+                {neededFiltered.length > 100 && (
+                  <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: C.textMuted }}>+{neededFiltered.length - 100} more — narrow the search, or use ⬇ Download all PPK.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {addOpen && (
-        <MatrixFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />
+        <MatrixFormModal
+          mode="add"
+          matrix={(addPrefill || undefined) as PrepackMatrix | undefined}
+          onClose={() => { setAddOpen(false); setAddPrefill(null); }}
+          onSaved={() => { setAddOpen(false); setAddPrefill(null); void load(); void loadNeeded(); }}
+        />
       )}
       {editing && (
         <MatrixFormModal mode="edit" matrix={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />
