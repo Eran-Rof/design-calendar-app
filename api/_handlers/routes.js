@@ -821,6 +821,8 @@ import h562 from "./b2b/catalog.js";
 import h563 from "./b2b/orders/index.js";
 import h564 from "./b2b/orders/[id].js";
 import h565 from "./b2b/account.js";
+// h627 = POST /api/ap/sync-bills (REST AP-bill ingest from Xoro bill/getbill)
+import h627 from "./ap/sync-bills.js";
 
 export const ROUTES = [
   // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
@@ -1501,6 +1503,7 @@ export const ROUTES = [
   { pattern: "/api/internal/channels",                                 handler: h533 },
   { pattern: "/api/internal/users-access/override",                    handler: h530 },
   { pattern: "/api/internal/users-access",                             handler: h529 },
+  { pattern: "/api/ap/sync-bills",                                     handler: h627 },
 ];
 
 export function compileRoutes(routes) {
