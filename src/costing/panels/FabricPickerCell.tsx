@@ -36,6 +36,9 @@ export default function FabricPickerCell({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [dbRows, setDbRows] = useState<FabricHit[]>([]);
   const [loading, setLoading] = useState(false);
+  // code → fabric description (fabric_codes.name). Chips show the DESCRIPTION,
+  // not the bare code (operator ask) — resolved lazily per selected code.
+  const [labelByCode, setLabelByCode] = useState<Record<string, string>>({});
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,11 +73,40 @@ export default function FabricPickerCell({ value, onChange }: Props) {
       try {
         const out = await searchFabrics(text, controller.signal);
         setDbRows(out);
+        // Enrich the code→description map from whatever the search returned.
+        setLabelByCode((m) => {
+          const next = { ...m };
+          for (const r of out) if (r.code && r.name) next[r.code] = r.name;
+          return next;
+        });
       } catch { /* silent */ }
       finally { setLoading(false); }
     }, 200);
     return () => { window.clearTimeout(t); controller.abort(); };
   }, [text, open]);
+
+  // Resolve descriptions for the currently-selected codes so the chips show the
+  // fabric description even before the dropdown is opened. One lookup per code
+  // (cached); marks resolved-as-self so an unmatched code isn't refetched.
+  useEffect(() => {
+    let cancelled = false;
+    const missing = selected.filter((c) => !(c in labelByCode));
+    if (missing.length === 0) return;
+    (async () => {
+      for (const code of missing) {
+        try {
+          const hits = await searchFabrics(code);
+          const hit = hits.find((h) => (h.code || "").toLowerCase() === code.toLowerCase());
+          if (cancelled) return;
+          setLabelByCode((m) => ({ ...m, [code]: hit?.name || code }));
+        } catch {
+          if (!cancelled) setLabelByCode((m) => ({ ...m, [code]: code }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.join("|")]);
 
   const selectedLower = new Set(selected.map((s) => s.toLowerCase().trim()));
   // Hide already-selected codes from the dropdown so picking twice is a no-op.
@@ -118,9 +150,11 @@ export default function FabricPickerCell({ value, onChange }: Props) {
               background: "#334155", color: "#E2E8F0",
               border: "1px solid #475569", borderRadius: 10,
               padding: "1px 6px", fontSize: 10, whiteSpace: "nowrap",
+              maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis",
             }}
+            title={labelByCode[c] && labelByCode[c] !== c ? `${labelByCode[c]} (${c})` : c}
           >
-            {c}
+            {labelByCode[c] || c}
             <button
               type="button"
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); removeCode(c); }}
