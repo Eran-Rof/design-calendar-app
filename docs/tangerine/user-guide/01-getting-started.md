@@ -70,6 +70,8 @@ Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. 
 
 Tangerine has its own **independent top nav** with **7 group dropdowns** across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each group dropdown opens a menu of the modules in that group; clicking a module navigates and closes the dropdown. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
 
+Next to the group dropdowns is a **🔍 Find a panel** type-ahead box — start typing a panel name and the closest matches appear; <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>Enter</kbd> opens the top hit, <kbd>Esc</kbd> clears. It matches on **panel names** (so "master" shows Style/Vendor/Customer Master, not every panel that happens to live in the *Master Data* group); if nothing matches a panel name, it falls back to matching a **group name** so you can still jump by section.
+
 > **Nav layout changed 2026-05-27 night:** the original flat row of 22 module buttons got too crowded after P4 shipped (the Accounting group alone grew to 9 modules). Modules are now grouped under: 📚 Master Data · 💼 Accounting · 📦 Inventory · ✅ Approvals · 🔔 Notifications · 👥 HR · ⚙️ Operations. The active module's parent group is highlighted, so you always know where you are. Click outside or press <kbd>Esc</kbd> to close a dropdown without selecting.
 
 ```mermaid

@@ -898,8 +898,23 @@ function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: Mo
   const results = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return [];
-    return items
-      .filter((it) => it.label.toLowerCase().includes(term) || it.section.toLowerCase().includes(term))
+    // Match panel LABELS first. Only fall back to section-name matching when no
+    // label matches at all — otherwise typing a word that also appears in a
+    // section name (e.g. "Master" → the "Master Data" group) flooded the list
+    // with every panel in that section. Within label hits, rank exact > prefix
+    // > substring so the closest panel surfaces at the top.
+    const labelHits = items.filter((it) => it.label.toLowerCase().includes(term));
+    const base = labelHits.length > 0
+      ? labelHits
+      : items.filter((it) => it.section.toLowerCase().includes(term)); // jump by section name
+    const rank = (it: SearchItem) => {
+      const l = it.label.toLowerCase();
+      if (l === term) return 0;
+      if (l.startsWith(term)) return 1;
+      return 2;
+    };
+    return [...base]
+      .sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label))
       .slice(0, 12);
   }, [q, items]);
 
