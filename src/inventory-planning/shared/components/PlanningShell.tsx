@@ -15,6 +15,7 @@ import { supabaseClient } from "../../../utils/supabase";
 import { PAL } from "../../components/styles";
 import { AskAIPanel } from "../../../ai/AskAIPanel";
 import type { GridContextSnapshot } from "../../../ai/tools";
+import { WarnHost } from "../../../shared/ui/warn";
 
 function readPlmUserId(): string | null {
   try {
@@ -162,6 +163,11 @@ export default function PlanningShell({ title, children }: Props) {
         ]}
         appId="planning"
       />
+
+      {/* Canonical app-colored toast + confirm surface (shared with Tangerine /
+          ATS / TandA). Lets planning panels call confirmDialog()/notify()
+          instead of raw browser alert()/confirm(), so warnings match all apps. */}
+      <WarnHost />
     </div>
   );
 }
