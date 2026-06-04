@@ -83,6 +83,12 @@ export interface ExportOptions {
   customSalesRangeEnabled: boolean;
   customSalesRangeStart: string; // YYYY-MM-DD, empty when disabled
   customSalesRangeEnd: string;   // YYYY-MM-DD, empty when disabled
+  // Append a "By Size Matrix" worksheet: per style, a color × size grid of
+  // ATS-available eaches (size columns from the style's size scale) plus
+  // bulk SO / PO columns and a separate PPK pack column. Size-grain data is
+  // fetched from /api/internal/ats-size-matrix (tangerine_size_onhand);
+  // the main color-grain report is unaffected.
+  bySizeMatrix: boolean;
 }
 
 interface Props {
@@ -111,6 +117,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [customerFacing, setCustomerFacing]   = useState(false);
   const [hideZeroColumns, setHideZeroColumns] = useState(false);
   const [hideATSData, setHideATSData]         = useState(false);
+  const [bySizeMatrix, setBySizeMatrix]       = useState(false);
   // Sub-panel state revealed when Hide ATS data is on. Pre-seeded with
   // "last 3 months from today" so the date inputs render a meaningful
   // default even before the operator interacts with them.
@@ -176,6 +183,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customSalesRangeEnabled: hideATSData && customRangeEnabled,
     customSalesRangeStart:   hideATSData && customRangeEnabled ? customStart : "",
     customSalesRangeEnd:     hideATSData && customRangeEnabled ? customEnd   : "",
+    bySizeMatrix,
   });
 
   // Custom-range validity is only meaningful when both Hide ATS data
@@ -215,6 +223,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setCustomerFacing(false);
     setHideZeroColumns(false);
     setHideATSData(false);
+    setBySizeMatrix(false);
     setCustomRangeEnabled(false);
     setCustomStart(isoMinusMonths(todayIso(), 3));
     setCustomEnd(todayIso());
@@ -302,6 +311,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             label="Hide zero columns (drop any data column whose body is empty / all zero)"
             checked={hideZeroColumns}
             onChange={setHideZeroColumns}
+          />
+
+          <CheckRow
+            label="By Size Matrix (adds a worksheet: per-style color × size ATS-available grid + PPK column)"
+            checked={bySizeMatrix}
+            onChange={setBySizeMatrix}
           />
 
           <div>

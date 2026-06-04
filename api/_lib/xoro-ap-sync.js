@@ -1,0 +1,241 @@
+// api/_lib/xoro-ap-sync.js
+//
+// Core Xoro AP (vendor bill / invoice paid-status) sync logic — the single
+// source of truth shared by BOTH the manual `/api/xoro-ap-sync` handler and
+// the nightly `/api/cron/xoro-ap-sync` cron.
+//
+// Phase 2.7 — pulls bills (AP invoices) from Xoro and updates our invoices
+// table with payment status.
+//
+// Matching strategy:
+//   1. Prefer exact (vendor_id, invoice_number = Xoro BillNumber) match
+//   2. Fall back to (vendor_id, po_number) match — if there's only one open
+//      invoice against that PO, attach the Xoro bill to it
+//
+// If Xoro reports the bill as paid (PaidAmount >= TotalAmount), we mark our
+// invoice status='paid' and set paid_at + payment_reference. If it's
+// open/partially paid, we set xoro_ap_id but leave status.
+//
+// The Xoro endpoint path here is a guess based on the xoro API naming
+// convention (purchaseorder/getpurchaseorder). If it 404s, tweak BILL_PATH.
+
+import { createClient } from "@supabase/supabase-js";
+
+export const BILL_PATH = "bill/getbill"; // TODO: confirm when we see a live response
+
+// runXoroApSync — performs one sync pass.
+//
+// opts:
+//   date_from   "YYYY-MM-DD" (optional) — Xoro created_at_min
+//   date_to     "YYYY-MM-DD" (optional) — Xoro created_at_max (end of day)
+//   po_number   string (optional) — restrict to one PO
+//   origin      base URL used to fire vendor notifications (e.g.
+//               "https://app.example.com"); if omitted, notifications are
+//               skipped.
+//   admin       optional pre-built Supabase service-role client (the caller
+//               may pass one in; otherwise one is built from env).
+//
+// Returns either { error, ... } (configuration / Xoro failure) or the
+// success summary object. Never throws for per-bill errors — those are
+// collected into result.errors.
+export async function runXoroApSync({ date_from = "", date_to = "", po_number = "", origin = "", admin = null } = {}) {
+  const SB_URL = process.env.VITE_SUPABASE_URL;
+  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const XORO_KEY = process.env.VITE_XORO_API_KEY;
+  const XORO_SECRET = process.env.VITE_XORO_API_SECRET;
+  if (!SB_URL || !SERVICE_KEY || !XORO_KEY || !XORO_SECRET) {
+    return {
+      error: "Server not configured",
+      supabase: !!SB_URL, serviceKey: !!SERVICE_KEY, xoro: !!(XORO_KEY && XORO_SECRET),
+    };
+  }
+  if (!admin) {
+    admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  }
+
+  const dateFrom = date_from || "";
+  const dateTo = date_to || "";
+  const poNumber = po_number || "";
+
+  // Build Xoro call
+  const xoroParams = new URLSearchParams();
+  xoroParams.set("per_page", "200");
+  if (dateFrom) xoroParams.set("created_at_min", new Date(dateFrom).toISOString());
+  if (dateTo)   xoroParams.set("created_at_max", new Date(dateTo + "T23:59:59").toISOString());
+  if (poNumber) xoroParams.set("po_number", poNumber);
+
+  const creds = Buffer.from(`${XORO_KEY}:${XORO_SECRET}`).toString("base64");
+  const xoroUrl = `https://res.xorosoft.io/api/xerp/${BILL_PATH}?${xoroParams.toString()}`;
+
+  let xoroBody = null;
+  let xoroStatus = 0;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    const r = await fetch(xoroUrl, {
+      headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    xoroStatus = r.status;
+    const text = await r.text();
+    try { xoroBody = JSON.parse(text); } catch { xoroBody = { raw: text.slice(0, 1000) }; }
+  } catch (err) {
+    return { error: "Xoro fetch failed: " + (err?.message || err), path: BILL_PATH };
+  }
+
+  if (xoroStatus < 200 || xoroStatus >= 300 || !xoroBody?.Result) {
+    return {
+      error: "Xoro returned an error or empty dataset",
+      xoro_status: xoroStatus,
+      xoro_message: xoroBody?.Message || null,
+      path: BILL_PATH,
+      debug: xoroBody,
+    };
+  }
+
+  const bills = Array.isArray(xoroBody.Data) ? xoroBody.Data : [];
+  const result = {
+    path: BILL_PATH,
+    xoro_bills_fetched: bills.length,
+    matched_by_invoice_number: 0,
+    matched_by_po_number: 0,
+    marked_paid: 0,
+    unmatched: 0,
+    errors: [],
+  };
+
+  // Vendor name → id lookup
+  const { data: vendorRows } = await admin.from("vendors").select("id, name");
+  const vendorByName = new Map();
+  for (const v of vendorRows ?? []) vendorByName.set((v.name || "").toLowerCase(), v.id);
+
+  for (const bill of bills) {
+    try {
+      const vendorName = (bill.VendorName || bill.Vendor || "").toLowerCase();
+      const vendorId = vendorByName.get(vendorName);
+      const billNumber = bill.BillNumber || bill.ThirdPartyRefNo || bill.Number;
+      const billPONumber = bill.PoNumber || bill.PurchaseOrderNumber;
+      // Strip thousand-separators / currency glyphs before Number(),
+      // otherwise "1,234.56" becomes NaN and we silently treat the bill
+      // as $0. Use 4-decimal cents math for the paid-vs-total
+      // comparison so float drift doesn't accidentally mark a bill paid.
+      const cleanMoney = (v) => {
+        if (v == null) return 0;
+        const s = String(v).replace(/[$,\s]/g, "");
+        const n = parseFloat(s);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const total = cleanMoney(bill.Amount ?? bill.TotalAmount);
+      const paid  = cleanMoney(bill.PaidAmount ?? bill.AmountPaid);
+      const totalCents = Math.round(total * 10000);
+      const paidCents  = Math.round(paid * 10000);
+      // 1c tolerance preserved (100 in 4-decimal-precision integers).
+      const isPaid = totalCents > 0 && paidCents >= totalCents - 100;
+      const paidAt = isPaid ? (bill.PaidDate || bill.LastPaymentDate || new Date().toISOString()) : null;
+      const xoroApId = String(bill.Id ?? bill.BillId ?? bill.TxnId ?? "");
+
+      if (!vendorId || !billNumber) { result.unmatched++; continue; }
+
+      // Try exact match on invoice_number
+      const { data: exact } = await admin
+        .from("invoices")
+        .select("id, status, xoro_ap_id")
+        .eq("vendor_id", vendorId)
+        .eq("invoice_number", billNumber)
+        .maybeSingle();
+
+      let invoiceId = exact?.id ?? null;
+      let priorStatus = exact?.status ?? null;
+      let priorXoroApId = exact?.xoro_ap_id ?? null;
+      let matchMode = exact ? "invoice_number" : null;
+
+      if (!invoiceId && billPONumber) {
+        // Fall back to PO-level match — only if exactly one open invoice exists
+        const { data: poTp } = await admin
+          .from("tanda_pos").select("uuid_id").eq("po_number", billPONumber).maybeSingle();
+        if (poTp) {
+          const { data: candidates } = await admin
+            .from("invoices")
+            .select("id, status, xoro_ap_id")
+            .eq("vendor_id", vendorId)
+            .eq("po_id", poTp.uuid_id)
+            .in("status", ["submitted", "under_review", "approved"]);
+          if (candidates && candidates.length === 1) {
+            invoiceId = candidates[0].id;
+            priorStatus = candidates[0].status;
+            priorXoroApId = candidates[0].xoro_ap_id;
+            matchMode = "po_number";
+          }
+        }
+      }
+
+      if (!invoiceId) { result.unmatched++; continue; }
+
+      const updates = {
+        xoro_ap_id: xoroApId || null,
+        xoro_last_synced_at: new Date().toISOString(),
+      };
+      if (isPaid) {
+        updates.status = "paid";
+        updates.paid_at = paidAt;
+        updates.payment_reference = bill.PaymentReference || bill.CheckNumber || null;
+        updates.payment_method = bill.PaymentMethod || null;
+      }
+
+      const { error: upErr } = await admin.from("invoices").update(updates).eq("id", invoiceId);
+      if (upErr) { result.errors.push({ bill: billNumber, error: upErr.message }); continue; }
+
+      if (matchMode === "invoice_number") result.matched_by_invoice_number++;
+      if (matchMode === "po_number") result.matched_by_po_number++;
+      if (isPaid) result.marked_paid++;
+
+      // Vendor notifications — fire only on real transitions to avoid
+      // re-notifying every time the cron re-syncs the same bill. Requires an
+      // origin to call /api/send-notification against.
+      const firstTimeLinkedToAp = !priorXoroApId && xoroApId;
+      const newlyPaid = isPaid && priorStatus !== "paid";
+      if (origin && (firstTimeLinkedToAp || newlyPaid)) {
+        const fmtAmount = total
+          ? total.toLocaleString(undefined, { style: "currency", currency: "USD" })
+          : null;
+        if (firstTimeLinkedToAp) {
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "invoice_approved",
+              title: `Invoice ${billNumber} accepted by AP`,
+              body: `Ring of Fire AP has accepted invoice ${billNumber}${billPONumber ? ` for PO ${billPONumber}` : ""}${fmtAmount ? ` (${fmtAmount})` : ""}. You'll receive another notification once payment is sent.`,
+              link: `/vendor/invoices/${invoiceId}`,
+              metadata: { invoice_id: invoiceId, po_number: billPONumber || null, vendor_id: vendorId, xoro_ap_id: xoroApId },
+              recipient: { vendor_id: vendorId },
+              dedupe_key: `invoice_approved_${invoiceId}`,
+              email: true,
+            }),
+          }).catch(() => {});
+        }
+        if (newlyPaid) {
+          fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "payment_sent",
+              title: `Payment sent for invoice ${billNumber}`,
+              body: `Payment ${fmtAmount ? `of ${fmtAmount} ` : ""}has been sent for invoice ${billNumber}${updates.payment_method ? ` via ${updates.payment_method}` : ""}${updates.payment_reference ? ` (ref ${updates.payment_reference})` : ""}.`,
+              link: `/vendor/invoices/${invoiceId}`,
+              metadata: { invoice_id: invoiceId, po_number: billPONumber || null, vendor_id: vendorId, payment_method: updates.payment_method, payment_reference: updates.payment_reference, paid_at: paidAt },
+              recipient: { vendor_id: vendorId },
+              dedupe_key: `payment_sent_${invoiceId}`,
+              email: true,
+            }),
+          }).catch(() => {});
+        }
+      }
+    } catch (err) {
+      result.errors.push({ bill: bill.BillNumber, error: err?.message || String(err) });
+    }
+  }
+
+  return result;
+}

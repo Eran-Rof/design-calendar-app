@@ -82,8 +82,10 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
   ] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCategories(),
-    wholesaleRepo.listInventorySnapshots(),
-    wholesaleRepo.listOpenPos(),
+    // M31 dir-B: read on-hand + open POs from the run's chosen supply
+    // source ('xoro' mirror, default, or native 'tangerine').
+    wholesaleRepo.listInventorySnapshots(run.supply_source),
+    wholesaleRepo.listOpenPos("wholesale", run.supply_source),
     wholesaleRepo.listReceipts(earlierIso(run.source_snapshot_date, 24)),
     supplyRepo.listActiveRules(),
     wholesaleSrc ? wholesaleRepo.listForecast(wholesaleSrc) : Promise.resolve([]),
@@ -111,7 +113,7 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
     };
   }
 
-  // ── latest on-hand per sku (Xoro snapshot) ───────────────────────
+  // ── latest on-hand per sku (from run.supply_source snapshot) ─────
   const onHandBySku = new Map<string, { qty: number; ats: number }>();
   const latestDateBySku = new Map<string, string>();
   for (const s of inv) {

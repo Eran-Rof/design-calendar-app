@@ -49,6 +49,7 @@ interface User {
     vendor?: AppPermission;
     gs1?: AppPermission;
     planning?: AppPermission;
+    tangerine?: AppPermission;
   };
 }
 
@@ -149,6 +150,14 @@ const APPS = [
     icon: "💰",
     color: "#EAB308",
     path: "/costing",
+  },
+  {
+    id: "tangerine" as const,
+    name: "Tangerine ERP",
+    description: "Accounting, inventory, sales, procurement & finance — the Xoro replacement",
+    icon: "🍊",
+    color: "#F97316",
+    path: "/tangerine",
   },
 ];
 
@@ -260,7 +269,9 @@ export default function PLMApp() {
   }
 
   function openApp(path: string) {
-    window.location.href = path;
+    // Apps in the suite open in their own browser tab so the launcher stays put
+    // (operator preference). Same-origin, so per-app localStorage/session is shared.
+    window.open(path, "_blank", "noopener");
   }
 
   // ── LOGIN SCREEN ────────────────────────────────────────────────────────────
@@ -606,6 +617,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
     { id: "planning", label: "Inv. Planning",   color: "#F59E0B" },
     { id: "gs1",      label: "GTIN Creation",   color: "#0891B2" },
+    { id: "tangerine", label: "Tangerine ERP",  color: "#F97316" },
   ];
 
   const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [
