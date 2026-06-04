@@ -53,6 +53,7 @@ import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { dcViewToMenuKey } from "./lib/dcViewToMenuKey";
+import { useDocumentTitle, humanizeView } from "./shared/useDocumentTitle";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -108,6 +109,8 @@ function App() {
   const _setCollRaw = useAppStore.getState().setCollectionsRaw;
   // ── View/UI state → useAppStore (see store/index.ts) ──
   const view = s.view;
+  // Reflect the active view in the browser tab.
+  useDocumentTitle(`${humanizeView(view)} · Design Calendar`);
   const listView = s.listView;
   const expandedColl = s.expandedColl;
   const filterBrand = s.filterBrand;

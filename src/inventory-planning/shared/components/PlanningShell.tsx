@@ -16,6 +16,7 @@ import { PAL } from "../../components/styles";
 import { AskAIPanel } from "../../../ai/AskAIPanel";
 import type { GridContextSnapshot } from "../../../ai/tools";
 import { WarnHost } from "../../../shared/ui/warn";
+import { useDocumentTitle } from "../../../shared/useDocumentTitle";
 
 function readPlmUserId(): string | null {
   try {
@@ -32,6 +33,10 @@ interface Props {
 
 export default function PlanningShell({ title, children }: Props) {
   const userId = readPlmUserId();
+  // Reflect the active planning section in the browser tab. Most section
+  // titles already include "Planning" (e.g. "Wholesale Planning") — only
+  // suffix " · Planning" when they don't, to avoid "Planning · Planning".
+  useDocumentTitle(title.includes("Planning") ? title : `${title} · Planning`);
   const [showNotifs, setShowNotifs] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const unread = useAppUnreadCount({

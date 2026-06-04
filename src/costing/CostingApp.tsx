@@ -14,9 +14,21 @@ import SettingsView from "./views/SettingsView";
 import RfqListView from "./views/RfqListView";
 import RfqEditView from "./views/RfqEditView";
 import { getView } from "./helpers";
+import { useDocumentTitle } from "../shared/useDocumentTitle";
+
+// Browser-tab labels for the Costing views.
+const COSTING_VIEW_LABELS: Record<string, string> = {
+  list:       "Projects",
+  edit:       "Project",
+  settings:   "Masters",
+  "rfq-list": "RFQs",
+  "rfq-edit": "RFQ",
+};
 
 export default function CostingApp() {
   const [view, setView] = useState(getView());
+  // Reflect the active view in the browser tab.
+  useDocumentTitle(`${COSTING_VIEW_LABELS[view] ?? "Costing"} · Costing`);
 
   // Wire appConfirm() through the canonical Tangerine confirm surface
   // (src/shared/ui/warn → confirmDialog) so every costing yes/no prompt

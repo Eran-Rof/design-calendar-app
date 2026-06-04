@@ -19,6 +19,23 @@ import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import { supabaseClient } from "../utils/supabase";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "../components/EntitySwitcher";
+import { useDocumentTitle } from "../shared/useDocumentTitle";
+
+// Browser-tab labels per GS1 tab (mirrors the NavBar TABS labels).
+const GS1_TAB_LABELS: Record<string, string> = {
+  company:       "Company Setup",
+  upc:           "UPC Master",
+  scale:         "Scale Master",
+  gtins:         "Pack GTINs",
+  upload:        "Packing List",
+  pa_unpacker:   "PA Unpacker",
+  labels:        "Label Batches",
+  templates:     "Label Templates",
+  cartons:       "Carton Labels",
+  receiving:     "Receiving",
+  exceptions:    "Exceptions",
+  notifications: "Notifications",
+};
 
 function readPlmUserId(): string | null {
   try {
@@ -29,6 +46,8 @@ function readPlmUserId(): string | null {
 
 export default function GS1App() {
   const activeTab = useGS1Store(s => s.activeTab);
+  // Reflect the active tab in the browser tab.
+  useDocumentTitle(`${GS1_TAB_LABELS[activeTab] ?? "GS1"} · GS1`);
   const userId = readPlmUserId();
 
   return (
