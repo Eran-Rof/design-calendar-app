@@ -584,8 +584,9 @@ import h604 from "./internal/pim/styles/[style_id]/link-shopify.js";
 import h605 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 // h606 = POST /api/internal/planning/link-planning-vendor (M31: link planning vendor → Tangerine vendor)
 import h606 from "./internal/planning/link-planning-vendor.js";
-// h607 = POST /api/internal/planning/sync-tangerine-supply (M31 dir-B: Tangerine on-hand + open POs → planning supply)
-import h607 from "./internal/planning/sync-tangerine-supply.js";
+// h610 = POST /api/internal/planning/sync-tangerine-supply (M31 dir-B: Tangerine on-hand + open POs → planning supply)
+// (was h607 — collided with the accept-invite h607 import below; renumbered to fix the duplicate-identifier build break.)
+import h610 from "./internal/planning/sync-tangerine-supply.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -599,6 +600,8 @@ import h603 from "./internal/ats-by-size.js";
 import h607 from "./vendor/accept-invite.js";
 // h608 = GET /api/internal/vendor-invites (outstanding/expired/accepted invitations)
 import h608 from "./internal/vendor-invites/index.js";
+// h609 = GET/POST /api/internal/vendor-access (view active portal access; disable/enable/remove)
+import h609 from "./internal/vendor-access/index.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1118,7 +1121,7 @@ export const ROUTES = [
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: h606 },
-  { pattern: "/api/internal/planning/sync-tangerine-supply", handler: h607 },
+  { pattern: "/api/internal/planning/sync-tangerine-supply", handler: h610 },
   { pattern: "/api/internal/ats-by-size", handler: h603 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
@@ -1162,6 +1165,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/invoices", handler: h222 },
   { pattern: "/api/vendor/accept-invite", handler: h607 },
   { pattern: "/api/internal/vendor-invites", handler: h608 },
+  { pattern: "/api/internal/vendor-access", handler: h609 },
   { pattern: "/api/vendor/payments", handler: h223 },
   { pattern: "/api/shopify/orders", handler: h224 },
   { pattern: "/api/vendor/banking", handler: h225 },
