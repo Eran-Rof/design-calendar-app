@@ -17,7 +17,9 @@ import {
 } from "../services";
 import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
 import type { IpScenario } from "../../scenarios/types/scenarios";
+import { confirmDialog } from "../../../shared/ui/warn";
 import { S, PAL, formatDate } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
 import ExecutionAuditPanel from "./ExecutionAuditPanel";
@@ -40,6 +42,16 @@ const BATCH_TYPES: IpExecutionBatchType[] = [
   "reserve_update", "protection_update", "reallocation_plan",
 ];
 
+const TABLE_KEY = "ip.execution_batches";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "status", label: "Status" },
+  { key: "created", label: "Created" },
+  { key: "approved", label: "Approved" },
+  { key: "note", label: "Note" },
+];
+
 export default function ExecutionBatchManager() {
   const [batches, setBatches] = useState<IpExecutionBatch[]>([]);
   const [runs, setRuns] = useState<IpPlanningRun[]>([]);
@@ -54,6 +66,7 @@ export default function ExecutionBatchManager() {
   const [showNew, setShowNew] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const selected = useMemo(() => batches.find((b) => b.id === selectedId) ?? null, [batches, selectedId]);
   const selectedRun = useMemo(() => runs.find((r) => r.id === selected?.planning_run_id) ?? null, [runs, selected]);
@@ -91,6 +104,26 @@ export default function ExecutionBatchManager() {
     setActions(as);
     setAudit(au);
   }, [selected]);
+
+  async function deleteSelectedBatch() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      `Permanently DELETE execution batch "${selected.batch_name}" (${selected.status})?\n\n` +
+      `This removes the batch and all its actions. It cannot be undone. ` +
+      `Any Tangerine POs already created from it are NOT affected.`,
+      { title: "Delete batch", confirmText: "Delete", icon: "🗑" },
+    );
+    if (!ok) return;
+    try {
+      await executionRepo.deleteBatch(selected.id);
+      setSelectedId(null);
+      setTab("list");
+      setToast({ text: "Batch deleted", kind: "success" });
+      await refresh();
+    } catch (e) {
+      setToast({ text: "Delete failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    }
+  }
 
   useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
   useEffect(() => { void loadSelected(); /* eslint-disable-line */ }, [selectedId]);
@@ -134,6 +167,13 @@ export default function ExecutionBatchManager() {
                 Audit ({audit.length})
               </button>
             )}
+            {selected && (
+              <button
+                style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
+                onClick={deleteSelectedBatch}
+                title="Permanently delete this batch and its actions"
+              >🗑 Delete</button>
+            )}
           </div>
           <div style={{ color: PAL.textMuted, fontSize: 12 }}>
             Export-first by default. Writeback is per-action and only hits enabled config rows (currently{" "}
@@ -147,6 +187,12 @@ export default function ExecutionBatchManager() {
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabBtn active={tab === "list"} onClick={() => setTab("list")}>Batches ({batches.length})</TabBtn>
           <TabBtn active={tab === "detail"} onClick={() => setTab("detail")} disabled={!selected}>Detail</TabBtn>
+          {tab === "list" && (
+            <div style={{ marginLeft: "auto" }}>
+              <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                                onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+            </div>
+          )}
         </div>
 
         {tab === "list" && (
@@ -155,28 +201,28 @@ export default function ExecutionBatchManager() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    <th style={S.th}>Name</th>
-                    <th style={S.th}>Type</th>
-                    <th style={S.th}>Status</th>
-                    <th style={S.th}>Created</th>
-                    <th style={S.th}>Approved</th>
-                    <th style={S.th}>Note</th>
+                    <th hidden={!visibleColumns.has("name")} style={S.th}>Name</th>
+                    <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
+                    <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
+                    <th hidden={!visibleColumns.has("created")} style={S.th}>Created</th>
+                    <th hidden={!visibleColumns.has("approved")} style={S.th}>Approved</th>
+                    <th hidden={!visibleColumns.has("note")} style={S.th}>Note</th>
                   </tr>
                 </thead>
                 <tbody>
                   {batches.map((b) => (
                     <tr key={b.id} style={{ cursor: "pointer", background: b.id === selectedId ? PAL.panelAlt : undefined }}
                         onClick={() => { setSelectedId(b.id); setTab("detail"); }}>
-                      <td style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
-                      <td style={S.td}>{b.batch_type}</td>
-                      <td style={S.td}>
+                      <td hidden={!visibleColumns.has("name")} style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
+                      <td hidden={!visibleColumns.has("type")} style={S.td}>{b.batch_type}</td>
+                      <td hidden={!visibleColumns.has("status")} style={S.td}>
                         <span style={{ ...S.chip, background: BATCH_STATUS_COLOR[b.status] + "33", color: BATCH_STATUS_COLOR[b.status] }}>
                           {b.status.replace(/_/g, " ")}
                         </span>
                       </td>
-                      <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(b.created_at.slice(0, 10))}</td>
-                      <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{b.approved_at ? formatDate(b.approved_at.slice(0, 10)) : "—"}</td>
-                      <td style={{ ...S.td, fontSize: 12, color: PAL.textMuted }}>{b.note ?? ""}</td>
+                      <td hidden={!visibleColumns.has("created")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(b.created_at.slice(0, 10))}</td>
+                      <td hidden={!visibleColumns.has("approved")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{b.approved_at ? formatDate(b.approved_at.slice(0, 10)) : "—"}</td>
+                      <td hidden={!visibleColumns.has("note")} style={{ ...S.td, fontSize: 12, color: PAL.textMuted }}>{b.note ?? ""}</td>
                     </tr>
                   ))}
                   {!loading && batches.length === 0 && (
@@ -276,7 +322,9 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   const [scenarioId, setScenarioId] = useState("");
   const [runId, setRunId] = useState(runs[0]?.id ?? "");
   const [batchType, setBatchType] = useState<IpExecutionBatchType>("buy_plan");
-  const [name, setName] = useState(`Buy plan ${new Date().toISOString().slice(0, 10)}`);
+  const [name, setName] = useState("");
+  // Once the planner types a name we stop auto-rewriting it.
+  const [nameEdited, setNameEdited] = useState(false);
   const [note, setNote] = useState("");
   const [allowUnapproved, setAllowUnapproved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -298,6 +346,19 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   }, []);
 
   const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
+
+  // Auto-name: include the scenario name when building from a scenario, e.g.
+  // "0412 june 2026 — Buy plan 2026-06-04". Stops once the planner edits it.
+  useEffect(() => {
+    if (nameEdited) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const label = batchType.replace(/_/g, " ");
+    const base = label.charAt(0).toUpperCase() + label.slice(1);
+    const scen = source === "scenario"
+      ? scenarios.find((s) => s.id === scenarioId && s.status === "approved")
+      : undefined;
+    setName(scen ? `${scen.scenario_name} — ${base} ${today}` : `${base} ${today}`);
+  }, [source, scenarioId, batchType, scenarios, nameEdited]);
 
   async function save() {
     setSaving(true);
@@ -396,7 +457,8 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
             </div>
             <div>
               <label style={S.label}>Batch name</label>
-              <input style={{ ...S.input, width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} />
+              <input style={{ ...S.input, width: "100%" }} value={name}
+                     onChange={(e) => { setName(e.target.value); setNameEdited(true); }} />
             </div>
             <div>
               <label style={S.label}>Note</label>

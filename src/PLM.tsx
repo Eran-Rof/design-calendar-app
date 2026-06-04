@@ -478,13 +478,19 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   const [editing, setEditing] = useState<User | null>(null);
   const [msg, setMsg]         = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // JSON snapshot of the last persisted user list. `users` is mutated in local
+  // state by the inline permission checkboxes (updatePermission) WITHOUT writing
+  // to the DB — the write only happens on "💾 Save All Changes". Comparing
+  // against this snapshot tells us when there are unsaved changes so we can warn
+  // (and guard the close), preventing the silent data-loss footgun.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     // Catch the rejection so a Supabase 503 / PGRST hiccup doesn't leave
     // the modal stuck in "loading" forever. Without the .catch the
     // promise rejection was unhandled and setLoading(false) never fired.
     loadUsers()
-      .then((u) => { setUsers(u); setLoading(false); })
+      .then((u) => { setUsers(u); setSavedSnapshot(JSON.stringify(u)); setLoading(false); })
       .catch((e) => {
         console.error("[PLM] users load failed:", e);
         setMsg("Could not load users from Supabase — refusing to overwrite to prevent data loss. Refresh and try again.");
@@ -532,6 +538,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
         body: JSON.stringify({ key: "users", value: JSON.stringify(updated) }),
       });
       setUsers(updated);
+      setSavedSnapshot(JSON.stringify(updated));
       setMsg("Saved!");
       setTimeout(() => setMsg(""), 2000);
     } catch { setMsg("Save failed"); }
@@ -622,15 +629,30 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { key: "salesComps",  label: "Sales Comps" },
   ];
 
+  // Unsaved changes = current list differs from the last persisted snapshot.
+  // Null snapshot (initial load not finished / failed) is never "dirty".
+  const dirty = savedSnapshot !== null && JSON.stringify(users) !== savedSnapshot;
+
+  // Guard close so unsaved permission edits aren't silently discarded.
+  function requestClose() {
+    if (dirty && !window.confirm("You have unsaved changes that haven't been saved to the database.\n\nClick Cancel, then \"💾 Save All Changes\" to keep them. Click OK to discard.")) return;
+    onClose();
+  }
+
   return (
-    <div style={S.modalOverlay} onClick={onClose}>
+    <div style={S.modalOverlay} onClick={requestClose}>
       <div style={{ ...S.modal, width: 740, maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111827" }}>⚙️ User Management</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {dirty && (
+              <span style={{ color: "#B45309", background: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>
+                ● Unsaved changes
+              </span>
+            )}
             {msg && <span style={{ color: "#10B981", fontSize: 13 }}>{msg}</span>}
             {saving && <span style={{ color: "#6B7280", fontSize: 13 }}>Saving…</span>}
-            <button style={S.modalClose} onClick={onClose}>✕</button>
+            <button style={S.modalClose} onClick={requestClose}>✕</button>
           </div>
         </div>
 
@@ -743,9 +765,23 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
               </button>
 
               {users.length > 0 && (
-                <button style={{ ...S.btnSave, marginTop: 12 }} onClick={() => saveUsers(users)} disabled={saving}>
-                  {saving ? "Saving…" : "💾 Save All Changes"}
-                </button>
+                <div style={{ marginTop: 12 }}>
+                  {dirty && !saving && (
+                    <div style={{ color: "#B45309", fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                      ⚠️ You have unsaved changes — click “💾 Save All Changes” to apply them.
+                    </div>
+                  )}
+                  <button
+                    style={{
+                      ...S.btnSave,
+                      ...(dirty && !saving ? { boxShadow: "0 0 0 3px #F59E0B", fontWeight: 700 } : {}),
+                    }}
+                    onClick={() => saveUsers(users)}
+                    disabled={saving || !dirty}
+                  >
+                    {saving ? "Saving…" : dirty ? "💾 Save All Changes" : "✓ All changes saved"}
+                  </button>
+                </div>
               )}
             </>
           )}

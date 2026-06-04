@@ -6,6 +6,19 @@ import type { IpForecastAccuracy } from "../types/accuracy";
 import { aggregateAccuracy } from "../compute/accuracyMetrics";
 import { S, PAL, METHOD_LABEL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.forecast_accuracy";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "rows", label: "Rows" },
+  { key: "sum_actual", label: "Σ actual" },
+  { key: "wape_sys", label: "WAPE sys" },
+  { key: "wape_final", label: "WAPE final" },
+  { key: "mae_sys", label: "MAE sys" },
+  { key: "mae_final", label: "MAE final" },
+  { key: "bias_final", label: "Bias final" },
+  { key: "delta", label: "Δ (sys − final)" },
+];
 
 export interface ForecastAccuracyDashboardProps {
   rows: IpForecastAccuracy[];
@@ -21,6 +34,7 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
   const [lane, setLane] = useState<"all" | "wholesale" | "ecom">("all");
   const [groupBy, setGroupBy] = useState<GroupBy>("sku");
   const [search, setSearch] = useState("");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => lane === "all" ? true : r.forecast_type === lane);
@@ -80,6 +94,10 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
         <span style={{ color: PAL.textMuted, fontSize: 12 }}>
           Top {grouped.length} by WAPE (final) · sorted descending
         </span>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                            onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+        </div>
       </div>
 
       <div style={S.tableWrap}>
@@ -87,14 +105,14 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
           <thead>
             <tr>
               <th style={S.th}>{{ sku: "SKU", category: "Category", customer: "Customer", channel: "Channel", method: "Method" }[groupBy]}</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Rows</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Σ actual</th>
-              <th style={{ ...S.th, textAlign: "right" }}>WAPE sys</th>
-              <th style={{ ...S.th, textAlign: "right" }}>WAPE final</th>
-              <th style={{ ...S.th, textAlign: "right" }}>MAE sys</th>
-              <th style={{ ...S.th, textAlign: "right" }}>MAE final</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Bias final</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Δ (sys − final)</th>
+              <th hidden={!visibleColumns.has("rows")} style={{ ...S.th, textAlign: "right" }}>Rows</th>
+              <th hidden={!visibleColumns.has("sum_actual")} style={{ ...S.th, textAlign: "right" }}>Σ actual</th>
+              <th hidden={!visibleColumns.has("wape_sys")} style={{ ...S.th, textAlign: "right" }}>WAPE sys</th>
+              <th hidden={!visibleColumns.has("wape_final")} style={{ ...S.th, textAlign: "right" }}>WAPE final</th>
+              <th hidden={!visibleColumns.has("mae_sys")} style={{ ...S.th, textAlign: "right" }}>MAE sys</th>
+              <th hidden={!visibleColumns.has("mae_final")} style={{ ...S.th, textAlign: "right" }}>MAE final</th>
+              <th hidden={!visibleColumns.has("bias_final")} style={{ ...S.th, textAlign: "right" }}>Bias final</th>
+              <th hidden={!visibleColumns.has("delta")} style={{ ...S.th, textAlign: "right" }}>Δ (sys − final)</th>
             </tr>
           </thead>
           <tbody>
@@ -103,18 +121,18 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
                 <td style={{ ...S.td, fontFamily: groupBy === "sku" ? "monospace" : undefined, color: groupBy === "sku" ? PAL.accent : PAL.text }}>
                   {g.label}
                 </td>
-                <td style={S.tdNum}>{g.metrics.row_count}</td>
-                <td style={S.tdNum}>{formatQty(g.metrics.total_actual)}</td>
-                <td style={{ ...S.tdNum, color: PAL.textDim }}>{pct(g.metrics.wape_system)}</td>
-                <td style={{ ...S.tdNum, color: g.metrics.wape_final < g.metrics.wape_system ? PAL.green : PAL.yellow, fontWeight: 700 }}>
+                <td hidden={!visibleColumns.has("rows")} style={S.tdNum}>{g.metrics.row_count}</td>
+                <td hidden={!visibleColumns.has("sum_actual")} style={S.tdNum}>{formatQty(g.metrics.total_actual)}</td>
+                <td hidden={!visibleColumns.has("wape_sys")} style={{ ...S.tdNum, color: PAL.textDim }}>{pct(g.metrics.wape_system)}</td>
+                <td hidden={!visibleColumns.has("wape_final")} style={{ ...S.tdNum, color: g.metrics.wape_final < g.metrics.wape_system ? PAL.green : PAL.yellow, fontWeight: 700 }}>
                   {pct(g.metrics.wape_final)}
                 </td>
-                <td style={S.tdNum}>{formatQty(g.metrics.mae_system)}</td>
-                <td style={S.tdNum}>{formatQty(g.metrics.mae_final)}</td>
-                <td style={{ ...S.tdNum, color: g.metrics.bias_final > 0 ? PAL.yellow : g.metrics.bias_final < 0 ? PAL.red : PAL.textMuted }}>
+                <td hidden={!visibleColumns.has("mae_sys")} style={S.tdNum}>{formatQty(g.metrics.mae_system)}</td>
+                <td hidden={!visibleColumns.has("mae_final")} style={S.tdNum}>{formatQty(g.metrics.mae_final)}</td>
+                <td hidden={!visibleColumns.has("bias_final")} style={{ ...S.tdNum, color: g.metrics.bias_final > 0 ? PAL.yellow : g.metrics.bias_final < 0 ? PAL.red : PAL.textMuted }}>
                   {(g.metrics.bias_final >= 0 ? "+" : "")}{formatQty(g.metrics.bias_final)}
                 </td>
-                <td style={{ ...S.tdNum, color: g.metrics.mae_delta > 0 ? PAL.green : g.metrics.mae_delta < 0 ? PAL.red : PAL.textMuted }}>
+                <td hidden={!visibleColumns.has("delta")} style={{ ...S.tdNum, color: g.metrics.mae_delta > 0 ? PAL.green : g.metrics.mae_delta < 0 ? PAL.red : PAL.textMuted }}>
                   {(g.metrics.mae_delta >= 0 ? "+" : "")}{formatQty(g.metrics.mae_delta)}
                 </td>
               </tr>

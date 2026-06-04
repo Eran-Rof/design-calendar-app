@@ -66,6 +66,16 @@
 // letters here so the compliance gate uses one consistent vocabulary.
 export const VALID_GENDERS = new Set(["M", "B", "C", "G", "W", "U"]);
 
+// Advisory buckets: still REPORTED in the per-bucket counts + the strict
+// compliance_pct, but NOT counted against the upsert gate. GENDER_MISMATCH
+// is the prefix-rule disagreeing with Xoro's GenderCode — it's a source-
+// data review item (operator fixes GenderCode in Xoro), not a reason to
+// refuse the whole item-master snapshot. The local daily_check.py path
+// already treats it as compliant (its email reports ~99.95%), so excluding
+// it here also re-aligns the two metrics that had drifted apart.
+// GENDER_INVALID (code outside the alphabet) stays a HARD gate failure.
+export const ADVISORY_BUCKETS = new Set(["GENDER_MISMATCH"]);
+
 // Operator-defined prefix-to-gender rules, ported 1:1 from
 // rof_xoro_project/scripts/daily_check.py GENDER_PREFIX_RULES.
 // Longest / most-specific prefixes first so the regex match doesn't get
@@ -325,6 +335,14 @@ export function normalizeRow(rowIn) {
  * Severity-only buckets (e.g. MISSING_DESCRIPTION) still count as
  * non-compliant for gate purposes. This matches daily_check.py treating
  * any non-OK reason as non-compliant.
+ *
+ * Two compliance figures are returned:
+ *   - compliance_pct      : strict (only bucket=OK counts) — for telemetry
+ *                           so advisory drift stays visible.
+ *   - gate_compliance_pct : compliant + ADVISORY_BUCKETS (e.g. gender
+ *                           mismatch) — this is what the upsert gate
+ *                           compares to the threshold. advisory_count
+ *                           breaks out how many rows the gate forgave.
  */
 export function computeCompliance(rowsIn, normalizedRows) {
   const scanned = (rowsIn && rowsIn.length) || 0;
@@ -338,6 +356,7 @@ export function computeCompliance(rowsIn, normalizedRows) {
   let compliant = 0;
   let autoCorrected = 0;
   let unchangedOk = 0;
+  let advisoryCount = 0;
 
   for (const nr of normalizedRows || []) {
     const b = nr?.bucket || "OK";
@@ -346,12 +365,17 @@ export function computeCompliance(rowsIn, normalizedRows) {
       compliant++;
       if (nr.changed) autoCorrected++;
       else unchangedOk++;
+    } else if (ADVISORY_BUCKETS.has(b)) {
+      advisoryCount++;
     }
   }
 
   const compliancePct = scanned > 0 ? (100 * compliant) / scanned : 100;
+  const gateCompliancePct = scanned > 0 ? (100 * (compliant + advisoryCount)) / scanned : 100;
   return {
     compliance_pct: Number(compliancePct.toFixed(4)),
+    gate_compliance_pct: Number(gateCompliancePct.toFixed(4)),
+    advisory_count: advisoryCount,
     scanned,
     compliant,
     auto_corrected: autoCorrected,

@@ -194,6 +194,20 @@ export const TOOLS = [
     },
   },
 
+  {
+    name: "search_user_guide",
+    description: "Search the Tangerine user guide (the operator documentation, 40 chapters) for how-to / where-is / what-does-X-mean questions. Call this for any question about HOW to do something in the app, where a screen or setting lives, what a term or workflow means, or app behaviour — instead of guessing. Returns the most relevant guide sections (chapter, heading, excerpt). After it returns, answer from the excerpts and cite the chapter; if nothing matches, say so rather than inventing steps. This reads documentation, not live data — use the database tools (query_table etc.) for actual numbers.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Keywords from the user's question, e.g. 'post a manual journal entry', 'where is fixed assets', 'what is GR/IR'." },
+        max_sections: { type: "number", description: "How many guide sections to return (default 4, max 6)." },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+
   // ── Reply tools (terminal) ────────────────────────────────────────────
   {
     name: "answer_text",

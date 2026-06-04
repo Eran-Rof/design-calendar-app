@@ -26,6 +26,7 @@ import {
   cloneBaseIntoScenario,
   loadScenarioComparison,
   recomputeScenarioOutputs,
+  generatePlannerBuyRecommendations,
   scenarioRepo,
   transitionScenario,
   isReadOnly,
@@ -37,6 +38,7 @@ import {
   exportScenarioComparison,
   exportConsolidatedWorkbook,
 } from "../services";
+import { supplyRepo } from "../../supply/services/supplyReconciliationRepo";
 import { S, PAL, formatDate, formatDateTime } from "../../components/styles";
 import { confirmDialog } from "../../../shared/ui/warn";
 import Toast, { type ToastMessage } from "../../components/Toast";
@@ -45,6 +47,17 @@ import ChangeAuditDrawer from "../components/ChangeAuditDrawer";
 import ScenarioAssumptionsPanel from "./ScenarioAssumptionsPanel";
 import ScenarioComparisonView from "./ScenarioComparisonView";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const SCENARIO_LIST_TABLE_KEY = "ip.scenario_manager";
+const SCENARIO_LIST_COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "status", label: "Status" },
+  { key: "base_run", label: "Base run" },
+  { key: "created", label: "Created" },
+  { key: "note", label: "Note" },
+];
 
 type TabKey = "list" | "assumptions" | "comparison" | "exports";
 
@@ -174,8 +187,51 @@ export default function ScenarioManager() {
     }
   }
 
+  // Push the planner's own typed buys (planned_buy_qty) as the buy plan instead
+  // of letting supply reconciliation compute it. Writes `buy` recommendations
+  // directly, which the execution batch + buy-plan export then read.
+  async function pushPlannerBuys() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      "Use the planner-typed buy quantities (planned_buy_qty) as the buy plan?\n\n" +
+      "This REPLACES any computed recommendations for this scenario with your typed buys — " +
+      "supply netting is skipped. The execution batch and buy-plan export then reflect your numbers.",
+      { title: "Push planner buys → plan", confirmText: "Use my buys" },
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const r = await generatePlannerBuyRecommendations(selected.id);
+      setToast({
+        text: r.recommendations > 0
+          ? `Buy plan set from planner buys — ${r.recommendations} lines · ${r.units.toLocaleString()} units`
+          : "No planner buys found (planned_buy_qty is 0 for every line).",
+        kind: r.recommendations > 0 ? "success" : "error",
+      });
+      await loadSelected();
+    } catch (e) {
+      setToast({ text: "Push failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleApprovalAction(to: IpApprovalStatus, note: string | null) {
     if (!selected) return;
+    // Guard: don't let a scenario be approved with no computed buy plan — that
+    // yields an empty execution batch + 0-row exports (the execution layer + the
+    // buy-plan export read ip_inventory_recommendations, NOT the typed forecast).
+    if (to === "approved") {
+      const recs = await supplyRepo.listRecommendations(selected.planning_run_id);
+      if (recs.length === 0) {
+        const proceed = await confirmDialog(
+          "This scenario has NO computed buy plan (0 recommendations), so approving it now will produce an empty execution batch and 0-row exports.\n\n" +
+          "Run \"Apply assumptions + recompute\" (supply-netted plan) or \"Push planner buys → plan\" (your typed quantities) first.\n\nApprove anyway?",
+          { title: "No buy plan computed", confirmText: "Approve anyway", danger: true },
+        );
+        if (!proceed) return;
+      }
+    }
     setBusy(true);
     try {
       const updated = await transitionScenario({ scenario: selected, to, note, approved_by: null });
@@ -284,6 +340,7 @@ export default function ScenarioManager() {
           <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
           <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution →</a>
+          <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
         </div>
       </div>
@@ -359,7 +416,11 @@ export default function ScenarioManager() {
               onChange={loadSelected}
               onToast={(t) => setToast(t)}
             />
-            <div style={{ textAlign: "right", marginTop: 12 }}>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+              <button style={S.btnSecondary} onClick={pushPlannerBuys} disabled={busy || readOnly}
+                      title="Use your typed planned-buy quantities as the buy plan (skips supply netting)">
+                {busy ? "Working…" : "Push planner buys → plan"}
+              </button>
               <button style={S.btnPrimary} onClick={applyAndRecompute} disabled={busy || readOnly}>
                 {busy ? "Applying…" : "Apply assumptions + recompute"}
               </button>
@@ -472,18 +533,29 @@ function ScenarioList({
   selectedId: string | null; onSelect: (id: string) => void; loading?: boolean;
 }) {
   const runNameById = new Map(runs.map((r) => [r.id, r.name]));
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(SCENARIO_LIST_TABLE_KEY, SCENARIO_LIST_COLUMNS);
   return (
     <div style={S.card}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <TablePrefsButton
+          tableKey={SCENARIO_LIST_TABLE_KEY}
+          columns={SCENARIO_LIST_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Name</th>
-              <th style={S.th}>Type</th>
-              <th style={S.th}>Status</th>
-              <th style={S.th}>Base run</th>
-              <th style={S.th}>Created</th>
-              <th style={S.th}>Note</th>
+              <th style={S.th} hidden={!visibleColumns.has("name")}>Name</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={S.th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={S.th} hidden={!visibleColumns.has("base_run")}>Base run</th>
+              <th style={S.th} hidden={!visibleColumns.has("created")}>Created</th>
+              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
             </tr>
           </thead>
           <tbody>
@@ -491,20 +563,20 @@ function ScenarioList({
               <tr key={s.id}
                   style={{ cursor: "pointer", background: s.id === selectedId ? PAL.panelAlt : undefined }}
                   onClick={() => onSelect(s.id)}>
-                <td style={{ ...S.td, fontWeight: s.id === selectedId ? 700 : 400 }}>{s.scenario_name}</td>
-                <td style={S.td}>{s.scenario_type}</td>
-                <td style={S.td}>
+                <td style={{ ...S.td, fontWeight: s.id === selectedId ? 700 : 400 }} hidden={!visibleColumns.has("name")}>{s.scenario_name}</td>
+                <td style={S.td} hidden={!visibleColumns.has("type")}>{s.scenario_type}</td>
+                <td style={S.td} hidden={!visibleColumns.has("status")}>
                   <span style={{
                     ...S.chip,
                     background: STATUS_COLOR[s.status] + "33",
                     color: STATUS_COLOR[s.status],
                   }}>{s.status.replace(/_/g, " ")}</span>
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>
+                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("base_run")}>
                   {s.base_run_reference_id ? (runNameById.get(s.base_run_reference_id) ?? s.base_run_reference_id.slice(0, 8)) : "—"}
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>{formatDate(s.created_at.slice(0, 10))}</td>
-                <td style={{ ...S.td, color: PAL.textMuted, fontSize: 12 }}>{s.note ?? ""}</td>
+                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("created")}>{formatDate(s.created_at.slice(0, 10))}</td>
+                <td style={{ ...S.td, color: PAL.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("note")}>{s.note ?? ""}</td>
               </tr>
             ))}
             {!loading && scenarios.length === 0 && (
