@@ -38,6 +38,7 @@ import {
   exportConsolidatedWorkbook,
 } from "../services";
 import { S, PAL, formatDate, formatDateTime } from "../../components/styles";
+import { confirmDialog } from "../../../shared/ui/warn";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ApprovalBar from "../components/ApprovalBar";
 import ChangeAuditDrawer from "../components/ChangeAuditDrawer";
@@ -213,10 +214,11 @@ export default function ScenarioManager() {
 
   async function deleteSelected() {
     if (!selected) return;
-    const ok = window.confirm(
+    const ok = await confirmDialog(
       `Permanently DELETE scenario "${selected.scenario_name}" (${selected.status})?\n\n` +
       `This removes the scenario and its assumptions/approvals/exports. ` +
       `It cannot be undone. To keep a record instead, use Archive (close).`,
+      { title: "Delete scenario", confirmText: "Delete", icon: "🗑" },
     );
     if (!ok) return;
     setBusy(true);
@@ -282,6 +284,7 @@ export default function ScenarioManager() {
           <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
           <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution →</a>
+          <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
         </div>
       </div>
