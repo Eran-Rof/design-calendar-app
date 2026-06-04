@@ -584,6 +584,42 @@ import h604 from "./internal/pim/styles/[style_id]/link-shopify.js";
 import h605 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 // h606 = POST /api/internal/planning/link-planning-vendor (M31: link planning vendor → Tangerine vendor)
 import h606 from "./internal/planning/link-planning-vendor.js";
+// h610 = POST /api/internal/planning/sync-tangerine-supply (M31 dir-B: Tangerine on-hand + open POs → planning supply)
+// (was h607 — collided with the accept-invite h607 import below; renumbered to fix the duplicate-identifier build break.)
+import h610 from "./internal/planning/sync-tangerine-supply.js";
+// h611 = POST /api/internal/ats-size-matrix (by-size ATS-available matrix for the ATS Excel "By Size Matrix" export)
+import h611 from "./internal/ats-size-matrix.js";
+// P19/M23 — Customer Returns / RMA.
+//   h612 = GET/POST  /api/internal/sales-returns          (list + create RMA)
+//   h613 = GET/PATCH/DELETE /api/internal/sales-returns/:id (detail + lifecycle + dispositions)
+//   h614 = POST /api/internal/sales-returns/:id/credit-memo (issue + post credit memo)
+import h612 from "./internal/sales-returns/index.js";
+import h613 from "./internal/sales-returns/[id].js";
+import h614 from "./internal/sales-returns/[id]/credit-memo.js";
+// P20/M49 — Drop-ship management.
+//   h615 = GET/POST /api/internal/drop-ship          (list + create)
+//   h616 = GET/PATCH/DELETE /api/internal/drop-ship/:id (detail + lifecycle + tracking)
+import h615 from "./internal/drop-ship/index.js";
+import h616 from "./internal/drop-ship/[id].js";
+// P21/M13 — Third-Party Logistics (3PL).
+//   h617 = GET/POST/PATCH /api/internal/tpl-providers      (provider master)
+//   h618 = GET/POST /api/internal/tpl-shipments            (list + create)
+//   h619 = GET/PATCH/DELETE /api/internal/tpl-shipments/:id (detail + lifecycle)
+import h617 from "./internal/tpl-providers/index.js";
+import h618 from "./internal/tpl-shipments/index.js";
+import h619 from "./internal/tpl-shipments/[id].js";
+// P22/M14 — EDI surfacing (over the existing api/_lib/edi engine + edi_messages).
+//   h620 = GET/POST /api/internal/edi-partners   (enable + list EDI vendors)
+//   h621 = GET /api/internal/edi-messages         (global EDI message log)
+import h620 from "./internal/edi-partners/index.js";
+import h621 from "./internal/edi-messages/index.js";
+// P24/M46 — finance KPIs for the Reports & Analytics hub.
+import h622 from "./internal/finance-kpis/index.js";
+// P25 — Finance batch (Fixed Assets M21 · Budgets M22 · 1099 M20).
+import h623 from "./internal/fixed-assets/index.js";
+import h624 from "./internal/fixed-assets/[id].js";
+import h625 from "./internal/budgets/index.js";
+import h626 from "./internal/form-1099/index.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -593,6 +629,12 @@ import h577 from "./internal/allocations/preview.js";
 import h602 from "./internal/allocations/rules.js";
 // h603 = POST /api/internal/ats-by-size (size-grain available-to-ship for the SO ATS mode)
 import h603 from "./internal/ats-by-size.js";
+// h607 = POST /api/vendor/accept-invite (custom 72h invite — set password from token)
+import h607 from "./vendor/accept-invite.js";
+// h608 = GET /api/internal/vendor-invites (outstanding/expired/accepted invitations)
+import h608 from "./internal/vendor-invites/index.js";
+// h609 = GET/POST /api/internal/vendor-access (view active portal access; disable/enable/remove)
+import h609 from "./internal/vendor-access/index.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1117,7 +1159,24 @@ export const ROUTES = [
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: h606 },
+  { pattern: "/api/internal/planning/sync-tangerine-supply", handler: h610 },
   { pattern: "/api/internal/ats-by-size", handler: h603 },
+  { pattern: "/api/internal/ats-size-matrix", handler: h611 },
+  { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: h614 },
+  { pattern: "/api/internal/drop-ship/:id", handler: h616 },
+  { pattern: "/api/internal/tpl-shipments/:id", handler: h619 },
+  { pattern: "/api/internal/tpl-shipments", handler: h618 },
+  { pattern: "/api/internal/tpl-providers", handler: h617 },
+  { pattern: "/api/internal/edi-partners", handler: h620 },
+  { pattern: "/api/internal/edi-messages", handler: h621 },
+  { pattern: "/api/internal/finance-kpis", handler: h622 },
+  { pattern: "/api/internal/fixed-assets/:id", handler: h624 },
+  { pattern: "/api/internal/fixed-assets", handler: h623 },
+  { pattern: "/api/internal/budgets", handler: h625 },
+  { pattern: "/api/internal/form-1099", handler: h626 },
+  { pattern: "/api/internal/drop-ship", handler: h615 },
+  { pattern: "/api/internal/sales-returns/:id", handler: h613 },
+  { pattern: "/api/internal/sales-returns", handler: h612 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
@@ -1158,6 +1217,9 @@ export const ROUTES = [
   { pattern: "/api/vendor/disputes", handler: h220 },
   { pattern: "/api/vendor/entities", handler: h221 },
   { pattern: "/api/vendor/invoices", handler: h222 },
+  { pattern: "/api/vendor/accept-invite", handler: h607 },
+  { pattern: "/api/internal/vendor-invites", handler: h608 },
+  { pattern: "/api/internal/vendor-access", handler: h609 },
   { pattern: "/api/vendor/payments", handler: h223 },
   { pattern: "/api/shopify/orders", handler: h224 },
   { pattern: "/api/vendor/banking", handler: h225 },

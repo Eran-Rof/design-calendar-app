@@ -16,6 +16,7 @@ const EDITABLE = [
   "bottom_closure", "waist_type", "waste_type",
   "category_id", "sub_category_id", "style_state",
   "comment", "remarks",
+  "status",
   "target_qty", "target_cost", "avg_cost", "sell_target", "sell_price",
   "priced_date", "fob_cost", "duty_rate", "freight", "insurance", "other_costs",
   "landed_cost", "margin_pct",

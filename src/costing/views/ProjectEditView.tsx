@@ -5,8 +5,8 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { ALL_STATUSES, statusLabel, statusColor, navigate, getEditId } from "../helpers";
-import type { CostingStatus, CostingProjectPatch } from "../types";
+import { navigate, getEditId } from "../helpers";
+import type { CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
 import CompliancePanel from "../panels/CompliancePanel";
@@ -17,7 +17,6 @@ import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
-import { deriveProjectStage } from "../hooks/usePlanFlow";
 
 // Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
 const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
@@ -25,11 +24,10 @@ const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
 interface BrandRow { id: string; name: string; color?: string }
 
 // Facet tabs for the project editor (Tanda PO-detail fused-tab model). The
-// PlanFlow stage strip stays persistent above the tabs; only the content
-// sections below are tabbed. "All" restores the full stacked view.
-type EditTab = "details" | "grid" | "compliance" | "all";
+// Details form + PlanFlow strip stay persistent above the tabs as a page
+// header; only the work surfaces below are tabbed. "All" stacks them.
+type EditTab = "grid" | "compliance" | "all";
 const EDIT_TABS: { key: EditTab; label: string }[] = [
-  { key: "details",    label: "Details" },
   { key: "grid",       label: "Costing Grid" },
   { key: "compliance", label: "Compliance" },
   { key: "all",        label: "All" },
@@ -160,27 +158,12 @@ export default function ProjectEditView() {
     setForm((f) => ({ ...f, [k]: v }));
   };
 
-  // Auto-advance the project status to match line-level progress (the operator
-  // chose this over a manual status). Rule: highest line stage wins — any
-  // awarded line ⇒ Awarded, etc. FORWARD-ONLY: never downgrades, and leaves the
-  // manual terminal states (closed/cancelled) alone. Runs whenever lines/quotes
-  // change AND on open, so a project awarded before this shipped self-heals the
-  // moment it's viewed. Reuses the form autosave path (setField → debounced PUT).
-  const statusRank = (s: CostingStatus) =>
-    s === "awarded" ? 3 : s === "quoted" ? 2 : s === "in_progress" ? 1 : 0;
-  React.useEffect(() => {
-    if (!project) return;
-    const cur = (form.status || project.status) as CostingStatus;
-    if (cur === "closed" || cur === "cancelled") return;
-    const derived = deriveProjectStage(lines, vendorQuotes) as CostingStatus;
-    if (statusRank(derived) > statusRank(cur)) setField("status", derived);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, vendorQuotes, project, form.status]);
+  // Status is per LINE now (set in the grid), not per project — no project-level
+  // status control or auto-advance here anymore.
 
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <a href="#" onClick={(e) => { e.preventDefault(); navigate("list"); }} style={{ color: "#60A5FA", textDecoration: "none", fontSize: 13 }}>← Projects</a>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {project?.project_name || "Loading…"}
         </h2>
@@ -214,26 +197,11 @@ export default function ProjectEditView() {
 
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4, marginBottom: 12 }}>{error}</div>}
 
-      <PlanFlowWidget />
-
-      {/* Facet tab strip — fused into the panel below (Tanda PO-detail model). */}
-      <div style={{ display: "flex", gap: 2, marginTop: 12, marginBottom: 0 }}>
-        {EDIT_TABS.map((t) => (
-          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
+      {/* Details — always-visible page header (no "Details" label, not a tab). */}
       <div style={{
-        border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px",
-        background: "#1E293B", padding: 16,
-      }}>
-
-      {/* Details — header form (bare; the tab panel supplies the card). */}
-      <div style={{
-        display: (tab === "details" || tab === "all") ? "grid" : "none",
-        maxWidth: 880, gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
+        background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
+        padding: "14px 16px", marginBottom: 12, maxWidth: 880, display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
       }}>
         <Field label="Project name" span={2}>
           <input value={form.project_name || ""} onChange={(e) => setField("project_name", e.target.value)} style={inp} />
@@ -255,20 +223,6 @@ export default function ProjectEditView() {
           </select>
         </Field>
 
-        <Field label="Status">
-          {(() => {
-            const sc = statusColor((form.status || "draft") as CostingStatus);
-            return (
-              <select
-                value={form.status || "draft"}
-                onChange={(e) => setField("status", e.target.value as CostingStatus)}
-                style={{ ...inp, background: sc.bg, color: sc.fg, border: `1px solid ${sc.border}`, fontWeight: 600 }}
-              >
-                {ALL_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-              </select>
-            );
-          })()}
-        </Field>
         <Field label="Customer">
           <CustomerPickerCell
             // Use the joined customer record's display name (name → company → code)
@@ -326,6 +280,23 @@ export default function ProjectEditView() {
           <textarea value={form.notes || ""} onChange={(e) => setField("notes", e.target.value || null)} rows={2} style={{ ...inp, fontFamily: "inherit", resize: "vertical" }} />
         </Field>
       </div>
+
+      {/* Collapsible stage strip — sits below the Details header. */}
+      <PlanFlowWidget />
+
+      {/* Facet tab strip — fused into the panel below (Tanda PO-detail model). */}
+      <div style={{ display: "flex", gap: 2, marginTop: 0, marginBottom: 0 }}>
+        {EDIT_TABS.map((t) => (
+          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{
+        border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px",
+        background: "#1E293B", padding: 16,
+      }}>
 
       {/* Costing Grid */}
       <div style={{ display: (tab === "grid" || tab === "all") ? "block" : "none" }}>

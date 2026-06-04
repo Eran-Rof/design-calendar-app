@@ -636,6 +636,8 @@ function App() {
           {currentUser && canAccessAppFromSession("tanda") && (
             <a
               href="/tanda"
+              target="_blank"
+              rel="noopener"
               style={{
                 padding: "7px 12px", borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.15)",
@@ -653,6 +655,8 @@ function App() {
           {currentUser && canAccessAppFromSession("costing") && (
             <a
               href="/costing"
+              target="_blank"
+              rel="noopener"
               style={{
                 padding: "7px 12px", borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.15)",

@@ -13,6 +13,7 @@ import {
 } from "../../governance/services/permissionService";
 import { logChange } from "../../scenarios/services/auditLogService";
 import { S, PAL, formatDate } from "../../components/styles";
+import { confirmDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 
 export interface RolesPermissionsPanelProps {
@@ -58,7 +59,7 @@ export default function RolesPermissionsPanel({ currentUser, onToast }: RolesPer
 
   async function revoke(ur: IpUserRole) {
     if (!isAdmin) return;
-    if (!window.confirm(`Revoke ${ur.user_email}'s role?`)) return;
+    if (!(await confirmDialog(`Revoke ${ur.user_email}'s role?`, { danger: true, confirmText: "Revoke" }))) return;
     try {
       await revokeUserRole(ur.id);
       await logChange({
