@@ -100,6 +100,7 @@ const KEYS = [
   "tanda/master/style-classifications",
   "tanda/master/factors",
   "tanda/master/size-scales",
+  "tanda/master/seasons",
   // P18-F — internal B2B admin (buyers + wholesale price list).
   "tanda/b2b/accounts",
   "tanda/b2b/price-list",
