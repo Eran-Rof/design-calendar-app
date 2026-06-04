@@ -58,6 +58,35 @@ export default async function handler(req, res) {
   }
   const quoteByRfq = new Map(myQuotes.map((q) => [q.rfq_id, q]));
 
+  // Per-RFQ line summary (style / style name / total qty) for the list columns.
+  const summaryByRfq = new Map();
+  if (rfqIds.length > 0) {
+    const { data: items } = await admin
+      .from("rfq_line_items")
+      .select("rfq_id, style_code, description, quantity")
+      .in("rfq_id", rfqIds)
+      .order("line_index", { ascending: true });
+    for (const it of items || []) {
+      let s = summaryByRfq.get(it.rfq_id);
+      if (!s) { s = { styles: new Set(), names: new Set(), qty: 0, count: 0 }; summaryByRfq.set(it.rfq_id, s); }
+      if (it.style_code) s.styles.add(it.style_code);
+      const nm = styleNameOf(it.description);
+      if (nm) s.names.add(nm);
+      s.qty += Number(it.quantity) || 0;
+      s.count += 1;
+    }
+  }
+  const summaryOut = (rfqId) => {
+    const s = summaryByRfq.get(rfqId);
+    if (!s) return { style: null, style_name: null, quantity: null, line_count: 0 };
+    return {
+      style: joinCapped(s.styles),
+      style_name: joinCapped(s.names),
+      quantity: s.qty || null,
+      line_count: s.count,
+    };
+  };
+
   let rows = (invitations || [])
     .filter((i) => i.rfq)
     .map((i) => ({
@@ -67,8 +96,25 @@ export default async function handler(req, res) {
       },
       rfq: i.rfq,
       quote: quoteByRfq.get(i.rfq.id) || null,
+      line_summary: summaryOut(i.rfq.id),
     }));
   if (status) rows = rows.filter((r) => r.rfq.status === status);
 
   return res.status(200).json(rows);
+}
+
+// The style name is the tail of the costing-built description after " — ".
+function styleNameOf(description) {
+  const d = description || "";
+  const i = d.lastIndexOf(" — ");
+  return i >= 0 ? d.slice(i + 3).trim() : "";
+}
+
+// Collapse a Set of distinct values to one display string: a single value as-is,
+// the first value + "+N more" when the RFQ spans several distinct styles.
+function joinCapped(set) {
+  const arr = Array.from(set);
+  if (arr.length === 0) return null;
+  if (arr.length === 1) return arr[0];
+  return `${arr[0]} +${arr.length - 1} more`;
 }

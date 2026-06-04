@@ -10,9 +10,24 @@ import { TH, fmtDays } from "../styles";
 import { STATUS_CONFIG } from "../../utils/constants";
 import { formatDate, getBusinessDaysUntil } from "../../utils/dates";
 import type { Task, Brand, TeamMember, CollectionGroup } from "../../store/types";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
 
 const TABLE_HEADERS = ["Brand", "Collection", "Season", "Vendor", "DDP", "Progress", "Next Task"];
 const INNER_HEADERS = ["Phase", "Due Date", "Business Days Left", "Status", "Assignee"];
+
+const TABLE_KEY = "dc.collections";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "brand", label: "Brand" },
+  { key: "collection", label: "Collection" },
+  { key: "season", label: "Season" },
+  { key: "vendor", label: "Vendor" },
+  { key: "ddp", label: "DDP" },
+  { key: "progress", label: "Progress" },
+  { key: "next_task", label: "Next Task" },
+];
+// Maps the TABLE_HEADERS index → ALL_COLUMNS key so the header loop can
+// look up its visibility without restating the labels.
+const HEADER_KEYS = ALL_COLUMNS.map(c => c.key);
 
 export interface CollectionListViewProps {
   collList: CollectionGroup[];
@@ -31,13 +46,25 @@ export function CollectionListView({
   setExpandedColl,
   setEditTask,
 }: CollectionListViewProps) {
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+  const visibleCount = ALL_COLUMNS.reduce((n, c) => n + (visibleColumns.has(c.key) ? 1 : 0), 0);
   return (
     <div style={{ marginBottom: 28, border: `1px solid ${TH.border}`, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 12px", background: TH.header }}>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "inherit" }}>
         <thead>
           <tr style={{ background: TH.header, borderBottom: `2px solid ${TH.header}` }}>
-            {TABLE_HEADERS.map(h => (
-              <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+            {TABLE_HEADERS.map((h, hi) => (
+              <th key={h} hidden={!visibleColumns.has(HEADER_KEYS[hi])} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "rgba(255,255,255,0.75)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -60,21 +87,21 @@ export function CollectionListView({
                   onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = "#DDE3EE")}
                   onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = rowBg)}
                 >
-                  <td style={{ padding: "10px 14px" }}>
+                  <td hidden={!visibleColumns.has("brand")} style={{ padding: "10px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ width: 10, height: 10, borderRadius: 2, background: brand.color, flexShrink: 0 }} />
                       <span style={{ fontWeight: 700, color: brand.color }}>{brand.short || brand.name}</span>
                     </div>
                   </td>
-                  <td style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
+                  <td hidden={!visibleColumns.has("collection")} style={{ padding: "10px 14px", fontWeight: 600, color: TH.text }}>
                     {isExpanded ? "▼ " : "▶ "}{c.collection}
                   </td>
-                  <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.season || "—"}</td>
-                  <td style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.vendorName || "—"}</td>
-                  <td style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>
+                  <td hidden={!visibleColumns.has("season")} style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.season || "—"}</td>
+                  <td hidden={!visibleColumns.has("vendor")} style={{ padding: "10px 14px", color: TH.textSub2 }}>{c.vendorName || "—"}</td>
+                  <td hidden={!visibleColumns.has("ddp")} style={{ padding: "10px 14px", color: ddpTask ? TH.text : TH.textSub2, fontWeight: ddpTask ? 600 : 400 }}>
                     {ddpTask ? formatDate(ddpTask.due) : "—"}
                   </td>
-                  <td style={{ padding: "10px 14px" }}>
+                  <td hidden={!visibleColumns.has("progress")} style={{ padding: "10px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, height: 6, background: "#CBD5E0", borderRadius: 3, minWidth: 60 }}>
                         <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#10B981" : brand.color, borderRadius: 3, transition: "width 0.3s" }} />
@@ -82,13 +109,13 @@ export function CollectionListView({
                       <span style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>{pct}%</span>
                     </div>
                   </td>
-                  <td style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>
+                  <td hidden={!visibleColumns.has("next_task")} style={{ padding: "10px 14px", color: next ? TH.text : TH.textSub2 }}>
                     {next ? `${next.phase} · ${formatDate(next.due)}` : "All done"}
                   </td>
                 </tr>
                 {isExpanded && (
                   <tr>
-                    <td colSpan={7} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
+                    <td colSpan={visibleCount} style={{ background: "#EEF2F9", padding: 0, borderBottom: `2px solid ${TH.border}` }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "inherit" }}>
                         <thead>
                           <tr style={{ background: "#3A4A5C", borderBottom: `1px solid #2D3748` }}>

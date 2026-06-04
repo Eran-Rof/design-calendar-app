@@ -462,7 +462,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             right: "auto",
             marginTop: 0,
             maxHeight: panelMaxHeight,
-            zIndex: 5000,
+            // Above app modal overlays (typically z-index 9999) so the popover
+            // is never trapped behind a modal that hosts the select.
+            zIndex: 10001,
           }}
         >
           {capped.length === 0 && !showAddNew && (

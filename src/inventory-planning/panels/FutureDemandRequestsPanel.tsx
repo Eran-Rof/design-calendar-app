@@ -23,6 +23,23 @@ import { buildRequestNote, parseRequestNote } from "../services/requestNoteMarke
 import { buildMasterPools } from "../services/masterPickerScope";
 import { readGroupName, readSubCategoryName } from "../types/itemAttributes";
 import type { ToastMessage } from "../components/Toast";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.future_demand_requests";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "period", label: "Period" },
+  { key: "customer", label: "Customer" },
+  { key: "category", label: "Category" },
+  { key: "sub_cat", label: "Sub Cat" },
+  { key: "style", label: "Style" },
+  { key: "color", label: "Color" },
+  { key: "description", label: "Description" },
+  { key: "qty", label: "Qty" },
+  { key: "type", label: "Type" },
+  { key: "confidence", label: "Confidence" },
+  { key: "status", label: "Status" },
+  { key: "note", label: "Note" },
+];
 
 const REQUEST_TYPES: IpRequestType[] = [
   "buyer_request", "expected_reorder", "program_fill_in",
@@ -53,6 +70,7 @@ export default function FutureDemandRequestsPanel({
   const [filterDescription, setFilterDescription] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
@@ -158,9 +176,19 @@ export default function FutureDemandRequestsPanel({
     <div style={S.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <h3 style={S.cardTitle}>Future demand requests</h3>
-        <button style={S.btnPrimary} onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ New request"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
+          <button style={S.btnPrimary} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ New request"}
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -285,18 +313,18 @@ export default function FutureDemandRequestsPanel({
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Period</th>
-              <th style={S.th}>Customer</th>
-              <th style={S.th}>Category</th>
-              <th style={S.th}>Sub Cat</th>
-              <th style={S.th}>Style</th>
-              <th style={S.th}>Color</th>
-              <th style={S.th}>Description</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Qty</th>
-              <th style={S.th}>Type</th>
-              <th style={S.th}>Confidence</th>
-              <th style={S.th}>Status</th>
-              <th style={S.th}>Note</th>
+              <th style={S.th} hidden={!visibleColumns.has("period")}>Period</th>
+              <th style={S.th} hidden={!visibleColumns.has("customer")}>Customer</th>
+              <th style={S.th} hidden={!visibleColumns.has("category")}>Category</th>
+              <th style={S.th} hidden={!visibleColumns.has("sub_cat")}>Sub Cat</th>
+              <th style={S.th} hidden={!visibleColumns.has("style")}>Style</th>
+              <th style={S.th} hidden={!visibleColumns.has("color")}>Color</th>
+              <th style={S.th} hidden={!visibleColumns.has("description")}>Description</th>
+              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("qty")}>Qty</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={S.th} hidden={!visibleColumns.has("confidence")}>Confidence</th>
+              <th style={S.th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
               <th style={S.th}></th>
             </tr>
           </thead>
@@ -319,12 +347,12 @@ export default function FutureDemandRequestsPanel({
               const noteDisp  = parsed.body;
               return (
                 <tr key={r.id}>
-                  <td style={S.td}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
-                  <td style={S.td}>{customer?.name ?? "—"}</td>
-                  <td style={{ ...S.td, color: PAL.textDim }}>{catDisp}</td>
-                  <td style={{ ...S.td, color: PAL.textDim }}>{subCatDisp}</td>
-                  <td style={{ ...S.td, fontFamily: "monospace", color: isTbd ? PAL.yellow : PAL.accent }}>{styleDisp}</td>
-                  <td style={S.td} onClick={(e) => e.stopPropagation()}>
+                  <td style={S.td} hidden={!visibleColumns.has("period")}>{formatPeriodCode(monthOf(r.target_period_start).period_code)}</td>
+                  <td style={S.td} hidden={!visibleColumns.has("customer")}>{customer?.name ?? "—"}</td>
+                  <td style={{ ...S.td, color: PAL.textDim }} hidden={!visibleColumns.has("category")}>{catDisp}</td>
+                  <td style={{ ...S.td, color: PAL.textDim }} hidden={!visibleColumns.has("sub_cat")}>{subCatDisp}</td>
+                  <td style={{ ...S.td, fontFamily: "monospace", color: isTbd ? PAL.yellow : PAL.accent }} hidden={!visibleColumns.has("style")}>{styleDisp}</td>
+                  <td style={S.td} hidden={!visibleColumns.has("color")} onClick={(e) => e.stopPropagation()}>
                     {(() => {
                       const styleForLookup = meta.style ?? item?.style_code ?? item?.sku_code ?? "";
                       const colorLower = colorDisp.trim().toLowerCase();
@@ -365,10 +393,10 @@ export default function FutureDemandRequestsPanel({
                       );
                     })()}
                   </td>
-                  <td style={{ ...S.td, color: PAL.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={descDisp}>
+                  <td style={{ ...S.td, color: PAL.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} hidden={!visibleColumns.has("description")} title={descDisp}>
                     {descDisp}
                   </td>
-                  <td style={{ ...S.tdNum, padding: "0 4px" }} onClick={(e) => e.stopPropagation()}>
+                  <td style={{ ...S.tdNum, padding: "0 4px" }} hidden={!visibleColumns.has("qty")} onClick={(e) => e.stopPropagation()}>
                     <QtyCell
                       value={r.requested_qty}
                       busy={busyId === r.id}
@@ -387,10 +415,10 @@ export default function FutureDemandRequestsPanel({
                       }}
                     />
                   </td>
-                  <td style={S.td}>{r.request_type}</td>
-                  <td style={S.td}>{r.confidence_level}</td>
-                  <td style={S.td}>{r.request_status}</td>
-                  <td style={{ ...S.td, color: PAL.textMuted }}>{noteDisp}</td>
+                  <td style={S.td} hidden={!visibleColumns.has("type")}>{r.request_type}</td>
+                  <td style={S.td} hidden={!visibleColumns.has("confidence")}>{r.confidence_level}</td>
+                  <td style={S.td} hidden={!visibleColumns.has("status")}>{r.request_status}</td>
+                  <td style={{ ...S.td, color: PAL.textMuted }} hidden={!visibleColumns.has("note")}>{noteDisp}</td>
                   <td style={S.td}>
                     {r.request_status !== "archived" && (
                       <button style={S.btnGhost} onClick={() => archive(r.id)} disabled={busyId === r.id}>

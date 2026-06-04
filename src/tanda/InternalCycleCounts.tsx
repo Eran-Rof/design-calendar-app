@@ -19,10 +19,11 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const TABLE_KEY = "tanda.cycle_counts";
-const ALL_COLUMNS: ColumnDef[] = [
+// Universal column-visibility registry for this panel (operator ask #1).
+const CYCLE_COUNTS_TABLE_KEY = "tangerine:cyclecounts:columns";
+const CYCLE_COUNT_COLUMNS: ColumnDef[] = [
   { key: "count_date", label: "Count date" },
   { key: "location",   label: "Location" },
   { key: "status",     label: "Status" },
@@ -135,7 +136,12 @@ export default function InternalCycleCounts() {
   const [showStartModal, setShowStartModal] = useState(false);
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
 
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CYCLE_COUNTS_TABLE_KEY,
+    CYCLE_COUNT_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -202,7 +208,14 @@ export default function InternalCycleCounts() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={CYCLE_COUNTS_TABLE_KEY}
+            columns={CYCLE_COUNT_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="cycle-counts"
@@ -215,14 +228,6 @@ export default function InternalCycleCounts() {
               { key: "updated_at",  header: "Updated",    format: "datetime" },
               { key: "id",          header: "ID" },
             ] as ExportColumn<Record<string, unknown>>[]}
-          />
-          <TablePrefsButton
-            tableKey={TABLE_KEY}
-            columns={ALL_COLUMNS}
-            visibleColumns={visibleColumns}
-            onToggle={toggleColumn}
-            onReset={resetToDefault}
-            onSetAll={setAllVisible}
           />
         </div>
       </div>
@@ -237,11 +242,11 @@ export default function InternalCycleCounts() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!visibleColumns.has("count_date")}>Count date</th>
-              <th style={th} hidden={!visibleColumns.has("location")}>Location</th>
-              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
-              <th style={th} hidden={!visibleColumns.has("created")}>Created</th>
-              <th style={th} hidden={!visibleColumns.has("id")}>ID</th>
+              <th style={th} hidden={!isVisible("count_date")}>Count date</th>
+              <th style={th} hidden={!isVisible("location")}>Location</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
+              <th style={th} hidden={!isVisible("id")}>ID</th>
             </tr>
           </thead>
           <tbody>
@@ -259,11 +264,11 @@ export default function InternalCycleCounts() {
                 style={{ cursor: "pointer" }}
                 onClick={() => setOpenDetailId(cc.id)}
               >
-                <td style={td} hidden={!visibleColumns.has("count_date")}>{fmtDate(cc.count_date)}</td>
-                <td style={td} hidden={!visibleColumns.has("location")}>{cc.location}</td>
-                <td style={td} hidden={!visibleColumns.has("status")}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
-                <td style={td} hidden={!visibleColumns.has("created")}>{fmtDate(cc.created_at)}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!visibleColumns.has("id")}>{cc.id.slice(0, 8)}</td>
+                <td style={td} hidden={!isVisible("count_date")}>{fmtDate(cc.count_date)}</td>
+                <td style={td} hidden={!isVisible("location")}>{cc.location}</td>
+                <td style={td} hidden={!isVisible("status")}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
+                <td style={td} hidden={!isVisible("created")}>{fmtDate(cc.created_at)}</td>
+                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("id")}>{cc.id.slice(0, 8)}</td>
               </tr>
             ))}
           </tbody>

@@ -6,7 +6,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../../_lib/vendor-auth.js";
 import { isInvoiceEligible, hasCapacity, calculateFee, daysToDueDate } from "../../../_lib/scf.js";
-import { getInternalRecipients } from "../../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
 
   // Notify internal team — env vars are comma-separated, fan out per email.
   try {
-    const { emails } = getInternalRecipients("finance", { event: "scf_request_received" });
+    const { emails } = await resolveInternalRecipients(admin, "finance", { event: "scf_request_received" });
     const origin = `https://${req.headers.host}`;
     for (const email of emails) {
       await fetch(`${origin}/api/send-notification`, {

@@ -13,9 +13,10 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const SCANNER_SESSIONS_TABLE_KEY = "tanda.scanner_sessions";
+// Universal column-visibility registry for this panel (operator ask #1).
+const SCANNER_SESSIONS_TABLE_KEY = "tangerine:scannersessions:columns";
 const SCANNER_SESSION_COLUMNS: ColumnDef[] = [
   { key: "created",   label: "Created" },
   { key: "mode",      label: "Mode" },
@@ -97,7 +98,8 @@ export default function InternalScannerSessions() {
   const [active, setActive] = useState<SessionWithEvents | null>(null);
   const [loadingActive, setLoadingActive] = useState(false);
 
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
     SCANNER_SESSIONS_TABLE_KEY,
     SCANNER_SESSION_COLUMNS,
   );
@@ -161,6 +163,13 @@ export default function InternalScannerSessions() {
           <option value="count">count</option>
         </select>
         <button style={{ ...btnSecondary, marginLeft: "auto" }} onClick={() => void load()}>Refresh</button>
+        <TablePrefsButton
+          tableKey={SCANNER_SESSIONS_TABLE_KEY}
+          columns={SCANNER_SESSION_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="scanner-sessions"
@@ -175,14 +184,6 @@ export default function InternalScannerSessions() {
             { key: "scanned_at",      header: "Last Scan",    format: "datetime" },
             { key: "submitted_at",    header: "Submitted",    format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
-        />
-        <TablePrefsButton
-          tableKey={SCANNER_SESSIONS_TABLE_KEY}
-          columns={SCANNER_SESSION_COLUMNS}
-          visibleColumns={visibleColumns}
-          onToggle={toggleColumn}
-          onReset={resetToDefault}
-          onSetAll={setAllVisible}
         />
       </div>
 

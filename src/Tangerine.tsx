@@ -24,7 +24,8 @@ import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalSizeScales         from "./tanda/InternalSizeScales";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
-import InternalB2BPriceList       from "./tanda/InternalB2BPriceList";
+import InternalPriceLists         from "./tanda/InternalPriceLists";
+import InternalPromotions         from "./tanda/InternalPromotions";
 import InternalCountries          from "./tanda/InternalCountries";
 import InternalGenders            from "./tanda/InternalGenders";
 import InternalStyleClassifications from "./tanda/InternalStyleClassifications";
@@ -36,7 +37,23 @@ import InternalAPInvoices         from "./tanda/InternalAPInvoices";
 import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
+import InternalAllocations        from "./tanda/InternalAllocations";
+import InternalSalesReturns       from "./tanda/InternalSalesReturns";
+import InternalDropShip          from "./tanda/InternalDropShip";
+import InternalThreePL           from "./tanda/InternalThreePL";
+import InternalEDI               from "./tanda/InternalEDI";
+import InternalReportsHub        from "./tanda/InternalReportsHub";
+import InternalFixedAssets       from "./tanda/InternalFixedAssets";
+import InternalBudgets           from "./tanda/InternalBudgets";
+import InternalForm1099          from "./tanda/InternalForm1099";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
+import InternalReceiving          from "./tanda/InternalReceiving";
+import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
+import InternalQCInspections      from "./tanda/InternalQCInspections";
+import InternalCustomsEntries     from "./tanda/InternalCustomsEntries";
+import InternalBrokerInvoices     from "./tanda/InternalBrokerInvoices";
+import InternalThreeWayMatch      from "./tanda/InternalThreeWayMatch";
+import InternalProcurementRecon   from "./tanda/InternalProcurementRecon";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
@@ -60,6 +77,7 @@ import InternalEmployees               from "./tanda/InternalEmployees";
 import InternalEmployeeTitles          from "./tanda/InternalEmployeeTitles";
 import InternalEmployeeDepartments     from "./tanda/InternalEmployeeDepartments";
 import InternalInventoryMatrix          from "./tanda/InternalInventoryMatrix";
+import InternalPrepackMatrix            from "./tanda/InternalPrepackMatrix";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
@@ -83,6 +101,9 @@ import InternalUserAccess              from "./tanda/InternalUserAccess";
 // P14-4 — client menu hide driven by the caller's effective permissions.
 import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
 import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
+// M31 — surface the standalone Planning app inside the Tangerine shell; gate by
+// the shared PLM per-app permission (`permissions.planning.access`, default-true).
+import { canAccessAppFromSession } from "./permissions";
 // Cross-cutter T4-3 — Personalization favorites drawer.
 import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
@@ -99,6 +120,8 @@ import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+import { AskAIPanel } from "./ai/AskAIPanel";
+import type { GridContextSnapshot } from "./ai/tools";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme — match the dark Tanda palette so the admin panels (which use the
@@ -137,6 +160,7 @@ type ModuleKey =
   // P18-F — internal B2B admin (buyers + wholesale price list).
   | "b2b_accounts"
   | "b2b_price_list"
+  | "pricing_promotions"
   | "gl_accounts"
   | "gl_periods"
   | "journal_entries"
@@ -145,6 +169,15 @@ type ModuleKey =
   | "ar_invoices"
   | "ar_receipts"
   | "sales_orders"
+  | "sales_allocations"
+  | "sales_returns"
+  | "drop_ship"
+  | "three_pl"
+  | "edi"
+  | "reports_hub"
+  | "fixed_assets"
+  | "budgets"
+  | "form_1099"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -162,7 +195,15 @@ type ModuleKey =
   | "employee_titles"
   | "employee_departments"
   | "inventory_matrix"
+  | "prepack_matrices"
   | "purchase_orders"
+  | "receiving"
+  | "bookkeeper_approval"
+  | "qc_inspections"
+  | "customs_entries"
+  | "broker_invoices"
+  | "three_way_match"
+  | "procurement_recon"
   | "inventory_transfers"
   | "inventory_adjustments"
   | "cycle_counts"
@@ -260,7 +301,9 @@ const MODULES: ModuleDef[] = [
   { key: "size_scales",          label: "Size Scales",        emoji: "📏", group: "Master Data" },
   // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
   { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
-  { key: "b2b_price_list", label: "B2B Price List", emoji: "🏷️", group: "Customers" },
+  // M43 — Pricing Engine admin (price lists supersede the interim B2B price list).
+  { key: "b2b_price_list",     label: "Price Lists", emoji: "🏷️", group: "Pricing" },
+  { key: "pricing_promotions", label: "Promotions",  emoji: "🎁", group: "Pricing" },
   { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
   { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
   { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
@@ -272,6 +315,16 @@ const MODULES: ModuleDef[] = [
   { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Customers – Accts Rec" },
   // P16/M10 — native Sales Order entry.
   { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
+  // P16/M18 — Allocations Workbench (cross-SO allocation).
+  { key: "sales_allocations", label: "Allocations",       emoji: "📊", group: "Sales" },
+  { key: "sales_returns",     label: "Returns/RMA",        emoji: "↩️", group: "Sales" },
+  { key: "drop_ship",         label: "Drop-Ship",          emoji: "📦", group: "Sales" },
+  { key: "three_pl",          label: "3PL",                emoji: "🚚", group: "Inventory" },
+  { key: "edi",               label: "EDI",                emoji: "🔌", group: "Procurement" },
+  { key: "reports_hub",       label: "Reports & Analytics", emoji: "📊", group: "Reports" },
+  { key: "fixed_assets",      label: "Fixed Assets",       emoji: "🏢", group: "Accounting" },
+  { key: "budgets",           label: "Budgets",            emoji: "🎯", group: "Accounting" },
+  { key: "form_1099",         label: "1099 Worksheet",     emoji: "🧾", group: "Accounting" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
@@ -304,8 +357,19 @@ const MODULES: ModuleDef[] = [
   { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
   { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
   // P16/M11 — native Purchase Orders (origination + matrix line entry).
-  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Vendors" },
+  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Procurement" },
+  // P13/C1 — Receiving + bookkeeper approval (procurement operational layer).
+  { key: "receiving",           label: "Receiving",         emoji: "📥", group: "Procurement" },
+  { key: "bookkeeper_approval", label: "Bookkeeper Approval", emoji: "🧾", group: "Procurement" },
+  // P13/C2-C4 — QC + trade compliance + 3-way match.
+  { key: "qc_inspections",      label: "QC Inspections",    emoji: "🔍", group: "Procurement" },
+  { key: "customs_entries",     label: "Customs Entries",   emoji: "🛃", group: "Procurement" },
+  { key: "broker_invoices",     label: "Broker Invoices",   emoji: "🚢", group: "Procurement" },
+  { key: "three_way_match",     label: "3-Way Match",       emoji: "⚖️", group: "Procurement" },
+  { key: "procurement_recon",   label: "Procurement Recon", emoji: "🧮", group: "Procurement" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
+  // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
+  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Master Data" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -342,7 +406,7 @@ const MODULES: ModuleDef[] = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Apps launcher — links to the other modules within the design-calendar-app
-// suite. Each navigates the browser to the existing URL (same tab).
+// suite. Each opens the app in its own browser tab (target="_blank").
 // ─────────────────────────────────────────────────────────────────────────────
 type AppLink = { href: string; label: string; emoji: string; description: string };
 
@@ -353,7 +417,21 @@ const APPS: AppLink[] = [
   { href: "/techpack",  label: "Tech Packs",      emoji: "📐", description: "Style spec sheets" },
   { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
   { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
+  { href: "/costing",   label: "Costing",         emoji: "💰", description: "Costing projects, quotes, margins" },
   { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
+];
+
+// M31 — the standalone Planning app's screens, surfaced as first-class deep
+// links inside the Tangerine shell (header nav + home landing). The Planning
+// app keeps its own shell once you land there; these are entry points. No data
+// plumbing yet — Planning still reads its own Xoro/Shopify-backed tables.
+const PLANNING_SCREENS: AppLink[] = [
+  { href: "/planning/wholesale", label: "Wholesale", emoji: "🛒", description: "Wholesale demand forecast" },
+  { href: "/planning/ecom",      label: "Ecom",      emoji: "🛍️", description: "Shopify weekly forecast" },
+  { href: "/planning/supply",    label: "Supply",    emoji: "⚖️", description: "Supply reconciliation + buy recs" },
+  { href: "/planning/scenarios", label: "Scenarios", emoji: "🔀", description: "What-if planning + exports" },
+  { href: "/planning/accuracy",  label: "Accuracy",  emoji: "🎯", description: "Forecast accuracy + AI" },
+  { href: "/planning/execution", label: "Execution", emoji: "🚀", description: "Approved buy-plan batches" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -369,6 +447,8 @@ export default function Tangerine() {
   // opening ?m=journal_entries in a new tab lands directly on that panel.
   // Also accepts the legacy `?view=` param written by COA click-throughs etc.
   // Read on initial mount; subsequent navigation uses goToModule() below.
+  const [aiOpen, setAiOpen] = useState(false);
+
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -417,6 +497,16 @@ export default function Tangerine() {
     return () => window.removeEventListener("popstate", onPopState);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Browser tab title = the active module's menu header, so every tab opened
+  // via the menu (or a ?m= deep link) is identifiable at a glance. Falls back
+  // to the app name on the home landing.
+  useEffect(() => {
+    const label = activeModule
+      ? (MODULES as { key: string; label: string }[]).find((m) => m.key === activeModule)?.label
+      : null;
+    document.title = label ? `${label} · Tangerine` : "Tangerine ERP";
+  }, [activeModule]);
 
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -559,7 +649,8 @@ export default function Tangerine() {
         {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "size_scales"          && <InternalSizeScales />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
-        {activeModule === "b2b_price_list"       && <InternalB2BPriceList />}
+        {activeModule === "b2b_price_list"       && <InternalPriceLists />}
+        {activeModule === "pricing_promotions"   && <InternalPromotions />}
         {activeModule === "gl_accounts"       && <InternalCOA />}
         {activeModule === "gl_periods"        && <InternalPeriods />}
         {activeModule === "journal_entries"   && <InternalJournalEntry />}
@@ -568,7 +659,23 @@ export default function Tangerine() {
         {activeModule === "ar_invoices"       && <InternalARInvoices />}
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
+        {activeModule === "sales_allocations" && <InternalAllocations />}
+        {activeModule === "sales_returns" && <InternalSalesReturns />}
+        {activeModule === "drop_ship" && <InternalDropShip />}
+        {activeModule === "three_pl" && <InternalThreePL />}
+        {activeModule === "edi" && <InternalEDI />}
+        {activeModule === "reports_hub" && <InternalReportsHub />}
+        {activeModule === "fixed_assets" && <InternalFixedAssets />}
+        {activeModule === "budgets" && <InternalBudgets />}
+        {activeModule === "form_1099" && <InternalForm1099 />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
+        {activeModule === "receiving"         && <InternalReceiving />}
+        {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
+        {activeModule === "qc_inspections"    && <InternalQCInspections />}
+        {activeModule === "customs_entries"   && <InternalCustomsEntries />}
+        {activeModule === "broker_invoices"   && <InternalBrokerInvoices />}
+        {activeModule === "three_way_match"   && <InternalThreeWayMatch />}
+        {activeModule === "procurement_recon" && <InternalProcurementRecon />}
         {activeModule === "ar_aging"          && <InternalARAging />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
@@ -586,6 +693,7 @@ export default function Tangerine() {
         {activeModule === "employee_titles"      && <InternalEmployeeTitles />}
         {activeModule === "employee_departments" && <InternalEmployeeDepartments />}
         {activeModule === "inventory_matrix"     && <InternalInventoryMatrix />}
+        {activeModule === "prepack_matrices"     && <InternalPrepackMatrix />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
@@ -626,6 +734,49 @@ export default function Tangerine() {
       <GlobalSearchPaletteAuto />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
+
+      {/* Ask AI — floating launcher + slide-in chat panel. Reuses the shared
+          AskAIPanel; appId "tangerine" routes the handler to Opus + the
+          user-guide tool. No grid to drive, so context is minimal and there are
+          no grid setters — the assistant answers from the database + user guide. */}
+      {!aiOpen && (
+        <button
+          type="button"
+          onClick={() => setAiOpen(true)}
+          title="Ask AI — questions about your data or how to use Tangerine"
+          style={{
+            position: "fixed", right: 18, bottom: 18, zIndex: 1400,
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 16px", borderRadius: 999, border: 0, cursor: "pointer",
+            background: `linear-gradient(135deg, ${C.tangerine}, ${C.tangerineDim})`,
+            color: "white", fontSize: 14, fontWeight: 700,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+          }}
+        >
+          <span>✨</span><span>Ask AI</span>
+        </button>
+      )}
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        appId="tangerine"
+        setters={{}}
+        buildContext={(): GridContextSnapshot => ({
+          columns: [],
+          active_filters: {},
+          sort: null,
+          row_count: 0,
+          distinct: { categories: [], sub_categories: [], styles: [], genders: [], stores: [] },
+          sample_rows: [],
+        })}
+        samplePrompts={[
+          "What's our total open AR right now?",
+          "How do I post a manual journal entry?",
+          "Where is the fixed-asset register?",
+          "List the open purchase orders by vendor",
+          "What does GR/IR mean in receiving?",
+        ]}
+      />
     </div>
   );
 }
@@ -1114,6 +1265,27 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           );
         })}
 
+        {/* M31 — Planning is a separate app (own shell + nav); surface it as a
+            first-class header link. Opens in a new tab so the Tangerine session
+            is preserved. Gated by the shared planning permission. */}
+        {canAccessAppFromSession("planning") && (
+          <a
+            href="/planning/wholesale"
+            target="_blank"
+            rel="noopener"
+            title="Inventory planning — forecasting, supply, scenarios (opens in a new tab)"
+            style={{
+              background: "transparent", border: "1px solid transparent", color: C.textSub,
+              padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
+          >
+            <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+          </a>
+        )}
+
         {/* Menu-item finder — type-ahead jump to any panel, separate from the
             section dropdowns. Respects the same permission filter. */}
         <MenuSearch items={searchItems} onSelect={handleSelect} />
@@ -1210,6 +1382,8 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1324,6 +1498,19 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
         </div>
       </Section>
 
+      {/* M31 — the standalone Planning app's screens as first-class deep links.
+          Separate app (own shell, own Xoro/Shopify-backed data); opens in a new
+          tab. Gated by the shared planning permission. */}
+      {canAccessAppFromSession("planning") && (
+        <Section title="Planning (M31)">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            {PLANNING_SCREENS.map((s) => (
+              <ExternalLinkCard key={s.href} href={s.href} label={s.label} emoji={s.emoji} sublabel={s.description} />
+            ))}
+          </div>
+        </Section>
+      )}
+
       <Section title="Customer Service (P7)">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {csModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
@@ -1348,6 +1535,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",

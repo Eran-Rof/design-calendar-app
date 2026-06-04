@@ -6,9 +6,10 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import DateRangePresets from "./components/DateRangePresets.tsx";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const SALES_BY_CUSTOMER_TABLE_KEY = "tanda.sales_by_customer";
+// Universal column-visibility registry for this panel (operator ask #1).
+const SALES_BY_CUSTOMER_TABLE_KEY = "tangerine:salesbycustomer:columns";
 const SALES_BY_CUSTOMER_COLUMNS: ColumnDef[] = [
   { key: "customer",     label: "Customer" },
   { key: "invoices",     label: "Invoices" },
@@ -83,7 +84,8 @@ export default function InternalSalesByCustomer() {
   const [toDate, setToDate] = useState<string>(todayISO());
   const [filter, setFilter] = useState<string>("");
 
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
     SALES_BY_CUSTOMER_TABLE_KEY,
     SALES_BY_CUSTOMER_COLUMNS,
   );
@@ -161,6 +163,13 @@ export default function InternalSalesByCustomer() {
           onChange={(e) => setFilter(e.target.value)}
           style={{ ...inputStyle, maxWidth: 320 }}
         />
+        <TablePrefsButton
+          tableKey={SALES_BY_CUSTOMER_TABLE_KEY}
+          columns={SALES_BY_CUSTOMER_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
         <ExportButton
           rows={filtered as unknown as Array<Record<string, unknown>>}
           filename="sales-by-customer"
@@ -173,14 +182,6 @@ export default function InternalSalesByCustomer() {
             { key: "credit_memo_cents", header: "Credit Memos", format: "currency_cents" },
             { key: "net_cents",         header: "Net",          format: "currency_cents" },
           ]}
-        />
-        <TablePrefsButton
-          tableKey={SALES_BY_CUSTOMER_TABLE_KEY}
-          columns={SALES_BY_CUSTOMER_COLUMNS}
-          visibleColumns={visibleColumns}
-          onToggle={toggleColumn}
-          onReset={resetToDefault}
-          onSetAll={setAllVisible}
         />
       </div>
 

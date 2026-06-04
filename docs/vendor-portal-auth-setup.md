@@ -48,7 +48,7 @@ Body (HTML — replace the default):
     <h2>You've been invited</h2>
     <p>
       Click the link below to set your password and access your
-      Ring of Fire vendor portal account. The link expires in 24 hours.
+      Ring of Fire vendor portal account. The link expires in 72 hours.
     </p>
     <p><a href="{{ .ConfirmationURL }}">Accept invite and set password</a></p>
     <p>If you weren't expecting this, you can ignore this email.</p>
@@ -63,6 +63,14 @@ Authentication → Settings
 
 - **JWT expiry**: 3600 (1 hour) — default is fine
 - **Refresh token reuse detection**: ON (default)
+- **Email OTP Expiration**: **259200** (72 hours) — governs how long the invite /
+  magic link stays valid. Default is short (≈1h), which makes onboarding invites
+  expire before vendors click them. ⚠️ This is a **dashboard-only** setting — the
+  CI pipeline runs `supabase db push` (migrations) but NOT `supabase config push`,
+  so `supabase/config.toml`'s `otp_expiry` does not reach prod. If the dashboard
+  rejects 259200 (hosted Supabase has historically capped email-link expiry at
+  86400 / 24h), set it to the max it allows and use a custom invite-token flow for
+  a true 72h window.
 
 No session-pinning or MFA for v1.
 

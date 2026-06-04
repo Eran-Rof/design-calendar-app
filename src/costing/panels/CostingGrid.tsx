@@ -12,17 +12,19 @@
 import React, { useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
-import { usePlanFlow } from "../hooks/usePlanFlow";
+import { usePlanFlow, effectiveLineStatus } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
 import MasterPickerCell from "./MasterPickerCell";
+import LineStatusCell from "./LineStatusCell";
 import ColorPickerCell from "./ColorPickerCell";
 import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
 import ScalePickerCell from "./ScalePickerCell";
 import FabricPickerCell from "./FabricPickerCell";
 import HistoricalCostCell from "./HistoricalCostCell";
+import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
-import DateRangePresets from "../../tanda/components/DateRangePresets";
+import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
@@ -66,10 +68,11 @@ interface ColumnDef {
 const COLUMNS: ColumnDef[] = [
   { key: "_drag",          label: "",         width: 24,  align: "center" },
   { key: "_select",        label: "",         width: 28,  align: "center" },
+  { key: "_status",        label: "Status",   width: 110 },
   { key: "style_code",     label: "Style#",   width: 130 },
   { key: "description",    label: "Description", width: 220 },
   { key: "size_scale_label", label: "Scale",  width: 80 },
-  { key: "fabric_code",    label: "Fabric",   width: 110 },
+  { key: "fabric_code",    label: "Fabric",   width: 200 },
   { key: "fit",            label: "Fit",      width: 90 },
   { key: "color",          label: "Color",    width: 100 },
   { key: "bottom_closure", label: "Closures", width: 100 },
@@ -99,6 +102,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_unit_price",  label: "T3 Sls Prc",  width: 90,  align: "right" },
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
+  { key: "_docs",          label: "Docs",     width: 56, align: "center" },
   { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
 
@@ -172,7 +176,11 @@ export default function CostingGrid() {
   };
 
   const onGenerateRfqs = async () => {
-    if (!project || selectedRowIds.size === 0) return;
+    if (!project) return;
+    if (selectedRowIds.size === 0) {
+      setNotice("Tick the checkbox on at least one row, then click Vendor RFQ.", "info");
+      return;
+    }
     const projectId = project.id;
     const lineIds = Array.from(selectedRowIds);
     setGenerating(true);
@@ -347,6 +355,10 @@ export default function CostingGrid() {
 
   return (
     <div style={{ marginTop: 20 }}>
+      {/* Awarded rows render all their fonts green. !important overrides the
+          per-cell inline colors; in-cell popovers portal to document.body so
+          they're outside .costing-row-awarded and keep their normal palette. */}
+      <style>{`.costing-row-awarded, .costing-row-awarded * { color: #34D399 !important; }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
           Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
@@ -362,10 +374,10 @@ export default function CostingGrid() {
         >+ Add row</button>
         <button
           onClick={onGenerateRfqs}
-          disabled={generating || selectedRowIds.size === 0}
+          disabled={generating}
           title={
             selectedRowIds.size === 0
-              ? "Check rows in the grid first"
+              ? "Tick a row checkbox first, then click to generate RFQs"
               : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
           }
           style={{
@@ -373,7 +385,7 @@ export default function CostingGrid() {
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
             padding: "5px 14px", borderRadius: 4,
-            cursor: generating || selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            cursor: generating ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600,
             opacity: generating ? 0.6 : 1,
           }}
@@ -504,9 +516,16 @@ export default function CostingGrid() {
         {visibleLines.map((line) => {
           const math = computeLineMath(line);
           const isFocused = selectedLineId === line.id;
+          // Awarded line → render the whole row's fonts green. Keyed on the
+          // EFFECTIVE per-line status (a Closed line that was awarded is no
+          // longer green). The scoped `.costing-row-awarded *` rule below uses
+          // !important to override the cells' inline colors; popovers portal to
+          // document.body so they stay unaffected.
+          const isAwarded = effectiveLineStatus(line) === "awarded";
           return (
             <div
               key={line.id}
+              className={isAwarded ? "costing-row-awarded" : undefined}
               // Row click only highlights — does NOT open the vendor panel.
               // The "$ Qts" button in actions column is the explicit panel trigger.
               onClick={() => setSelectedLine(line.id)}
@@ -560,6 +579,18 @@ export default function CostingGrid() {
                         checked={selectedRowIds.has(line.id)}
                         onChange={() => toggleRow(line.id)}
                         title="Include this row in the Vendor RFQ batch"
+                      />
+                    </div>
+                  );
+                }
+
+                // Per-line status pill (Draft / On RFQ / Awarded / Closed).
+                if (c.key === "_status") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <LineStatusCell
+                        line={line}
+                        onChange={(s) => updateLine(line.id, { status: s })}
                       />
                     </div>
                   );
@@ -693,6 +724,18 @@ export default function CostingGrid() {
                       <span style={{ width: "100%", padding: "0 6px" }}>
                         {math.margin_pct ? fmtPct.format(math.margin_pct) + "%" : "—"}
                       </span>
+                    </div>
+                  );
+                }
+
+                // Docs — per-row document attachments. Opens a portaled modal
+                // wrapping the shared <DocumentAttachmentList> for this line
+                // (context_table="costing_lines"). Every line is persisted on
+                // creation so line.id is always a real costing_lines id.
+                if (c.key === "_docs") {
+                  return (
+                    <div key={c.key} style={{ ...style, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <RowAttachmentsCell lineId={line.id} styleCode={line.style_code} />
                     </div>
                   );
                 }

@@ -7,16 +7,30 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
+import {
+  ATS_REPORT_KEYS,
+  type AtsReportKey,
+  type AppPermission as PermAppPermission,
+  type AtsPermission as PermAtsPermission,
+  type AtsReportsPermission as PermAtsReportsPermission,
+  type PermissionAppId as PermPermissionAppId,
+  DEFAULT_PERMISSION as SHARED_DEFAULT_PERMISSION,
+  ADMIN_PERMISSION as SHARED_ADMIN_PERMISSION,
+  getAppPermission as sharedGetAppPermission,
+  canSeeVendorPortalCard,
+} from "./permissions";
 
 // ── Session storage key ───────────────────────────────────────────────────────
 const SESSION_KEY = "plm_user";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface AppPermission {
-  access: boolean;        // can access the app at all
-  readOnly: boolean;      // true = read only, false = read/write
-  seeOthersData: boolean; // can see other users' data
-}
+// Permission model lives in ./permissions.ts so it can be unit-tested
+// without booting the PLM React shell. The aliases below preserve the
+// historical names used throughout this file.
+type AppPermission = PermAppPermission;
+type AtsPermission = PermAtsPermission;
+type AtsReportsPermission = PermAtsReportsPermission;
+type PermissionAppId = PermPermissionAppId;
 
 interface User {
   id: string;
@@ -30,16 +44,20 @@ interface User {
     design?: AppPermission;
     tanda?: AppPermission;
     techpack?: AppPermission;
-    ats?: AppPermission;
+    ats?: AtsPermission;
+    costing?: AppPermission;
+    vendor?: AppPermission;
+    gs1?: AppPermission;
+    planning?: AppPermission;
+    tangerine?: AppPermission;
   };
 }
 
-const DEFAULT_PERMISSION: AppPermission = { access: true, readOnly: false, seeOthersData: false };
-const ADMIN_PERMISSION: AppPermission   = { access: true, readOnly: false, seeOthersData: true  };
+const DEFAULT_PERMISSION = SHARED_DEFAULT_PERMISSION;
+const ADMIN_PERMISSION   = SHARED_ADMIN_PERMISSION;
 
-function getPermission(user: User, app: "design" | "tanda" | "techpack" | "ats"): AppPermission {
-  if (user.role === "admin") return ADMIN_PERMISSION;
-  return user.permissions?.[app] ?? DEFAULT_PERMISSION;
+function getPermission(user: User, app: PermissionAppId): AppPermission {
+  return sharedGetAppPermission(user, app);
 }
 
 // ── Load users from Supabase app_data ─────────────────────────────────────────
@@ -102,6 +120,14 @@ const APPS = [
     path: "/ats",
   },
   {
+    id: "vendor" as const,
+    name: "Vendor Portal",
+    description: "Manage vendors, POs, invoices, compliance, RFQ, payments",
+    icon: "🤝",
+    color: "#EA580C",
+    path: "/vendor",
+  },
+  {
     id: "planning" as const,
     name: "Inventory Planning",
     description: "Wholesale + ecom forecasts, supply reconciliation, scenarios, accuracy & AI co-pilot",
@@ -124,6 +150,14 @@ const APPS = [
     icon: "💰",
     color: "#EAB308",
     path: "/costing",
+  },
+  {
+    id: "tangerine" as const,
+    name: "Tangerine ERP",
+    description: "Accounting, inventory, sales, procurement & finance — the Xoro replacement",
+    icon: "🍊",
+    color: "#F97316",
+    path: "/tangerine",
   },
 ];
 
@@ -169,12 +203,33 @@ export default function PLMApp() {
     }
   }, [user?.id, unreadAll]);
 
-  // Restore session
+  // Restore session, then refresh role + permissions from the source of truth.
+  // The session blob is a snapshot taken at login (handleLogin), so without
+  // this an admin's permission change wouldn't take effect until the user
+  // signed out and back in — they'd appear to "still have access" after a
+  // reload. We re-fetch on launcher mount and re-snapshot if anything changed.
+  // Best-effort: any fetch failure or missing record keeps the existing
+  // session, so a transient Supabase hiccup can never lock someone out.
   useEffect(() => {
+    let parsed: User | null = null;
     try {
       const saved = sessionStorage.getItem(SESSION_KEY);
-      if (saved) setUser(JSON.parse(saved));
-    } catch {}
+      if (saved) { parsed = JSON.parse(saved) as User; setUser(parsed); }
+    } catch { return; }
+    if (!parsed) return;
+
+    const current = parsed;
+    loadUsers()
+      .then(users => {
+        const fresh = users.find(u => u.id === current.id);
+        if (!fresh) return; // user not found (e.g. deleted) — don't disrupt mid-session
+        const merged: User = { ...current, role: fresh.role, permissions: fresh.permissions };
+        if (JSON.stringify(merged) !== JSON.stringify(current)) {
+          try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged)); } catch { /* noop */ }
+          setUser(merged);
+        }
+      })
+      .catch(() => { /* keep existing session snapshot */ });
   }, []);
 
   async function handleLogin() {
@@ -214,7 +269,9 @@ export default function PLMApp() {
   }
 
   function openApp(path: string) {
-    window.location.href = path;
+    // Apps in the suite open in their own browser tab so the launcher stays put
+    // (operator preference). Same-origin, so per-app localStorage/session is shared.
+    window.open(path, "_blank", "noopener");
   }
 
   // ── LOGIN SCREEN ────────────────────────────────────────────────────────────
@@ -329,9 +386,22 @@ export default function PLMApp() {
             // Demo mode: only show the four apps in scope (Design Calendar,
             // PO WIP, ATS, Planning). Tech Packs + GS1 are hidden.
             if (appConfig.demoMode && (app.id === "techpack" || app.id === "gs1")) return false;
-            return app.id !== "planning" || appConfig.inventoryPlanningEnabled;
+            if (app.id === "planning" && !appConfig.inventoryPlanningEnabled) return false;
+            // Vendor Portal card is gated by the per-user permission. Admins
+            // always see it. Regular users without permissions.vendor.access
+            // do NOT see the card at all — different from other apps which
+            // show a 🔒 locked tile, because the vendor portal isn't a
+            // discoverable app for most internal staff.
+            if (app.id === "vendor" && !canSeeVendorPortalCard(user)) return false;
+            return true;
           }).map(app => {
-            const perm = getPermission(user, app.id);
+            // Every launcher app now carries a per-user permission
+            // (permissions.<id>.access). A user without access sees a 🔒 locked
+            // tile and can't open it; the matching route guard in main.tsx
+            // refuses direct-URL access too. Vendor Portal is filtered out above
+            // (hidden, not locked). Default-true semantics: a missing entry =
+            // access granted, so only an explicit access:false blocks.
+            const perm = getPermission(user, app.id as PermissionAppId);
             const locked = !perm.access;
 
             return (
@@ -408,13 +478,19 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   const [editing, setEditing] = useState<User | null>(null);
   const [msg, setMsg]         = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // JSON snapshot of the last persisted user list. `users` is mutated in local
+  // state by the inline permission checkboxes (updatePermission) WITHOUT writing
+  // to the DB — the write only happens on "💾 Save All Changes". Comparing
+  // against this snapshot tells us when there are unsaved changes so we can warn
+  // (and guard the close), preventing the silent data-loss footgun.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     // Catch the rejection so a Supabase 503 / PGRST hiccup doesn't leave
     // the modal stuck in "loading" forever. Without the .catch the
     // promise rejection was unhandled and setLoading(false) never fired.
     loadUsers()
-      .then((u) => { setUsers(u); setLoading(false); })
+      .then((u) => { setUsers(u); setSavedSnapshot(JSON.stringify(u)); setLoading(false); })
       .catch((e) => {
         console.error("[PLM] users load failed:", e);
         setMsg("Could not load users from Supabase — refusing to overwrite to prevent data loss. Refresh and try again.");
@@ -462,18 +538,30 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
         body: JSON.stringify({ key: "users", value: JSON.stringify(updated) }),
       });
       setUsers(updated);
+      setSavedSnapshot(JSON.stringify(updated));
       setMsg("Saved!");
       setTimeout(() => setMsg(""), 2000);
     } catch { setMsg("Save failed"); }
     finally { setSaving(false); }
   }
 
-  function updatePermission(userId: string, app: "design" | "tanda" | "techpack" | "ats", field: keyof AppPermission, value: boolean) {
+  function updatePermission(userId: string, app: PermissionAppId, field: keyof AppPermission, value: boolean) {
     const updated = users.map(u => {
       if (u.id !== userId) return u;
       const perms = u.permissions ?? {};
       const appPerm = perms[app] ?? { ...DEFAULT_PERMISSION };
       return { ...u, permissions: { ...perms, [app]: { ...appPerm, [field]: value } } };
+    });
+    setUsers(updated);
+  }
+
+  function updateAtsReportPermission(userId: string, reportKey: AtsReportKey, value: boolean) {
+    const updated = users.map(u => {
+      if (u.id !== userId) return u;
+      const perms = u.permissions ?? {};
+      const atsPerm: AtsPermission = perms.ats ?? { ...DEFAULT_PERMISSION };
+      const reports: AtsReportsPermission = { ...(atsPerm.reports ?? {}), [reportKey]: value };
+      return { ...u, permissions: { ...perms, ats: { ...atsPerm, reports } } };
     });
     setUsers(updated);
   }
@@ -488,6 +576,8 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
         tanda:    { ...DEFAULT_PERMISSION },
         techpack: { ...DEFAULT_PERMISSION },
         ats:      { ...DEFAULT_PERMISSION },
+        costing:  { ...DEFAULT_PERMISSION },
+        vendor:   { ...DEFAULT_PERMISSION },
       },
     };
     setEditing(newUser);
@@ -518,22 +608,51 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     }
   }
 
-  const APP_LABELS = [
-    { id: "design" as const,   label: "Design Calendar", color: "#CC2200" },
-    { id: "tanda"  as const,   label: "PO WIP",          color: "#3B82F6" },
-    { id: "techpack" as const, label: "Tech Packs",      color: "#8B5CF6" },
-    { id: "ats" as const,      label: "ATS",             color: "#10B981" },
+  const APP_LABELS: { id: PermissionAppId; label: string; color: string }[] = [
+    { id: "design",   label: "Design Calendar", color: "#CC2200" },
+    { id: "tanda",    label: "PO WIP",          color: "#3B82F6" },
+    { id: "techpack", label: "Tech Packs",      color: "#8B5CF6" },
+    { id: "costing",  label: "Costing",         color: "#7C3AED" },
+    { id: "ats",      label: "ATS",             color: "#10B981" },
+    { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
+    { id: "planning", label: "Inv. Planning",   color: "#F59E0B" },
+    { id: "gs1",      label: "GTIN Creation",   color: "#0891B2" },
+    { id: "tangerine", label: "Tangerine ERP",  color: "#F97316" },
   ];
 
+  const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [
+    { key: "exportExcel", label: "Export Excel" },
+    { key: "negInven",    label: "Neg Inven" },
+    { key: "agedInven",   label: "Aged Inven" },
+    { key: "noMrgnData",  label: "NO Mrgn Data" },
+    { key: "stockVsSo",   label: "Stock Vs SO" },
+    { key: "salesComps",  label: "Sales Comps" },
+  ];
+
+  // Unsaved changes = current list differs from the last persisted snapshot.
+  // Null snapshot (initial load not finished / failed) is never "dirty".
+  const dirty = savedSnapshot !== null && JSON.stringify(users) !== savedSnapshot;
+
+  // Guard close so unsaved permission edits aren't silently discarded.
+  function requestClose() {
+    if (dirty && !window.confirm("You have unsaved changes that haven't been saved to the database.\n\nClick Cancel, then \"💾 Save All Changes\" to keep them. Click OK to discard.")) return;
+    onClose();
+  }
+
   return (
-    <div style={S.modalOverlay} onClick={onClose}>
+    <div style={S.modalOverlay} onClick={requestClose}>
       <div style={{ ...S.modal, width: 740, maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111827" }}>⚙️ User Management</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {dirty && (
+              <span style={{ color: "#B45309", background: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>
+                ● Unsaved changes
+              </span>
+            )}
             {msg && <span style={{ color: "#10B981", fontSize: 13 }}>{msg}</span>}
             {saving && <span style={{ color: "#6B7280", fontSize: 13 }}>Saving…</span>}
-            <button style={S.modalClose} onClick={onClose}>✕</button>
+            <button style={S.modalClose} onClick={requestClose}>✕</button>
           </div>
         </div>
 
@@ -559,32 +678,65 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
                   {/* Per-app permissions */}
                   {u.role !== "admin" && (
-                    <div style={{ display: "flex", gap: 12, flex: 1 }}>
-                      {APP_LABELS.map(app => {
-                        const perm = u.permissions?.[app.id] ?? DEFAULT_PERMISSION;
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        {APP_LABELS.map(app => {
+                          const perm = u.permissions?.[app.id] ?? DEFAULT_PERMISSION;
+                          // Vendor Portal is read/write only — there's no
+                          // per-user "data" concept inside the vendor portal
+                          // shell (data scoping is handled by vendor_id JWT
+                          // claims inside /vendor/*), so we only expose Access.
+                          const isVendor = app.id === "vendor";
+                          return (
+                            <div key={app.id} style={{ textAlign: "center", minWidth: 96 }}>
+                              <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>{app.label}</div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                                  <input type="checkbox" checked={perm.access}
+                                    onChange={e => updatePermission(u.id, app.id, "access", e.target.checked)} />
+                                  Access
+                                </label>
+                                {!isVendor && (
+                                  <>
+                                    <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
+                                      <input type="checkbox" checked={!perm.readOnly} disabled={!perm.access}
+                                        onChange={e => updatePermission(u.id, app.id, "readOnly", !e.target.checked)} />
+                                      Write
+                                    </label>
+                                    <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
+                                      <input type="checkbox" checked={perm.seeOthersData} disabled={!perm.access}
+                                        onChange={e => updatePermission(u.id, app.id, "seeOthersData", e.target.checked)} />
+                                      All Data
+                                    </label>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* ATS Reports — only shown when ATS access is on. */}
+                      {(u.permissions?.ats?.access ?? DEFAULT_PERMISSION.access) && (() => {
+                        const reportsPerm = (u.permissions?.ats as AtsPermission | undefined)?.reports ?? {};
                         return (
-                          <div key={app.id} style={{ textAlign: "center", minWidth: 100 }}>
-                            <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>{app.label}</div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                                <input type="checkbox" checked={perm.access}
-                                  onChange={e => updatePermission(u.id, app.id, "access", e.target.checked)} />
-                                Access
-                              </label>
-                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
-                                <input type="checkbox" checked={!perm.readOnly} disabled={!perm.access}
-                                  onChange={e => updatePermission(u.id, app.id, "readOnly", !e.target.checked)} />
-                                Write
-                              </label>
-                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: perm.access ? 1 : 0.4 }}>
-                                <input type="checkbox" checked={perm.seeOthersData} disabled={!perm.access}
-                                  onChange={e => updatePermission(u.id, app.id, "seeOthersData", e.target.checked)} />
-                                All Data
-                              </label>
+                          <div style={{ borderLeft: "3px solid #10B981", paddingLeft: 10, marginLeft: 4 }}>
+                            <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, fontWeight: 600 }}>ATS Reports</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(110px, 1fr))", gap: "2px 8px" }}>
+                              {ATS_REPORT_LABELS.map(r => {
+                                const enabled = reportsPerm[r.key] !== false;
+                                return (
+                                  <label key={r.key} style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                                    <input type="checkbox" checked={enabled}
+                                      onChange={e => updateAtsReportPermission(u.id, r.key, e.target.checked)} />
+                                    {r.label}
+                                  </label>
+                                );
+                              })}
                             </div>
                           </div>
                         );
-                      })}
+                      })()}
                     </div>
                   )}
                   {u.role === "admin" && (
@@ -613,9 +765,23 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
               </button>
 
               {users.length > 0 && (
-                <button style={{ ...S.btnSave, marginTop: 12 }} onClick={() => saveUsers(users)} disabled={saving}>
-                  {saving ? "Saving…" : "💾 Save All Changes"}
-                </button>
+                <div style={{ marginTop: 12 }}>
+                  {dirty && !saving && (
+                    <div style={{ color: "#B45309", fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                      ⚠️ You have unsaved changes — click “💾 Save All Changes” to apply them.
+                    </div>
+                  )}
+                  <button
+                    style={{
+                      ...S.btnSave,
+                      ...(dirty && !saving ? { boxShadow: "0 0 0 3px #F59E0B", fontWeight: 700 } : {}),
+                    }}
+                    onClick={() => saveUsers(users)}
+                    disabled={saving || !dirty}
+                  >
+                    {saving ? "Saving…" : dirty ? "💾 Save All Changes" : "✓ All changes saved"}
+                  </button>
+                </div>
               )}
             </>
           )}

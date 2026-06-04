@@ -7,6 +7,16 @@
 // for the ~3-5× per-call latency hit operators were complaining about.
 // Budget cap still applies; falls back fine if Anthropic changes pricing.
 export const MODEL = "claude-haiku-4-5";
+
+// Per-app model override. The Tangerine ERP assistant spans the full
+// accounting/inventory schema AND the user guide, where answer quality matters
+// more than the latency edge that picked Haiku for the grid apps — so it runs on
+// Opus (operator request). Other apps (ats / po_wip / dc) stay on the default.
+export const MODEL_BY_APP = { tangerine: "claude-opus-4-8" };
+export function modelForApp(app) {
+  return (app && MODEL_BY_APP[app]) || MODEL;
+}
+
 export const MAX_TOKENS = 1024;
 
 // Cross-app questions can chain list_domains → list_tables →
@@ -63,4 +73,5 @@ export const TOOL_LABELS = {
   lookup_user_facts: "Checking operator notes…",
   query_margin:    "Computing margin…",
   start_workflow:  "Running multi-step workflow…",
+  search_user_guide: "Reading the user guide…",
 };

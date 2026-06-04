@@ -2,6 +2,19 @@ import React, { useEffect, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { DataQualityIssue, DQSeverity, ExceptionGroup } from "../types";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+// Column visibility applies to the Audit Trail table (the only static-column
+// table in this panel — exception groups and resolved issues render as cards/rows).
+const AUDIT_TABLE_KEY = "gs1.exceptions_audit";
+const AUDIT_COLUMNS: ColumnDef[] = [
+  { key: "time", label: "Time" },
+  { key: "entity", label: "Entity" },
+  { key: "action", label: "Action" },
+  { key: "id", label: "ID" },
+  { key: "details", label: "Details" },
+  { key: "source", label: "Source" },
+];
 
 // ── Severity colours ──────────────────────────────────────────────────────────
 
@@ -155,12 +168,24 @@ function AuditLogTable() {
 
   useEffect(() => { loadAuditLogs(); }, []);
 
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(AUDIT_TABLE_KEY, AUDIT_COLUMNS);
+
   const TH_S: React.CSSProperties = { padding: "6px 10px", fontSize: 11, fontWeight: 600, color: TH.textSub2, background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, textTransform: "uppercase" };
   const TD_S: React.CSSProperties = { padding: "6px 10px", fontSize: 12, color: TH.text, borderBottom: `1px solid ${TH.border}` };
 
   return (
     <div>
-      <h3 style={{ fontSize: 15, fontWeight: 700, color: TH.text, margin: "0 0 12px" }}>Audit Trail</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 12px" }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: TH.text, margin: 0 }}>Audit Trail</h3>
+        <TablePrefsButton
+          tableKey={AUDIT_TABLE_KEY}
+          columns={AUDIT_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       {auditLoading && <div style={{ color: TH.textMuted, fontSize: 13 }}>Loading…</div>}
       {!auditLoading && auditLogs.length === 0 && (
         <div style={{ color: TH.textMuted, fontSize: 13, padding: "16px 0" }}>No audit events recorded yet. Actions like GTIN creation, label prints, and receiving will appear here.</div>
@@ -170,25 +195,25 @@ function AuditLogTable() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr>
-                <th style={TH_S}>Time</th>
-                <th style={TH_S}>Entity</th>
-                <th style={TH_S}>Action</th>
-                <th style={TH_S}>ID</th>
-                <th style={TH_S}>Details</th>
-                <th style={TH_S}>Source</th>
+                <th style={TH_S} hidden={!visibleColumns.has("time")}>Time</th>
+                <th style={TH_S} hidden={!visibleColumns.has("entity")}>Entity</th>
+                <th style={TH_S} hidden={!visibleColumns.has("action")}>Action</th>
+                <th style={TH_S} hidden={!visibleColumns.has("id")}>ID</th>
+                <th style={TH_S} hidden={!visibleColumns.has("details")}>Details</th>
+                <th style={TH_S} hidden={!visibleColumns.has("source")}>Source</th>
               </tr>
             </thead>
             <tbody>
               {auditLogs.map(log => (
                 <tr key={log.id}>
-                  <td style={TD_S}>{new Date(log.created_at).toLocaleString()}</td>
-                  <td style={TD_S}><span style={{ background: TH.surfaceHi, padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>{log.entity_type}</span></td>
-                  <td style={TD_S}>{log.action}</td>
-                  <td style={{ ...TD_S, fontFamily: "monospace", fontSize: 11, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.entity_id ?? "—"}</td>
-                  <td style={TD_S}>
+                  <td style={TD_S} hidden={!visibleColumns.has("time")}>{new Date(log.created_at).toLocaleString()}</td>
+                  <td style={TD_S} hidden={!visibleColumns.has("entity")}><span style={{ background: TH.surfaceHi, padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>{log.entity_type}</span></td>
+                  <td style={TD_S} hidden={!visibleColumns.has("action")}>{log.action}</td>
+                  <td style={{ ...TD_S, fontFamily: "monospace", fontSize: 11, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} hidden={!visibleColumns.has("id")}>{log.entity_id ?? "—"}</td>
+                  <td style={TD_S} hidden={!visibleColumns.has("details")}>
                     {log.new_values && <span style={{ color: TH.textMuted, fontFamily: "monospace", fontSize: 11 }}>{JSON.stringify(log.new_values).slice(0, 80)}</span>}
                   </td>
-                  <td style={{ ...TD_S, color: TH.textMuted }}>{log.source ?? "gs1_app"}</td>
+                  <td style={{ ...TD_S, color: TH.textMuted }} hidden={!visibleColumns.has("source")}>{log.source ?? "gs1_app"}</td>
                 </tr>
               ))}
             </tbody>

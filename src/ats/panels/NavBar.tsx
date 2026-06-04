@@ -7,11 +7,13 @@ import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
-import { buildExportPayload, type ExportPayload } from "../exportExcel";
+import { buildExportPayload, type ExportPayload, type AtsSizeMatrixResponse } from "../exportExcel";
 import type { ReportPayload } from "../reportPayload";
 import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
 import { getItemMasterById } from "../itemMasterLookup";
+import { periodAvail } from "../compute";
+import { distribute } from "../sizeMatrixDistribute";
 import { filterRows } from "../filter";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
@@ -19,6 +21,7 @@ import { canonSku, canonStyleColor } from "../../inventory-planning/utils/skuCan
 import { AskAIPanel } from "../../ai/AskAIPanel";
 import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
 import { onAskAIRequest } from "../../ai/askAIBridge";
+import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import FavoritesMenu from "../../components/FavoritesMenu";
 
@@ -209,6 +212,9 @@ interface NavBarProps {
     salesAggregates?: SalesFetchResult,
     explodePpk?: boolean,
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
+    sizeMatrix?: AtsSizeMatrixResponse,
+    bulkByStyleColor?: Map<string, { so: number; po: number }>,
+    periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -387,6 +393,12 @@ export const NavBar: React.FC<NavBarProps> = ({
   // same handler that the dedicated buttons used to fire; the Aged Inven
   // entry still opens the days/category modal before downloading.
   const [reportsOpen, setReportsOpen] = useState(false);
+  // Per-report permission gate (default-true semantics — see
+  // getAtsReportPermissionsFromSession). Resolved once per render; the
+  // session payload only changes on login/logout so there's no value in
+  // subscribing to storage events here.
+  const atsReportsPerm = getAtsReportPermissionsFromSession();
+  const anyReportAllowed = ATS_REPORT_KEYS.some(k => atsReportsPerm[k]);
   const reportsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reportsOpen) return;
@@ -851,7 +863,154 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap };
+    // By Size Matrix worksheet(s). The MAIN report (sheet 1) is correct: its
+    // per-color ATS is netted against the color-grain Xoro On Order and uses
+    // the ATS-snapshot scope — neither available at size grain. So we REPROJECT
+    // the main report by size: take each color's already-correct ATS (the same
+    // periodAvail the main sheet renders) and split it across sizes in
+    // proportion to a size SHAPE from /api/internal/ats-size-matrix
+    // (on-hand/incoming size mix). Totals tie out to the main report exactly;
+    // the size split is the best estimate. SO/PO are the main report's loose
+    // On Order / On PO; PPK packs come from the PPK style rows' ATS.
+    let sizeMatrix: AtsSizeMatrixResponse | undefined;
+    let bulkByStyleColor: Map<string, { so: number; po: number }> | undefined;
+    let periodMatrices: Array<{ name: string; matrix: AtsSizeMatrixResponse }> | undefined;
+    if (opts.bySizeMatrix) {
+      const stemOf = (s: string) => s.replace(/-?PPK\d*$/i, "").toUpperCase();
+      const isPpk = (s: string) => /PPK/i.test(s);
+      const styleOf = (r: ATSRow) => (r.master_style && r.master_style.trim()) || String(r.sku || "").split(" - ")[0].trim();
+      const colorOf = (r: ATSRow) => (r.master_color && r.master_color.trim()) || String(r.sku || "").split(" - ").slice(1).join(" - ").trim();
+      const nPer = periods.length;
+
+      type CAcc = { color: string; so: number; po: number; total: number; per: number[]; ppkSo: number; ppkPo: number; ppkUnitsTotal: number; ppkUnitsPer: number[] };
+      const byStem = new Map<string, { packSize: number; colors: Map<string, CAcc> }>();
+      const ensureStem = (stem: string) => { let s = byStem.get(stem); if (!s) { s = { packSize: 0, colors: new Map() }; byStem.set(stem, s); } return s; };
+      const ensureColor = (st: { colors: Map<string, CAcc> }, color: string) => {
+        const k = color.toUpperCase(); let c = st.colors.get(k);
+        if (!c) { c = { color, so: 0, po: 0, total: 0, per: Array(nPer).fill(0), ppkSo: 0, ppkPo: 0, ppkUnitsTotal: 0, ppkUnitsPer: Array(nPer).fill(0) }; st.colors.set(k, c); }
+        return c;
+      };
+      for (const r of finalRows) {
+        if (r.__collapsed) continue; // aggregate rows would double-count
+        const styleRaw = styleOf(r); if (!styleRaw) continue;
+        const st = ensureStem(stemOf(styleRaw));
+        const ca = ensureColor(st, colorOf(r));
+        const perVals = periods.map((_, i) => periodAvail(r, periods, i));
+        const tot = perVals.reduce((a, b) => a + b, 0);
+        if (isPpk(styleRaw)) {
+          const mult = (r.ppkMult && r.ppkMult > 1) ? r.ppkMult : 1;
+          if (mult > 1) st.packSize = mult;
+          ca.ppkSo += Number(r.onOrder) || 0;
+          ca.ppkPo += Number(r.onPO) || 0;
+          ca.ppkUnitsTotal += tot;
+          perVals.forEach((v, i) => { ca.ppkUnitsPer[i] += v; });
+        } else {
+          ca.so += Number(r.onOrder) || 0;
+          ca.po += Number(r.onPO) || 0;
+          ca.total += tot;
+          perVals.forEach((v, i) => { ca.per[i] += v; });
+        }
+      }
+
+      // Bulk SO/PO for the matrix builder: loose On Order / On PO keyed by the
+      // loose stem; when exploding, PPK rows become their own block keyed by
+      // "<stem>PPK" so they pick up the PPK style's own On Order / On PO.
+      bulkByStyleColor = new Map();
+      for (const [stem, st] of byStem) for (const ca of st.colors.values()) {
+        bulkByStyleColor.set(`${stem}|${ca.color.toUpperCase()}`, { so: ca.so, po: ca.po });
+        bulkByStyleColor.set(`${stem}PPK|${ca.color.toUpperCase()}`, { so: ca.ppkSo, po: ca.ppkPo });
+      }
+
+      const styleCodes = [...byStem.keys()];
+      if (styleCodes.length > 0) {
+        const fetchShape = async (asOf?: string): Promise<AtsSizeMatrixResponse | null> => {
+          try {
+            const resp = await fetch("/api/internal/ats-size-matrix", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(asOf ? { style_codes: styleCodes, as_of_date: asOf } : { style_codes: styleCodes }),
+            });
+            return resp.ok ? await resp.json() : null;
+          } catch { return null; }
+        };
+        // stem(upper) → { sizes, style_name, packFromShape, shapeByColor: colorUpper → by_size }
+        const indexShape = (resp: AtsSizeMatrixResponse | null) => {
+          const m = new Map<string, { sizes: string[]; style_name: string; packFromShape: number; shapeByColor: Map<string, Record<string, number>> }>();
+          for (const s of resp?.styles ?? []) {
+            const shapeByColor = new Map<string, Record<string, number>>();
+            for (const c of s.colors ?? []) shapeByColor.set(String(c.color).toUpperCase(), c.by_size || {});
+            m.set(String(s.style_code).toUpperCase(), { sizes: s.sizes || [], style_name: s.style_name || s.style_code, packFromShape: s.pack_size || 0, shapeByColor });
+          }
+          return m;
+        };
+        // Reproject one display matrix from per-(stem,color) totals + a shape.
+        const buildDisplay = (
+          metaIdx: ReturnType<typeof indexShape>,
+          shapeIdx: ReturnType<typeof indexShape>,
+          pickTotal: (ca: CAcc) => number,
+          pickPpkUnits: (ca: CAcc) => number,
+        ): AtsSizeMatrixResponse => {
+          const styles: AtsSizeMatrixResponse["styles"] = [];
+          for (const [stem, st] of byStem) {
+            const meta = metaIdx.get(stem) || { sizes: [], style_name: stem, packFromShape: 0, shapeByColor: new Map() };
+            const packSize = st.packSize || meta.packFromShape || 0;
+            const shapeStem = shapeIdx.get(stem);
+
+            // Loose block — units by size. When Explode PPK is OFF the PPK pack
+            // count rides as a column here; when ON, PPK becomes its own block
+            // below so this column stays empty.
+            const looseColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+            for (const ca of st.colors.values()) {
+              const total = pickTotal(ca);
+              const ppkPacks = (!explodePpk && packSize > 1) ? Math.round(pickPpkUnits(ca) / packSize) : 0;
+              if (total <= 0 && ppkPacks <= 0) continue;
+              const shape = shapeStem?.shapeByColor.get(ca.color.toUpperCase()) || {};
+              looseColors.push({ color: ca.color, by_size: distribute(total, shape, meta.sizes), total_eachs: total, ppk_packs: ppkPacks });
+            }
+            if (looseColors.length) styles.push({ style_code: stem, style_name: meta.style_name, sizes: meta.sizes, pack_size: packSize, colors: looseColors.sort((a, b) => a.color.localeCompare(b.color)) });
+
+            // Explode ON → PPK style as its OWN block (main-report row format):
+            // exploded units as a BULK number in the ATS/Total Eachs column
+            // (size cells blank until prepack compositions are configured), with
+            // the pack count alongside (PPK / Total PPK<n>). e.g. 10 PPK24 = 240.
+            if (explodePpk && packSize > 1) {
+              const ppkColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+              for (const ca of st.colors.values()) {
+                const units = pickPpkUnits(ca);
+                if (units <= 0) continue;
+                ppkColors.push({ color: ca.color, by_size: {}, total_eachs: units, ppk_packs: Math.round(units / packSize) });
+              }
+              if (ppkColors.length) styles.push({ style_code: `${stem}PPK`, style_name: `${meta.style_name} — Prepacks (exploded units)`, sizes: meta.sizes, pack_size: packSize, colors: ppkColors.sort((a, b) => a.color.localeCompare(b.color)) });
+            }
+          }
+          return { as_of: null, styles };
+        };
+
+        const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const toIso = (d: string): string | null => {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+          const dt = new Date(d); return isNaN(dt.getTime()) ? null : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+        };
+        const nameOf = (endDate: string, label: string) => { const dt = new Date(endDate); return isNaN(dt.getTime()) ? label : `${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`; };
+
+        // Snapshot shape (on-hand by size) → metadata + the snapshot tab's shape.
+        const metaIdx = indexShape(await fetchShape());
+
+        // Per-period shapes (as_of), in parallel, capped.
+        const periodsToFetch = displayPeriods.slice(0, 24);
+        const shapeResps = await Promise.all(periodsToFetch.map(async (p, i) => ({ p, i, shape: indexShape(toIso(p.endDate) ? await fetchShape(toIso(p.endDate)!) : null) })));
+
+        // Snapshot tab = main-report Total per color, distributed by the on-hand shape.
+        sizeMatrix = buildDisplay(metaIdx, metaIdx, (ca) => ca.total, (ca) => ca.ppkUnitsTotal);
+        // One tab per period = that period's main-report value, distributed by that period's shape.
+        periodMatrices = [];
+        for (const { p, i, shape } of shapeResps) {
+          const display = buildDisplay(metaIdx, shape, (ca) => ca.per[i], (ca) => ca.ppkUnitsPer[i]);
+          if (display.styles.length) periodMatrices.push({ name: nameOf(p.endDate, p.label), matrix: display });
+        }
+      }
+    }
+
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices };
   }
 
   return (
@@ -1004,7 +1163,13 @@ export const NavBar: React.FC<NavBarProps> = ({
                 sub: "TY vs same-period-LY for the date range + filters you pick",
                 onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
               },
-            ] as const).map((item) => (
+            ] as const)
+              // Per-report permission gate. atsReportsPerm[key] is true unless
+              // the admin explicitly opted this user out (false). Hidden
+              // entries don't render at all — the operator shouldn't see a
+              // disabled row teasing a report they can't run.
+              .filter(item => atsReportsPerm[item.key as AtsReportKey])
+              .map((item) => (
               <button
                 key={item.key}
                 onClick={() => { logReportClick(item.menuKey); item.onClick(); setReportsOpen(false); }}
@@ -1030,6 +1195,11 @@ export const NavBar: React.FC<NavBarProps> = ({
                 <span style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "normal", lineHeight: 1.3 }}>{item.sub}</span>
               </button>
             ))}
+            {!anyReportAllowed && (
+              <div style={{ padding: "10px 14px", fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>
+                No reports available — ask an admin to enable a report under User Management.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1160,6 +1330,9 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.salesAggregates,
           explodePpk,
           prep.customerSoMap,
+          prep.sizeMatrix,
+          prep.bulkByStyleColor,
+          prep.periodMatrices,
         );
         setExportOptsOpen(false);
       }}
@@ -1176,6 +1349,9 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.salesAggregates,
           explodePpk,
           prep.customerSoMap,
+          prep.sizeMatrix,
+          prep.bulkByStyleColor,
+          prep.periodMatrices,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's

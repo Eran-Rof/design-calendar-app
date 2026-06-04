@@ -47,6 +47,7 @@ export default async function handler(req, res) {
       auto_created_skus: r.auto_created_skus,
       cleaned: r.cleaned,
       pos_scanned: r.pos_scanned,
+      expected_date_from_milestone: r.expected_date_from_milestone,
       errors: r.errors,
     });
   } catch (e) {

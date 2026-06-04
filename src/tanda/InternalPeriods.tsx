@@ -18,9 +18,10 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const PERIODS_TABLE_KEY = "tanda.periods";
+// Universal column-visibility registry for this panel (operator ask #1).
+const PERIODS_TABLE_KEY = "tangerine:periods:columns";
 const PERIOD_COLUMNS: ColumnDef[] = [
   { key: "period",     label: "Period" },
   { key: "starts",     label: "Starts" },
@@ -94,10 +95,12 @@ export default function InternalPeriods() {
   const [fyFilter, setFyFilter] = useState(String(new Date().getFullYear()));
   const [statusFilter, setStatusFilter] = useState("");
 
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
     PERIODS_TABLE_KEY,
     PERIOD_COLUMNS,
   );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -249,7 +252,6 @@ export default function InternalPeriods() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
-          onSetAll={setAllVisible}
         />
       </div>
 
@@ -268,7 +270,7 @@ export default function InternalPeriods() {
           key={year}
           year={year}
           periods={list}
-          visibleColumns={visibleColumns}
+          isVisible={isVisible}
           onSoftClose={softClose}
           onHardClose={hardClose}
           onReopen={reopen}
@@ -292,7 +294,7 @@ export default function InternalPeriods() {
 type YearCardProps = {
   year: number;
   periods: Period[];
-  visibleColumns: Set<string>;
+  isVisible: (k: string) => boolean;
   onSoftClose: (p: Period) => void;
   onHardClose: (p: Period) => void;
   onReopen:    (p: Period) => void;
@@ -307,8 +309,7 @@ const btnAction: React.CSSProperties = {
 const btnActionDanger: React.CSSProperties = { ...btnAction, color: C.danger, borderColor: "#7f1d1d" };
 const btnActionWarn: React.CSSProperties = { ...btnAction, color: C.warn, borderColor: "#78350f" };
 
-function YearCard({ year, periods, visibleColumns, onSoftClose, onHardClose, onReopen, onRunChecks }: YearCardProps) {
-  const isVisible = (k: string): boolean => visibleColumns.has(k);
+function YearCard({ year, periods, isVisible, onSoftClose, onHardClose, onReopen, onRunChecks }: YearCardProps) {
   const summary = useMemo(() => {
     let open = 0, soft = 0, closed = 0, terminal = 0;
     for (const p of periods) {
