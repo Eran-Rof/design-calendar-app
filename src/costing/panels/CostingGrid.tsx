@@ -353,6 +353,10 @@ export default function CostingGrid() {
 
   return (
     <div style={{ marginTop: 20 }}>
+      {/* Awarded rows render all their fonts green. !important overrides the
+          per-cell inline colors; in-cell popovers portal to document.body so
+          they're outside .costing-row-awarded and keep their normal palette. */}
+      <style>{`.costing-row-awarded, .costing-row-awarded * { color: #34D399 !important; }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
           Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
@@ -510,9 +514,15 @@ export default function CostingGrid() {
         {visibleLines.map((line) => {
           const math = computeLineMath(line);
           const isFocused = selectedLineId === line.id;
+          // Awarded line (a vendor quote selected) → render the whole row's
+          // fonts green. The scoped `.costing-row-awarded *` rule below uses
+          // !important to override the cells' inline colors; popovers portal to
+          // document.body so they stay unaffected.
+          const isAwarded = !!line.selected_vendor_quote_id;
           return (
             <div
               key={line.id}
+              className={isAwarded ? "costing-row-awarded" : undefined}
               // Row click only highlights — does NOT open the vendor panel.
               // The "$ Qts" button in actions column is the explicit panel trigger.
               onClick={() => setSelectedLine(line.id)}

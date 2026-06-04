@@ -38,6 +38,7 @@ export default function FabricPickerCell({ value, onChange }: Props) {
   const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   // Portal the dropdown out of the grid's overflow:hidden cell so it isn't
   // clipped. Anchor to the cell wrapper; matches ColorPickerCell.
   const { anchorRef, pos } = usePopoverAnchor<HTMLDivElement>({ open, minWidth: 280 });
@@ -132,6 +133,7 @@ export default function FabricPickerCell({ value, onChange }: Props) {
           </span>
         ))}
         <input
+          ref={inputRef}
           value={text}
           placeholder={selected.length === 0 ? "— pick fabric —" : ""}
           onChange={(e) => { setText(e.target.value); setOpen(true); }}
@@ -151,7 +153,10 @@ export default function FabricPickerCell({ value, onChange }: Props) {
             ...(selected.length === 0 ? { color: "#94A3B8" } : null),
           }}
         />
-        <span style={{ color: "#64748B", fontSize: 9, marginLeft: "auto", paddingRight: 2 }}>▾</span>
+        <span
+          onMouseDown={(e) => { e.preventDefault(); if (open) { setOpen(false); } else { inputRef.current?.focus(); setOpen(true); } }}
+          style={{ color: "#64748B", fontSize: 9, marginLeft: "auto", paddingRight: 4, paddingLeft: 4, cursor: "pointer", alignSelf: "stretch", display: "flex", alignItems: "center" }}
+        >▾</span>
       </div>
       {open && pos && ReactDOM.createPortal(
         <div ref={popRef} style={{
