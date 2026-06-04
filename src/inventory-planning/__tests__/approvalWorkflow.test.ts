@@ -11,24 +11,26 @@ function scenario(status: IpScenario["status"]): IpScenario {
 }
 
 describe("canTransition", () => {
-  it("draft → in_review allowed; draft → approved forbidden", () => {
+  it("draft → in_review allowed; draft → approved forbidden; draft → archived (close) allowed", () => {
     expect(canTransition("draft", "in_review")).toBe(true);
     expect(canTransition("draft", "approved")).toBe(false);
+    expect(canTransition("draft", "archived")).toBe(true);
   });
-  it("in_review → approved/rejected/draft", () => {
+  it("in_review → approved/rejected/draft/archived (close)", () => {
     expect(canTransition("in_review", "approved")).toBe(true);
     expect(canTransition("in_review", "rejected")).toBe(true);
     expect(canTransition("in_review", "draft")).toBe(true);
-    expect(canTransition("in_review", "archived")).toBe(false);
+    expect(canTransition("in_review", "archived")).toBe(true);
   });
   it("approved → archived or reopen to in_review", () => {
     expect(canTransition("approved", "archived")).toBe(true);
     expect(canTransition("approved", "in_review")).toBe(true);
     expect(canTransition("approved", "draft")).toBe(false);
   });
-  it("rejected → draft to revise", () => {
+  it("rejected → draft to revise; rejected → archived (close)", () => {
     expect(canTransition("rejected", "draft")).toBe(true);
     expect(canTransition("rejected", "approved")).toBe(false);
+    expect(canTransition("rejected", "archived")).toBe(true);
   });
   it("archived is terminal", () => {
     expect(canTransition("archived", "in_review")).toBe(false);
