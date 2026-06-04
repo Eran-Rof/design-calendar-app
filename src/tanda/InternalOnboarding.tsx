@@ -128,7 +128,7 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [resending, setResending] = useState<string | null>(null);
-  const [viewInvite, setViewInvite] = useState<InviteRow | null>(null);
+  const [editInvite, setEditInvite] = useState<InviteRow | null>(null);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -165,12 +165,12 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Outstanding invitations</h3>
         <span style={{ color: C.textMuted, fontSize: 12 }}>{rows.length} not yet accepted</span>
-        <span style={{ color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>· click a row to view</span>
+        <span style={{ color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>· click a row to edit</span>
       </div>
       {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 120px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-          <div>Vendor</div><div>Email</div><div>Status</div><div>Expires</div><div></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 90px 120px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+          <div>Vendor</div><div>Email</div><div>Status</div><div>Expires</div><div></div><div></div>
         </div>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
@@ -181,15 +181,18 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
           return (
             <div
               key={row.id}
-              onClick={() => setViewInvite(row)}
+              onClick={() => setEditInvite(row)}
               onMouseEnter={(e) => { e.currentTarget.style.background = "#0F172A"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
+              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 90px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
             >
               <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
               <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email}</div>
               <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span></div>
               <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString()} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+              <div style={{ textAlign: "left" }}>
+                <button onClick={(e) => { e.stopPropagation(); setEditInvite(row); }} style={btnSecondary}>Edit</button>
+              </div>
               <div style={{ textAlign: "right" }}>
                 <button onClick={(e) => { e.stopPropagation(); void resend(row); }} disabled={resending === row.id} style={{ ...btnPrimary, opacity: resending === row.id ? 0.6 : 1 }}>{resending === row.id ? "Resending…" : "Resend"}</button>
               </div>
@@ -197,45 +200,91 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
           );
         })}
       </div>
-      {viewInvite && <InviteDetailModal invite={viewInvite} onClose={() => setViewInvite(null)} />}
+      {editInvite && (
+        <EditInviteModal
+          invite={editInvite}
+          onClose={() => setEditInvite(null)}
+          onSaved={() => { setEditInvite(null); onResent(); }}
+        />
+      )}
     </div>
   );
 }
 
-function InviteDetailModal({ invite, onClose }: { invite: InviteRow; onClose: () => void }) {
+function EditInviteModal({ invite, onClose, onSaved }: { invite: InviteRow; onClose: () => void; onSaved: () => void }) {
   const expired = invite.status === "expired";
+  const [email, setEmail] = useState(invite.email || "");
+  const [displayName, setDisplayName] = useState(invite.display_name || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
   const fmtDateTime = (s: string | null) => {
     if (!s) return "—";
     const d = new Date(s);
     return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   };
-  const fields: { label: string; value: React.ReactNode }[] = [
-    { label: "Vendor", value: invite.vendor_name || "Unknown" },
-    { label: "Email", value: invite.email },
-    { label: "Contact name", value: invite.display_name || "—" },
-    { label: "Status", value: <span style={{ textTransform: "capitalize" }}>{invite.status}</span> },
-    { label: "Sent", value: fmtDateTime(invite.sent_at) },
-    { label: "Expires", value: fmtDateTime(invite.expires_at) },
-  ];
+
+  async function save() {
+    const trimmed = email.trim();
+    if (!trimmed) { setErr("Email is required."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) { setErr("Enter a valid email address."); return; }
+    setBusy(true); setErr(null); setNote(null);
+    try {
+      const r = await fetch("/api/internal/vendor-invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invite_id: invite.id,
+          email: trimmed,
+          display_name: displayName.trim() || null,
+          site_url: window.location.origin,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Update failed (${r.status})`);
+      notify(body?.warning ? body.warning : `Invitation updated — a fresh invite was sent to ${trimmed} (valid 72 hours).`, body?.warning ? "info" : "success");
+      onSaved();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <div onClick={(e) => { if (e.currentTarget === e.target) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div onClick={(e) => { if (e.currentTarget === e.target && !busy) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "min(480px, calc(100vw - 32px))", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>{invite.vendor_name || "Unknown vendor"}</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Edit invitation</div>
           <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span>
         </div>
-        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Portal invitation — not yet accepted.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 10, columnGap: 12, fontSize: 13 }}>
-          {fields.map((f) => (
-            <React.Fragment key={f.label}>
-              <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, alignSelf: "center" }}>{f.label}</div>
-              <div style={{ color: C.textSub, wordBreak: "break-word" }}>{f.value}</div>
-            </React.Fragment>
-          ))}
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Fix a mistyped address. Saving resends a fresh invite link to the new email and invalidates the old one.
         </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
-          <button onClick={onClose} style={btnSecondary}>Close</button>
+
+        <label style={labelStyle}>Vendor</label>
+        <div style={{ ...inputStyle, background: C.bg, color: C.textSub, opacity: 0.85, cursor: "default" }}>{invite.vendor_name || "Unknown vendor"}</div>
+
+        <label style={labelStyle}>Email (required)</label>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} disabled={busy} />
+
+        <label style={labelStyle}>Contact name (optional)</label>
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Jane Smith" style={inputStyle} disabled={busy} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6, columnGap: 12, fontSize: 12, marginTop: 14, color: C.textMuted }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, alignSelf: "center" }}>Currently expires</div>
+          <div style={{ color: C.textSub, alignSelf: "center" }}>{fmtDateTime(invite.expires_at)}</div>
+        </div>
+
+        {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 10 }}>{err}</div>}
+        {note && <div style={{ color: C.success, fontSize: 12, marginTop: 10 }}>{note}</div>}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 22 }}>
+          <button onClick={onClose} disabled={busy} style={{ ...btnSecondary, opacity: busy ? 0.6 : 1 }}>Cancel</button>
+          <button onClick={() => void save()} disabled={busy || !email.trim()} style={{ ...btnPrimary, opacity: busy || !email.trim() ? 0.6 : 1 }}>
+            {busy ? "Saving…" : "Save & resend"}
+          </button>
         </div>
       </div>
     </div>
