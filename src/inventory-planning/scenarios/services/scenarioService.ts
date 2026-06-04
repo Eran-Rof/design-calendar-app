@@ -592,6 +592,66 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
   return { projected_rows: projectedRows.length, recommendations: recs.length, exceptions: exceptions.length };
 }
 
+// Push the planner-typed buy quantities (ip_wholesale_forecast.planned_buy_qty)
+// straight through as the buy plan, BYPASSING supply reconciliation. Writes
+// one `buy` recommendation per (sku, period) summing planned_buy_qty across
+// customers, REPLACING any computed recommendations for the scenario's run.
+// The execution batch + buy-plan export read recommendations, so after this
+// they reflect the planner's own numbers (not the system's shortage math).
+export async function generatePlannerBuyRecommendations(scenarioId: string): Promise<{ recommendations: number; units: number }> {
+  const scenario = await scenarioRepo.getScenario(scenarioId);
+  if (!scenario) throw new Error("Scenario not found");
+  const runId = scenario.planning_run_id;
+
+  const [forecast, items] = await Promise.all([
+    wholesaleRepo.listForecast(runId),
+    wholesaleRepo.listItems(),
+  ]);
+  const categoryBySku = new Map(items.map((i) => [i.id, i.category_id]));
+
+  // Aggregate planned_buy_qty to (sku, period) grain — recommendations are
+  // per (run, sku, period), forecast is per (customer, category, sku, period).
+  const bySkuPeriod = new Map<string, {
+    sku_id: string; category_id: string | null;
+    period_start: string; period_end: string; period_code: string; qty: number;
+  }>();
+  for (const f of forecast) {
+    const qty = f.planned_buy_qty ?? 0;
+    if (qty <= 0 || !f.sku_id) continue;
+    const key = `${f.sku_id}|${f.period_code}`;
+    const ex = bySkuPeriod.get(key);
+    if (ex) { ex.qty += qty; continue; }
+    bySkuPeriod.set(key, {
+      sku_id: f.sku_id,
+      category_id: f.category_id ?? categoryBySku.get(f.sku_id) ?? null,
+      period_start: f.period_start,
+      period_end: f.period_end,
+      period_code: f.period_code,
+      qty,
+    });
+  }
+
+  const rows = [...bySkuPeriod.values()].map((e) => ({
+    planning_run_id: runId,
+    sku_id: e.sku_id,
+    category_id: e.category_id,
+    period_start: e.period_start,
+    period_end: e.period_end,
+    period_code: e.period_code,
+    recommendation_type: "buy" as const,
+    recommendation_qty: Math.round(e.qty),
+    action_reason: "planner_buy_plan",
+    priority_level: "medium" as const,
+    shortage_qty: null,
+    excess_qty: null,
+    service_risk_flag: false,
+  }));
+
+  await supplyRepo.replaceRecommendations(runId, rows);
+  const units = rows.reduce((s, r) => s + (r.recommendation_qty ?? 0), 0);
+  return { recommendations: rows.length, units };
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 async function fetchRun(id: string): Promise<IpPlanningRun | null> {
   return wholesaleRepo.getPlanningRun(id);
