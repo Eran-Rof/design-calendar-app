@@ -13,6 +13,19 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import { notify } from "../shared/ui/warn";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.commission_accruals";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "invoice_number", label: "Invoice #" },
+  { key: "sales_rep", label: "Sales rep" },
+  { key: "accrual_date", label: "Accrual date" },
+  { key: "commissionable", label: "Commissionable" },
+  { key: "rate", label: "Rate" },
+  { key: "commission", label: "Commission" },
+  { key: "status", label: "Status" },
+  { key: "accrual_je", label: "Accrual JE" },
+];
 
 type Accrual = {
   id: string;
@@ -151,6 +164,7 @@ export default function InternalCommissionAccruals() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [payOpen, setPayOpen] = useState(false);
   const [bulkPayOpen, setBulkPayOpen] = useState(false);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function load() {
     setLoading(true);
@@ -309,6 +323,14 @@ export default function InternalCommissionAccruals() {
             { key: "payout_je_id",         header: "Payout JE" },
           ]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         {selected.size > 0 && (
           <button
             type="button"
@@ -381,14 +403,14 @@ export default function InternalCommissionAccruals() {
                   onChange={toggleSelectAll}
                 />
               </th>
-              <th style={th}>Invoice #</th>
-              <th style={th}>Sales rep</th>
-              <th style={th}>Accrual date</th>
-              <th style={{ ...th, textAlign: "right" }}>Commissionable</th>
-              <th style={{ ...th, textAlign: "right" }}>Rate</th>
-              <th style={{ ...th, textAlign: "right" }}>Commission</th>
-              <th style={th}>Status</th>
-              <th style={th}>Accrual JE</th>
+              <th style={th} hidden={!visibleColumns.has("invoice_number")}>Invoice #</th>
+              <th style={th} hidden={!visibleColumns.has("sales_rep")}>Sales rep</th>
+              <th style={th} hidden={!visibleColumns.has("accrual_date")}>Accrual date</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("commissionable")}>Commissionable</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("rate")}>Rate</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("commission")}>Commission</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("accrual_je")}>Accrual JE</th>
               <th style={th}></th>
             </tr>
           </thead>
@@ -410,7 +432,7 @@ export default function InternalCommissionAccruals() {
                     />
                   )}
                 </td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }} hidden={!visibleColumns.has("invoice_number")}>
                   {r.ar_invoices?.invoice_number ? (
                     <a
                       href={`/tanda/ar-invoices/${r.ar_invoice_id}`}
@@ -421,21 +443,21 @@ export default function InternalCommissionAccruals() {
                     </a>
                   ) : "—"}
                 </td>
-                <td style={td}>{r.sales_reps?.display_name || r.sales_rep_id}</td>
-                <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
+                <td style={td} hidden={!visibleColumns.has("sales_rep")}>{r.sales_reps?.display_name || r.sales_rep_id}</td>
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("accrual_date")}>
                   {fmtDate(r.created_at)}
                 </td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }}>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!visibleColumns.has("commissionable")}>
                   {fmtCurrencyFromCents(r.commissionable_cents)}
                 </td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }}>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!visibleColumns.has("rate")}>
                   {Number(r.rate_pct).toFixed(2)}%
                 </td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace", fontWeight: 600 }} hidden={!visibleColumns.has("commission")}>
                   {fmtCurrencyFromCents(r.commission_cents)}
                 </td>
-                <td style={td}>{statusPill(r.status)}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>
+                <td style={td} hidden={!visibleColumns.has("status")}>{statusPill(r.status)}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("accrual_je")}>
                   {r.accrual_je_id ? r.accrual_je_id.slice(0, 8) : "—"}
                 </td>
                 <td style={td}>

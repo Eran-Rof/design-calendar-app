@@ -11,6 +11,17 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.approval_rules";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "kind", label: "Kind" },
+  { key: "name", label: "Name" },
+  { key: "match", label: "Match" },
+  { key: "steps", label: "Steps" },
+  { key: "active", label: "Active" },
+  { key: "actions", label: "Actions" },
+];
 
 type Rule = {
   id: string;
@@ -64,6 +75,7 @@ export default function InternalApprovalRules() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Rule | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const { getRowProps } = useRowClickEdit<Rule>({
     onRowClick: (r) => setEditing(r),
@@ -128,7 +140,15 @@ export default function InternalApprovalRules() {
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Include inactive
         </label>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="approval-rules"
@@ -152,12 +172,12 @@ export default function InternalApprovalRules() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Kind</th>
-              <th style={th}>Name</th>
-              <th style={th}>Match</th>
-              <th style={th}>Steps</th>
-              <th style={th}>Active</th>
-              <th style={th}>Actions</th>
+              <th style={th} hidden={!visibleColumns.has("kind")}>Kind</th>
+              <th style={th} hidden={!visibleColumns.has("name")}>Name</th>
+              <th style={th} hidden={!visibleColumns.has("match")}>Match</th>
+              <th style={th} hidden={!visibleColumns.has("steps")}>Steps</th>
+              <th style={th} hidden={!visibleColumns.has("active")}>Active</th>
+              <th style={th} hidden={!visibleColumns.has("actions")}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -174,20 +194,20 @@ export default function InternalApprovalRules() {
                 highlightedRowId={highlightedId}
                 {...getRowProps(r)}
               >
-                <td style={{ ...td, fontFamily: "monospace" }}>{r.kind}</td>
-                <td style={td}>{r.name}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }}>
+                <td style={{ ...td, fontFamily: "monospace" }} hidden={!visibleColumns.has("kind")}>{r.kind}</td>
+                <td style={td} hidden={!visibleColumns.has("name")}>{r.name}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!visibleColumns.has("match")}>
                   {JSON.stringify(r.match)}
                 </td>
-                <td style={{ ...td, fontSize: 12, color: C.textSub }}>
+                <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!visibleColumns.has("steps")}>
                   {r.steps.map((s) => `${s.step_order}. ${s.mode}/${s.role_required}`).join(" → ")}
                 </td>
-                <td style={td}>
+                <td style={td} hidden={!visibleColumns.has("active")}>
                   <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); void toggleActive(r); }}>
                     {r.is_active ? "🟢 Active" : "⚪ Inactive"}
                   </button>
                 </td>
-                <td style={td}>
+                <td style={td} hidden={!visibleColumns.has("actions")}>
                   <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); setEditing(r); }}>Edit</button>
                   &nbsp;
                   <button style={btnDanger} onClick={(e) => { e.stopPropagation(); void deleteRule(r.id); }}>Delete</button>
