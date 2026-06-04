@@ -404,7 +404,7 @@ const MODULES: ModuleDef[] = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Apps launcher — links to the other modules within the design-calendar-app
-// suite. Each navigates the browser to the existing URL (same tab).
+// suite. Each opens the app in its own browser tab (target="_blank").
 // ─────────────────────────────────────────────────────────────────────────────
 type AppLink = { href: string; label: string; emoji: string; description: string };
 
@@ -415,6 +415,7 @@ const APPS: AppLink[] = [
   { href: "/techpack",  label: "Tech Packs",      emoji: "📐", description: "Style spec sheets" },
   { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
   { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
+  { href: "/costing",   label: "Costing",         emoji: "💰", description: "Costing projects, quotes, margins" },
   { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
 ];
 
@@ -1324,6 +1325,8 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1475,6 +1478,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
