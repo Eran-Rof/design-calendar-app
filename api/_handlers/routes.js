@@ -587,6 +587,8 @@ import h606 from "./internal/planning/link-planning-vendor.js";
 // h610 = POST /api/internal/planning/sync-tangerine-supply (M31 dir-B: Tangerine on-hand + open POs → planning supply)
 // (was h607 — collided with the accept-invite h607 import below; renumbered to fix the duplicate-identifier build break.)
 import h610 from "./internal/planning/sync-tangerine-supply.js";
+// h611 = POST /api/internal/ats-size-matrix (by-size ATS-available matrix for the ATS Excel "By Size Matrix" export)
+import h611 from "./internal/ats-size-matrix.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1123,6 +1125,7 @@ export const ROUTES = [
   { pattern: "/api/internal/planning/link-planning-vendor", handler: h606 },
   { pattern: "/api/internal/planning/sync-tangerine-supply", handler: h610 },
   { pattern: "/api/internal/ats-by-size", handler: h603 },
+  { pattern: "/api/internal/ats-size-matrix", handler: h611 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
   { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },

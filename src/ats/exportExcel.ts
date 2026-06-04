@@ -48,8 +48,11 @@ export function exportToExcel(
   // (instead of the row's full onOrder) AND a new "SO Prc" column
   // is inserted between On Order and On PO.
   customerSoMap?: CustomerSoMap,
+  // Optional By Size Matrix worksheet inputs (see buildExportPayload).
+  sizeMatrix?: AtsSizeMatrixResponse,
+  bulkByStyleColor?: Map<string, { so: number; po: number }>,
 ) {
-  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap);
+  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor);
   if (!payload) return;
   triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -90,6 +93,12 @@ export function buildExportPayload(
   salesAggregates?: SalesFetchResult,
   explodePpk: boolean = true,
   customerSoMap?: CustomerSoMap,
+  // By Size Matrix worksheet (optional): per-style size-grain ATS-available
+  // from /api/internal/ats-size-matrix, plus the bulk SO/PO overlay per
+  // (style, color) keyed "STYLE|COLOR" (upper-cased). Both undefined → no
+  // extra sheet (default).
+  sizeMatrix?: AtsSizeMatrixResponse,
+  bulkByStyleColor?: Map<string, { so: number; po: number }>,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -110,6 +119,7 @@ export function buildExportPayload(
     customSalesRangeEnabled:  options?.customSalesRangeEnabled  ?? false,
     customSalesRangeStart:    options?.customSalesRangeStart    ?? "",
     customSalesRangeEnd:      options?.customSalesRangeEnd      ?? "",
+    bySizeMatrix:             options?.bySizeMatrix             ?? false,
   };
   // hideATSData drops the entire ATS-data block — including Avg Cost,
   // Total Cost, and Sls Prc @ Mrgn. Force the optional-column toggles
@@ -1876,5 +1886,118 @@ export function buildExportPayload(
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
 
+  // Optional "By Size Matrix" worksheet (operator export option). Built only
+  // when the size-grain data was fetched; the main report above is unaffected.
+  if (opts.bySizeMatrix && sizeMatrix && Array.isArray(sizeMatrix.styles) && sizeMatrix.styles.length > 0) {
+    const matrixWs = buildSizeMatrixSheet(sizeMatrix, bulkByStyleColor);
+    if (matrixWs) XLSXStyle.utils.book_append_sheet(wb, matrixWs, "By Size Matrix");
+  }
+
   return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid" };
+}
+
+// ── By Size Matrix worksheet ───────────────────────────────────────────────
+// Response shape of POST /api/internal/ats-size-matrix (h611).
+export interface AtsSizeMatrixColor {
+  color: string;
+  by_size: Record<string, number>; // size → ATS-available eaches
+  total_eachs: number;
+  ppk_packs: number;
+}
+export interface AtsSizeMatrixStyle {
+  style_code: string;
+  style_name: string;
+  sizes: string[];      // ordered size columns (from the style's scale)
+  pack_size: number;    // dominant PPK pack size (0 when none)
+  colors: AtsSizeMatrixColor[];
+}
+export interface AtsSizeMatrixResponse {
+  as_of: string | null;
+  styles: AtsSizeMatrixStyle[];
+}
+
+// Build the "By Size Matrix" worksheet: one block per style —
+//   title row · header (Style·Color·SO·PO·ATS·<sizes>·PPK·Total Eachs·Total
+//   PPK<n>) · one row per color · a Subtotal row · a blank spacer row.
+// SO / PO come from the bulk color-grain overlay (keyed "STYLE|COLOR"); the
+// size cells + PPK come from the size-grain fetch. Returns null when there is
+// nothing to render.
+function buildSizeMatrixSheet(
+  data: AtsSizeMatrixResponse,
+  bulk?: Map<string, { so: number; po: number }>,
+): any | null {
+  const NUMFMT = "#,##0";
+  const num = (v: number) => ({ v, t: "n", s: { numFmt: NUMFMT, alignment: { horizontal: "right" } } });
+  const txt = (v: string) => ({ v, t: "s" });
+  const blank = { v: "", t: "s" };
+  // Cell variants with light styling so the block reads cleanly.
+  const titleCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 12, color: { rgb: "0F172A" } }, fill: { fgColor: { rgb: "D1FAE5" } } } });
+  const hdrCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, color: { rgb: "0F172A" } }, fill: { fgColor: { rgb: "E2E8F0" } }, alignment: { horizontal: "center" } } });
+  const subTxt = (v: string) => ({ v, t: "s", s: { font: { bold: true }, border: { top: { style: "thin", color: { rgb: "94A3B8" } } } } });
+  const subNum = (v: number) => ({ v, t: "n", s: { numFmt: NUMFMT, font: { bold: true }, alignment: { horizontal: "right" }, border: { top: { style: "thin", color: { rgb: "94A3B8" } } } } });
+  const keyOf = (style: string, color: string) => `${String(style).toUpperCase()}|${String(color).toUpperCase()}`;
+  // A right-aligned numeric cell, or a blank when zero (matches the operator's
+  // "leave empty when there's nothing" layout).
+  const numOrBlank = (v: number) => (v > 0 ? num(v) : blank);
+
+  const aoa: any[][] = [];
+  const merges: any[] = [];
+
+  for (const st of data.styles) {
+    if (!st || (st.colors?.length ?? 0) === 0) continue;
+    const sizes = Array.isArray(st.sizes) ? st.sizes : [];
+    const packLabel = st.pack_size > 1 ? `Total PPK${st.pack_size}` : "Total PPK";
+
+    // Title row (merged across the whole block width).
+    const blockWidth = 5 /* Style,Color,SO,PO,ATS */ + sizes.length + 3 /* PPK, Total Eachs, Total PPK */;
+    const titleR = aoa.length;
+    const titleRow: any[] = [titleCell(`${st.style_code}  ${st.style_name || ""}  —  ATS Available by Size`)];
+    for (let i = 1; i < blockWidth; i++) titleRow.push(blank);
+    aoa.push(titleRow);
+    merges.push({ s: { r: titleR, c: 0 }, e: { r: titleR, c: blockWidth - 1 } });
+
+    // Header row.
+    aoa.push([
+      hdrCell("Style"), hdrCell("Color"), hdrCell("SO"), hdrCell("PO"), hdrCell("ATS"),
+      ...sizes.map((s) => hdrCell(String(s))),
+      hdrCell("PPK"), hdrCell("Total Eachs"), hdrCell(packLabel),
+    ]);
+
+    // Color rows + running subtotal.
+    const sub = { so: 0, po: 0, eachs: 0, ppk: 0, bySize: {} as Record<string, number> };
+    for (const c of st.colors) {
+      const ov = bulk?.get(keyOf(st.style_code, c.color)) ?? { so: 0, po: 0 };
+      sub.so += ov.so; sub.po += ov.po; sub.eachs += c.total_eachs || 0; sub.ppk += c.ppk_packs || 0;
+      const row: any[] = [
+        txt(st.style_name || st.style_code),
+        txt(c.color),
+        numOrBlank(ov.so),
+        numOrBlank(ov.po),
+        numOrBlank(c.total_eachs || 0),
+        ...sizes.map((s) => { const q = Number(c.by_size?.[s]) || 0; sub.bySize[s] = (sub.bySize[s] || 0) + q; return numOrBlank(q); }),
+        numOrBlank(c.ppk_packs || 0),
+        numOrBlank(c.total_eachs || 0),
+        numOrBlank(c.ppk_packs || 0),
+      ];
+      aoa.push(row);
+    }
+
+    // Subtotal row.
+    aoa.push([
+      subTxt("Subtotal"), blank,
+      subNum(sub.so), subNum(sub.po), subNum(sub.eachs),
+      ...sizes.map((s) => subNum(sub.bySize[s] || 0)),
+      subNum(sub.ppk), subNum(sub.eachs), subNum(sub.ppk),
+    ]);
+
+    aoa.push([]); // spacer between style blocks
+  }
+
+  if (aoa.length === 0) return null;
+  const ws = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
+  if (merges.length > 0) ws["!merges"] = merges;
+  // Reasonable column widths: identity cols wider, numeric cols compact.
+  ws["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 9 }, { wch: 10 },
+    ...Array.from({ length: 24 }, () => ({ wch: 7 }))];
+  return ws;
 }
