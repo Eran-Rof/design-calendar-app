@@ -114,6 +114,8 @@ interface ATSDerivedCtx {
     salesAggregates?: import("./exportSalesFetch").SalesFetchResult,
     explodePpk?: boolean,
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
+    sizeMatrix?: import("./exportExcel").AtsSizeMatrixResponse,
+    bulkByStyleColor?: Map<string, { so: number; po: number }>,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
