@@ -92,7 +92,7 @@ export default function InternalStyleClassifications() {
   const [editing, setEditing] = useState<Classification | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     STYLE_CLASS_TABLE_KEY,
     STYLE_CLASS_COLUMNS,
   );
@@ -184,6 +184,7 @@ export default function InternalStyleClassifications() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 

@@ -18,6 +18,17 @@ import RowHistory from "./components/RowHistory";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.journal_entry";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "posting_date", label: "Posting Date" },
+  { key: "type",         label: "Type" },
+  { key: "basis",        label: "Basis" },
+  { key: "description",  label: "Description" },
+  { key: "source",       label: "Source" },
+  { key: "status",       label: "Status" },
+];
 
 type JELine = {
   id?: string;
@@ -148,6 +159,7 @@ export default function InternalJournalEntry() {
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const [postOpen, setPostOpen] = useState(false);
   const [detail, setDetail] = useState<JE | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   // Universal row-click primitive (operator ask #4) — replaces the
   // hand-rolled onClick/setDetail on each <tr>. The hook handles
   // modifier-key fall-through, keyboard activation, and tracks the
@@ -250,6 +262,14 @@ export default function InternalJournalEntry() {
             { key: "created_at",        header: "Created",         format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && (
@@ -267,12 +287,12 @@ export default function InternalJournalEntry() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Posting Date</th>
-                <th style={th}>Type</th>
-                <th style={th}>Basis</th>
-                <th style={th}>Description</th>
-                <th style={th}>Source</th>
-                <th style={th}>Status</th>
+                <th style={th} hidden={!visibleColumns.has("posting_date")}>Posting Date</th>
+                <th style={th} hidden={!visibleColumns.has("type")}>Type</th>
+                <th style={th} hidden={!visibleColumns.has("basis")}>Basis</th>
+                <th style={th} hidden={!visibleColumns.has("description")}>Description</th>
+                <th style={th} hidden={!visibleColumns.has("source")}>Source</th>
+                <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
                 <th style={{ ...th, width: 120 }}></th>
               </tr>
             </thead>
@@ -289,15 +309,15 @@ export default function InternalJournalEntry() {
                   }}
                   title="Click to view details"
                 >
-                  <td style={td}>{je.posting_date}</td>
-                  <td style={td}>{je.journal_type}</td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{je.basis}</td>
-                  <td style={td}>
+                  <td style={td} hidden={!visibleColumns.has("posting_date")}>{je.posting_date}</td>
+                  <td style={td} hidden={!visibleColumns.has("type")}>{je.journal_type}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!visibleColumns.has("basis")}>{je.basis}</td>
+                  <td style={td} hidden={!visibleColumns.has("description")}>
                     {je.description}
                     <SourceBadge source={je.source} />
                   </td>
-                  <td style={{ ...td, fontSize: 12, color: C.textMuted }}>{je.source_table || "—"}{je.source_id ? ` / ${je.source_id.slice(0, 8)}…` : ""}</td>
-                  <td style={td}>
+                  <td style={{ ...td, fontSize: 12, color: C.textMuted }} hidden={!visibleColumns.has("source")}>{je.source_table || "—"}{je.source_id ? ` / ${je.source_id.slice(0, 8)}…` : ""}</td>
+                  <td style={td} hidden={!visibleColumns.has("status")}>
                     <span style={{ color: statusColor(je.status), fontWeight: 600 }}>● {je.status}</span>
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
