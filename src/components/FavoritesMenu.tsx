@@ -51,6 +51,21 @@ const TANGERINE_MODULE_TO_MENU_KEY: Record<string, string> = (() => {
   }
   return m;
 })();
+
+// Internal app code (menuKeys `app` field) → the user-facing app name shown on
+// the favorite's badge. The registry stores codes like "tanda" / "powip"; the
+// operator wants the real app names instead (e.g. "tanda" → Tangerine).
+const APP_DISPLAY_NAME: Record<string, string> = {
+  dc: "Design Calendar",
+  ats: "ATS",
+  powip: "PO WIP",
+  tanda: "Tangerine",
+  techpack: "Tech Packs",
+  gs1: "GS1",
+  planning: "Planning",
+  costing: "Costing",
+  vendor: "Vendor Portal",
+};
 import {
   emitFavoritesToast,
   subscribeFavoritesToasts,
@@ -367,7 +382,7 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
                 const label = meta?.label ?? k;
                 const route = meta?.route ?? "/";
                 const icon = meta?.icon;
-                const appTag = meta?.app ? meta.app.toUpperCase() : null;
+                const appTag = meta?.app ? (APP_DISPLAY_NAME[meta.app] ?? meta.app.toUpperCase()) : null;
                 return (
                   <div
                     key={k}
