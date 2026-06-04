@@ -50,6 +50,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 33. [Inventory Planning ⇄ Tangerine (M31 / P17)](33-inventory-planning-to-tangerine-po.md) — both directions: **(A)** approved buy plan → draft native Tangerine POs (Preview/dry-run, cost fallback, coded skips, one-click vendor linking, persistent action→PO deep-link); **(B)** a per-run **supply-source choice** — reconcile against the Xoro/ATS mirror (default) or native Tangerine on-hand + open POs (`🍊 Sync Tangerine supply`).
 34. [Customer Returns & RMA (P19 / M23)](34-returns-rma.md) — the reverse sales flow: raise an RMA, disposition each line (restock → back to FIFO + COGS reversal; scrap → credit only), then issue a credit memo (revenue → Sales Returns & Allowances 4100, reduces AR). Lifecycle requested→approved→received→credited.
 35. [Drop-Ship (P20 / M49)](35-drop-ship.md) — vendor ships direct to the customer (no warehouse, no inventory movement): capture customer + vendor + lines (customer price vs vendor cost → margin), run the lifecycle requested→confirmed→shipped→delivered→closed with carrier/tracking. AR/AP document generation deferred (blocked on the COA).
+36. [Third-Party Logistics — 3PL (P21 / M13)](36-3pl.md) — contract-3PL provider master + inbound/outbound/return shipment tracking (lifecycle draft→in_transit→received→closed, carrier/tracking). Inventory relocation + fee posting deferred.
 
 ## 30-second quickstart
 
