@@ -7,7 +7,7 @@ import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
-import { buildExportPayload, type ExportPayload } from "../exportExcel";
+import { buildExportPayload, type ExportPayload, type AtsSizeMatrixResponse } from "../exportExcel";
 import type { ReportPayload } from "../reportPayload";
 import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
@@ -210,6 +210,8 @@ interface NavBarProps {
     salesAggregates?: SalesFetchResult,
     explodePpk?: boolean,
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
+    sizeMatrix?: AtsSizeMatrixResponse,
+    bulkByStyleColor?: Map<string, { so: number; po: number }>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -858,7 +860,45 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap };
+    // By Size Matrix worksheet: size-grain ATS-available per style (color ×
+    // size + PPK pack count) fetched from /api/internal/ats-size-matrix, plus
+    // a bulk SO/PO overlay per (style, color) from the visible color-grain
+    // rows. Fetch failure simply skips the worksheet — the main report still
+    // exports. The size data is unit-grain eaches; r.onOrder/r.onPO are already
+    // unit-grain (compute.ts applied the pack multiplier), so SO/PO match.
+    let sizeMatrix: AtsSizeMatrixResponse | undefined;
+    let bulkByStyleColor: Map<string, { so: number; po: number }> | undefined;
+    if (opts.bySizeMatrix) {
+      const styleOf = (r: ATSRow) =>
+        (r.master_style && r.master_style.trim()) || String(r.sku || "").split(" - ")[0].trim();
+      const colorOf = (r: ATSRow) =>
+        (r.master_color && r.master_color.trim()) || String(r.sku || "").split(" - ").slice(1).join(" - ").trim();
+      const styleSet = new Set<string>();
+      bulkByStyleColor = new Map();
+      for (const r of finalRows) {
+        if (r.__collapsed) continue; // aggregate rows would double-count SO/PO
+        const style = styleOf(r);
+        if (!style) continue;
+        styleSet.add(style);
+        const k = `${style.toUpperCase()}|${colorOf(r).toUpperCase()}`;
+        const cur = bulkByStyleColor.get(k) ?? { so: 0, po: 0 };
+        cur.so += Number(r.onOrder) || 0;
+        cur.po += Number(r.onPO) || 0;
+        bulkByStyleColor.set(k, cur);
+      }
+      if (styleSet.size > 0) {
+        try {
+          const resp = await fetch("/api/internal/ats-size-matrix", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ style_codes: [...styleSet] }),
+          });
+          if (resp.ok) sizeMatrix = await resp.json();
+        } catch { /* skip the worksheet on fetch failure */ }
+      }
+    }
+
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor };
   }
 
   return (
@@ -1178,6 +1218,8 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.salesAggregates,
           explodePpk,
           prep.customerSoMap,
+          prep.sizeMatrix,
+          prep.bulkByStyleColor,
         );
         setExportOptsOpen(false);
       }}
@@ -1194,6 +1236,8 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.salesAggregates,
           explodePpk,
           prep.customerSoMap,
+          prep.sizeMatrix,
+          prep.bulkByStyleColor,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's
