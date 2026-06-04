@@ -9,6 +9,11 @@ export type CostingStatus =
   | "closed"
   | "cancelled";
 
+// Per-line status. Manual/stored values are draft|closed (user-settable);
+// on_rfq + awarded are derived auto-states layered on top in the app.
+export type CostingLineStatus = "draft" | "closed";
+export type CostingLineEffectiveStatus = "draft" | "on_rfq" | "awarded" | "closed";
+
 export type CostingQuoteStatus =
   | "pending"
   | "received"
@@ -99,6 +104,11 @@ export interface CostingLine {
   landed_cost: number | null;
   margin_pct: number | null;
   selected_vendor_quote_id: string | null;
+  /** Manual per-line status: 'draft' (default) or 'closed'. The on_rfq +
+   *  awarded states are derived (see _on_rfq + selected_vendor_quote_id). */
+  status: CostingLineStatus | null;
+  /** Derived (read-only, from the lines GET): the line is on a generated RFQ. */
+  _on_rfq?: boolean;
   ly_qty: number | null;
   ly_unit_cost: number | null;
   ly_total_margin: number | null;

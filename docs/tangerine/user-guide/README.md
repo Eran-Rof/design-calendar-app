@@ -1,8 +1,8 @@
 # Tangerine ERP — User Guide
 
-The operator + accountant guide for the Tangerine ERP. It began (chapters 01–06) as the guide for the 6 admin panels shipped in Phase 1 — **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries** — and now spans through **P18** (Sales, Procurement, B2B, the size-matrix initiative, and brand-scoped accounting). Tangerine has its own URL and top nav at **`/tangerine`** — separate from the Tanda PO WIP app.
+The operator + accountant guide for the Tangerine ERP. It began (chapters 01–06) as the guide for the 6 admin panels shipped in Phase 1 — **Style Master · Vendor Master · Customer Master · Chart of Accounts · Periods · Journal Entries** — and now spans through **P17/M31** (Sales, Procurement, Pricing, B2B, the size-matrix initiative, brand-scoped accounting, and the Inventory-Planning ⇄ Tangerine integration). Tangerine has its own URL and top nav at **`/tangerine`** — separate from the Tanda PO WIP app.
 
-> **Coverage:** chapters 01–25 cover P1–P14 (foundation → RBAC/identity). Chapters 26–30 cover P15 (brand scope), P16 (Sales: SO / allocations / shipping / native PO / size matrix), and P18 (B2B portal), plus the P16 master-data / CRM / HR operator batches.
+> **Coverage:** chapters 01–25 cover P1–P14 (foundation → RBAC/identity). Chapters 26–33 cover P15 (brand scope), P16 (Sales: SO / allocations / shipping / native PO / size matrix), P18 (B2B portal), the P16 master-data / CRM / HR operator batches, **M43 Pricing (ch31)**, **P13 Procurement (ch32)**, and **M31/P17 Planning ⇄ Tangerine (ch33)**.
 
 ## Who this is for
 
