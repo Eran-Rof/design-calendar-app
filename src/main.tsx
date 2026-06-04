@@ -131,6 +131,12 @@ async function mount() {
     const { default: B2BApp } = await import("./b2b/B2BApp");
     root.render(<StrictMode><ErrorBoundary appName="B2B Portal"><B2BApp /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/login")) {
+    // Standalone Tangerine-branded front door (Microsoft-365 sign-in). Always
+    // reachable; becomes the root "/" once VITE_TANGERINE_AS_HOME is flipped on.
+    const { default: TangerineLogin } = await import("./TangerineLogin");
+    root.render(<StrictMode><ErrorBoundary appName="Sign in"><TangerineLogin /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/design")) {
     if (!canAccessAppFromSession("design")) {
       root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><AppAccessBlocked appName="Design Calendar" /></ErrorBoundary></StrictMode>);
@@ -294,8 +300,13 @@ async function mount() {
         </ErrorBoundary>
       </StrictMode>,
     );
+  } else if (appConfig.tangerineAsHome) {
+    // Go-live: Tangerine is the front door. Root "/" sends users to the
+    // standalone Tangerine login (which no-ops straight through if they already
+    // hold a valid MS token). The PLM launcher is retired in this mode.
+    window.location.replace("/login");
   } else {
-    // Root "/" — PLM Launcher
+    // Root "/" — PLM Launcher (default until VITE_TANGERINE_AS_HOME is flipped).
     const { default: PLMApp } = await import("./PLM");
     root.render(<StrictMode><ErrorBoundary appName="PLM"><PLMApp /></ErrorBoundary></StrictMode>);
   }
