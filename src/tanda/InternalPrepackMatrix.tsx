@@ -14,8 +14,9 @@
 //     white cells are pre-filled (PPK Style Code, Matrix Name from master, Pack
 //     Token, Carton Qty); the user fills YELLOW cells — one uniform Units /
 //     Inner Pack plus each Size cell (= the NUMBER OF INNER PACKS of that size);
-//     GREEN cells auto-compute (Num Inner Packs, Inner Pack Total, Unit Total,
-//     Status). Carton units for a size = inner packs × Units/Inner Pack.
+//     GREEN cells auto-compute: Num Inner Packs (= Σ of the per-size inner
+//     packs), Unit Total (= Num Inner Packs × Units/Inner Pack), Status (OK when
+//     Unit Total = Carton Qty). Carton units for a size = inner packs × Units/Inner Pack.
 //   • Upload → parseWorkbook reads EVERY sheet, section-aware (title / band /
 //     blank / legend rows skipped; a "PPK Style Code" header re-establishes
 //     columns). Accepts the inner-pack format, the long format (one row per
@@ -190,7 +191,7 @@ function compositionLabel(sizes: SizeRow[]): string {
 // INNER PACKS of that size. Layout matches the operator's mockup:
 //   WHITE  = pre-filled by us  (PPK Style Code, Matrix Name, Pack Token, Carton Qty)
 //   YELLOW = the user fills     (Units / Inner Pack + each Size cell)
-//   GREEN  = auto formula       (Num Inner Packs, Inner Pack Total, Unit Total, Status)
+//   GREEN  = auto formula       (Num Inner Packs = Σ sizes, Unit Total = Num Inner Packs × Units/Inner Pack, Status)
 // On upload we read only the yellow inputs: per size, inner_pack_qty = the cell,
 // qty_per_pack (carton units) = cell × Units/Inner Pack.
 const _thin = { style: "thin", color: { rgb: "BFBFBF" } };
@@ -218,8 +219,8 @@ type FillItem = { ppk_style_code: string; style_name: string; pack_token: string
 function buildPrepackSheet(sizes: string[], items: FillItem[]) {
   const col = (c: number) => XLSXStyle.utils.encode_col(c);
   const N = sizes.length;
-  const sizeStart = 6, iptCol = 6 + N, unitCol = 7 + N, statusCol = 8 + N, totalCols = 9 + N;
-  const D = col(3), F = col(5), IPT = col(iptCol), UNIT = col(unitCol);
+  const sizeStart = 6, unitCol = 6 + N, statusCol = 7 + N, totalCols = 8 + N;
+  const D = col(3), F = col(5), IP = col(4), UNIT = col(unitCol);
   const first = col(sizeStart), last = col(sizeStart + N - 1);
   const grid: Cell[][] = [];
 
@@ -233,7 +234,7 @@ function buildPrepackSheet(sizes: string[], items: FillItem[]) {
   grid.push(bandRow);
   // Row 3 — headers.
   const headers = ["PPK Style Code", "Matrix Name", "Pack Token", "Carton Qty", "Num Inner Packs", "Units / Inner Pack",
-    ...sizes.map((z) => `Size ${z}`), "Inner Pack Total", "Unit Total", "Status"];
+    ...sizes.map((z) => `Size ${z}`), "Unit Total", "Status"];
   grid.push(headers.map((t) => sCell(t, ST.hdr)));
 
   // Data rows.
@@ -244,12 +245,11 @@ function buildPrepackSheet(sizes: string[], items: FillItem[]) {
     row[1] = sCell(it.style_name || "", ST.white);
     row[2] = sCell(it.pack_token || "", ST.whiteC);
     row[3] = nCell(it.carton_qty ?? "", ST.whiteC);
-    row[4] = fCell(`IFERROR(${D}${r}/${F}${r},"")`, ST.green);                 // Num Inner Packs
+    row[4] = fCell(`SUM(${first}${r}:${last}${r})`, ST.green);                 // Num Inner Packs = Σ per-size inner packs
     row[5] = nCell(it.upp ?? "", ST.yellow);                                   // Units / Inner Pack
     sizes.forEach((z, si) => { row[sizeStart + si] = nCell(it.sizeIp ? (it.sizeIp[z] ?? "") : "", ST.yellow); });
-    row[iptCol] = fCell(`SUM(${first}${r}:${last}${r})`, ST.green);            // Inner Pack Total
-    row[unitCol] = fCell(`${IPT}${r}*${F}${r}`, ST.green);                     // Unit Total
-    row[statusCol] = fCell(`IF(${UNIT}${r}=${D}${r},"OK","CHECK")`, ST.green); // Status
+    row[unitCol] = fCell(`${IP}${r}*${F}${r}`, ST.green);                      // Unit Total = Num Inner Packs × Units / Inner Pack
+    row[statusCol] = fCell(`IF(${UNIT}${r}=${D}${r},"OK","CHECK")`, ST.green); // Status: Unit Total vs Carton Qty
     grid.push(row);
   }
 
@@ -264,7 +264,7 @@ function buildPrepackSheet(sizes: string[], items: FillItem[]) {
 
   const ws = (XLSXStyle.utils.aoa_to_sheet as any)(grid);
   ws["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 13 }, { wch: 14 },
-    ...sizes.map(() => ({ wch: 7 })), { wch: 14 }, { wch: 11 }, { wch: 9 }];
+    ...sizes.map(() => ({ wch: 7 })), { wch: 11 }, { wch: 9 }];
   ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }, { s: { r: 1, c: 4 }, e: { r: 1, c: 5 } }];
   return ws;
 }
