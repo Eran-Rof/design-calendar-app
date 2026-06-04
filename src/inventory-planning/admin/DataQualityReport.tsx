@@ -28,6 +28,7 @@ export default function DataQualityReport() {
   const [error, setError] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<IpDqSeverity | "all">("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [truncated, setTruncated] = useState<string[]>([]);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function runScan() {
@@ -35,6 +36,7 @@ export default function DataQualityReport() {
     setError(null);
     try {
       const snap = await loadPlanningSnapshot();
+      setTruncated(snap.truncatedTables);
       const r = scanDataQuality(snap);
       setReport(r);
     } catch (e) {
@@ -79,6 +81,16 @@ export default function DataQualityReport() {
       </div>
 
       {error && <div style={{ color: "#c53030", marginBottom: 16 }}>Error: {error}</div>}
+
+      {truncated.length > 0 && (
+        <div style={{
+          marginBottom: 16, padding: "8px 12px", borderRadius: 6,
+          background: "#fffbeb", border: "1px solid #f6e05e", color: "#744210", fontSize: 13,
+        }}>
+          ⚠ Partial scan: {truncated.join(", ")} exceeded the row ceiling, so cross-row
+          checks (orphans, duplicates) may be incomplete. Treat results as indicative.
+        </div>
+      )}
 
       {report && (
         <>
