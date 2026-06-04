@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-04 (Tangerine front-door switch added)
+**Last updated:** 2026-06-04 (SaaS-finalize decision + user-guide screenshot list added)
 
 ---
 
@@ -44,7 +44,9 @@ These modules are **built and shipped** but produce nothing / stay inert until y
 
 ## 🔵 Decisions the operator must make
 
-_(none open — the `ip_item_master` dup-SKU cleanup that was here is now built; see ✅ Done.)_
+| Decision | Detail |
+|---|---|
+| **Finalize the SaaS build** (multi-tenant isolation) | The SaaS / multi-tenant initiative was deliberately **deferred** pending a real 2nd tenant or ~Xoro-decommission (verified 2026-06-02). Operator now wants it on the list to **finalize**. Four concrete deliverables make up "SaaS gap #1": (1) **GUC/session wiring** so the DB knows the current tenant per request; (2) **entity-scoped RLS** — today's 469 policies are anon-permissive / 0 entity-scoped, the headline risk is the browser→PostgREST path (server handlers already fail-closed); (3) an **entity claim in the per-user JWT** (the JWT bridge exists — `TANGERINE_JWT_SECRET` set — but carries no entity); (4) move the browser off the single shared anon key. **Operator call needed:** schedule this now vs. keep waiting for the 2nd tenant. It's a multi-week hardening phase, not a single PR — say the word and I'll scope it into chunks. _(see `project_saas_isolation_verified_2026_06_02` memory.)_ |
 
 ### 🟠 Brand-scope enforcement — go-live checklist (`BRAND_SCOPE_MODE=enforce`)
 
@@ -56,6 +58,54 @@ Everything below is **built and inert today**; flipping the flag turns it on. Do
 4. ~~Build partition-aware FIFO consumption~~ ✅ **DONE (#692)** — a sale draws from its brand pool when enforcing; inert (draws all layers) until then. **No remaining P15 dev work** — the steps above/below are operator config only.
 5. **Set `BRAND_SCOPE_MODE=log`** on Vercel; watch the silent-log telemetry for a few days; spot-check that a brand-filtered Income Statement / AR aging foots to the "All brands" total.
 6. **Flip to `enforce`.** From then on: manual JE + AP postings auto-split by allocation %, reports filter by the brand switcher, and inventory separates by pool.
+
+## 🖼️ User-guide screenshots to supply
+
+The Tangerine user guide (`docs/tangerine/user-guide/`) needs images. **You take each screenshot and drop the PNG at the given path** (create `docs/tangerine/user-guide/screenshots/` if it doesn't exist), then it renders in the guide. **14 are already referenced (the link is live but the file is missing → shows broken)** — those are priority. The rest are net-new suggestions for chapters that describe a screen but have no picture.
+
+### Priority — referenced in the guide but file is missing (14)
+
+| Chapter | File to drop at `…/screenshots/` | Screenshot should show |
+|---|---|---|
+| 01 Getting Started | `01-tangerine-login.png` | Branded login: orange T logo + "Sign in with Microsoft" |
+| 01 Getting Started | `01-tangerine-home.png` | Home landing: top nav + module cards by group |
+| 01 Getting Started | `01-tangerine-apps-launcher.png` | 🧩 Apps dropdown open (all suite app links) |
+| 02 Master Data | `02-style-master-list.png` | Style Master list (search, columns, rows) |
+| 02 Master Data | `02-style-master-add-modal.png` | Add Style modal with all fields |
+| 02 Master Data | `02-vendor-master-list.png` | Vendor Master list (Code, Name, Country, 1099?, Terms) |
+| 02 Master Data | `02-customer-master-list.png` | Customer Master list with type filter |
+| 03 Accounting | `03-coa-list.png` | Chart of Accounts list (Code/Name/Type/Balance/Control) |
+| 03 Accounting | `03-coa-add-modal.png` | COA add modal (normal_balance auto-fills) |
+| 03 Accounting | `03-coa-delete-blocked.png` | 409 "account has posted lines" alert |
+| 03 Accounting | `03-periods-list.png` | FY2026 periods with status badges |
+| 03 Accounting | `03-je-list.png` | Journal Entries list (posted + reversed) |
+| 03 Accounting | `03-je-post-modal-balanced.png` | Post JE modal, green "● Balanced" |
+| 03 Accounting | `03-je-post-modal-unbalanced.png` | Post JE modal, red "out of balance", Post disabled |
+
+### Nice-to-have — chapters describing a screen with no image (suggested filenames)
+
+| Chapter | Suggested file | Screenshot should show |
+|---|---|---|
+| 13 AP | `13-ap-invoices-list.png` / `13-ap-invoice-add-modal.png` / `13-ap-payment-modal.png` | AP invoice list, new-draft modal, payment capture |
+| 16 AR | `16-ar-invoices-list.png` / `16-ar-invoice-add-modal.png` / `16-ar-invoices-filters.png` | AR invoice list, new-draft modal, filter row |
+| 17 Bank Recon | `17-bank-recon-plaid-link.png` / `17-bank-recon-match-engine.png` | Plaid link / connected account; ±5-day match results |
+| 20 CRM | `20-crm-sales-pipeline.png` / `20-crm-activity-log.png` | Pipeline stages; activity timeline |
+| 21 PIM | `21-pim-product-catalog.png` | Category tree + style detail + image library |
+| 24 User Access | `24-user-access-matrix.png` | Permission matrix (modules × actions) |
+| 26 Brand/GL Alloc | `26-brand-allocation-editor.png` | Per-account brand % splits totalling 100% |
+| 27 Sales Orders | `27-sales-order-list.png` / `27-allocations-workbench.png` | SO list; allocations workbench |
+| 28 PO & Matrix | `28-purchase-order-list.png` / `28-size-matrix-grid.png` | PO list; size matrix grid |
+| 29 B2B Portal | `29-b2b-portal-landing.png` | `/b2b` landing (account, invoices, reorder) |
+| 30 Reference Masters | `30-countries-genders-master.png` | Countries/Genders master with auto-codes |
+| 31 Pricing | `31-price-list-editor.png` | Price list + qty breaks + promotions |
+| 32 Receiving | `32-receiving-against-po.png` | Receiving against PO + QC dispositions |
+| 33 Planning⇄Tangerine | `33-create-tangerine-pos.png` | Buy plan → "Create Tangerine POs" flow |
+| 34 Returns/RMA | `34-rma-lifecycle.png` | RMA raise→approve→receive→credit |
+| 35 Drop-Ship | `35-dropship-order.png` | Drop-ship order + margin + tracking |
+| 36 3PL | `36-3pl-shipment.png` | 3PL shipment lifecycle |
+| 37 EDI | `37-edi-message-log.png` | EDI message log (doc types + status) |
+| 38 Reports Hub | `38-reports-landing.png` | Reports hub KPI tiles + report links |
+| 39 Fixed Assets/Budgets/1099 | `39-fixed-asset-register.png` / `39-budget-vs-actual.png` | Asset register; budget-vs-actual variance |
 
 ## ✅ Done
 
