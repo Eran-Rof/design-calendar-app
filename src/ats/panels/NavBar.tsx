@@ -212,6 +212,7 @@ interface NavBarProps {
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
     sizeMatrix?: AtsSizeMatrixResponse,
     bulkByStyleColor?: Map<string, { so: number; po: number }>,
+    periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -868,6 +869,7 @@ export const NavBar: React.FC<NavBarProps> = ({
     // unit-grain (compute.ts applied the pack multiplier), so SO/PO match.
     let sizeMatrix: AtsSizeMatrixResponse | undefined;
     let bulkByStyleColor: Map<string, { so: number; po: number }> | undefined;
+    let periodMatrices: Array<{ name: string; matrix: AtsSizeMatrixResponse }> | undefined;
     if (opts.bySizeMatrix) {
       const styleOf = (r: ATSRow) =>
         (r.master_style && r.master_style.trim()) || String(r.sku || "").split(" - ")[0].trim();
@@ -887,18 +889,44 @@ export const NavBar: React.FC<NavBarProps> = ({
         bulkByStyleColor.set(k, cur);
       }
       if (styleSet.size > 0) {
-        try {
-          const resp = await fetch("/api/internal/ats-size-matrix", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ style_codes: [...styleSet] }),
-          });
-          if (resp.ok) sizeMatrix = await resp.json();
-        } catch { /* skip the worksheet on fetch failure */ }
+        const styleCodes = [...styleSet];
+        const fetchMatrix = async (asOf?: string): Promise<AtsSizeMatrixResponse | null> => {
+          try {
+            const resp = await fetch("/api/internal/ats-size-matrix", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(asOf ? { style_codes: styleCodes, as_of_date: asOf } : { style_codes: styleCodes }),
+            });
+            return resp.ok ? await resp.json() : null;
+          } catch { return null; }
+        };
+        // Snapshot (total) matrix.
+        sizeMatrix = (await fetchMatrix()) ?? undefined;
+
+        // One matrix per selected report period, AS OF that period's end date.
+        // Capped to keep the workbook + fetch fan-out reasonable.
+        const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const toIso = (d: string): string | null => {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+          const dt = new Date(d);
+          return isNaN(dt.getTime()) ? null : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+        };
+        const nameOf = (endDate: string, label: string) => {
+          const dt = new Date(endDate);
+          return isNaN(dt.getTime()) ? label : `${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`;
+        };
+        const periodsToFetch = displayPeriods.slice(0, 24);
+        const fetched = await Promise.all(periodsToFetch.map(async (p) => {
+          const iso = toIso(p.endDate);
+          if (!iso) return null;
+          const matrix = await fetchMatrix(iso);
+          return matrix ? { name: nameOf(p.endDate, p.label), matrix } : null;
+        }));
+        periodMatrices = fetched.filter(Boolean) as Array<{ name: string; matrix: AtsSizeMatrixResponse }>;
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor };
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices };
   }
 
   return (
@@ -1220,6 +1248,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.customerSoMap,
           prep.sizeMatrix,
           prep.bulkByStyleColor,
+          prep.periodMatrices,
         );
         setExportOptsOpen(false);
       }}
@@ -1238,6 +1267,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.customerSoMap,
           prep.sizeMatrix,
           prep.bulkByStyleColor,
+          prep.periodMatrices,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's
