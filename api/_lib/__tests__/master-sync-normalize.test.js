@@ -255,6 +255,26 @@ describe("computeCompliance", () => {
     expect(c.compliance_pct).toBe(80);
     expect(c.buckets.GENDER_MISMATCH).toBe(1);
     expect(c.buckets.GENDER_INVALID).toBe(1);
+    // Gate forgives the 1 GENDER_MISMATCH (advisory) but NOT the
+    // GENDER_INVALID: (8 OK + 1 advisory) / 10 = 90%.
+    expect(c.advisory_count).toBe(1);
+    expect(c.gate_compliance_pct).toBe(90);
+  });
+
+  it("forgives GENDER_MISMATCH at the gate while still reporting it (strict < gate)", () => {
+    // 98 OK + 2 GENDER_MISMATCH → strict 98% (would block at 99), but the
+    // gate forgives both advisory rows → 100%.
+    const rows = [];
+    for (let i = 0; i < 98; i++) {
+      rows.push({ BasePartNumber: `RYG${1000 + i}`, GenderCode: "M", Option1Value: "BLACK", Description: "Tee" });
+    }
+    rows.push({ BasePartNumber: "RYG9001", GenderCode: "W", Option1Value: "BLACK", Description: "Tee" });
+    rows.push({ BasePartNumber: "RYG9002", GenderCode: "G", Option1Value: "BLACK", Description: "Tee" });
+    const c = computeCompliance(rows, rows.map(normalizeRow));
+    expect(c.buckets.GENDER_MISMATCH).toBe(2);
+    expect(c.compliance_pct).toBe(98);       // still reported
+    expect(c.advisory_count).toBe(2);
+    expect(c.gate_compliance_pct).toBe(100); // gate forgives
   });
 
   it("counts auto_corrected when a row changed but ended OK", () => {
@@ -292,21 +312,38 @@ describe("handler gate logic (compliance >= threshold)", () => {
     const c = computeCompliance(rows, normalized);
     return {
       compliance: c,
-      // Mirror sync.js: empty upload passes vacuously; otherwise compare.
-      blocked: rows.length > 0 && c.compliance_pct < THRESHOLD,
+      // Mirror sync.js: empty upload passes vacuously; otherwise compare
+      // the gate (advisory-forgiving) pct to the threshold.
+      blocked: rows.length > 0 && c.gate_compliance_pct < THRESHOLD,
     };
   }
 
-  it("blocks a sub-99% upload (no upsert path entered)", () => {
-    // 90% compliant = 9 OK + 1 bad
+  it("blocks a sub-99% upload with a NON-advisory failure (no upsert path entered)", () => {
+    // 90% gate-compliant = 9 OK + 1 GENDER_INVALID (a hard failure that
+    // the gate does NOT forgive, unlike GENDER_MISMATCH).
+    const rows = [];
+    for (let i = 0; i < 9; i++) {
+      rows.push({ BasePartNumber: "RYG" + (1000 + i), GenderCode: "M", Option1Value: "BLACK", Description: "Tee" });
+    }
+    rows.push({ BasePartNumber: "TEST9999", GenderCode: "Q", Option1Value: "BLACK", Description: "Tee" });
+    const { blocked, compliance } = gate(rows);
+    expect(blocked).toBe(true);
+    expect(compliance.gate_compliance_pct).toBe(90);
+    expect(compliance.buckets.GENDER_INVALID).toBe(1);
+  });
+
+  it("does NOT block an upload whose only failures are GENDER_MISMATCH (advisory)", () => {
+    // 9 OK + 1 GENDER_MISMATCH → strict 90% (would have blocked before),
+    // but the gate forgives the mismatch → 100%, so it passes.
     const rows = [];
     for (let i = 0; i < 9; i++) {
       rows.push({ BasePartNumber: "RYG" + (1000 + i), GenderCode: "M", Option1Value: "BLACK", Description: "Tee" });
     }
     rows.push({ BasePartNumber: "RYG9999", GenderCode: "W", Option1Value: "BLACK", Description: "Tee" });
     const { blocked, compliance } = gate(rows);
-    expect(blocked).toBe(true);
+    expect(blocked).toBe(false);
     expect(compliance.compliance_pct).toBe(90);
+    expect(compliance.gate_compliance_pct).toBe(100);
     expect(compliance.buckets.GENDER_MISMATCH).toBe(1);
   });
 

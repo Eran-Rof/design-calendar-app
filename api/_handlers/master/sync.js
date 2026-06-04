@@ -196,19 +196,28 @@ export default async function handler(req, res) {
     ? overrideNum
     : DEFAULT_COMPLIANCE_THRESHOLD_PCT;
 
-  if (csvRows.length > 0 && compliance.compliance_pct < threshold) {
+  // Gate on gate_compliance_pct, which forgives ADVISORY_BUCKETS
+  // (GENDER_MISMATCH). The prefix-rule-vs-Xoro gender disagreement is a
+  // source-data review item, not a reason to reject the whole snapshot —
+  // and the local daily_check.py path already treats it as compliant, so
+  // gating on the strict pct here left the two metrics permanently at odds
+  // (server saw 97.9% while the nightly email reported 99.95%). The strict
+  // compliance_pct + bucket counts are still surfaced for telemetry.
+  if (csvRows.length > 0 && compliance.gate_compliance_pct < threshold) {
     // Hard fail: do NOT upsert anything. Mirrors post_master_data.py's
     // exit 5 abort behavior — the DB never sees a sub-threshold snapshot.
     return res.status(422).json({
       error: "compliance_gate_failed",
       request_id: requestId,
       compliance_pct: compliance.compliance_pct,
+      gate_compliance_pct: compliance.gate_compliance_pct,
+      advisory_count: compliance.advisory_count,
       threshold_pct: threshold,
       scanned: compliance.scanned,
       compliant: compliance.compliant,
       auto_corrected: compliance.auto_corrected,
       buckets: compliance.buckets,
-      message: `Compliance ${compliance.compliance_pct}% < ${threshold}% threshold; refusing upsert.`,
+      message: `Gate compliance ${compliance.gate_compliance_pct}% < ${threshold}% threshold; refusing upsert. (strict ${compliance.compliance_pct}%, ${compliance.advisory_count} advisory rows forgiven)`,
     });
   }
 
@@ -222,6 +231,8 @@ export default async function handler(req, res) {
     // Surface normalization + compliance metrics so the nightly log + the
     // operator's daily email reflect server-side scrub status.
     compliance_pct: compliance.compliance_pct,
+    gate_compliance_pct: compliance.gate_compliance_pct,
+    advisory_count: compliance.advisory_count,
     compliance_threshold_pct: threshold,
     normalization: {
       scanned: compliance.scanned,
