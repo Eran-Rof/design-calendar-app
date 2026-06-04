@@ -596,6 +596,11 @@ import h611 from "./internal/ats-size-matrix.js";
 import h612 from "./internal/sales-returns/index.js";
 import h613 from "./internal/sales-returns/[id].js";
 import h614 from "./internal/sales-returns/[id]/credit-memo.js";
+// P20/M49 — Drop-ship management.
+//   h615 = GET/POST /api/internal/drop-ship          (list + create)
+//   h616 = GET/PATCH/DELETE /api/internal/drop-ship/:id (detail + lifecycle + tracking)
+import h615 from "./internal/drop-ship/index.js";
+import h616 from "./internal/drop-ship/[id].js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1134,6 +1139,8 @@ export const ROUTES = [
   { pattern: "/api/internal/ats-by-size", handler: h603 },
   { pattern: "/api/internal/ats-size-matrix", handler: h611 },
   { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: h614 },
+  { pattern: "/api/internal/drop-ship/:id", handler: h616 },
+  { pattern: "/api/internal/drop-ship", handler: h615 },
   { pattern: "/api/internal/sales-returns/:id", handler: h613 },
   { pattern: "/api/internal/sales-returns", handler: h612 },
   // Prepack Matrix Driver master — :id before bare collection (first-match-wins)

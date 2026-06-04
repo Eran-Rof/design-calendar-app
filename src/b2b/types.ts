@@ -26,6 +26,7 @@ export interface CatalogItem {
   price_cents: number | null;   // null = "Call for price"
   currency: string | null;
   min_qty: number | null;
+  image_url?: string | null;    // primary product image (when available); null → placeholder
 }
 
 // Client-side cart line (persisted in localStorage). Price is shown for the
