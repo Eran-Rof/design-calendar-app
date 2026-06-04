@@ -140,8 +140,17 @@ async function mount() {
     }
 
   } else if (path.startsWith("/tangerine")) {
-    const { default: Tangerine } = await import("./Tangerine");
-    root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
+    // Gate by the PLM per-user permission when a plm_user session exists.
+    // Default-true semantics (canAccessAppFromSession returns true with no
+    // session) means a direct Microsoft-OAuth entrant — who has no plm_user
+    // blob — still reaches Tangerine's own MS sign-in gate untouched; only a
+    // PLM-session user explicitly set to tangerine.access=false is blocked.
+    if (!canAccessAppFromSession("tangerine")) {
+      root.render(<StrictMode><ErrorBoundary appName="Tangerine"><AppAccessBlocked appName="Tangerine ERP" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: Tangerine } = await import("./Tangerine");
+      root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/tanda")) {
     if (!canAccessAppFromSession("tanda")) {
