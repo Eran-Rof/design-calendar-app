@@ -189,7 +189,7 @@ A style that has been cut over shows true per-size on-hand; one that hasn't stil
 
 ## 28.7 Prepack matrices + Explode-PPK
 
-**Where:** `/tangerine?m=prepack_matrices` · group **📦 Inventory** · icon 📦
+**Where:** `/tangerine?m=prepack_matrices` · group **📚 Master Data** · icon 📦 _(moved from Inventory — it's a master, like Size Scales)_
 
 Prepacks (PPK) hold inventory in **packs**, not eaches: a pack SKU has a `style_code` ending in `PPK` (e.g. `RYB059430PPK`) and `size` = the pack token (`PPK24`). Nothing else in Tangerine knows a pack's per-garment-size breakdown. The Prepack Matrix driver master (PR #786) supplies it.
 
