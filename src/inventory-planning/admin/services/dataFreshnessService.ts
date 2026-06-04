@@ -78,8 +78,13 @@ export async function loadFreshnessSignals(): Promise<IpFreshnessSignal[]> {
       fallback: { path: "raw_xoro_payloads?endpoint=eq.inventory-snapshot", column: "ingested_at" },
     },
     {
+      // Open POs are upsert-refreshed nightly (existing POs change in place;
+      // created_at only moves when a brand-new PO first appears). Read
+      // updated_at so the signal reflects the last nightly refresh, not the
+      // last brand-new PO — otherwise the banner false-positives whenever no
+      // new PO has been opened within the threshold window.
       entity: "xoro_open_pos",
-      primary: { path: "ip_open_purchase_orders?select=created_at", column: "created_at" },
+      primary: { path: "ip_open_purchase_orders?select=updated_at", column: "updated_at" },
       fallback: { path: "raw_xoro_payloads?endpoint=eq.open-pos", column: "ingested_at" },
     },
     {
