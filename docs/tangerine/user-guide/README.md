@@ -52,6 +52,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 35. [Drop-Ship (P20 / M49)](35-drop-ship.md) — vendor ships direct to the customer (no warehouse, no inventory movement): capture customer + vendor + lines (customer price vs vendor cost → margin), run the lifecycle requested→confirmed→shipped→delivered→closed with carrier/tracking. AR/AP document generation deferred (blocked on the COA).
 36. [Third-Party Logistics — 3PL (P21 / M13)](36-3pl.md) — contract-3PL provider master + inbound/outbound/return shipment tracking (lifecycle draft→in_transit→received→closed, carrier/tracking). Inventory relocation + fee posting deferred.
 37. [EDI — Electronic Data Interchange (P22 / M14)](37-edi.md) — surfaces the existing vendor-side X12 engine: enable EDI for a vendor (partner/ISA ID) + a global message log (850 PO · 855 ack · 856 ASN · 810 invoice · 820 payment · 997). Transport + retailer-side EDI deferred.
+39. [Fixed Assets · Budgets · 1099 (P25)](39-finance-fixed-assets-budgets-1099.md) — fixed-asset register + straight-line depreciation (M21), GL budgets + budget-vs-actual (M22), and a year-end 1099-NEC worksheet (M20). Sales Tax + Public API deferred.
 
 ## 30-second quickstart
 
