@@ -15,6 +15,7 @@ import FavoritesMenu from "./components/FavoritesMenu";
 import EntitySwitcher from "./components/EntitySwitcher";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { techpackViewToMenuKey } from "./lib/techpackViewToMenuKey";
+import { useDocumentTitle, humanizeView } from "./shared/useDocumentTitle";
 import { sb, appDataSave } from "./techpack/supabase";
 import { graphGet, graphPost, type GraphSession } from "./techpack/msGraph";
 import { EMAIL_COLORS, FolderIcon } from "./techpack/emailStyles";
@@ -136,6 +137,12 @@ import { TemplatesModal } from "./techpack/modals/TemplatesModal";
 // Local alias keeps the call sites short.
 import { canSeeCostingTabFromSession as canSeeCostingTab } from "./permissions";
 
+// Browser-tab labels for the Tech Pack views; humanizeView() handles the rest.
+const TECHPACK_VIEW_LABELS: Record<string, string> = {
+  list:   "All Packs",
+  detail: "Pack Detail",
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
@@ -156,6 +163,8 @@ export default function TechPackApp() {
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [view, setViewRaw] = useState<View>("dashboard");
+  // Reflect the active view in the browser tab.
+  useDocumentTitle(`${TECHPACK_VIEW_LABELS[view] ?? humanizeView(view)} · Tech Packs`);
   // Cross-cutter T4-5 — personalization. Pull logClick once; the hook
   // is cheap and shares a module-level cache so re-mounts don't refetch.
   // setView wraps the raw setter with fire-and-forget menu-click telemetry.

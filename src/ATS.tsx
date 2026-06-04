@@ -29,6 +29,14 @@ import EntitySwitcher from "./components/EntitySwitcher";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { atsViewToMenuKey } from "./lib/atsViewToMenuKey";
 import { packGzipEnvelope, unpackGzipEnvelope } from "./utils/gzipBase64";
+import { useDocumentTitle } from "./shared/useDocumentTitle";
+
+// Browser-tab labels for the three ATS grid pivots (viewMode).
+const ATS_VIEW_LABELS: Record<string, string> = {
+  ats: "ATS Grid",
+  so:  "Sales Orders",
+  po:  "Purchase Orders",
+};
 
 // ── Main Component ────────────────────────────────────────────────────────────
 function readPlmUserId(): string | null {
@@ -85,6 +93,8 @@ function ATSReport() {
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
   } = st;
+  // Reflect the active grid pivot in the browser tab.
+  useDocumentTitle(`${ATS_VIEW_LABELS[viewMode] ?? "ATS"} · ATS`);
   const setStartDate         = mk("startDate");
   const setRangeUnit         = mk("rangeUnit");
   const setRangeValue        = mk("rangeValue");

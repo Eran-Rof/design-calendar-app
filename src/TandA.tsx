@@ -85,6 +85,19 @@ import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { tandaViewToMenuKey } from "./lib/tandaViewToMenuKey";
+import { useDocumentTitle, humanizeView } from "./shared/useDocumentTitle";
+
+// Browser-tab labels for the PO WIP views. Only keys humanizeView() can't
+// derive cleanly are listed; everything else falls back to title-case.
+const PO_WIP_VIEW_LABELS: Record<string, string> = {
+  list:       "All POs",
+  detail:     "PO Detail",
+  vendors:    "Vendor Directory",
+  rfqs:       "RFQs",
+  scf:        "Supply Chain Finance",
+  fx:         "FX",
+  esg_scores: "ESG Scores",
+};
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sb = {
@@ -442,6 +455,8 @@ function TandAApp() {
   // ── Core PO state (from useTandaStore) ──
   const user = core.user;
   const view = core.view;
+  // Reflect the active view in the browser tab.
+  useDocumentTitle(`${PO_WIP_VIEW_LABELS[view] ?? humanizeView(view)} · PO WIP`);
   const pos = core.pos;
   const notes = core.notes;
   const selected = core.selected;
