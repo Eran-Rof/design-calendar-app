@@ -38,6 +38,14 @@ import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
 import InternalAllocations        from "./tanda/InternalAllocations";
+import InternalSalesReturns       from "./tanda/InternalSalesReturns";
+import InternalDropShip          from "./tanda/InternalDropShip";
+import InternalThreePL           from "./tanda/InternalThreePL";
+import InternalEDI               from "./tanda/InternalEDI";
+import InternalReportsHub        from "./tanda/InternalReportsHub";
+import InternalFixedAssets       from "./tanda/InternalFixedAssets";
+import InternalBudgets           from "./tanda/InternalBudgets";
+import InternalForm1099          from "./tanda/InternalForm1099";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalReceiving          from "./tanda/InternalReceiving";
 import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
@@ -112,6 +120,8 @@ import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+import { AskAIPanel } from "./ai/AskAIPanel";
+import type { GridContextSnapshot } from "./ai/tools";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme — match the dark Tanda palette so the admin panels (which use the
@@ -160,6 +170,14 @@ type ModuleKey =
   | "ar_receipts"
   | "sales_orders"
   | "sales_allocations"
+  | "sales_returns"
+  | "drop_ship"
+  | "three_pl"
+  | "edi"
+  | "reports_hub"
+  | "fixed_assets"
+  | "budgets"
+  | "form_1099"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -299,6 +317,14 @@ const MODULES: ModuleDef[] = [
   { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
   // P16/M18 — Allocations Workbench (cross-SO allocation).
   { key: "sales_allocations", label: "Allocations",       emoji: "📊", group: "Sales" },
+  { key: "sales_returns",     label: "Returns/RMA",        emoji: "↩️", group: "Sales" },
+  { key: "drop_ship",         label: "Drop-Ship",          emoji: "📦", group: "Sales" },
+  { key: "three_pl",          label: "3PL",                emoji: "🚚", group: "Inventory" },
+  { key: "edi",               label: "EDI",                emoji: "🔌", group: "Procurement" },
+  { key: "reports_hub",       label: "Reports & Analytics", emoji: "📊", group: "Reports" },
+  { key: "fixed_assets",      label: "Fixed Assets",       emoji: "🏢", group: "Accounting" },
+  { key: "budgets",           label: "Budgets",            emoji: "🎯", group: "Accounting" },
+  { key: "form_1099",         label: "1099 Worksheet",     emoji: "🧾", group: "Accounting" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
@@ -343,7 +369,7 @@ const MODULES: ModuleDef[] = [
   { key: "procurement_recon",   label: "Procurement Recon", emoji: "🧮", group: "Procurement" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
-  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
+  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Master Data" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -380,7 +406,7 @@ const MODULES: ModuleDef[] = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Apps launcher — links to the other modules within the design-calendar-app
-// suite. Each navigates the browser to the existing URL (same tab).
+// suite. Each opens the app in its own browser tab (target="_blank").
 // ─────────────────────────────────────────────────────────────────────────────
 type AppLink = { href: string; label: string; emoji: string; description: string };
 
@@ -391,6 +417,7 @@ const APPS: AppLink[] = [
   { href: "/techpack",  label: "Tech Packs",      emoji: "📐", description: "Style spec sheets" },
   { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
   { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
+  { href: "/costing",   label: "Costing",         emoji: "💰", description: "Costing projects, quotes, margins" },
   { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
 ];
 
@@ -420,6 +447,8 @@ export default function Tangerine() {
   // opening ?m=journal_entries in a new tab lands directly on that panel.
   // Also accepts the legacy `?view=` param written by COA click-throughs etc.
   // Read on initial mount; subsequent navigation uses goToModule() below.
+  const [aiOpen, setAiOpen] = useState(false);
+
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -468,6 +497,16 @@ export default function Tangerine() {
     return () => window.removeEventListener("popstate", onPopState);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Browser tab title = the active module's menu header, so every tab opened
+  // via the menu (or a ?m= deep link) is identifiable at a glance. Falls back
+  // to the app name on the home landing.
+  useEffect(() => {
+    const label = activeModule
+      ? (MODULES as { key: string; label: string }[]).find((m) => m.key === activeModule)?.label
+      : null;
+    document.title = label ? `${label} · Tangerine` : "Tangerine ERP";
+  }, [activeModule]);
 
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -621,6 +660,14 @@ export default function Tangerine() {
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
         {activeModule === "sales_allocations" && <InternalAllocations />}
+        {activeModule === "sales_returns" && <InternalSalesReturns />}
+        {activeModule === "drop_ship" && <InternalDropShip />}
+        {activeModule === "three_pl" && <InternalThreePL />}
+        {activeModule === "edi" && <InternalEDI />}
+        {activeModule === "reports_hub" && <InternalReportsHub />}
+        {activeModule === "fixed_assets" && <InternalFixedAssets />}
+        {activeModule === "budgets" && <InternalBudgets />}
+        {activeModule === "form_1099" && <InternalForm1099 />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "receiving"         && <InternalReceiving />}
         {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
@@ -687,6 +734,49 @@ export default function Tangerine() {
       <GlobalSearchPaletteAuto />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
+
+      {/* Ask AI — floating launcher + slide-in chat panel. Reuses the shared
+          AskAIPanel; appId "tangerine" routes the handler to Opus + the
+          user-guide tool. No grid to drive, so context is minimal and there are
+          no grid setters — the assistant answers from the database + user guide. */}
+      {!aiOpen && (
+        <button
+          type="button"
+          onClick={() => setAiOpen(true)}
+          title="Ask AI — questions about your data or how to use Tangerine"
+          style={{
+            position: "fixed", right: 18, bottom: 18, zIndex: 1400,
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 16px", borderRadius: 999, border: 0, cursor: "pointer",
+            background: `linear-gradient(135deg, ${C.tangerine}, ${C.tangerineDim})`,
+            color: "white", fontSize: 14, fontWeight: 700,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+          }}
+        >
+          <span>✨</span><span>Ask AI</span>
+        </button>
+      )}
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        appId="tangerine"
+        setters={{}}
+        buildContext={(): GridContextSnapshot => ({
+          columns: [],
+          active_filters: {},
+          sort: null,
+          row_count: 0,
+          distinct: { categories: [], sub_categories: [], styles: [], genders: [], stores: [] },
+          sample_rows: [],
+        })}
+        samplePrompts={[
+          "What's our total open AR right now?",
+          "How do I post a manual journal entry?",
+          "Where is the fixed-asset register?",
+          "List the open purchase orders by vendor",
+          "What does GR/IR mean in receiving?",
+        ]}
+      />
     </div>
   );
 }
@@ -1292,6 +1382,8 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1443,6 +1535,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",

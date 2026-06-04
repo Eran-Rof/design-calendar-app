@@ -5,6 +5,19 @@ import type { IpJobRun, IpJobStatus } from "../../jobs/types/jobs";
 import { listRecentJobs, retry } from "../../jobs/services/jobRunService";
 import { S, PAL, formatDateTime } from "../../components/styles";
 import type { ToastMessage } from "../../components/Toast";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.job_runs";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "status", label: "Status" },
+  { key: "type", label: "Type" },
+  { key: "scope", label: "Scope" },
+  { key: "started", label: "Started" },
+  { key: "completed", label: "Completed" },
+  { key: "initiator", label: "Initiator" },
+  { key: "retry", label: "Retry #" },
+  { key: "error", label: "Error" },
+];
 
 const STATUS_COLOR: Record<string, string> = {
   queued:          "#94A3B8",
@@ -25,6 +38,7 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
   const [selected, setSelected] = useState<IpJobRun | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function refresh() {
     const all = await listRecentJobs({ limit: 500 });
@@ -75,20 +89,24 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
           {types.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <button style={S.btnSecondary} onClick={refresh}>Refresh</button>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                            onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+        </div>
       </div>
 
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Status</th>
-              <th style={S.th}>Type</th>
-              <th style={S.th}>Scope</th>
-              <th style={S.th}>Started</th>
-              <th style={S.th}>Completed</th>
-              <th style={S.th}>Initiator</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Retry #</th>
-              <th style={S.th}>Error</th>
+              <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
+              <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
+              <th hidden={!visibleColumns.has("scope")} style={S.th}>Scope</th>
+              <th hidden={!visibleColumns.has("started")} style={S.th}>Started</th>
+              <th hidden={!visibleColumns.has("completed")} style={S.th}>Completed</th>
+              <th hidden={!visibleColumns.has("initiator")} style={S.th}>Initiator</th>
+              <th hidden={!visibleColumns.has("retry")} style={{ ...S.th, textAlign: "right" }}>Retry #</th>
+              <th hidden={!visibleColumns.has("error")} style={S.th}>Error</th>
               <th style={S.th}></th>
             </tr>
           </thead>
@@ -96,18 +114,18 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
             {visible.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer", background: r.status === "failed" ? "#3f1d1d22" : undefined }}
                   onClick={() => setSelected(r)}>
-                <td style={S.td}>
+                <td hidden={!visibleColumns.has("status")} style={S.td}>
                   <span style={{ ...S.chip, background: STATUS_COLOR[r.status] + "33", color: STATUS_COLOR[r.status] }}>
                     {r.status.replace(/_/g, " ")}
                   </span>
                 </td>
-                <td style={S.td}>{r.job_type}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim, fontSize: 11 }}>{r.job_scope ?? ""}</td>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{r.started_at ? formatDateTime(r.started_at) : "—"}</td>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{r.completed_at ? formatDateTime(r.completed_at) : "—"}</td>
-                <td style={{ ...S.td, fontSize: 11 }}>{r.initiated_by ?? ""}</td>
-                <td style={S.tdNum}>{r.retry_count}</td>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.red }}>{r.error_message ?? ""}</td>
+                <td hidden={!visibleColumns.has("type")} style={S.td}>{r.job_type}</td>
+                <td hidden={!visibleColumns.has("scope")} style={{ ...S.td, fontFamily: "monospace", color: PAL.textDim, fontSize: 11 }}>{r.job_scope ?? ""}</td>
+                <td hidden={!visibleColumns.has("started")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{r.started_at ? formatDateTime(r.started_at) : "—"}</td>
+                <td hidden={!visibleColumns.has("completed")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{r.completed_at ? formatDateTime(r.completed_at) : "—"}</td>
+                <td hidden={!visibleColumns.has("initiator")} style={{ ...S.td, fontSize: 11 }}>{r.initiated_by ?? ""}</td>
+                <td hidden={!visibleColumns.has("retry")} style={S.tdNum}>{r.retry_count}</td>
+                <td hidden={!visibleColumns.has("error")} style={{ ...S.td, fontSize: 11, color: PAL.red }}>{r.error_message ?? ""}</td>
                 <td style={S.td}>
                   {r.status === "failed" && (
                     <button style={S.btnGhost} onClick={(e) => { e.stopPropagation(); void doRetry(r); }}>Retry</button>

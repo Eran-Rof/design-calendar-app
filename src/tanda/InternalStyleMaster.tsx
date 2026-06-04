@@ -60,6 +60,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
+import { exportXlsx } from "./exports/useTableExport";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
@@ -83,6 +84,7 @@ const STYLE_MASTER_COLUMNS: ColumnDef[] = [
   { key: "category_name",     label: "Category" },
   { key: "sub_category_name", label: "Sub Category" },
   { key: "brand_name",        label: "Brand" },
+  { key: "size_scale_code",   label: "Size Scale" },
   { key: "base_fabric",       label: "Base Fabric" },
   { key: "season",            label: "Season" },
   { key: "design_year",       label: "Year" },
@@ -213,6 +215,7 @@ export default function InternalStyleMaster() {
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
+  const [assigningScales, setAssigningScales] = useState(false);
   // Universal row-click primitive (operator ask #4) — click anywhere on a
   // row (except Edit/Delete buttons) to open the edit modal. Soft-deleted
   // rows are non-interactive.
@@ -289,6 +292,24 @@ export default function InternalStyleMaster() {
     return m;
   }, [brands]);
 
+  // Size scales — id → code, so the list can show each style's assigned scale
+  // (the auto-assign / per-style picker writes style_master.size_scale_id).
+  const [scales, setScales] = useState<Array<{ id: string; code: string }>>([]);
+  const loadScales = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/internal/size-scales`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const arr = Array.isArray(d) ? d : (Array.isArray(d?.scales) ? d.scales : []);
+      setScales(arr.map((s: Record<string, unknown>) => ({ id: s.id as string, code: (s.code as string) || "" })));
+    } catch { /* non-fatal */ }
+  }, []);
+  const scaleCodeById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of scales) m.set(s.id, s.code);
+    return m;
+  }, [scales]);
+
   // Chunk J item 13 — gender list from gender_master (carries Toddler "T").
   const [genders, setGenders] = useState<GenderMaster[]>([]);
   const loadGenders = useCallback(async () => {
@@ -326,6 +347,7 @@ export default function InternalStyleMaster() {
   useEffect(() => { void loadDimValues(); }, [loadDimValues]);
   useEffect(() => { void loadBrands(); }, [loadBrands]);
   useEffect(() => { void loadGenders(); }, [loadGenders]);
+  useEffect(() => { void loadScales(); }, [loadScales]);
 
   async function softDelete(id: string) {
     if (!(await confirmDialog("Soft-delete this style? Can be restored by an admin SQL update."))) return;
@@ -335,6 +357,79 @@ export default function InternalStyleMaster() {
       await load();
     } catch (e: unknown) {
       notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  }
+
+  // Bulk best-match size-scale assignment. Previews first (no write), shows the
+  // per-scale breakdown, then applies on confirm. Only styles WITHOUT a scale
+  // are touched (nothing is overwritten). Per-style manual override stays in the
+  // edit modal's "Size Scale" field.
+  async function autoAssignScales() {
+    setAssigningScales(true);
+    try {
+      const pr = await fetch("/api/internal/style-master/auto-assign-scales");
+      const prev = await pr.json();
+      if (!pr.ok) throw new Error(prev.error || `HTTP ${pr.status}`);
+      if (!prev.matched) { notify(prev.error || "No unscaled styles could be matched to a size scale.", "info"); return; }
+      const breakdown = Object.entries(prev.by_scale || {})
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .map(([k, v]) => `${k}: ${v}`).join(" · ");
+      const ok = await confirmDialog(
+        `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on their size variants)?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
+        { title: "Auto-assign size scales", icon: "🎯", confirmText: `Assign ${prev.matched}` },
+      );
+      if (!ok) return;
+      const ar = await fetch("/api/internal/style-master/auto-assign-scales", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const applied = await ar.json();
+      if (!ar.ok) throw new Error(applied.error || `HTTP ${ar.status}`);
+      notify(`Assigned size scales to ${applied.updated ?? prev.matched} styles.`, "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`Auto-assign failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setAssigningScales(false);
+    }
+  }
+
+  // Download the styles the auto-assign SKIPS (single/pair sizes, no good match)
+  // so they can be hand-assigned a scale. xlsx with the reason per style.
+  async function downloadSkippedScales() {
+    const REASON_LABEL: Record<string, string> = {
+      too_few_sizes: "Fewer than 3 sizes (single / pair)",
+      no_overlap: "No matching scale",
+      low_coverage: "Weak match (<60% of sizes covered)",
+      no_variants: "No sizes on record",
+    };
+    setAssigningScales(true);
+    try {
+      const r = await fetch("/api/internal/style-master/auto-assign-scales?skipped=1");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const list = (j.skipped_styles || []) as Array<{ style_code: string; sizes: string; gender: string; reason: string }>;
+      if (!list.length) { notify("No skipped styles — every unscaled style matched a scale.", "info"); return; }
+      exportXlsx({
+        rows: list.map((s) => ({
+          style_code: s.style_code,
+          sizes: s.sizes,
+          gender: s.gender,
+          reason: REASON_LABEL[s.reason] || s.reason,
+        })),
+        columns: [
+          { key: "style_code", header: "Style Code" },
+          { key: "sizes", header: "Size Variants" },
+          { key: "gender", header: "Gender" },
+          { key: "reason", header: "Why skipped" },
+        ],
+        filename: "size-scale-skipped",
+        sheetName: "Skipped styles",
+      });
+      notify(`Downloaded ${list.length} skipped styles to assign by hand.`, "success");
+    } catch (e: unknown) {
+      notify(`Download failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setAssigningScales(false);
     }
   }
 
@@ -350,7 +445,25 @@ export default function InternalStyleMaster() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Style Master</h2>
-        <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => void autoAssignScales()}
+            style={btnSecondary}
+            disabled={assigningScales}
+            title="Match each unscaled style to the best-fitting size scale by its size variants (preview before applying)"
+          >
+            {assigningScales ? "Assigning…" : "🎯 Auto-assign size scales"}
+          </button>
+          <button
+            onClick={() => void downloadSkippedScales()}
+            style={btnSecondary}
+            disabled={assigningScales}
+            title="Download the styles the auto-assign skips (single/pair sizes or no good match), with the reason, to assign a scale by hand"
+          >
+            ⬇ Skipped styles
+          </button>
+          <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -382,6 +495,7 @@ export default function InternalStyleMaster() {
             base_fabric_code: r.base_fabric?.code ?? null,
             base_fabric_name: r.base_fabric?.name ?? null,
             brand_name: r.brand_id ? (brandNameById.get(r.brand_id) ?? null) : null,
+            size_scale_code: r.size_scale_id ? (scaleCodeById.get(r.size_scale_id) ?? null) : null,
           })) as unknown as Array<Record<string, unknown>>}
           filename="style-master"
           sheetName="Style Master"
@@ -394,6 +508,7 @@ export default function InternalStyleMaster() {
             { key: "category_name",     header: "Category" },
             { key: "sub_category_name", header: "Sub Category" },
             { key: "brand_name",        header: "Brand" },
+            { key: "size_scale_code",   header: "Size Scale" },
             { key: "season",            header: "Season" },
             { key: "design_year",       header: "Year", format: "number" },
             { key: "lifecycle_status",  header: "Lifecycle" },
@@ -433,6 +548,7 @@ export default function InternalStyleMaster() {
                 <th style={th} hidden={!isVisible("category_name")}>Category</th>
                 <th style={th} hidden={!isVisible("sub_category_name")}>Sub Category</th>
                 <th style={th} hidden={!isVisible("brand_name")}>Brand</th>
+                <th style={th} hidden={!isVisible("size_scale_code")}>Size Scale</th>
                 <th style={th} hidden={!isVisible("base_fabric")}>Base Fabric</th>
                 <th style={th} hidden={!isVisible("season")}>Season</th>
                 <th style={th} hidden={!isVisible("design_year")}>Year</th>
@@ -460,6 +576,7 @@ export default function InternalStyleMaster() {
                   <td style={td} hidden={!isVisible("category_name")}>{r.category_name || "—"}</td>
                   <td style={td} hidden={!isVisible("sub_category_name")}>{r.sub_category_name || "—"}</td>
                   <td style={td} hidden={!isVisible("brand_name")}>{r.brand_id ? (brandNameById.get(r.brand_id) || "—") : "—"}</td>
+                  <td style={td} hidden={!isVisible("size_scale_code")}>{r.size_scale_id ? (scaleCodeById.get(r.size_scale_id) || "…") : "—"}</td>
                   <td style={td} hidden={!isVisible("base_fabric")}>
                     {r.base_fabric
                       ? <span><strong>{r.base_fabric.code}</strong> — {r.base_fabric.name}</span>

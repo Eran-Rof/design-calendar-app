@@ -69,8 +69,12 @@ total_available_supply_qty =
   landed qty; future periods will always be 0.
 - **`inbound_po_qty`** — `ip_open_purchase_orders` rows whose
   `expected_date` falls in the period, summed.
-- **`wip_qty`** — not wired in Phase 3. Column exists; Phase 4 hooks a
-  WIP feed (the TandA PO milestones can approximate it).
+- **`wip_qty`** — intentionally 0. Resolved as a *timing* refinement, not a
+  separate bucket: "inbound PO is WIP" (the open-PO qty already IS the
+  in-production supply, so adding a WIP qty would double-count). Instead the
+  open PO's `expected_date` is taken from the Tanda "In House / DDP" milestone
+  (`days_before_ddp = 0`) in `syncOpenPosFromTandaPos`, so WIP lands in the
+  right month. See `docs/tangerine/user-guide/33-…` §33.8 (M31/P17 step 5).
 
 ## Demand input assumptions
 
@@ -146,7 +150,8 @@ triggered it, so the panel can show `shortage_qty=60 · demand=120 · supply=60`
 
 ## Known limitations
 
-- **WIP not wired.** `wip_qty` is always 0 for now.
+- **WIP = inbound PO.** `wip_qty` stays 0 by design; WIP is the open PO,
+  now timed by the Tanda "In House / DDP" milestone (M31/P17 step 5).
 - **No scenario comparisons.** The reconciliation produces one plan per
   run. Scenario diffing is Phase 4.
 - **No approvals / ERP writeback.** Recommendations are advisory. Phase

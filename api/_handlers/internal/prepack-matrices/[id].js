@@ -139,7 +139,7 @@ export default async function handler(req, res) {
 
     if (v.sizes != null) {
       await admin.from("prepack_matrix_sizes").delete().eq("matrix_id", id);
-      const rows = v.sizes.map((s) => ({ matrix_id: id, size: s.size, qty_per_pack: s.qty_per_pack, sort_order: s.sort_order }));
+      const rows = v.sizes.map((s) => ({ matrix_id: id, size: s.size, qty_per_pack: s.qty_per_pack, inner_pack_qty: s.inner_pack_qty ?? 0, sort_order: s.sort_order }));
       if (rows.length > 0) {
         const { error: sErr } = await admin.from("prepack_matrix_sizes").insert(rows);
         if (sErr) return res.status(500).json({ error: `sizes update failed: ${sErr.message}` });

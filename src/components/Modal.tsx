@@ -145,9 +145,11 @@ export function ConfirmModal({
             color: TH.textMuted,
             lineHeight: 1.6,
             marginBottom: 28,
+            whiteSpace: "pre-wrap",
           }}
-          dangerouslySetInnerHTML={{ __html: message }}
-        />
+        >
+          {message}
+        </div>
         <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
           <button
             onClick={onCancel}

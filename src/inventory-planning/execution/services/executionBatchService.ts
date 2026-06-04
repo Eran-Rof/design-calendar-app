@@ -45,7 +45,10 @@ const BATCH_TRANSITIONS: Record<IpExecutionBatchStatus, IpExecutionBatchStatus[]
   draft:              ["ready", "archived"],
   ready:              ["approved", "draft", "archived"],
   approved:           ["exported", "submitted", "ready", "archived"],
-  exported:           ["submitted", "approved", "archived"],
+  // 'exported' only means an xlsx was generated — no writeback has happened, so
+  // it's safe to reopen to 'ready' (or 'draft') to revise/rebuild. Without this
+  // the "Reopen to ready" button was a dead end ("Invalid transition").
+  exported:           ["ready", "draft", "submitted", "approved", "archived"],
   submitted:          ["executed", "partially_executed", "failed", "archived"],
   partially_executed: ["submitted", "executed", "failed", "archived"],
   executed:           ["archived"],

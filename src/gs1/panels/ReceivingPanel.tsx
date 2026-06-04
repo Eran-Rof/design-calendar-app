@@ -2,6 +2,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import { formatSscc18Display } from "../services/gtinService";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "gs1.receiving_history";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "sscc", label: "SSCC" },
+  { key: "status", label: "Status" },
+  { key: "notes", label: "Notes" },
+  { key: "received_at", label: "Received At" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 11,
@@ -46,6 +55,8 @@ export default function ReceivingPanel() {
     searchBySscc, setReceivingEditedQty, confirmReceive, clearReceiving, loadReceivingSessions,
     bomBuilding, buildBomForReceiving,
   } = useGS1Store();
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const [ssccInput, setSsccInput]     = useState("");
   const [notes, setNotes]             = useState("");
@@ -382,11 +393,21 @@ export default function ReceivingPanel() {
       <div style={{ ...CARD, marginTop: hasResults ? 28 : 0 }}>
         <div style={{ ...CARD_HEAD, display: "flex", justifyContent: "space-between" }}>
           <span>Receiving History ({receivingSessions.length})</span>
-          <button onClick={() => loadReceivingSessions()}
-            style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 5,
-              padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
-            Refresh
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <TablePrefsButton
+              tableKey={TABLE_KEY}
+              columns={ALL_COLUMNS}
+              visibleColumns={visibleColumns}
+              onToggle={toggleColumn}
+              onReset={resetToDefault}
+              onSetAll={setAllVisible}
+            />
+            <button onClick={() => loadReceivingSessions()}
+              style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 5,
+                padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
+              Refresh
+            </button>
+          </div>
         </div>
         {receivingSessions.length === 0
           ? <p style={{ padding: "16px 20px", color: TH.textMuted, fontSize: 13 }}>No receiving sessions yet.</p>
@@ -394,15 +415,18 @@ export default function ReceivingPanel() {
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>
-                  {["SSCC", "Status", "Notes", "Received At"].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
+                  <th style={TH_STYLE} hidden={!visibleColumns.has("sscc")}>SSCC</th>
+                  <th style={TH_STYLE} hidden={!visibleColumns.has("status")}>Status</th>
+                  <th style={TH_STYLE} hidden={!visibleColumns.has("notes")}>Notes</th>
+                  <th style={TH_STYLE} hidden={!visibleColumns.has("received_at")}>Received At</th>
                 </tr></thead>
                 <tbody>
                   {receivingSessions.map(s => (
                     <tr key={s.id}>
-                      <td style={{ ...TD, fontFamily: "monospace", fontSize: 11 }}>{s.sscc}</td>
-                      <td style={TD}><StatusBadge status={s.status} /></td>
-                      <td style={{ ...TD, color: TH.textMuted }}>{s.notes ?? "—"}</td>
-                      <td style={{ ...TD, color: TH.textMuted, fontSize: 11 }}>
+                      <td style={{ ...TD, fontFamily: "monospace", fontSize: 11 }} hidden={!visibleColumns.has("sscc")}>{s.sscc}</td>
+                      <td style={TD} hidden={!visibleColumns.has("status")}><StatusBadge status={s.status} /></td>
+                      <td style={{ ...TD, color: TH.textMuted }} hidden={!visibleColumns.has("notes")}>{s.notes ?? "—"}</td>
+                      <td style={{ ...TD, color: TH.textMuted, fontSize: 11 }} hidden={!visibleColumns.has("received_at")}>
                         {s.received_at ? new Date(s.received_at).toLocaleString() : "—"}
                       </td>
                     </tr>

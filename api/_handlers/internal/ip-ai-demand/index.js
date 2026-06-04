@@ -14,7 +14,11 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 60 };
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 4096;
+// Each SKU prediction is a verbose object (rationale + key_signals +
+// market_factors). At 40 SKUs the array easily exceeds 4k output tokens —
+// the old 4096 ceiling truncated the JSON mid-object and the parse failed
+// ("Claude returned unparseable JSON"). Sonnet 4.6 supports far more.
+const MAX_TOKENS = 16000;
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -217,6 +221,10 @@ export default async function handler(req, res) {
     message = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
+      // NOTE: do NOT prefill the assistant turn — this model rejects it
+      // ("does not support assistant message prefill"). We instead instruct
+      // for a bare JSON array in the prompt and extract it robustly below.
+      system: "You output only a single JSON array. No prose, no explanation, no markdown code fences — just the raw JSON array.",
       messages: [{ role: "user", content: prompt }],
     });
   } catch (err) {
@@ -224,11 +232,18 @@ export default async function handler(req, res) {
   }
 
   // ── 8. Parse response ─────────────────────────────────────────────────
+  // If the model ran out of room, say so plainly instead of the opaque
+  // "unparseable JSON".
+  if (message.stop_reason === "max_tokens") {
+    return res.status(502).json({
+      error: `AI response was truncated at ${MAX_TOKENS} tokens — try a smaller SKU count (top_n_skus).`,
+    });
+  }
+
   const rawText = message.content[0]?.text || "";
   let predictions;
   try {
-    const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) || rawText.match(/(\[[\s\S]*\])/);
-    predictions = JSON.parse(jsonMatch ? jsonMatch[1] : rawText);
+    predictions = parsePredictions(rawText);
   } catch {
     return res.status(502).json({ error: "Claude returned unparseable JSON", raw: rawText.slice(0, 500) });
   }
@@ -246,6 +261,27 @@ export default async function handler(req, res) {
     },
     generated_at: new Date().toISOString(),
   });
+}
+
+// ── Response parsing ─────────────────────────────────────────────────────────
+// The model returns a full JSON array (we ask for a bare array, no prefill).
+// We defend against it wrapping the array in a ```json fence or bookending it
+// with a stray sentence by clipping to the outer brackets.
+function parsePredictions(rawText) {
+  let text = rawText.trim();
+
+  // Strip a ```json … ``` fence if the model wrapped the body in one.
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenced) text = fenced[1].trim();
+
+  // Clip to the outer array: first "[" .. last "]" — drops any prose the model
+  // put before/after the array. Inner key_signals/[…] arrays are safe because
+  // we anchor on the OUTER brackets, not the first inner one.
+  const first = text.indexOf("[");
+  const last = text.lastIndexOf("]");
+  if (first === -1 || last <= first) throw new Error("no JSON array found in response");
+
+  return JSON.parse(text.slice(first, last + 1));
 }
 
 // ── Prompt builder ─────────────────────────────────────────────────────────

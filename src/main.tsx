@@ -131,6 +131,12 @@ async function mount() {
     const { default: B2BApp } = await import("./b2b/B2BApp");
     root.render(<StrictMode><ErrorBoundary appName="B2B Portal"><B2BApp /></ErrorBoundary></StrictMode>);
 
+  } else if (path.startsWith("/login")) {
+    // Standalone Tangerine-branded front door (Microsoft-365 sign-in). Always
+    // reachable; becomes the root "/" once VITE_TANGERINE_AS_HOME is flipped on.
+    const { default: TangerineLogin } = await import("./TangerineLogin");
+    root.render(<StrictMode><ErrorBoundary appName="Sign in"><TangerineLogin /></ErrorBoundary></StrictMode>);
+
   } else if (path.startsWith("/design")) {
     if (!canAccessAppFromSession("design")) {
       root.render(<StrictMode><ErrorBoundary appName="Design Calendar"><AppAccessBlocked appName="Design Calendar" /></ErrorBoundary></StrictMode>);
@@ -140,8 +146,17 @@ async function mount() {
     }
 
   } else if (path.startsWith("/tangerine")) {
-    const { default: Tangerine } = await import("./Tangerine");
-    root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
+    // Gate by the PLM per-user permission when a plm_user session exists.
+    // Default-true semantics (canAccessAppFromSession returns true with no
+    // session) means a direct Microsoft-OAuth entrant — who has no plm_user
+    // blob — still reaches Tangerine's own MS sign-in gate untouched; only a
+    // PLM-session user explicitly set to tangerine.access=false is blocked.
+    if (!canAccessAppFromSession("tangerine")) {
+      root.render(<StrictMode><ErrorBoundary appName="Tangerine"><AppAccessBlocked appName="Tangerine ERP" /></ErrorBoundary></StrictMode>);
+    } else {
+      const { default: Tangerine } = await import("./Tangerine");
+      root.render(<StrictMode><ErrorBoundary appName="Tangerine"><Tangerine /></ErrorBoundary></StrictMode>);
+    }
 
   } else if (path.startsWith("/tanda")) {
     if (!canAccessAppFromSession("tanda")) {
@@ -225,6 +240,10 @@ async function mount() {
       const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
       root.render(<StrictMode><ErrorBoundary appName="Admin"><PlanningShell title="Planning Admin"><AdminWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
+    } else if (path.startsWith("/planning/reports")) {
+      const { default: ReportsWorkbench } = await import("./inventory-planning/reports/panels/ReportsWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Planning Reports"><PlanningShell title="Planning Reports"><ReportsWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
+
     } else {
       // /planning or /planning/wholesale
       const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
@@ -285,8 +304,13 @@ async function mount() {
         </ErrorBoundary>
       </StrictMode>,
     );
+  } else if (appConfig.tangerineAsHome) {
+    // Go-live: Tangerine is the front door. Root "/" sends users to the
+    // standalone Tangerine login (which no-ops straight through if they already
+    // hold a valid MS token). The PLM launcher is retired in this mode.
+    window.location.replace("/login");
   } else {
-    // Root "/" — PLM Launcher
+    // Root "/" — PLM Launcher (default until VITE_TANGERINE_AS_HOME is flipped).
     const { default: PLMApp } = await import("./PLM");
     root.render(<StrictMode><ErrorBoundary appName="PLM"><PLMApp /></ErrorBoundary></StrictMode>);
   }

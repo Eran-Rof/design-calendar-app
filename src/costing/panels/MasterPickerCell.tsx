@@ -38,6 +38,7 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
   const [adding, setAdding] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   // Portal the dropdown out of the grid's overflow:hidden cell. Anchor to the
   // cell wrapper; matches ColorPickerCell.
   const { anchorRef, pos } = usePopoverAnchor<HTMLDivElement>({ open, minWidth: 220 });
@@ -101,6 +102,7 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
         }}
       >
         <input
+          ref={inputRef}
           value={text}
           placeholder={placeholder || "—"}
           onChange={(e) => { setText(e.target.value); setOpen(true); }}
@@ -120,7 +122,12 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
             color: value ? "#E2E8F0" : "#94A3B8", outline: "none",
           }}
         />
-        <span style={{ color: "#64748B", fontSize: 9, paddingRight: 4 }}>▾</span>
+        <span
+          // Clicking the chevron must open the dropdown too — without this the
+          // arrow is dead and only clicking the input field opens the list.
+          onMouseDown={(e) => { e.preventDefault(); if (open) { setOpen(false); } else { inputRef.current?.focus(); setOpen(true); } }}
+          style={{ color: "#64748B", fontSize: 9, paddingRight: 6, paddingLeft: 4, cursor: "pointer", alignSelf: "stretch", display: "flex", alignItems: "center" }}
+        >▾</span>
       </div>
       {open && pos && ReactDOM.createPortal(
         <div ref={popRef} style={{

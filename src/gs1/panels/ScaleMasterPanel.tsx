@@ -4,6 +4,16 @@ import { useGS1Store } from "../store/gs1Store";
 import type { ScaleSizeRatio } from "../types";
 import { KNOWN_SCALE_CODES } from "../types";
 import type { BomCheckResult } from "../services/bomBuilderService";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "gs1.scale_master";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "scale_code", label: "Scale Code" },
+  { key: "description", label: "Description" },
+  { key: "total_units", label: "Total Units" },
+  { key: "size_ratios", label: "Size Ratios" },
+  { key: "actions", label: "Actions" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -81,6 +91,7 @@ function EditModal({ code, existing, onSave, onClose }: {
 
 export default function ScaleMasterPanel() {
   const { scales, scaleRatios, scaleLoading, scaleError, loadScales, saveScale, deleteScale, checkUpcCoverageForStyleColor } = useGS1Store();
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding,  setAdding]  = useState(false);
   const [newCode, setNewCode] = useState("");
@@ -165,6 +176,16 @@ export default function ScaleMasterPanel() {
       </div>
 
       {/* Scale list */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       <div style={{ background: TH.surface, borderRadius: 10, boxShadow: `0 1px 4px ${TH.shadow}` }}>
         {scaleLoading
           ? <p style={{ padding: 20, color: TH.textMuted, fontSize: 13 }}>Loading…</p>
@@ -174,7 +195,11 @@ export default function ScaleMasterPanel() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Scale Code", "Description", "Total Units", "Size Ratios", ""].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("scale_code")}>Scale Code</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("description")}>Description</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("total_units")}>Total Units</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("size_ratios")}>Size Ratios</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -182,16 +207,16 @@ export default function ScaleMasterPanel() {
                     const ratios = ratiosFor(sc.scale_code);
                     return (
                       <tr key={sc.id}>
-                        <td style={{ ...TD_STYLE, fontWeight: 700, fontFamily: "monospace" }}>{sc.scale_code}</td>
-                        <td style={{ ...TD_STYLE, color: TH.textMuted }}>{sc.description || "—"}</td>
-                        <td style={TD_STYLE}>{sc.total_units ?? "—"}</td>
-                        <td style={{ ...TD_STYLE, maxWidth: 300 }}>
+                        <td style={{ ...TD_STYLE, fontWeight: 700, fontFamily: "monospace" }} hidden={!visibleColumns.has("scale_code")}>{sc.scale_code}</td>
+                        <td style={{ ...TD_STYLE, color: TH.textMuted }} hidden={!visibleColumns.has("description")}>{sc.description || "—"}</td>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("total_units")}>{sc.total_units ?? "—"}</td>
+                        <td style={{ ...TD_STYLE, maxWidth: 300 }} hidden={!visibleColumns.has("size_ratios")}>
                           {ratios.length === 0
                             ? <span style={{ color: TH.textMuted, fontSize: 12 }}>No ratios</span>
                             : <span style={{ fontSize: 12, color: TH.textSub2 }}>{ratios.map(r => `${r.size}×${r.qty}`).join(", ")}</span>
                           }
                         </td>
-                        <td style={TD_STYLE}>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                           <div style={{ display: "flex", gap: 8 }}>
                             <button onClick={() => setEditing(sc.scale_code)}
                               style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 5, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}>
