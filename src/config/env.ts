@@ -57,4 +57,11 @@ export const appConfig = {
   // outside the demo scope, and a DEMO banner is rendered. Set only on
   // the design-calendar-demo Vercel deploy.
   demoMode: parseBool("VITE_DEMO_MODE", false),
+
+  // Go-live switch for "Tangerine is the front door." When true, the root
+  // route `/` redirects to the standalone Tangerine login page (`/login`)
+  // instead of rendering the legacy PLM launcher — the planned retirement of
+  // the PLM launcher. OFF by default: today `/` still shows the PLM launcher
+  // and `/login` is reachable directly. Flip this on Vercel at go-live.
+  tangerineAsHome: parseBool("VITE_TANGERINE_AS_HOME", false),
 } as const;

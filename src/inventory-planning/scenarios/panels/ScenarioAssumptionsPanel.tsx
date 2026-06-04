@@ -11,6 +11,7 @@ import type { IpCategory, IpCustomer, IpChannel, IpItem } from "../../types/enti
 import { scenarioRepo } from "../services/scenarioRepo";
 import { logChange } from "../services/auditLogService";
 import { S, PAL } from "../../components/styles";
+import { confirmDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
 
@@ -106,7 +107,7 @@ export default function ScenarioAssumptionsPanel({
   }
 
   async function removeAssumption(id: string) {
-    if (!window.confirm("Remove this assumption?")) return;
+    if (!(await confirmDialog("Remove this assumption?"))) return;
     try {
       await scenarioRepo.deleteAssumption(id);
       await logChange({

@@ -224,7 +224,10 @@ export default async function handler(req, res) {
   for (const [vendorId, vendorLines] of linesByVendor.entries()) {
     const vendor = vendorById[vendorId];
     const vendorLabel = vendor?.legal_name || vendor?.code || "Vendor";
-    const title = `${project.project_name} — ${vendorLabel}`;
+    // Title is just the project/style name — the vendor is already shown in its
+    // own column (internal RFQ list + costing) and is implicit in the vendor
+    // portal, so the old "<project> — <vendor>" suffix was redundant noise.
+    const title = project.project_name;
     const totalQty = vendorLines.reduce((s, l) => s + (Number(l.target_qty) || 0), 0);
     const totalBudget = vendorLines.reduce((s, l) => s + (Number(l.target_qty) || 0) * (Number(l.target_cost) || 0), 0);
 

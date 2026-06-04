@@ -50,12 +50,23 @@ export type IpRecommendedAction = "buy" | "hold" | "monitor" | "reduce" | "exped
 export type IpPlanningScope = "wholesale" | "ecom" | "all";
 export type IpPlanningRunStatus = "draft" | "active" | "archived";
 
+// Which supply data source a reconciliation run reads from (M31 dir-B):
+// 'xoro' = the legacy Xoro/ATS mirror (ip_inventory_snapshot manual/xoro +
+// ip_open_purchase_orders xoro); 'tangerine' = native Tangerine ERP on-hand +
+// open POs (source='tangerine').
+export type IpSupplySource = "xoro" | "tangerine";
+
 export interface IpPlanningRun {
   id: string;
   name: string;
   planning_scope: IpPlanningScope;
   status: IpPlanningRunStatus;
   source_snapshot_date: IpIsoDate;
+  // M31 dir-B: which supply source the recon reads. DB column is NOT NULL
+  // DEFAULT 'xoro', so a DB-loaded run always has it; optional here so the
+  // non-reconciliation run creators (scenarios, forecast scopes) needn't set
+  // it. Reader fns default a missing value to 'xoro'.
+  supply_source?: IpSupplySource;
   horizon_start: IpIsoDate | null;
   horizon_end: IpIsoDate | null;
   forecast_method_preference: IpForecastMethodPreference;
