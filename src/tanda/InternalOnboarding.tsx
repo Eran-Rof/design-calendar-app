@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
-import { notify } from "../shared/ui/warn";
+import React, { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
 interface Workflow {
   id: string;
@@ -37,6 +38,7 @@ export default function InternalOnboarding() {
   const [filter, setFilter] = useState("pending_review");
   const [selected, setSelected] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [inviteRefresh, setInviteRefresh] = useState(0);
 
   async function load() {
     setLoading(true);
@@ -109,21 +111,385 @@ export default function InternalOnboarding() {
         ))}
       </div>
 
-      {selected && <ReviewModal vendorId={selected} onClose={() => setSelected(null)} onAction={() => { setSelected(null); void load(); }} />}
-      {showInvite && <InviteVendorModal onClose={() => setShowInvite(false)} onSent={() => { setShowInvite(false); void load(); }} />}
+      <OutstandingInvites refreshKey={inviteRefresh} onResent={() => setInviteRefresh((n) => n + 1)} />
+
+      <ActiveVendorAccess />
+
+      {selected &&<ReviewModal vendorId={selected} onClose={() => setSelected(null)} onAction={() => { setSelected(null); void load(); }} />}
+      {showInvite && <InviteVendorModal onClose={() => setShowInvite(false)} onSent={() => { setShowInvite(false); setInviteRefresh((n) => n + 1); void load(); }} />}
     </div>
   );
 }
 
+type InviteRow = { id: string; vendor_id: string; vendor_name: string | null; email: string; display_name: string | null; sent_at: string; expires_at: string; status: "pending" | "expired" | "accepted" };
+
+function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onResent: () => void }) {
+  const [rows, setRows] = useState<InviteRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
+  const [editInvite, setEditInvite] = useState<InviteRow | null>(null);
+
+  async function load() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-invites?status=outstanding");
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Failed to load invitations (${r.status})`);
+      setRows((Array.isArray(body) ? body : []) as InviteRow[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, [refreshKey]);
+
+  async function resend(row: InviteRow) {
+    setResending(row.id); setErr(null);
+    try {
+      const r = await fetch("/api/vendor-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendor_id: row.vendor_id, email: row.email, display_name: row.display_name || null, site_url: window.location.origin }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Resend failed (${r.status})`);
+      notify(body?.warning ? body.warning : `Invite resent to ${row.email} (valid 72 hours).`, body?.warning ? "info" : "success");
+      onResent();
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally { setResending(null); }
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Outstanding invitations</h3>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>{rows.length} not yet accepted</span>
+        <span style={{ color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>· click a row to edit</span>
+      </div>
+      {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 90px 120px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+          <div>Vendor</div><div>Email</div><div>Status</div><div>Expires</div><div></div><div></div>
+        </div>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No outstanding invitations — everyone invited has accepted.</div>
+        ) : rows.map((row) => {
+          const expired = row.status === "expired";
+          return (
+            <div
+              key={row.id}
+              onClick={() => setEditInvite(row)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#0F172A"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 90px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
+            >
+              <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
+              <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email}</div>
+              <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span></div>
+              <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString()} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+              <div style={{ textAlign: "left" }}>
+                <button onClick={(e) => { e.stopPropagation(); setEditInvite(row); }} style={btnSecondary}>Edit</button>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <button onClick={(e) => { e.stopPropagation(); void resend(row); }} disabled={resending === row.id} style={{ ...btnPrimary, opacity: resending === row.id ? 0.6 : 1 }}>{resending === row.id ? "Resending…" : "Resend"}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {editInvite && (
+        <EditInviteModal
+          invite={editInvite}
+          onClose={() => setEditInvite(null)}
+          onSaved={() => { setEditInvite(null); onResent(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditInviteModal({ invite, onClose, onSaved }: { invite: InviteRow; onClose: () => void; onSaved: () => void }) {
+  const expired = invite.status === "expired";
+  const [email, setEmail] = useState(invite.email || "");
+  const [displayName, setDisplayName] = useState(invite.display_name || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const fmtDateTime = (s: string | null) => {
+    if (!s) return "—";
+    const d = new Date(s);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
+  async function save() {
+    const trimmed = email.trim();
+    if (!trimmed) { setErr("Email is required."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) { setErr("Enter a valid email address."); return; }
+    setBusy(true); setErr(null); setNote(null);
+    try {
+      const r = await fetch("/api/internal/vendor-invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invite_id: invite.id,
+          email: trimmed,
+          display_name: displayName.trim() || null,
+          site_url: window.location.origin,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Update failed (${r.status})`);
+      notify(body?.warning ? body.warning : `Invitation updated — a fresh invite was sent to ${trimmed} (valid 72 hours).`, body?.warning ? "info" : "success");
+      onSaved();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div onClick={(e) => { if (e.currentTarget === e.target && !busy) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "min(480px, calc(100vw - 32px))", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Edit invitation</div>
+          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span>
+        </div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Fix a mistyped address. Saving resends a fresh invite link to the new email and invalidates the old one.
+        </div>
+
+        <label style={labelStyle}>Vendor</label>
+        <div style={{ ...inputStyle, background: C.bg, color: C.textSub, opacity: 0.85, cursor: "default" }}>{invite.vendor_name || "Unknown vendor"}</div>
+
+        <label style={labelStyle}>Email (required)</label>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} disabled={busy} />
+
+        <label style={labelStyle}>Contact name (optional)</label>
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Jane Smith" style={inputStyle} disabled={busy} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6, columnGap: 12, fontSize: 12, marginTop: 14, color: C.textMuted }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, alignSelf: "center" }}>Currently expires</div>
+          <div style={{ color: C.textSub, alignSelf: "center" }}>{fmtDateTime(invite.expires_at)}</div>
+        </div>
+
+        {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 10 }}>{err}</div>}
+        {note && <div style={{ color: C.success, fontSize: 12, marginTop: 10 }}>{note}</div>}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 22 }}>
+          <button onClick={onClose} disabled={busy} style={{ ...btnSecondary, opacity: busy ? 0.6 : 1 }}>Cancel</button>
+          <button onClick={() => void save()} disabled={busy || !email.trim()} style={{ ...btnPrimary, opacity: busy || !email.trim() ? 0.6 : 1 }}>
+            {busy ? "Saving…" : "Save & resend"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type AccessRow = {
+  id: string;
+  auth_id: string | null;
+  vendor_id: string;
+  vendor_name: string | null;
+  email: string | null;
+  role: string | null;
+  last_login: string | null;
+  status: "active" | "disabled" | "removed" | string;
+};
+
+function ActiveVendorAccess() {
+  const [rows, setRows] = useState<AccessRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [viewVendorId, setViewVendorId] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-access");
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Failed to load vendor access (${r.status})`);
+      setRows((Array.isArray(body) ? body : []) as AccessRow[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function mutate(row: AccessRow, action: "disable" | "enable" | "remove") {
+    const who = row.vendor_name || row.email || "this vendor";
+    let confirmMsg: string;
+    let confirmOpts: { danger?: boolean; confirmText?: string; title?: string } = {};
+    if (action === "disable") {
+      confirmMsg = `Disable portal access for ${who}? They will be signed out and blocked from the portal immediately. You can re-enable later.`;
+      confirmOpts = { confirmText: "Disable access" };
+    } else if (action === "enable") {
+      confirmMsg = `Re-enable portal access for ${who}? They will be able to sign in again.`;
+      confirmOpts = { danger: false, confirmText: "Enable access", title: "Confirm" };
+    } else {
+      confirmMsg =
+        `Permanently REMOVE portal access for ${who}?\n\n` +
+        `This deletes their login for good and cannot be undone. ` +
+        `Financial and historical records (invoices, shipments, documents) are kept, ` +
+        `but this person will no longer be able to sign in and a new invite would be required to restore access.`;
+      confirmOpts = { confirmText: "Remove permanently" };
+    }
+    const ok = await confirmDialog(confirmMsg, confirmOpts);
+    if (!ok) return;
+
+    setBusy(row.id); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendor_user_id: row.id, action }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Action failed (${r.status})`);
+      const verb = action === "disable" ? "disabled" : action === "enable" ? "enabled" : "removed";
+      notify(body?.warning ? body.warning : `Portal access ${verb} for ${who}.`, body?.warning ? "info" : "success");
+      await load();
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally { setBusy(null); }
+  }
+
+  const activeCount = rows.filter((r) => r.status === "active").length;
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Active vendor access</h3>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>{activeCount} with portal access</span>
+        <span style={{ color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>· click a row to view</span>
+      </div>
+      {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 100px 150px 110px 200px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+          <div>Vendor</div><div>Email</div><div>Role</div><div>Last login</div><div>Status</div><div></div>
+        </div>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No vendor portal users yet.</div>
+        ) : rows.map((row) => {
+          const isBusy = busy === row.id;
+          const badge = accessBadge(row.status);
+          return (
+            <div
+              key={row.id}
+              onClick={() => setViewVendorId(row.vendor_id)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#0F172A"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 100px 150px 110px 200px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
+            >
+              <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
+              <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email || "—"}</div>
+              <div style={{ color: C.textSub, textTransform: "capitalize" }}>{row.role || "—"}</div>
+              <div style={{ color: C.textSub }}>{row.last_login ? new Date(row.last_login).toLocaleDateString() : "Never"}</div>
+              <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.fg }}>{badge.label}</span></div>
+              <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                {row.status === "removed" ? (
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Access removed</span>
+                ) : (
+                  <>
+                    {row.status === "disabled" ? (
+                      <button onClick={(e) => { e.stopPropagation(); void mutate(row, "enable"); }} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.success, borderColor: C.success }}>Enable</button>
+                    ) : (
+                      <button onClick={(e) => { e.stopPropagation(); void mutate(row, "disable"); }} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.warn, borderColor: C.warn }}>Disable</button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); void mutate(row, "remove"); }} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: "#fff", background: C.danger, borderColor: C.danger }}>Remove</button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 8 }}>
+        Disable is reversible (vendor is signed out and blocked, can be re-enabled). Remove permanently deletes the login; financial history is preserved.
+      </div>
+      {viewVendorId && <ReviewModal vendorId={viewVendorId} onClose={() => setViewVendorId(null)} onAction={() => { setViewVendorId(null); void load(); }} />}
+    </div>
+  );
+}
+
+function accessBadge(status: string): { label: string; bg: string; fg: string } {
+  if (status === "active") return { label: "Active", bg: "#064E3B", fg: "#6EE7B7" };
+  if (status === "disabled") return { label: "Disabled", bg: "#78350F", fg: "#FCD34D" };
+  if (status === "removed") return { label: "Removed", bg: "#7F1D1D", fg: "#FCA5A5" };
+  return { label: status, bg: "#334155", fg: "#CBD5E1" };
+}
+
+type VendorOpt = { id: string; name: string };
+
 function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
-  const [vendorName, setVendorName] = useState("");
+  const [vendors, setVendors] = useState<VendorOpt[]>([]);
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [loadingVendors, setLoadingVendors] = useState(true);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  // Load existing vendors for the dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/internal/vendor-master?limit=1000");
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body?.error || `Failed to load vendors (${r.status})`);
+        const rows = (Array.isArray(body) ? body : body?.rows || []) as { id: string; name?: string; legal_name?: string }[];
+        if (cancelled) return;
+        setVendors(rows.map((v) => ({ id: v.id, name: v.legal_name || v.name || "(unnamed)" })));
+      } catch (e: unknown) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoadingVendors(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const options: SearchableSelectOption[] = useMemo(
+    () => vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.id}` })),
+    [vendors],
+  );
+
+  // "Add new vendor" — create through the canonical vendor-master endpoint
+  // (auto-generates code, entity, etc.), then select the new row.
+  async function addVendor(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Could not create vendor (${r.status})`);
+      const created: VendorOpt = { id: body.id, name: body.legal_name || body.name || trimmed };
+      setVendors((prev) => [created, ...prev]);
+      setVendorId(created.id);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
+    if (!vendorId) { setErr("Select an existing vendor or add a new one."); return; }
     if (!email.trim()) { setErr("Email is required."); return; }
     setBusy(true); setErr(null); setNote(null);
     try {
@@ -131,9 +497,10 @@ function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: (
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vendor_name: vendorName.trim() || null,
+          vendor_id: vendorId,
           email: email.trim(),
           display_name: displayName.trim() || null,
+          site_url: window.location.origin,
         }),
       });
       const body = await r.json().catch(() => ({}));
@@ -154,17 +521,26 @@ function InviteVendorModal({ onClose, onSent }: { onClose: () => void; onSent: (
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           Sends a magic-link email so the vendor can set up their portal login and begin onboarding.
         </div>
-        <label style={labelStyle}>Vendor company name (optional — matches/creates vendor record)</label>
-        <input value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="e.g. Sunrise Apparel Co." style={inputStyle} />
+        <label style={labelStyle}>Vendor (select existing or add new)</label>
+        <SearchableSelect
+          value={vendorId}
+          onChange={setVendorId}
+          options={options}
+          placeholder={loadingVendors ? "Loading vendors…" : "Search vendors…"}
+          disabled={busy || loadingVendors}
+          emptyText="No matching vendor — use “Add” below"
+          onAddNew={(q) => void addVendor(q)}
+          addNewLabel={(q) => (q.trim() ? `+ Add new vendor “${q.trim()}”` : "+ Add new vendor")}
+        />
         <label style={labelStyle}>Contact name (optional)</label>
         <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Jane Smith" style={inputStyle} />
         <label style={labelStyle}>Email (required)</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} autoFocus />
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@supplier.com" style={inputStyle} />
         {err && <div style={{ color: C.danger, fontSize: 12, marginTop: 10 }}>{err}</div>}
         {note && <div style={{ color: C.success, fontSize: 12, marginTop: 10 }}>{note}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
           <button onClick={onClose} disabled={busy} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "transparent", color: C.textSub, cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13 }}>Cancel</button>
-          <button onClick={() => void send()} disabled={busy || !email.trim()} style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: busy || !email.trim() ? C.textMuted : C.primary, color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={() => void send()} disabled={busy || !vendorId || !email.trim()} style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: busy || !vendorId || !email.trim() ? C.textMuted : C.primary, color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600 }}>
             {busy ? "Sending…" : "Send invite"}
           </button>
         </div>

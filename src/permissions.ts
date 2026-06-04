@@ -37,7 +37,8 @@ export type PermissionAppId =
   | "costing"
   | "vendor"
   | "gs1"
-  | "planning";
+  | "planning"
+  | "tangerine";
 
 export interface PermissionUser {
   id?: string;
@@ -52,6 +53,7 @@ export interface PermissionUser {
     vendor?: AppPermission;
     gs1?: AppPermission;
     planning?: AppPermission;
+    tangerine?: AppPermission;
   };
 }
 

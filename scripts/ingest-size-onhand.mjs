@@ -352,29 +352,13 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   //    SKUs are is_apparel=false; we match that so the size SKUs are consistent
   //    and the constraint is satisfied. (No matrix surface relies on these being
   //    apparel-flagged; the matrix reads dims off the size_scale, not is_apparel.)
-  const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  // Delegate to the ONE shared resolver: variant-aware find (reuses a legacy
+  // SML/LRG row instead of forking), creates canonical, and catches a 23505 on
+  // the logical-SKU UNIQUE index by re-finding the tuple. isApparel:false
+  // matches this style's existing color-grain SKUs + avoids apparel_dims_required.
+  const { resolveOrCreateSku } = await import("../api/_lib/styleMatrix.js");
   async function findOrCreateSizeSku(color, size) {
-    const colorVal = color ? String(color).trim() : null;
-    const sizeVal = String(size).trim();
-    // find existing (style,color,size) with inseam IS NULL
-    let q = admin.from("ip_item_master").select("id")
-      .eq("entity_id", ROF_ENTITY_ID).eq("style_id", styleId).eq("size", sizeVal).is("inseam", null);
-    q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
-    const { data: existing } = await q.maybeSingle();
-    if (existing?.id) return { id: existing.id, created: false };
-    const base = [SKU_SAFE(styleCode), SKU_SAFE(colorVal), SKU_SAFE(sizeVal)].filter(Boolean).join("-");
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const skuCode = attempt === 0 ? base : `${base}-${attempt}`;
-      const { data: ins, error } = await admin.from("ip_item_master")
-        .insert({ entity_id: ROF_ENTITY_ID, sku_code: skuCode, style_code: styleCode, style_id: styleId, color: colorVal, size: sizeVal, inseam: null, is_apparel: false })
-        .select("id").single();
-      if (!error && ins) return { id: ins.id, created: true };
-      if (error && error.code !== "23505") return { error: error.message };
-      const { data: again } = await admin.from("ip_item_master").select("id")
-        .eq("entity_id", ROF_ENTITY_ID).eq("sku_code", skuCode).maybeSingle();
-      if (again?.id) return { id: again.id, created: false };
-    }
-    return { error: "could not allocate a unique sku_code" };
+    return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: null }, { isApparel: false });
   }
 
   const skuByColorSize = new Map(); // `${color}||${size}` -> item_id
