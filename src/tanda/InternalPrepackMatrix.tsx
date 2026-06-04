@@ -322,6 +322,9 @@ function buildNeededWorkbook(rows: NeededRow[]) {
   const wb = XLSXStyle.utils.book_new();
   let n = 0;
   for (const g of ordered) {
+    // Skip one-size groups (e.g. the ONE-SIZE scale or a lone size) — a single-
+    // column prepack template is useless, so it doesn't get its own tab.
+    if (g.sizes.length <= 1) continue;
     n++;
     const items: FillItem[] = g.items.map((it) => ({ ppk_style_code: it.ppk_style_code, style_name: it.style_name, pack_token: it.pack_token, carton_qty: it.carton_total }));
     const label = `${n}. ${g.label} (${g.items.length})`;
@@ -485,6 +488,7 @@ export default function InternalPrepackMatrix() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PrepackMatrix | null>(null);
@@ -507,7 +511,7 @@ export default function InternalPrepackMatrix() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/prepack-matrices?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -519,7 +523,10 @@ export default function InternalPrepackMatrix() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  // Debounce the search box so results refresh AS YOU TYPE (no Enter / button).
+  useEffect(() => { const t = setTimeout(() => setQDebounced(q), 250); return () => clearTimeout(t); }, [q]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   // Instant client-side filter as you type (code / name / PPK style). The
   // Search button + Enter still hit the server (for large sets / fresh data),

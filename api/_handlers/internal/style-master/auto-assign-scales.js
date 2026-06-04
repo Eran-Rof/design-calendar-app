@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
   // 1. Active size scales.
   const { data: scales, error: se } = await admin
-    .from("size_scales").select("id, code, name, sizes").or("active.is.null,active.eq.true");
+    .from("size_scales").select("id, code, name, sizes").or("is_active.is.null,is_active.eq.true");
   if (se) return res.status(500).json({ error: se.message });
   if (!scales || !scales.length) return res.status(200).json({ error: "No size scales defined — create some in Style Master → Size Scales first.", matched: 0 });
 

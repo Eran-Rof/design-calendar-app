@@ -58,6 +58,14 @@ describe("bestScaleFor", () => {
     expect(r.size_scale_id).toBeNull();
     expect(r.reason).toBe("too_few_sizes");
   });
+  it("a weak 2-size pair is left unassigned (full scale, not single)", () => {
+    const r = bestScaleFor(["30", "32"], SCALES, "M");
+    expect(r.size_scale_id).toBeNull();
+    expect(r.reason).toBe("too_few_sizes");
+  });
+  it("a 3+ size run is assigned", () => {
+    expect(bestScaleFor(["30", "32", "34"], SCALES, "M").size_scale_id).not.toBeNull();
+  });
   it("no good numeric match → unassigned", () => {
     const r = bestScaleFor(["4", "5", "6", "7"], SCALES, "C");
     expect(r.size_scale_id).toBeNull();          // only 4,6 overlap WOMENS = 0.5
