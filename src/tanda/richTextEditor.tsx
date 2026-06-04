@@ -7,6 +7,7 @@ import Color from "@tiptap/extension-color";
 import FontFamily from "@tiptap/extension-font-family";
 import Link from "@tiptap/extension-link";
 import { Extension } from "@tiptap/react";
+import { promptDialog } from "../shared/ui/warn";
 
 // Custom fontSize extension — Tiptap doesn't include this by default
 const FontSize = Extension.create({
@@ -178,7 +179,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
         <button type="button" title="Bulleted list" style={sty(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>•</button>
         <button type="button" title="Numbered list" style={sty(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</button>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Insert link" style={btnBase} onClick={() => { const url = window.prompt("URL:"); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>🔗</button>
+        <button type="button" title="Insert link" style={btnBase} onClick={async () => { const url = await promptDialog("Link URL:", { title: "Insert link", icon: "🔗", placeholder: "https://…", inputType: "text" }); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>🔗</button>
       </div>
       <EditorContent editor={editor} />
       <style>{`

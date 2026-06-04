@@ -25,3 +25,6 @@ Skills/
 
 # Claude Code runtime lockfile (per-session PID/lock, never share)
 .claude/scheduled_tasks.lock
+
+# Claude Code per-task worktrees (never commit)
+.claude/worktrees/
