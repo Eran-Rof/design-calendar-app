@@ -57,6 +57,27 @@ each an opt-in choice that leaves the Xoro paths intact. Full guide:
 - **WIP timing** — the open-PO arrival month is refined from the Tanda DDP
   milestone (see above).
 
+## Buy plan: two sources (recommendations table is what executes)
+
+The Execution batch and the Wholesale-buy-plan / Recommendations **exports all
+read `ip_inventory_recommendations`** — NOT the planner-typed
+`ip_wholesale_forecast.planned_buy_qty`. So a scenario can show typed buy
+quantities yet produce an empty batch + 0-row exports if no recommendations
+were ever generated. Two ways to fill the recommendations for a scenario
+(both on the **Scenarios** screen → Assumptions tab, disabled while the
+scenario is read-only/approved):
+
+1. **Apply assumptions + recompute** — supply-netted plan: nets forecast demand
+   against on-hand + open POs and emits shortage-driven `buy` recommendations.
+2. **Push planner buys → plan** — bypasses supply netting and writes your typed
+   `planned_buy_qty` straight through as `buy` recommendations (summed per
+   sku/period, `action_reason='planner_buy_plan'`), **replacing** any computed
+   ones.
+
+**Approve guard:** approving a scenario with 0 recommendations now warns
+("approving will produce an empty execution batch") and requires an explicit
+override, so an un-computed plan can't be approved silently.
+
 ## Connects to
 
 - **← ATS** (on-hand snapshot) and **← PO WIP / Tanda** (open POs + DDP timing).
