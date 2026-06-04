@@ -66,7 +66,14 @@ export default function ColorPickerCell({ value, onChange, styleCode }: Props) {
       try {
         const out = await searchColors("", { styleCode, signal: controller.signal });
         setRows(out);
-      } catch { /* silent */ }
+      } catch (e) {
+        // Don't swallow the failure — a silent catch made the picker show
+        // "no colors" even when the style has many. Aborts (popover closed /
+        // style changed mid-flight) are expected and stay quiet.
+        if ((e as Error)?.name !== "AbortError") {
+          setNotice(`Could not load colors: ${(e as Error).message}`, "error");
+        }
+      }
       finally { setLoading(false); }
     })();
     return () => controller.abort();

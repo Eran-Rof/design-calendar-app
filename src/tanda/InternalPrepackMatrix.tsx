@@ -25,7 +25,7 @@
 //
 // Wraps /api/internal/prepack-matrices and /api/internal/prepack-matrices/:id.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import XLSXStyle from "xlsx-js-style";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -112,6 +112,53 @@ function CompositionCells({ sizes }: { sizes: SizeRow[] }) {
           <div style={{ color: C.text, fontSize: 12, padding: "2px 5px", fontWeight: 600 }}>{s.qty_per_pack}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// One boxed cell per size (size label on top, a picked value below) — shared
+// by the paired inner-pack / carton view below.
+function SizeBoxGrid({ sizes, pick }: { sizes: SizeRow[]; pick: (s: SizeRow) => number }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      {sizes.map((s) => (
+        <div key={s.size} style={{
+          minWidth: 30, textAlign: "center", border: `1px solid ${C.cardBdr}`,
+          borderRadius: 4, overflow: "hidden", fontFamily: "SFMono-Regular, Menlo, monospace",
+        }}>
+          <div style={{ background: "#0b1220", color: C.textSub, fontSize: 10, padding: "1px 5px", borderBottom: `1px solid ${C.cardBdr}` }}>{s.size}</div>
+          <div style={{ color: C.text, fontSize: 12, padding: "2px 5px", fontWeight: 600 }}>{pick(s)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Paired composition view: the per-size INNER-PACK grid × units-per-pack = the
+// per-size CARTON grid, with both totals — the way the carton actually breaks
+// down (matches the Edit-modal mock). Falls back to the plain carton grid for
+// legacy matrices that have no inner-pack data.
+function PairedCompositionCells({ sizes }: { sizes: SizeRow[] }) {
+  if (!Array.isArray(sizes) || sizes.length === 0) return <span style={{ color: C.textMuted }}>—</span>;
+  const hasInner = sizes.some((s) => (s.inner_pack_qty || 0) > 0);
+  if (!hasInner) return <CompositionCells sizes={sizes} />;
+  const innerTotal = sizes.reduce((a, s) => a + (s.inner_pack_qty || 0), 0);
+  const cartonTotal = sizes.reduce((a, s) => a + s.qty_per_pack, 0);
+  const ref = sizes.find((s) => (s.inner_pack_qty || 0) > 0);
+  const upp = ref && ref.inner_pack_qty ? Math.round(ref.qty_per_pack / ref.inner_pack_qty) : 1;
+  const lbl: React.CSSProperties = { fontSize: 11, color: C.textMuted, marginBottom: 3 };
+  const num: React.CSSProperties = { color: C.warn, fontWeight: 700 };
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
+      <div>
+        <div style={lbl}>inner packs = <span style={num}>{innerTotal}</span></div>
+        <SizeBoxGrid sizes={sizes} pick={(s) => s.inner_pack_qty || 0} />
+      </div>
+      <div style={{ fontWeight: 700, fontSize: 14, color: C.textSub, alignSelf: "center", padding: "0 2px" }}>× {upp}</div>
+      <div>
+        <div style={lbl}>carton total = <span style={num}>{cartonTotal}</span></div>
+        <SizeBoxGrid sizes={sizes} pick={(s) => s.qty_per_pack} />
+      </div>
     </div>
   );
 }
@@ -452,6 +499,16 @@ export default function InternalPrepackMatrix() {
 
   useEffect(() => { void load(); }, [includeInactive]);
 
+  // Instant client-side filter as you type (code / name / PPK style). The
+  // Search button + Enter still hit the server (for large sets / fresh data),
+  // but the list narrows immediately without a round-trip.
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((m) =>
+      [m.code, m.name, m.ppk_style_code].some((f) => (f || "").toLowerCase().includes(needle)));
+  }, [rows, q]);
+
   async function del(m: PrepackMatrix) {
     if (!(await confirmDialog(`Delete prepack matrix ${m.code} (${m.name})?\nIts size composition is removed too.`))) return;
     try {
@@ -566,7 +623,7 @@ export default function InternalPrepackMatrix() {
         />
 
         <ExportButton
-          rows={rows.map((r) => ({
+          rows={filtered.map((r) => ({
             ...r,
             composition: compositionLabel(r.sizes),
           })) as unknown as Array<Record<string, unknown>>}
@@ -622,7 +679,7 @@ export default function InternalPrepackMatrix() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((m) => (
+              {filtered.map((m) => (
                 <ScrollHighlightRow
                   key={m.id}
                   rowId={m.id}
@@ -634,7 +691,7 @@ export default function InternalPrepackMatrix() {
                   <td style={td} hidden={!isVisible("name")}>{m.name}</td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textSub }} hidden={!isVisible("ppk_style_code")}>{m.ppk_style_code || "—"}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("pack_token")}>{m.pack_token || "—"}</td>
-                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("composition")}><CompositionCells sizes={m.sizes} /></td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("composition")}><PairedCompositionCells sizes={m.sizes} /></td>
                   <td style={{ ...td, fontFamily: "monospace", color: C.warn }} hidden={!isVisible("pack_total")}>{m.pack_total_computed}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{m.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -643,6 +700,9 @@ export default function InternalPrepackMatrix() {
                   </td>
                 </ScrollHighlightRow>
               ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: C.textMuted, padding: 20 }}>No matches for &ldquo;{q.trim()}&rdquo;.</td></tr>
+              )}
             </tbody>
           </table>
         )}
@@ -706,8 +766,6 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
   const [err, setErr] = useState<string | null>(null);
 
   const parsed = parseSizesText(form.sizesText);
-  const packTotal = parsed.sizes.reduce((a, s) => a + s.qty_per_pack, 0);
-  const innerTotal = parsed.sizes.reduce((a, s) => a + (s.inner_pack_qty || 0), 0);
 
   async function submit() {
     setSubmitting(true);
@@ -776,14 +834,14 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
 
         <div style={{ marginTop: 14, padding: "10px 12px", background: "#0b1220", border: `1px dashed ${C.cardBdr}`, borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
           <div style={{ marginBottom: 6 }}>
-            Preview ({parsed.sizes.length} size{parsed.sizes.length === 1 ? "" : "s"}, carton total = <strong style={{ color: C.warn }}>{packTotal}</strong>, inner packs = <strong style={{ color: C.warn }}>{innerTotal}</strong>):
+            Preview ({parsed.sizes.length} size{parsed.sizes.length === 1 ? "" : "s"}):
           </div>
           {parsed.error ? (
             <span style={{ color: C.danger }}>{parsed.error}</span>
           ) : parsed.sizes.length === 0 ? (
             <span style={{ fontStyle: "italic" }}>Type size:innerPacks:qtyPerBox above (e.g. 32:2:6) to preview the carton composition.</span>
           ) : (
-            <CompositionCells sizes={parsed.sizes} />
+            <PairedCompositionCells sizes={parsed.sizes} />
           )}
         </div>
 

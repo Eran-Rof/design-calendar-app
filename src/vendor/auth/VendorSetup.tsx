@@ -14,18 +14,23 @@ export default function VendorSetup() {
   const [copied, setCopied] = useState(false);
   const loginUrl = `${window.location.origin}/vendor/login`;
 
-  // The invite link carries an access/refresh token in the URL hash. Supabase
-  // JS picks it up automatically (detectSessionInUrl: true); we just wait for
-  // the session to appear. If it doesn't, the link is bad/expired.
+  // Custom 72h invite: the link is /vendor/setup?invite=<token>. When present we
+  // use the accept-invite endpoint (Supabase's own link caps at 24h). Falls back
+  // to the legacy Supabase-session flow (hash tokens) when there's no ?invite=.
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
+
   useEffect(() => {
     let mounted = true;
+    if (inviteToken) { setReady(true); return; }
+    // Legacy Supabase-session path: the invite link carries access/refresh
+    // tokens in the URL hash; supabase-js picks them up (detectSessionInUrl).
     supabaseVendor.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       if (data.session) setReady(true);
       else setErr("Invite link is invalid or has expired. Ask your Ring of Fire admin to resend.");
     });
     return () => { mounted = false; };
-  }, []);
+  }, [inviteToken]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -34,6 +39,22 @@ export default function VendorSetup() {
     if (password !== confirm) { setErr("Passwords do not match."); return; }
     setBusy(true);
     try {
+      if (inviteToken) {
+        // Custom-token path: set the password server-side, then sign in.
+        const r = await fetch("/api/vendor/accept-invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: inviteToken, password }),
+        });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) { setErr(body?.error || `Could not complete setup (${r.status})`); return; }
+        if (body?.email) {
+          const { error: sErr } = await supabaseVendor.auth.signInWithPassword({ email: body.email, password });
+          if (sErr) { setErr("Password set, but auto sign-in failed — go to the login page and sign in. (" + sErr.message + ")"); return; }
+        }
+        setDone(true);
+        return;
+      }
       const { error } = await supabaseVendor.auth.updateUser({ password });
       if (error) { setErr(error.message); return; }
       setDone(true);
