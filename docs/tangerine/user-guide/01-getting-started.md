@@ -22,6 +22,8 @@ Direct URL: `https://<your-domain>/tangerine`
 >
 > **Earlier note (Chunk T1, 2026-05-26):** Tangerine is its own top-level app at `/tangerine` — previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
 
+> **Standalone front door (`/login`, 2026-06-04):** there is now a dedicated, Tangerine-branded sign-in page at **`/login`** (Microsoft-365 only). It's the planned single entry point for the whole suite — sign in once, then launch every app from the 🧩 Apps menu. It's reachable directly today; an already-signed-in browser passes straight through. When the operator flips **`VITE_TANGERINE_AS_HOME=true`** (Vercel), the root `/` redirects here and the legacy PLM launcher is retired (see OPERATOR-TODO). A `?next=<path>` param controls the post-login destination (default `/tangerine`).
+
 ### The login screen
 
 ```mermaid
