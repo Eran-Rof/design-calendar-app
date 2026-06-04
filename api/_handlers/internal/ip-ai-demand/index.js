@@ -221,22 +221,19 @@ export default async function handler(req, res) {
     message = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      messages: [
-        { role: "user", content: prompt },
-        // Prefill the assistant turn with the opening bracket so the model
-        // emits the JSON array directly — no prose preamble, no ```json
-        // fences to strip, no chance of a chatty intro breaking the parse.
-        { role: "assistant", content: "[" },
-      ],
+      // NOTE: do NOT prefill the assistant turn — this model rejects it
+      // ("does not support assistant message prefill"). We instead instruct
+      // for a bare JSON array in the prompt and extract it robustly below.
+      system: "You output only a single JSON array. No prose, no explanation, no markdown code fences — just the raw JSON array.",
+      messages: [{ role: "user", content: prompt }],
     });
   } catch (err) {
     return res.status(502).json({ error: "Claude API error: " + err.message });
   }
 
   // ── 8. Parse response ─────────────────────────────────────────────────
-  // The prefill means the model's text is the array body *after* the leading
-  // "[", so we put it back. If the model still ran out of room, say so plainly
-  // instead of the opaque "unparseable JSON".
+  // If the model ran out of room, say so plainly instead of the opaque
+  // "unparseable JSON".
   if (message.stop_reason === "max_tokens") {
     return res.status(502).json({
       error: `AI response was truncated at ${MAX_TOKENS} tokens — try a smaller SKU count (top_n_skus).`,
@@ -267,10 +264,9 @@ export default async function handler(req, res) {
 }
 
 // ── Response parsing ─────────────────────────────────────────────────────────
-// Because we prefill the assistant turn with "[", the returned text is the
-// array body and we prepend the bracket back. We still defend against a model
-// that ignores the prefill (returns a full array, or wraps it in ```json) so
-// the parser is robust either way.
+// The model returns a full JSON array (we ask for a bare array, no prefill).
+// We defend against it wrapping the array in a ```json fence or bookending it
+// with a stray sentence by clipping to the outer brackets.
 function parsePredictions(rawText) {
   let text = rawText.trim();
 
@@ -278,17 +274,14 @@ function parsePredictions(rawText) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (fenced) text = fenced[1].trim();
 
-  // Reattach the prefilled "[" unless the model already emitted it.
-  let candidate = text.startsWith("[") ? text : "[" + text;
+  // Clip to the outer array: first "[" .. last "]" — drops any prose the model
+  // put before/after the array. Inner key_signals/[…] arrays are safe because
+  // we anchor on the OUTER brackets, not the first inner one.
+  const first = text.indexOf("[");
+  const last = text.lastIndexOf("]");
+  if (first === -1 || last <= first) throw new Error("no JSON array found in response");
 
-  // Clip to the outer array: first "[" .. last "]" — drops any trailing prose
-  // the model appended after the array. Inner key_signals/[…] arrays are safe
-  // because we anchor on the OUTER brackets, not the first inner one.
-  const first = candidate.indexOf("[");
-  const last = candidate.lastIndexOf("]");
-  if (first !== -1 && last > first) candidate = candidate.slice(first, last + 1);
-
-  return JSON.parse(candidate);
+  return JSON.parse(text.slice(first, last + 1));
 }
 
 // ── Prompt builder ─────────────────────────────────────────────────────────
