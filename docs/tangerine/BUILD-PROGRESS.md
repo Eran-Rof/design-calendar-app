@@ -56,8 +56,10 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 | **P21** 3PL | M13 3PL | 🟡 **provider + shipment-tracking MVP (#911).** Contract-3PL management (distinct from marketplace FBA/WFS in P12). New `tpl_providers` (master: name/code/kind/location link/contact/account/billing notes) + `tpl_shipments` (inbound/outbound/return, lifecycle draft→in_transit→received→closed, `TPL-YYYY-NNNNN`, carrier/tracking) + `tpl_shipment_lines`. Panel **Inventory → 🚚 3PL** (`/tangerine?m=three_pl`, h617/h618/h619) with Providers + Shipments tabs. Migration `20260802000000`. **DEFERRED:** FIFO-layer relocation to the 3PL location (layers not location-scoped yet — M52) + 3PL fee posting (COA accounts exist). | #911 |
 | **P22** EDI | M14 EDI | 🟡 **engine pre-existed; SURFACED (#912).** A vendor-side X12 EDI engine was already built (`api/_lib/edi/` parser/builder/mappers/inbound-pipeline + 997 acks; outbound 850 PO + 820 payment; `edi_messages` store) but **unsurfaced + unconfigured (0 rows) + no transport**. This adds the dashboard: **Procurement → 🔌 EDI** (`/tangerine?m=edi`, h620/h621) — **Partners** tab (enable EDI for a vendor = upsert `erp_integrations` w/ `config.partner_id`; engine resolves inbound GS02 against it) + **Messages** tab (global `edi_messages` log w/ direction/doc-type filters). No schema change. **DEFERRED / operator setup:** AS2/SFTP/VAN **transport worker** (messages prepared+stored, not transmitted — needs VAN creds + `EDI_INBOUND_SHARED_SECRET`), and **customer/retailer EDI** (inbound 850→SO, outbound 810/856 to retailers) — the other half, not built. | #912 |
 | **P23** 🚩 Xoro decommission | — (cutover milestone) | ⬜ | the practical finish line |
-| **P24** Reporting | M9 full reporting · M46 BI/Analytics | ⬜ | |
+| **P24** Reporting | M9 full reporting · M46 BI/Analytics | 🟡 **reports pre-existed; hub added (#913).** All financial statements (Trial Balance / Income Statement / Balance Sheet / Cash Flow / Year-End — P5) + AR/AP aging + GL detail + sales reports + ~12 analytics handlers (`api/_handlers/internal/analytics/*`) were already built & surfaced. Added a **Reports & Analytics hub** (`/tangerine?m=reports_hub`, h622 `finance-kpis`): live KPI tiles (open AR/AP, inventory@cost, open SOs, current period) + grouped quick-links to every report. **DEFERRED:** folding the analytics endpoints into on-screen charts (BI dashboards) + a custom report builder. | #913 |
 | **P25** Finance + API | M15 Public API · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets | 🟡 **3 of 5 (#914): M21 Fixed Assets (register+straight-line depreciation, h623/h624), M22 Budgets (gl_budgets + vs-actual, h625), M20 1099 worksheet (h626). Mig 20260803000000. GL posting deferred. Remaining: M19 Sales Tax + M15 Public API.** | #914 |
+| **P25** Finance + API | M15 Public API · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets/Forecasting | ⬜ | |
+>>>>>>> origin/main
 
 ---
 
@@ -84,7 +86,7 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 🟡 **Partial (4):** M11 PO · M26 QC · M38 Receiving · M48 Trade Compliance (all P13)
 
 ✅ **M10 SO** complete (P16): entry panel + API, draft→confirm→AR invoice, factor approval, multi-store split. **M18 Allocations** complete: per-SO reserve (#725) + standalone **Allocations Workbench** (#788, cross-SO priority full-fill + factor-credit gate). **M44 Carrier** complete (#726).
-⬜ **Not started (~15):** M9-full · M15 API · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets · M23 RMA · M24 Showroom · M31 Planning · M32/M33 PLM ext · M40/M41 B2B · M46 BI · M49 Drop-ship
+⬜ **Not started:** M15 API · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets · M23 RMA · M24 Showroom · M31 Planning · M32/M33 PLM ext · M40/M41 B2B · M46 BI · M49 Drop-ship
 
 ---
 

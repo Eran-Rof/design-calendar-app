@@ -613,6 +613,8 @@ import h619 from "./internal/tpl-shipments/[id].js";
 //   h621 = GET /api/internal/edi-messages         (global EDI message log)
 import h620 from "./internal/edi-partners/index.js";
 import h621 from "./internal/edi-messages/index.js";
+// P24/M46 — finance KPIs for the Reports & Analytics hub.
+import h622 from "./internal/finance-kpis/index.js";
 // P25 — Finance batch (Fixed Assets M21 · Budgets M22 · 1099 M20).
 import h623 from "./internal/fixed-assets/index.js";
 import h624 from "./internal/fixed-assets/[id].js";
@@ -1162,6 +1164,7 @@ export const ROUTES = [
   { pattern: "/api/internal/tpl-providers", handler: h617 },
   { pattern: "/api/internal/edi-partners", handler: h620 },
   { pattern: "/api/internal/edi-messages", handler: h621 },
+  { pattern: "/api/internal/finance-kpis", handler: h622 },
   { pattern: "/api/internal/fixed-assets/:id", handler: h624 },
   { pattern: "/api/internal/fixed-assets", handler: h623 },
   { pattern: "/api/internal/budgets", handler: h625 },

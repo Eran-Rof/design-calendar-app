@@ -42,6 +42,7 @@ import InternalSalesReturns       from "./tanda/InternalSalesReturns";
 import InternalDropShip          from "./tanda/InternalDropShip";
 import InternalThreePL           from "./tanda/InternalThreePL";
 import InternalEDI               from "./tanda/InternalEDI";
+import InternalReportsHub        from "./tanda/InternalReportsHub";
 import InternalFixedAssets       from "./tanda/InternalFixedAssets";
 import InternalBudgets           from "./tanda/InternalBudgets";
 import InternalForm1099          from "./tanda/InternalForm1099";
@@ -171,6 +172,7 @@ type ModuleKey =
   | "drop_ship"
   | "three_pl"
   | "edi"
+  | "reports_hub"
   | "fixed_assets"
   | "budgets"
   | "form_1099"
@@ -317,6 +319,7 @@ const MODULES: ModuleDef[] = [
   { key: "drop_ship",         label: "Drop-Ship",          emoji: "📦", group: "Sales" },
   { key: "three_pl",          label: "3PL",                emoji: "🚚", group: "Inventory" },
   { key: "edi",               label: "EDI",                emoji: "🔌", group: "Procurement" },
+  { key: "reports_hub",       label: "Reports & Analytics", emoji: "📊", group: "Reports" },
   { key: "fixed_assets",      label: "Fixed Assets",       emoji: "🏢", group: "Accounting" },
   { key: "budgets",           label: "Budgets",            emoji: "🎯", group: "Accounting" },
   { key: "form_1099",         label: "1099 Worksheet",     emoji: "🧾", group: "Accounting" },
@@ -646,6 +649,7 @@ export default function Tangerine() {
         {activeModule === "drop_ship" && <InternalDropShip />}
         {activeModule === "three_pl" && <InternalThreePL />}
         {activeModule === "edi" && <InternalEDI />}
+        {activeModule === "reports_hub" && <InternalReportsHub />}
         {activeModule === "fixed_assets" && <InternalFixedAssets />}
         {activeModule === "budgets" && <InternalBudgets />}
         {activeModule === "form_1099" && <InternalForm1099 />}
