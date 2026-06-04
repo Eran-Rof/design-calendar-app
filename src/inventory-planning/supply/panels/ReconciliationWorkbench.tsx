@@ -25,7 +25,6 @@ import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { S, PAL, formatDate } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
-import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
@@ -218,10 +217,6 @@ export default function ReconciliationWorkbench() {
 
       <div style={S.content}>
         <SystemHealthBanner />
-        <StaleDataBanner
-          watch={["xoro_inventory", "xoro_open_pos", "planning_run", "wholesale_forecast", "ecom_forecast"]}
-          dismissKey="supply_workbench"
-        />
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Reconciliation run</strong>
