@@ -41,6 +41,7 @@ import InternalAllocations        from "./tanda/InternalAllocations";
 import InternalSalesReturns       from "./tanda/InternalSalesReturns";
 import InternalDropShip          from "./tanda/InternalDropShip";
 import InternalThreePL           from "./tanda/InternalThreePL";
+import InternalEDI               from "./tanda/InternalEDI";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalReceiving          from "./tanda/InternalReceiving";
 import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
@@ -166,6 +167,7 @@ type ModuleKey =
   | "sales_returns"
   | "drop_ship"
   | "three_pl"
+  | "edi"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -308,6 +310,7 @@ const MODULES: ModuleDef[] = [
   { key: "sales_returns",     label: "Returns/RMA",        emoji: "↩️", group: "Sales" },
   { key: "drop_ship",         label: "Drop-Ship",          emoji: "📦", group: "Sales" },
   { key: "three_pl",          label: "3PL",                emoji: "🚚", group: "Inventory" },
+  { key: "edi",               label: "EDI",                emoji: "🔌", group: "Procurement" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
@@ -633,6 +636,7 @@ export default function Tangerine() {
         {activeModule === "sales_returns" && <InternalSalesReturns />}
         {activeModule === "drop_ship" && <InternalDropShip />}
         {activeModule === "three_pl" && <InternalThreePL />}
+        {activeModule === "edi" && <InternalEDI />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "receiving"         && <InternalReceiving />}
         {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
