@@ -51,8 +51,9 @@ export function exportToExcel(
   // Optional By Size Matrix worksheet inputs (see buildExportPayload).
   sizeMatrix?: AtsSizeMatrixResponse,
   bulkByStyleColor?: Map<string, { so: number; po: number }>,
+  periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
 ) {
-  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor);
+  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices);
   if (!payload) return;
   triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -99,6 +100,11 @@ export function buildExportPayload(
   // extra sheet (default).
   sizeMatrix?: AtsSizeMatrixResponse,
   bulkByStyleColor?: Map<string, { so: number; po: number }>,
+  // One By-Size-Matrix tab per selected report period — each carries a 22pt
+  // dark-blue period banner and the same matrix computed AS OF that period
+  // (on-hand + inbound-by-then − reservations). Appended after the snapshot
+  // "By Size Matrix" tab. Empty/undefined → period tabs omitted.
+  periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -1886,11 +1892,27 @@ export function buildExportPayload(
   const wb = XLSXStyle.utils.book_new();
   XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
 
-  // Optional "By Size Matrix" worksheet (operator export option). Built only
-  // when the size-grain data was fetched; the main report above is unaffected.
+  // Optional "By Size Matrix" worksheet(s) (operator export option). Built
+  // only when the size-grain data was fetched; the main report is unaffected.
   if (opts.bySizeMatrix && sizeMatrix && Array.isArray(sizeMatrix.styles) && sizeMatrix.styles.length > 0) {
+    const usedNames = new Set(wb.SheetNames as string[]);
+    // Excel tab names: ≤31 chars, none of []:*?/\, unique within the book.
+    const safeTab = (raw: string) => {
+      let base = String(raw).replace(/[[\]:*?/\\]/g, " ").trim().slice(0, 31) || "Sheet";
+      let name = base, n = 2;
+      while (usedNames.has(name)) { const suf = ` ${n++}`; name = base.slice(0, 31 - suf.length) + suf; }
+      usedNames.add(name);
+      return name;
+    };
+    // Snapshot (total) matrix tab.
     const matrixWs = buildSizeMatrixSheet(sizeMatrix, bulkByStyleColor);
-    if (matrixWs) XLSXStyle.utils.book_append_sheet(wb, matrixWs, "By Size Matrix");
+    if (matrixWs) XLSXStyle.utils.book_append_sheet(wb, matrixWs, safeTab("By Size Matrix"));
+    // One tab per selected period, each AS OF that period with a 22pt banner.
+    for (const pm of periodMatrices ?? []) {
+      if (!pm?.matrix || !Array.isArray(pm.matrix.styles) || pm.matrix.styles.length === 0) continue;
+      const ws = buildSizeMatrixSheet(pm.matrix, bulkByStyleColor, pm.name);
+      if (ws) XLSXStyle.utils.book_append_sheet(wb, ws, safeTab(pm.name));
+    }
   }
 
   return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid" };
@@ -1916,78 +1938,110 @@ export interface AtsSizeMatrixResponse {
   styles: AtsSizeMatrixStyle[];
 }
 
-// Build the "By Size Matrix" worksheet: one block per style —
-//   title row · header (Style·Color·SO·PO·ATS·<sizes>·PPK·Total Eachs·Total
-//   PPK<n>) · one row per color · a Subtotal row · a blank spacer row.
-// SO / PO come from the bulk color-grain overlay (keyed "STYLE|COLOR"); the
-// size cells + PPK come from the size-grain fetch. Returns null when there is
-// nothing to render.
+// Build a "By Size Matrix" worksheet. One block per style:
+//   [optional 22pt period banner] · per-style title · header
+//   (Style·Color·SO·_·PO·_·ATS·_·<sizes>·PPK·Total Eachs·Total PPK<n>) ·
+//   one row per color · a Subtotal row · a blank spacer row.
+// Blank spacer COLUMNS sit after SO, PO and ATS (operator layout). SO / PO
+// come from the bulk color-grain overlay (keyed "STYLE|COLOR"); the size
+// cells + PPK come from the size-grain fetch. Fills mirror the main ATS
+// report palette (dark-blue headers / white font, qty-band data cells,
+// blue spacer columns). `periodHeader` adds the big banner used by the
+// per-period tabs. Returns null when there is nothing to render.
 function buildSizeMatrixSheet(
   data: AtsSizeMatrixResponse,
   bulk?: Map<string, { so: number; po: number }>,
+  periodHeader?: string,
 ): any | null {
   const NUMFMT = "#,##0";
-  const num = (v: number) => ({ v, t: "n", s: { numFmt: NUMFMT, alignment: { horizontal: "right" } } });
-  const txt = (v: string) => ({ v, t: "s" });
+  // Report palette (matches exportExcel's main sheet).
+  const DARK = "1F497D";   // dark-blue header fill (On Order/PO/periods/Total)
+  const TEXTHDR = "3278CC"; // text headers + every spacer column
+  const QTY = "B4C7E7";    // qty-band data cells
+  const EVEN = "EEF3FA";   // zebra even (text cols)
+  const ODD = "FFFFFF";    // zebra odd (text cols)
+  const WHITE = "FFFFFF";
+  const THICK = { style: "medium", color: { rgb: DARK } };
+  const THIN = { style: "thin", color: { rgb: "4472C4" } };
+  const HDR_BORDER: any = { top: THICK, bottom: THICK, left: THIN, right: THIN };
+  const CELL_BORDER: any = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+
+  const fill = (rgb: string) => ({ fgColor: { rgb }, patternType: "solid" });
+  // Header cells.
+  const hDark = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "center", vertical: "center" }, border: HDR_BORDER } });
+  const hText = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(TEXTHDR), alignment: { horizontal: "center", vertical: "center" }, border: HDR_BORDER } });
+  const hSpacer = () => ({ v: "", t: "s", s: { fill: fill(TEXTHDR), border: HDR_BORDER } });
+  // Data cells.
+  const dTxt = (v: string, z: string) => ({ v, t: "s", s: { font: { sz: 11, name: "Calibri" }, fill: fill(z), alignment: { horizontal: "left" }, border: CELL_BORDER } });
+  const dNum = (v: number, rgb: string) => ({ v: v > 0 ? v : "", t: v > 0 ? "n" : "s", s: { numFmt: NUMFMT, font: { sz: 11, name: "Calibri" }, fill: fill(rgb), alignment: { horizontal: "right" }, border: CELL_BORDER } });
+  const dSpacer = (z: string) => ({ v: "", t: "s", s: { fill: fill(z), border: CELL_BORDER } });
+  // Subtotal cells (bold dark-blue font on the qty band, thick top rule).
+  const SUB_BORDER: any = { top: THICK, bottom: THIN, left: THIN, right: THIN };
+  const sTxt = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: DARK }, name: "Calibri" }, fill: fill(QTY), border: SUB_BORDER } });
+  const sNum = (v: number) => ({ v: v > 0 ? v : "", t: v > 0 ? "n" : "s", s: { numFmt: NUMFMT, font: { bold: true, sz: 11, color: { rgb: DARK }, name: "Calibri" }, fill: fill(QTY), alignment: { horizontal: "right" }, border: SUB_BORDER } });
+  const sSpacer = () => ({ v: "", t: "s", s: { fill: fill(QTY), border: SUB_BORDER } });
+  // Per-style title banner + the big period banner.
+  const titleCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 13, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "left", vertical: "center" } } });
+  const periodCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 22, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "center", vertical: "center" } } });
   const blank = { v: "", t: "s" };
-  // Cell variants with light styling so the block reads cleanly.
-  const titleCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 12, color: { rgb: "0F172A" } }, fill: { fgColor: { rgb: "D1FAE5" } } } });
-  const hdrCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, color: { rgb: "0F172A" } }, fill: { fgColor: { rgb: "E2E8F0" } }, alignment: { horizontal: "center" } } });
-  const subTxt = (v: string) => ({ v, t: "s", s: { font: { bold: true }, border: { top: { style: "thin", color: { rgb: "94A3B8" } } } } });
-  const subNum = (v: number) => ({ v, t: "n", s: { numFmt: NUMFMT, font: { bold: true }, alignment: { horizontal: "right" }, border: { top: { style: "thin", color: { rgb: "94A3B8" } } } } });
   const keyOf = (style: string, color: string) => `${String(style).toUpperCase()}|${String(color).toUpperCase()}`;
-  // A right-aligned numeric cell, or a blank when zero (matches the operator's
-  // "leave empty when there's nothing" layout).
-  const numOrBlank = (v: number) => (v > 0 ? num(v) : blank);
+
+  // Block width = Style,Color,SO,_,PO,_,ATS,_ (8) + sizes + PPK,TotalEachs,TotalPPK (3).
+  const widthOf = (sizes: string[]) => 8 + sizes.length + 3;
+  const maxWidth = Math.max(...data.styles.filter((s) => (s.colors?.length ?? 0) > 0).map((s) => widthOf(s.sizes || [])), 1);
 
   const aoa: any[][] = [];
   const merges: any[] = [];
+  const padTo = (row: any[], w: number) => { while (row.length < w) row.push(blank); return row; };
+
+  // Big period banner (per-period tabs only).
+  if (periodHeader) {
+    const r = aoa.length;
+    aoa.push(padTo([periodCell(periodHeader)], maxWidth));
+    merges.push({ s: { r, c: 0 }, e: { r, c: maxWidth - 1 } });
+    aoa.push([]); // breathing room under the banner
+  }
 
   for (const st of data.styles) {
     if (!st || (st.colors?.length ?? 0) === 0) continue;
     const sizes = Array.isArray(st.sizes) ? st.sizes : [];
     const packLabel = st.pack_size > 1 ? `Total PPK${st.pack_size}` : "Total PPK";
+    const blockWidth = widthOf(sizes);
 
-    // Title row (merged across the whole block width).
-    const blockWidth = 5 /* Style,Color,SO,PO,ATS */ + sizes.length + 3 /* PPK, Total Eachs, Total PPK */;
+    // Per-style title (merged).
     const titleR = aoa.length;
-    const titleRow: any[] = [titleCell(`${st.style_code}  ${st.style_name || ""}  —  ATS Available by Size`)];
-    for (let i = 1; i < blockWidth; i++) titleRow.push(blank);
-    aoa.push(titleRow);
+    aoa.push(padTo([titleCell(`${st.style_code}  ${st.style_name || ""}  —  ATS Available by Size`)], blockWidth));
     merges.push({ s: { r: titleR, c: 0 }, e: { r: titleR, c: blockWidth - 1 } });
 
-    // Header row.
+    // Header row (spacers after SO, PO, ATS).
     aoa.push([
-      hdrCell("Style"), hdrCell("Color"), hdrCell("SO"), hdrCell("PO"), hdrCell("ATS"),
-      ...sizes.map((s) => hdrCell(String(s))),
-      hdrCell("PPK"), hdrCell("Total Eachs"), hdrCell(packLabel),
+      hText("Style"), hText("Color"),
+      hDark("SO"), hSpacer(), hDark("PO"), hSpacer(), hDark("ATS"), hSpacer(),
+      ...sizes.map((s) => hDark(String(s))),
+      hDark("PPK"), hDark("Total Eachs"), hDark(packLabel),
     ]);
 
     // Color rows + running subtotal.
     const sub = { so: 0, po: 0, eachs: 0, ppk: 0, bySize: {} as Record<string, number> };
+    let i = 0;
     for (const c of st.colors) {
+      const z = (i++ % 2 === 0) ? EVEN : ODD; // zebra for text cols + spacers
       const ov = bulk?.get(keyOf(st.style_code, c.color)) ?? { so: 0, po: 0 };
       sub.so += ov.so; sub.po += ov.po; sub.eachs += c.total_eachs || 0; sub.ppk += c.ppk_packs || 0;
-      const row: any[] = [
-        txt(st.style_name || st.style_code),
-        txt(c.color),
-        numOrBlank(ov.so),
-        numOrBlank(ov.po),
-        numOrBlank(c.total_eachs || 0),
-        ...sizes.map((s) => { const q = Number(c.by_size?.[s]) || 0; sub.bySize[s] = (sub.bySize[s] || 0) + q; return numOrBlank(q); }),
-        numOrBlank(c.ppk_packs || 0),
-        numOrBlank(c.total_eachs || 0),
-        numOrBlank(c.ppk_packs || 0),
-      ];
-      aoa.push(row);
+      aoa.push([
+        dTxt(st.style_name || st.style_code, z), dTxt(c.color, z),
+        dNum(ov.so, QTY), dSpacer(z), dNum(ov.po, QTY), dSpacer(z), dNum(c.total_eachs || 0, QTY), dSpacer(z),
+        ...sizes.map((s) => { const q = Number(c.by_size?.[s]) || 0; sub.bySize[s] = (sub.bySize[s] || 0) + q; return dNum(q, QTY); }),
+        dNum(c.ppk_packs || 0, QTY), dNum(c.total_eachs || 0, QTY), dNum(c.ppk_packs || 0, QTY),
+      ]);
     }
 
     // Subtotal row.
     aoa.push([
-      subTxt("Subtotal"), blank,
-      subNum(sub.so), subNum(sub.po), subNum(sub.eachs),
-      ...sizes.map((s) => subNum(sub.bySize[s] || 0)),
-      subNum(sub.ppk), subNum(sub.eachs), subNum(sub.ppk),
+      sTxt("Subtotal"), sTxt(""),
+      sNum(sub.so), sSpacer(), sNum(sub.po), sSpacer(), sNum(sub.eachs), sSpacer(),
+      ...sizes.map((s) => sNum(sub.bySize[s] || 0)),
+      sNum(sub.ppk), sNum(sub.eachs), sNum(sub.ppk),
     ]);
 
     aoa.push([]); // spacer between style blocks
@@ -1996,8 +2050,10 @@ function buildSizeMatrixSheet(
   if (aoa.length === 0) return null;
   const ws = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
   if (merges.length > 0) ws["!merges"] = merges;
-  // Reasonable column widths: identity cols wider, numeric cols compact.
-  ws["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 9 }, { wch: 10 },
-    ...Array.from({ length: 24 }, () => ({ wch: 7 }))];
+  if (periodHeader) ws["!rows"] = [{ hpt: 30 }]; // tall banner row
+  // Column widths: Style/Color wide, narrow spacers (cols 3,5,7), compact numerics.
+  const cols: Array<{ wch: number }> = [{ wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 2 }, { wch: 9 }, { wch: 2 }, { wch: 10 }, { wch: 2 }];
+  for (let i = 8; i < maxWidth; i++) cols.push({ wch: i >= maxWidth - 3 ? 11 : 7 });
+  ws["!cols"] = cols;
   return ws;
 }

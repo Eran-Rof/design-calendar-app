@@ -116,6 +116,7 @@ interface ATSDerivedCtx {
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
     sizeMatrix?: import("./exportExcel").AtsSizeMatrixResponse,
     bulkByStyleColor?: Map<string, { so: number; po: number }>,
+    periodMatrices?: Array<{ name: string; matrix: import("./exportExcel").AtsSizeMatrixResponse }>,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;

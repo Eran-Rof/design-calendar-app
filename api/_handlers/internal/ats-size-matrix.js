@@ -17,8 +17,15 @@
 //                 LATEST snapshot_date (same rule as h603 ats-by-size).
 //   reservations— open Tangerine claims Σ(qty_allocated − qty_shipped) from
 //                 sales_order_lines (hard, not date-windowed).
-//   incoming    — 0 unless as_of_date is supplied (Phase-2 ship-window inbound
-//                 is intentionally left to h603; this export uses the snapshot).
+//   incoming    — 0 for the snapshot; when as_of_date is supplied (a report
+//                 period's end date), adds size-grain PO inbound expected to
+//                 ARRIVE by that date — native purchase_order_lines +
+//                 Xoro-mirror tanda_pos/po_line_items mapped by
+//                 (style,color,size) tuple — exactly as h603 ats-by-size. This
+//                 is what makes the export's per-period tabs differ.
+//
+// POST { style_codes: [string], as_of_date?: "YYYY-MM-DD" }
+//   → { as_of, as_of_date, styles: [...] }
 //
 // POST { style_codes: [string, …], as_of_date?: "YYYY-MM-DD" }
 //   → { as_of, styles: [{
@@ -32,6 +39,11 @@ export const config = { maxDuration: 30 };
 
 const CHUNK = 100;     // PostgREST .in() URL-length guard (#763)
 const STYLE_CHUNK = 80;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const NATIVE_INBOUND_STATUSES = ["issued", "in_transit"];               // native purchase_orders
+const TANDA_INBOUND_STATUSES = ["Open", "Released", "Partially Received"]; // Xoro tanda_pos
+const PAGE = 1000;        // PostgREST max rows per request
+const MAX_PO_ROWS = 50000; // runaway guard for the open-line scan
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -63,6 +75,51 @@ async function fetchChunked(ids, chunkFn) {
   return rows;
 }
 
+// ── Ship-window inbound helpers (mirror h603 ats-by-size) ──────────────────
+// Normalize one identity token to a match key: UPPER, non-alphanumeric runs → "-".
+const skuSafe = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+const tupleKey = (style, color, size) => `${skuSafe(style)}|${skuSafe(color)}|${skuSafe(size)}`;
+// Parse a Xoro ItemNumber "STYLE-COLOR-SIZE" (color may contain spaces, never
+// dashes). Needs ≥3 parts to be size-grain; null for color-grain lines.
+function parseItemNumber(itemNumber) {
+  const parts = String(itemNumber ?? "").split("-");
+  if (parts.length < 3) return null;
+  return { style: parts[0], size: parts[parts.length - 1], color: parts.slice(1, -1).join("-") };
+}
+// "MM/DD/YYYY" (Xoro line ETA) → "YYYY-MM-DD"; null if unparseable.
+function isoFromMDY(s) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s ?? "").trim());
+  if (!m) return null;
+  return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+}
+// Open Xoro-mirror PO lines for the given styles (coarse ILIKE-by-style
+// prefilter; authoritative match is skuSafe(item_number) in JS). Paginated.
+async function fetchTandaOpenLines(admin, styleCodes) {
+  const out = [];
+  for (const styleSlice of chunks(styleCodes, STYLE_CHUNK)) {
+    const orExpr = styleSlice
+      .map((s) => String(s).replace(/[^A-Za-z0-9]/g, ""))
+      .filter(Boolean)
+      .map((s) => `item_number.ilike.${s}-*`)
+      .join(",");
+    if (!orExpr) continue;
+    for (let from = 0; from <= MAX_PO_ROWS; from += PAGE) {
+      const { data, error } = await admin
+        .from("po_line_items")
+        .select("item_number, qty_remaining, date_expected_delivery, tanda_pos!inner(status)")
+        .gt("qty_remaining", 0)
+        .or(orExpr)
+        .in("tanda_pos.status", TANDA_INBOUND_STATUSES)
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const batch = data || [];
+      out.push(...batch);
+      if (batch.length < PAGE) break;
+    }
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -75,7 +132,11 @@ export default async function handler(req, res) {
   const styleCodes = Array.isArray(body?.style_codes)
     ? [...new Set(body.style_codes.map((s) => String(s ?? "").trim()).filter(Boolean))]
     : [];
-  if (styleCodes.length === 0) return res.status(200).json({ as_of: null, styles: [] });
+  // Optional ship-window date: when supplied, available adds size-grain PO
+  // inbound expected to ARRIVE by that date (per-period projection). Without
+  // it the result is the current snapshot (incoming = 0).
+  const asOfDate = DATE_RE.test(String(body?.as_of_date || "")) ? String(body.as_of_date) : null;
+  if (styleCodes.length === 0) return res.status(200).json({ as_of: null, as_of_date: asOfDate, styles: [] });
 
   try {
     // Base (loose) styles requested + their PPK siblings — pull both in one
@@ -154,7 +215,48 @@ export default async function handler(req, res) {
       if (open > 0) allocated[r.inventory_item_id] = (allocated[r.inventory_item_id] || 0) + open;
     }
 
-    const avail = (id) => Math.max((onHand[id] || 0) - (allocated[id] || 0), 0);
+    // Incoming PO supply expected to ARRIVE by the ship date (windowed). Only
+    // when a ship date is supplied. Two size-grain sources, summed (mirror h603).
+    const incoming = {};
+    if (asOfDate) {
+      // (a) native purchase_order_lines — direct item_id, header expected_date.
+      const polRows = await fetchChunked(allItemIds, (ids) =>
+        admin.from("purchase_order_lines")
+          .select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status, expected_date)")
+          .in("inventory_item_id", ids)
+          .in("purchase_orders.status", NATIVE_INBOUND_STATUSES));
+      for (const r of polRows) {
+        const eta = r.purchase_orders?.expected_date;
+        if (!eta || String(eta) > asOfDate) continue;
+        const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0);
+        if (open > 0) incoming[r.inventory_item_id] = (incoming[r.inventory_item_id] || 0) + open;
+      }
+      // (b) Xoro-mirror tanda_pos / po_line_items — map item_number → item_id by
+      //     (style,color,size) tuple, line ETA windowed.
+      const masters = await fetchChunked(allItemIds, (ids) =>
+        admin.from("ip_item_master").select("id, style_code, color, size").in("id", ids));
+      const idByTuple = new Map();
+      const styleSet = new Set();
+      for (const m of masters) {
+        if (m.style_code && m.color != null && m.size != null) idByTuple.set(tupleKey(m.style_code, m.color, m.size), m.id);
+        if (m.style_code) styleSet.add(String(m.style_code));
+      }
+      if (idByTuple.size > 0 && styleSet.size > 0) {
+        const tandaLines = await fetchTandaOpenLines(admin, [...styleSet]);
+        for (const r of tandaLines) {
+          const p = parseItemNumber(r.item_number);
+          if (!p) continue;
+          const itemId = idByTuple.get(tupleKey(p.style, p.color, p.size));
+          if (!itemId) continue;
+          const eta = isoFromMDY(r.date_expected_delivery);
+          if (!eta || eta > asOfDate) continue;
+          const open = Math.max(Number(r.qty_remaining) || 0, 0);
+          if (open > 0) incoming[itemId] = (incoming[itemId] || 0) + open;
+        }
+      }
+    }
+
+    const avail = (id) => Math.max((onHand[id] || 0) + (incoming[id] || 0) - (allocated[id] || 0), 0);
 
     // 5. Assemble per stem: loose cells (color×size) + PPK pack count per color.
     //    Group sku rows by stem, split loose vs pack.
@@ -227,7 +329,7 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ as_of: asOf, styles });
+    return res.status(200).json({ as_of: asOf, as_of_date: asOfDate, styles });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
