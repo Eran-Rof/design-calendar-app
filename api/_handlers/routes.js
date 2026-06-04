@@ -601,6 +601,13 @@ import h614 from "./internal/sales-returns/[id]/credit-memo.js";
 //   h616 = GET/PATCH/DELETE /api/internal/drop-ship/:id (detail + lifecycle + tracking)
 import h615 from "./internal/drop-ship/index.js";
 import h616 from "./internal/drop-ship/[id].js";
+// P21/M13 — Third-Party Logistics (3PL).
+//   h617 = GET/POST/PATCH /api/internal/tpl-providers      (provider master)
+//   h618 = GET/POST /api/internal/tpl-shipments            (list + create)
+//   h619 = GET/PATCH/DELETE /api/internal/tpl-shipments/:id (detail + lifecycle)
+import h617 from "./internal/tpl-providers/index.js";
+import h618 from "./internal/tpl-shipments/index.js";
+import h619 from "./internal/tpl-shipments/[id].js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1140,6 +1147,9 @@ export const ROUTES = [
   { pattern: "/api/internal/ats-size-matrix", handler: h611 },
   { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: h614 },
   { pattern: "/api/internal/drop-ship/:id", handler: h616 },
+  { pattern: "/api/internal/tpl-shipments/:id", handler: h619 },
+  { pattern: "/api/internal/tpl-shipments", handler: h618 },
+  { pattern: "/api/internal/tpl-providers", handler: h617 },
   { pattern: "/api/internal/drop-ship", handler: h615 },
   { pattern: "/api/internal/sales-returns/:id", handler: h613 },
   { pattern: "/api/internal/sales-returns", handler: h612 },
