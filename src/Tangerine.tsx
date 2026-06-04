@@ -120,6 +120,8 @@ import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+import { AskAIPanel } from "./ai/AskAIPanel";
+import type { GridContextSnapshot } from "./ai/tools";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme — match the dark Tanda palette so the admin panels (which use the
@@ -445,6 +447,8 @@ export default function Tangerine() {
   // opening ?m=journal_entries in a new tab lands directly on that panel.
   // Also accepts the legacy `?view=` param written by COA click-throughs etc.
   // Read on initial mount; subsequent navigation uses goToModule() below.
+  const [aiOpen, setAiOpen] = useState(false);
+
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -730,6 +734,49 @@ export default function Tangerine() {
       <GlobalSearchPaletteAuto />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
+
+      {/* Ask AI — floating launcher + slide-in chat panel. Reuses the shared
+          AskAIPanel; appId "tangerine" routes the handler to Opus + the
+          user-guide tool. No grid to drive, so context is minimal and there are
+          no grid setters — the assistant answers from the database + user guide. */}
+      {!aiOpen && (
+        <button
+          type="button"
+          onClick={() => setAiOpen(true)}
+          title="Ask AI — questions about your data or how to use Tangerine"
+          style={{
+            position: "fixed", right: 18, bottom: 18, zIndex: 1400,
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 16px", borderRadius: 999, border: 0, cursor: "pointer",
+            background: `linear-gradient(135deg, ${C.tangerine}, ${C.tangerineDim})`,
+            color: "white", fontSize: 14, fontWeight: 700,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+          }}
+        >
+          <span>✨</span><span>Ask AI</span>
+        </button>
+      )}
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        appId="tangerine"
+        setters={{}}
+        buildContext={(): GridContextSnapshot => ({
+          columns: [],
+          active_filters: {},
+          sort: null,
+          row_count: 0,
+          distinct: { categories: [], sub_categories: [], styles: [], genders: [], stores: [] },
+          sample_rows: [],
+        })}
+        samplePrompts={[
+          "What's our total open AR right now?",
+          "How do I post a manual journal entry?",
+          "Where is the fixed-asset register?",
+          "List the open purchase orders by vendor",
+          "What does GR/IR mean in receiving?",
+        ]}
+      />
     </div>
   );
 }

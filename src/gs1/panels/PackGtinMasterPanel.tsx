@@ -5,6 +5,21 @@ import { formatGtin14Display, validateGtin14 } from "../services/gtinService";
 import { KNOWN_SCALE_CODES } from "../types";
 import type { PackGtin, PackGtinBom, PackGtinBomIssue, BomStatus } from "../types";
 import * as db from "../services/supabaseGs1";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "gs1.pack_gtin_master";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "style_no", label: "Style No" },
+  { key: "color", label: "Color" },
+  { key: "scale", label: "Scale" },
+  { key: "pack_gtin", label: "Pack GTIN" },
+  { key: "units_per_pack", label: "Units/Pack" },
+  { key: "bom_status", label: "BOM Status" },
+  { key: "missing_upcs", label: "Missing UPCs" },
+  { key: "last_built", label: "Last Built" },
+  { key: "status", label: "Status" },
+  { key: "actions", label: "Actions" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -125,6 +140,8 @@ export default function PackGtinMasterPanel() {
     loadPackGtins, loadCompanySettings, generateGtin,
     bomBuilding, bomBuildError, buildBomForGtin, buildBomForAllMissing,
   } = useGS1Store();
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const [searchStyle, setSearchStyle] = useState("");
   const [searchColor, setSearchColor] = useState("");
@@ -277,6 +294,14 @@ export default function PackGtinMasterPanel() {
             style={{ background: TH.header, color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, cursor: "pointer" }}>
             {gtinLoading ? "…" : "Search"}
           </button>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
           {notBuiltCount > 0 && (
             <button onClick={handleBuildAllMissing} disabled={bomBuilding}
               style={{ background: "#276749", color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
@@ -305,9 +330,16 @@ export default function PackGtinMasterPanel() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Style No", "Color", "Scale", "Pack GTIN", "Units/Pack", "BOM Status", "Missing UPCs", "Last Built", "Status", "Actions"].map(h => (
-                        <th key={h} style={TH_STYLE}>{h}</th>
-                      ))}
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("style_no")}>Style No</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("color")}>Color</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("scale")}>Scale</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("pack_gtin")}>Pack GTIN</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("units_per_pack")}>Units/Pack</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("bom_status")}>BOM Status</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("missing_upcs")}>Missing UPCs</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("last_built")}>Last Built</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("status")}>Status</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -320,20 +352,20 @@ export default function PackGtinMasterPanel() {
                       const hasExistingBom = g.bom_status !== "not_built";
                       return (
                         <tr key={g.id}>
-                          <td style={TD_STYLE}>{g.style_no}</td>
-                          <td style={TD_STYLE}>{g.color}</td>
-                          <td style={{ ...TD_STYLE, fontWeight: 700 }}>{g.scale_code}</td>
-                          <td style={{ ...TD_STYLE, fontFamily: "monospace", fontWeight: 600, fontSize: 12, letterSpacing: "0.04em" }}>{g.pack_gtin}</td>
-                          <td style={{ ...TD_STYLE, fontWeight: 600 }}>{g.units_per_pack ?? "—"}</td>
-                          <td style={TD_STYLE}><BomStatusBadge status={g.bom_status} /></td>
-                          <td style={{ ...TD_STYLE, color: missingUpcs > 0 ? TH.primary : TH.textMuted, fontWeight: missingUpcs > 0 ? 700 : 400 }}>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("style_no")}>{g.style_no}</td>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("color")}>{g.color}</td>
+                          <td style={{ ...TD_STYLE, fontWeight: 700 }} hidden={!visibleColumns.has("scale")}>{g.scale_code}</td>
+                          <td style={{ ...TD_STYLE, fontFamily: "monospace", fontWeight: 600, fontSize: 12, letterSpacing: "0.04em" }} hidden={!visibleColumns.has("pack_gtin")}>{g.pack_gtin}</td>
+                          <td style={{ ...TD_STYLE, fontWeight: 600 }} hidden={!visibleColumns.has("units_per_pack")}>{g.units_per_pack ?? "—"}</td>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("bom_status")}><BomStatusBadge status={g.bom_status} /></td>
+                          <td style={{ ...TD_STYLE, color: missingUpcs > 0 ? TH.primary : TH.textMuted, fontWeight: missingUpcs > 0 ? 700 : 400 }} hidden={!visibleColumns.has("missing_upcs")}>
                             {missingUpcs > 0 ? missingUpcs : "—"}
                           </td>
-                          <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }}>{lastBuilt}</td>
-                          <td style={{ ...TD_STYLE, color: g.status === "active" ? "#276749" : TH.textMuted, fontSize: 12 }}>
+                          <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("last_built")}>{lastBuilt}</td>
+                          <td style={{ ...TD_STYLE, color: g.status === "active" ? "#276749" : TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("status")}>
                             {validateGtin14(g.pack_gtin) ? g.status : "✗ invalid GTIN"}
                           </td>
-                          <td style={TD_STYLE}>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                             <div style={{ display: "flex", gap: 6 }}>
                               <button
                                 onClick={() => handleBuildBom(g)}

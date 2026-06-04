@@ -25,7 +25,6 @@ import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { S, PAL, formatDate } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
-import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
@@ -210,6 +209,7 @@ export default function ReconciliationWorkbench() {
           <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
           <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }}>Scenarios →</a>
+          <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
           <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>DQ</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
         </div>
@@ -217,10 +217,6 @@ export default function ReconciliationWorkbench() {
 
       <div style={S.content}>
         <SystemHealthBanner />
-        <StaleDataBanner
-          watch={["xoro_inventory", "xoro_open_pos", "planning_run", "wholesale_forecast", "ecom_forecast"]}
-          dismissKey="supply_workbench"
-        />
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Reconciliation run</strong>

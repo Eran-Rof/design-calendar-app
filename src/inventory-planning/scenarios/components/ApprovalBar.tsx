@@ -45,7 +45,7 @@ export default function ApprovalBar({ scenario, onAction, busy }: ApprovalBarPro
                     if (note === null) return;
                     await onAction(to, note.trim() || null);
                   }}>
-            {labelFor(to)}
+            {labelFor(to, scenario.status)}
           </button>
         ))
       )}
@@ -53,10 +53,11 @@ export default function ApprovalBar({ scenario, onAction, busy }: ApprovalBarPro
   );
 }
 
-function labelFor(s: IpApprovalStatus): string {
-  switch (s) {
+function labelFor(to: IpApprovalStatus, from?: IpApprovalStatus): string {
+  switch (to) {
     case "draft":     return "Send back to draft";
-    case "in_review": return "Submit for review";
+    // approved → in_review is a REOPEN, not a forward "submit for review".
+    case "in_review": return from === "approved" ? "Reopen" : "Submit for review";
     case "approved":  return "Approve";
     case "rejected":  return "Reject";
     case "archived":  return "Archive";

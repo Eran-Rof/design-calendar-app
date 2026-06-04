@@ -1,4 +1,4 @@
-// api/cron/ip-freshness-refresh.js
+// api/_handlers/cron/ip-freshness-refresh.js
 //
 // Every 4 hours: compute Phase 7 data-freshness signals server-side and
 // record a job_run row. The admin dashboard still does its own on-demand

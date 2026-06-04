@@ -3,6 +3,18 @@ import * as XLSX from "xlsx";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { UpcItemInput } from "../types";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "gs1.upc_master";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "upc", label: "UPC" },
+  { key: "style_no", label: "Style No" },
+  { key: "color", label: "Color" },
+  { key: "size", label: "Size" },
+  { key: "description", label: "Description" },
+  { key: "source", label: "Source" },
+  { key: "actions", label: "Actions" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -172,6 +184,7 @@ function XoroSection() {
 
 export default function UpcMasterPanel() {
   const { upcItems, upcLoading, upcError, loadUpcItems, importUpcItems, deleteUpcItem } = useGS1Store();
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview]     = useState<UpcItemInput[]>([]);
   const [colMap, setColMap]       = useState<ColMap>(DEFAULT_COL_MAP);
@@ -327,8 +340,18 @@ export default function UpcMasterPanel() {
       <div style={{ background: TH.surface, borderRadius: 10, padding: "16px 20px", boxShadow: `0 1px 4px ${TH.shadow}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 15, color: TH.textSub }}>UPC Records ({upcItems.length})</h3>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style / color / UPC…"
-            style={{ padding: "6px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 220 }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style / color / UPC…"
+              style={{ padding: "6px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 220 }} />
+            <TablePrefsButton
+              tableKey={TABLE_KEY}
+              columns={ALL_COLUMNS}
+              visibleColumns={visibleColumns}
+              onToggle={toggleColumn}
+              onReset={resetToDefault}
+              onSetAll={setAllVisible}
+            />
+          </div>
         </div>
 
         {upcLoading
@@ -340,20 +363,24 @@ export default function UpcMasterPanel() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["UPC", "Style No", "Color", "Size", "Description", "Source", ""].map(h => (
-                        <th key={h} style={TH_STYLE}>{h}</th>
-                      ))}
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("upc")}>UPC</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("style_no")}>Style No</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("color")}>Color</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("size")}>Size</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("description")}>Description</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("source")}>Source</th>
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.slice(0, 500).map(u => (
                       <tr key={u.id}>
-                        <td style={{ ...TD_STYLE, fontFamily: "monospace" }}>{u.upc}</td>
-                        <td style={TD_STYLE}>{u.style_no}</td>
-                        <td style={TD_STYLE}>{u.color}</td>
-                        <td style={TD_STYLE}>{u.size}</td>
-                        <td style={{ ...TD_STYLE, color: TH.textMuted }}>{u.description}</td>
-                        <td style={{ ...TD_STYLE, fontSize: 11 }}>
+                        <td style={{ ...TD_STYLE, fontFamily: "monospace" }} hidden={!visibleColumns.has("upc")}>{u.upc}</td>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("style_no")}>{u.style_no}</td>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("color")}>{u.color}</td>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("size")}>{u.size}</td>
+                        <td style={{ ...TD_STYLE, color: TH.textMuted }} hidden={!visibleColumns.has("description")}>{u.description}</td>
+                        <td style={{ ...TD_STYLE, fontSize: 11 }} hidden={!visibleColumns.has("source")}>
                           <span style={{
                             padding: "2px 7px", borderRadius: 8, fontSize: 11, fontWeight: 600,
                             background: u.source_method === "xoro" ? "#EBF8FF" : TH.surfaceHi,
@@ -362,7 +389,7 @@ export default function UpcMasterPanel() {
                             {u.source_method}
                           </span>
                         </td>
-                        <td style={TD_STYLE}>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                           <button onClick={() => { if (confirm("Delete this UPC?")) deleteUpcItem(u.id); }}
                             style={{ background: "transparent", border: "none", cursor: "pointer", color: "#E02B10", fontSize: 12 }}>
                             ✕
