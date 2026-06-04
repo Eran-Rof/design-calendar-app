@@ -1,4 +1,4 @@
-// api/cron/ip-integration-health.js
+// api/_handlers/cron/ip-integration-health.js
 //
 // Every 15 minutes: recompute integration status rows in
 // ip_integration_health based on last_success_at vs configured

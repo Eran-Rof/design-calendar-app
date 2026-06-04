@@ -1,4 +1,4 @@
-// api/cron/ip-normalize.js
+// api/_handlers/cron/ip-normalize.js
 //
 // Every 30 minutes: picks up raw payloads that haven't been normalized
 // yet (normalized_at IS NULL) and writes normalized rows into the ip_*
@@ -8,8 +8,8 @@
 // Processes up to BATCH payloads per invocation. When a backlog builds up,
 // subsequent runs drain it automatically.
 
-import { loadMasters, processXoroPayload, processShopifyPayload } from "../_lib/ip-normalize-pipeline.js";
-import { supabaseAdminFromEnv } from "../_lib/planning-raw.js";
+import { loadMasters, processXoroPayload, processShopifyPayload } from "../../_lib/ip-normalize-pipeline.js";
+import { supabaseAdminFromEnv } from "../../_lib/planning-raw.js";
 
 export const config = { maxDuration: 300 };
 

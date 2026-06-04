@@ -313,7 +313,7 @@ import h301 from "./internal/inventory-cycle-counts/finalize.js";
 import h302 from "./internal/payment-terms/index.js";
 import h303 from "./internal/payment-terms/[id].js";
 // Size Scale Master — ordered size lists (text[]) reused by Style Master.
-import h568 from "./internal/size-scales/index.js";
+import h702 from "./internal/size-scales/index.js";
 import h569 from "./internal/size-scales/[id].js";
 // Matrix shared endpoints — style matrix payload + find/create SKU per cell.
 import h570 from "./internal/style-matrix/index.js";
@@ -553,14 +553,14 @@ import h538 from "./internal/customer-locations/[id].js";
 //   h540 = GET/PATCH/DELETE /api/internal/sales-orders/:id
 //   h541 = POST /api/internal/sales-orders/:id/create-invoice (M10-C)
 //   h542 = POST /api/internal/sales-orders/:id/split (item 15 — multi-store)
-//   h566 = POST /api/internal/sales-orders/:id/allocate (M18 allocations)
-//   h567 = POST /api/internal/sales-orders/:id/ship (M44 carrier/fulfilment)
+//   h700 = POST /api/internal/sales-orders/:id/allocate (M18 allocations)
+//   h701 = POST /api/internal/sales-orders/:id/ship (M44 carrier/fulfilment)
 import h539 from "./internal/sales-orders/index.js";
 import h540 from "./internal/sales-orders/[id].js";
 import h541 from "./internal/sales-orders/create-invoice.js";
 import h542 from "./internal/sales-orders/split.js";
-import h566 from "./internal/sales-orders/allocate.js";
-import h567 from "./internal/sales-orders/ship.js";
+import h700 from "./internal/sales-orders/allocate.js";
+import h701 from "./internal/sales-orders/ship.js";
 // P16/M11 — native Purchase Orders (origination).
 //   h572 = GET/POST  /api/internal/purchase-orders
 //   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
@@ -825,6 +825,13 @@ import h563 from "./b2b/orders/index.js";
 import h564 from "./b2b/orders/[id].js";
 import h565 from "./b2b/account.js";
 
+// Inventory Planning crons — predate the dispatcher pattern; migrated to
+// _handlers/cron in this commit so they route through dispatch like every
+// other cron in vercel.json.
+import h800 from "./cron/ip-normalize.js";
+import h801 from "./cron/ip-freshness-refresh.js";
+import h802 from "./cron/ip-integration-health.js";
+
 export const ROUTES = [
   // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
   { pattern: "/api/b2b/session", handler: h557 },
@@ -1060,8 +1067,8 @@ export const ROUTES = [
   { pattern: "/api/internal/customer-locations",              handler: h537 },
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: h541 },
   { pattern: "/api/internal/sales-orders/:id/split",          handler: h542 },
-  { pattern: "/api/internal/sales-orders/:id/allocate",       handler: h566 },
-  { pattern: "/api/internal/sales-orders/:id/ship",           handler: h567 },
+  { pattern: "/api/internal/sales-orders/:id/allocate",       handler: h700 },
+  { pattern: "/api/internal/sales-orders/:id/ship",           handler: h701 },
   { pattern: "/api/internal/sales-orders/:id",                handler: h540 },
   { pattern: "/api/internal/sales-orders",                    handler: h539 },
   // P16/M11 — native Purchase Orders. :id before the bare collection.
@@ -1152,7 +1159,7 @@ export const ROUTES = [
   { pattern: "/api/internal/payment-terms", handler: h302 },
   // Size Scales — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/size-scales/:id", handler: h569 },
-  { pattern: "/api/internal/size-scales", handler: h568 },
+  { pattern: "/api/internal/size-scales", handler: h702 },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
   // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
@@ -1505,6 +1512,10 @@ export const ROUTES = [
   { pattern: "/api/internal/channels",                                 handler: h533 },
   { pattern: "/api/internal/users-access/override",                    handler: h530 },
   { pattern: "/api/internal/users-access",                             handler: h529 },
+  // Inventory Planning crons (scheduled in vercel.json).
+  { pattern: "/api/cron/ip-normalize",                                 handler: h800 },
+  { pattern: "/api/cron/ip-freshness-refresh",                         handler: h801 },
+  { pattern: "/api/cron/ip-integration-health",                        handler: h802 },
 ];
 
 export function compileRoutes(routes) {
