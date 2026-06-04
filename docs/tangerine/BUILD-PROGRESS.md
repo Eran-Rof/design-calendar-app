@@ -58,8 +58,6 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 | **P23** 🚩 Xoro decommission | — (cutover milestone) | ⬜ | the practical finish line |
 | **P24** Reporting | M9 full reporting · M46 BI/Analytics | 🟡 **reports pre-existed; hub added (#913).** All financial statements (Trial Balance / Income Statement / Balance Sheet / Cash Flow / Year-End — P5) + AR/AP aging + GL detail + sales reports + ~12 analytics handlers (`api/_handlers/internal/analytics/*`) were already built & surfaced. Added a **Reports & Analytics hub** (`/tangerine?m=reports_hub`, h622 `finance-kpis`): live KPI tiles (open AR/AP, inventory@cost, open SOs, current period) + grouped quick-links to every report. **DEFERRED:** folding the analytics endpoints into on-screen charts (BI dashboards) + a custom report builder. | #913 |
 | **P25** Finance + API | M15 Public API · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets | 🟡 **3 of 5 (#914): M21 Fixed Assets (register+straight-line depreciation, h623/h624), M22 Budgets (gl_budgets + vs-actual, h625), M20 1099 worksheet (h626). Mig 20260803000000. GL posting deferred. Remaining: M19 Sales Tax + M15 Public API.** | #914 |
-| **P25** Finance + API | M15 Public API · M19 Sales Tax · M20 1099 · M21 Fixed Assets · M22 Budgets/Forecasting | ⬜ | |
->>>>>>> origin/main
 
 ---
 
