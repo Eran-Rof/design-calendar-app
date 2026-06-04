@@ -1,6 +1,6 @@
-# 33. Inventory Planning → Tangerine Purchase Orders (M31 / P17, direction A)
+# 33. Inventory Planning ⇄ Tangerine (M31 / P17)
 
-> **Status (2026-06-03):** the Inventory Planning app (`/planning`) is surfaced in the Tangerine shell (📈 Planning), and an approved **buy plan** can be turned into **draft native Tangerine purchase orders** — hardened + verified in this chapter. The flow is built and usable; it produces nothing until the upstream planning data exists (see §33.5).
+> **Status (2026-06-03):** the Inventory Planning app (`/planning`) is surfaced in the Tangerine shell (📈 Planning) and now connects to Tangerine in **both directions**: **(A)** an approved buy plan → draft native Tangerine POs (§33.1–33.7), and **(B)** a planning run can read its supply (on-hand + open POs) from Tangerine instead of the Xoro/ATS mirror (§33.8). Both are choices, not replacements — the legacy paths stay intact.
 
 ## 33.1 What this connects
 
@@ -67,6 +67,32 @@ When a vendor is unlinked, the preview offers **🔗 Link** chips: the server ma
 
 The flow is permission-gated by the planning RBAC (`ip_user_roles` / `ip_roles`), which is separate from the app-level `permissions.planning` flag that shows the Planning app at all. The CEO (`eran@`) was granted the planning **admin** role (migration `20260725000000`) so the buy-plan→PO buttons are usable; reverse or re-scope that grant in `ip_user_roles` if you prefer a narrower role.
 
+## 33.8 Choosing your supply source (direction B)
+
+By default, the planning **Supply** screen (`/planning` → Supply) reconciles demand against the **Xoro / ATS mirror** — on-hand from the nightly ATS snapshot and open POs from the PO WIP app. Direction B lets a planning run instead read supply from **native Tangerine ERP**, so you can compare buy recommendations against Tangerine's own numbers.
+
+It's a **per-run choice**, set when you create a reconciliation run:
+
+- **Supply source: Xoro / ATS mirror** *(default)* — unchanged behavior.
+- **Supply source: Tangerine ERP** — on-hand from Tangerine FIFO inventory (`inventory_layers`), open POs from native Tangerine purchase orders (issued / in-transit).
+
+The chosen source shows as a badge on the run (`supply: Tangerine ERP`). The two sources never mix — a Tangerine run sees only Tangerine supply, a Xoro run sees only the mirror.
+
+**Populating Tangerine supply.** Tangerine supply data is pulled on demand. Click **🍊 Sync Tangerine supply** on the Supply workbench (needs the `manage_integrations` planning permission). It refreshes both:
+
+| Planning input | From Tangerine |
+|---|---|
+| On-hand (`ip_inventory_snapshot`, `source='tangerine'`) | Σ `inventory_layers.remaining_qty` per SKU × warehouse |
+| Open POs (`ip_open_purchase_orders`, `source='tangerine'`) | native `purchase_orders` in **issued / in_transit** status + their open line qty |
+
+Then **Run reconciliation** on the Tangerine-source run to apply it.
+
+**Notes & current state.**
+- On-hand maps directly: a Tangerine inventory layer's `item_id` is the same SKU id (`ip_item_master.id`) the planner already uses — no remapping.
+- Today Tangerine on-hand totals ~**1.35M units across ~7,700 SKUs** (it ties exactly to the FIFO layer sum). Native open POs are **0** until you issue POs in Procurement (e.g. from a buy plan via direction A), so the Tangerine open-PO input is empty until then.
+- WIP (in-production) qty is not yet fed from Tangerine — that remains a later enhancement.
+- The sync is safe to re-run (idempotent on-hand upsert; open-PO full rebuild) and only touches `source='tangerine'` rows, never your Xoro/manual data.
+
 ---
 
-*Direction B (feeding Tangerine's own on-hand / on-order / receipts back into the planning supply view) is the deferred fallback if direction A doesn't cover the buying workflow.*
+*M31 now connects planning to Tangerine in both directions — buy-plan → PO (A) and Tangerine supply → planning (B) — and both are opt-in choices alongside the existing Xoro paths.*
