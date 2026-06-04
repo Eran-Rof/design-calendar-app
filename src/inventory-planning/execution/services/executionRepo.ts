@@ -61,6 +61,11 @@ export const executionRepo = {
     if (!u) throw new Error(`updateBatch(${id}): no row returned from Supabase`);
     return u;
   },
+  async deleteBatch(id: string): Promise<void> {
+    // Actions + audit rows cascade (FK ON DELETE CASCADE); created Tangerine
+    // POs are independent (no FK back to the batch) so they're unaffected.
+    await sbDelete(`ip_execution_batches?id=eq.${id}`);
+  },
 
   // actions
   async listActions(batchId: string): Promise<IpExecutionAction[]> {

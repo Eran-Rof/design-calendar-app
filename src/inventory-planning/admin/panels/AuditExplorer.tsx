@@ -4,6 +4,18 @@ import { useEffect, useState } from "react";
 import { searchAudit, type IpAuditRow } from "../../governance/services/auditExplorerService";
 import { S, PAL, formatDateTime } from "../../components/styles";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.audit_explorer";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "when", label: "When" },
+  { key: "source", label: "Source" },
+  { key: "actor", label: "Actor" },
+  { key: "entity", label: "Entity" },
+  { key: "event_field", label: "Event / Field" },
+  { key: "old_new", label: "Old → New" },
+  { key: "message", label: "Message" },
+];
 
 export default function AuditExplorer() {
   const [rows, setRows] = useState<IpAuditRow[]>([]);
@@ -13,6 +25,7 @@ export default function AuditExplorer() {
   const [entity, setEntity] = useState("");
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function run() {
     setLoading(true);
@@ -63,38 +76,43 @@ export default function AuditExplorer() {
         </div>
       </div>
 
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                          onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+      </div>
+
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>When</th>
-              <th style={S.th}>Source</th>
-              <th style={S.th}>Actor</th>
-              <th style={S.th}>Entity</th>
-              <th style={S.th}>Event / Field</th>
-              <th style={S.th}>Old → New</th>
-              <th style={S.th}>Message</th>
+              <th hidden={!visibleColumns.has("when")} style={S.th}>When</th>
+              <th hidden={!visibleColumns.has("source")} style={S.th}>Source</th>
+              <th hidden={!visibleColumns.has("actor")} style={S.th}>Actor</th>
+              <th hidden={!visibleColumns.has("entity")} style={S.th}>Entity</th>
+              <th hidden={!visibleColumns.has("event_field")} style={S.th}>Event / Field</th>
+              <th hidden={!visibleColumns.has("old_new")} style={S.th}>Old → New</th>
+              <th hidden={!visibleColumns.has("message")} style={S.th}>Message</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={`${r.source}:${r.id}`}>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDateTime(r.created_at)}</td>
-                <td style={S.td}>
+                <td hidden={!visibleColumns.has("when")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDateTime(r.created_at)}</td>
+                <td hidden={!visibleColumns.has("source")} style={S.td}>
                   <span style={{ ...S.chip, background: r.source === "planning" ? PAL.accent + "33" : PAL.accent2 + "33",
                                  color: r.source === "planning" ? PAL.accent : PAL.accent2 }}>
                     {r.source}
                   </span>
                 </td>
-                <td style={{ ...S.td, fontFamily: "monospace", fontSize: 11 }}>{r.actor ?? ""}</td>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
+                <td hidden={!visibleColumns.has("actor")} style={{ ...S.td, fontFamily: "monospace", fontSize: 11 }}>{r.actor ?? ""}</td>
+                <td hidden={!visibleColumns.has("entity")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
                   {r.entity_type}
                 </td>
-                <td style={S.td}>{r.event_or_field}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", fontSize: 11, color: PAL.textDim }}>
+                <td hidden={!visibleColumns.has("event_field")} style={S.td}>{r.event_or_field}</td>
+                <td hidden={!visibleColumns.has("old_new")} style={{ ...S.td, fontFamily: "monospace", fontSize: 11, color: PAL.textDim }}>
                   {r.old_value == null && r.new_value == null ? "" : `${r.old_value ?? "∅"} → ${r.new_value ?? "∅"}`}
                 </td>
-                <td style={{ ...S.td, fontSize: 12, color: PAL.textDim }}>{r.message ?? ""}</td>
+                <td hidden={!visibleColumns.has("message")} style={{ ...S.td, fontSize: 12, color: PAL.textDim }}>{r.message ?? ""}</td>
               </tr>
             ))}
             {rows.length === 0 && (

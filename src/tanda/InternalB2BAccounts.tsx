@@ -13,18 +13,18 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect from "./components/SearchableSelect";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const TABLE_KEY = "tanda.b2b_accounts";
-const ALL_COLUMNS: ColumnDef[] = [
-  { key: "customer", label: "Customer" },
-  { key: "email", label: "Email" },
-  { key: "role", label: "Role" },
-  { key: "active", label: "Active" },
-  { key: "can_order", label: "Can order" },
-  { key: "activated", label: "Activated" },
+// Universal column-visibility registry for this panel (operator ask #1).
+const B2B_ACCOUNTS_TABLE_KEY = "tangerine:b2baccounts:columns";
+const B2B_ACCOUNT_COLUMNS: ColumnDef[] = [
+  { key: "customer",   label: "Customer" },
+  { key: "email",      label: "Email" },
+  { key: "role",       label: "Role" },
+  { key: "active",     label: "Active" },
+  { key: "can_order",  label: "Can order" },
+  { key: "activated",  label: "Activated" },
   { key: "last_login", label: "Last login" },
-  { key: "actions", label: "Actions" },
 ];
 
 type Role = "buyer" | "approver" | "admin";
@@ -98,13 +98,19 @@ export default function InternalB2BAccounts() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<B2BAccount | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const { getRowProps } = useRowClickEdit<B2BAccount>({
     onRowClick: (r) => setEditing(r),
     onBeforeRowClick: (id) => setHighlightedId(id),
     ariaLabel: (r) => `Edit B2B account ${r.email}`,
   });
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    B2B_ACCOUNTS_TABLE_KEY,
+    B2B_ACCOUNT_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const customerMap = useMemo(() => {
     const m: Record<string, Customer> = {};
@@ -177,12 +183,11 @@ export default function InternalB2BAccounts() {
           Show inactive
         </label>
         <TablePrefsButton
-          tableKey={TABLE_KEY}
-          columns={ALL_COLUMNS}
+          tableKey={B2B_ACCOUNTS_TABLE_KEY}
+          columns={B2B_ACCOUNT_COLUMNS}
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
-          onSetAll={setAllVisible}
         />
         <ExportButton
           rows={rows.map((a) => ({
@@ -229,14 +234,14 @@ export default function InternalB2BAccounts() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
-                <th style={th} hidden={!visibleColumns.has("email")}>Email</th>
-                <th style={th} hidden={!visibleColumns.has("role")}>Role</th>
-                <th style={th} hidden={!visibleColumns.has("active")}>Active</th>
-                <th style={th} hidden={!visibleColumns.has("can_order")}>Can order</th>
-                <th style={th} hidden={!visibleColumns.has("activated")}>Activated</th>
-                <th style={th} hidden={!visibleColumns.has("last_login")}>Last login</th>
-                <th style={{ ...th, width: 160 }} hidden={!visibleColumns.has("actions")}></th>
+                <th style={th} hidden={!isVisible("customer")}>Customer</th>
+                <th style={th} hidden={!isVisible("email")}>Email</th>
+                <th style={th} hidden={!isVisible("role")}>Role</th>
+                <th style={th} hidden={!isVisible("active")}>Active</th>
+                <th style={th} hidden={!isVisible("can_order")}>Can order</th>
+                <th style={th} hidden={!isVisible("activated")}>Activated</th>
+                <th style={th} hidden={!isVisible("last_login")}>Last login</th>
+                <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -248,18 +253,18 @@ export default function InternalB2BAccounts() {
                   {...getRowProps(a)}
                   style={!a.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={td} hidden={!visibleColumns.has("customer")}>{customerName(a.customer_id)}</td>
-                  <td style={td} hidden={!visibleColumns.has("email")}>{a.email}{a.display_name ? <span style={{ color: C.textMuted }}> — {a.display_name}</span> : null}</td>
-                  <td style={td} hidden={!visibleColumns.has("role")}>{a.role}</td>
-                  <td style={td} hidden={!visibleColumns.has("active")}>{a.is_active ? "yes" : "no"}</td>
-                  <td style={td} hidden={!visibleColumns.has("can_order")}>{a.can_place_orders ? "yes" : "no"}</td>
-                  <td style={td} hidden={!visibleColumns.has("activated")}>
+                  <td style={td} hidden={!isVisible("customer")}>{customerName(a.customer_id)}</td>
+                  <td style={td} hidden={!isVisible("email")}>{a.email}{a.display_name ? <span style={{ color: C.textMuted }}> — {a.display_name}</span> : null}</td>
+                  <td style={td} hidden={!isVisible("role")}>{a.role}</td>
+                  <td style={td} hidden={!isVisible("active")}>{a.is_active ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("can_order")}>{a.can_place_orders ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("activated")}>
                     {a.auth_user_id
                       ? <span style={{ color: C.success }}>activated</span>
                       : <span style={{ color: C.textMuted }}>pending</span>}
                   </td>
-                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("last_login")}>{fmtDateTime(a.last_login_at)}</td>
-                  <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("actions")}>
+                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }} hidden={!isVisible("last_login")}>{fmtDateTime(a.last_login_at)}</td>
+                  <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(a); }} style={btnSecondary}>Edit</button>
                     <button onClick={(e) => { e.stopPropagation(); void del(a); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>

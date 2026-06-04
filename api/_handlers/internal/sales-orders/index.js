@@ -37,7 +37,7 @@ async function resolveDefaultEntity(admin) {
 const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
-  "ar_account_id, revenue_account_id, notes, subtotal_cents, total_cents, " +
+  "ar_account_id, revenue_account_id, notes, subtotal_cents, total_cents, fulfillment_source, " +
   "factor_approval_status, factor_reference, factor_approved_cents, " +
   "parent_sales_order_id, is_split_parent, created_at, updated_at";
 
@@ -96,6 +96,7 @@ export function validateInsert(body) {
       ar_account_id: nz("ar_account_id"),
       revenue_account_id: nz("revenue_account_id"),
       notes: body.notes ? String(body.notes).trim() : null,
+      fulfillment_source: ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null,
       factor_approval_status: factorStatus,
       factor_reference: body.factor_reference ? String(body.factor_reference).trim() : null,
       factor_approved_cents: factorApprovedCents,
@@ -171,6 +172,7 @@ export default async function handler(req, res) {
       ar_account_id: v.data.ar_account_id,
       revenue_account_id: v.data.revenue_account_id,
       notes: v.data.notes,
+      fulfillment_source: v.data.fulfillment_source,
       factor_approval_status: v.data.factor_approval_status,
       factor_reference: v.data.factor_reference,
       factor_approved_cents: v.data.factor_approved_cents,

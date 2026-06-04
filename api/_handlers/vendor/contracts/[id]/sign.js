@@ -14,7 +14,7 @@
 //     plus INTERNAL_CONTRACT_EMAILS
 
 import { createClient } from "@supabase/supabase-js";
-import { getInternalRecipients } from "../../../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -110,7 +110,7 @@ export default async function handler(req, res) {
   try {
     const origin = `https://${req.headers.host}`;
     const ownerExtra = contract.internal_owner && contract.internal_owner.includes("@") ? contract.internal_owner : null;
-    const { emails } = getInternalRecipients("contract", {
+    const { emails } = await resolveInternalRecipients(admin, "contract", {
       event: "contract_signed",
       extras: [ownerExtra].filter(Boolean),
     });

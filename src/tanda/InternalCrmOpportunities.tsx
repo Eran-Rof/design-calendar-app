@@ -12,19 +12,20 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const TABLE_KEY = "tanda.crm_opportunities";
-const ALL_COLUMNS: ColumnDef[] = [
-  { key: "opp_number", label: "Opp #" },
-  { key: "title", label: "Title" },
-  { key: "customer", label: "Customer" },
-  { key: "stage", label: "Stage" },
-  { key: "prob", label: "Prob %" },
-  { key: "expected", label: "Expected" },
+// Universal column-visibility registry for this panel (operator ask #1).
+const CRM_OPPS_TABLE_KEY = "tangerine:crmopportunities:columns";
+const CRM_OPP_COLUMNS: ColumnDef[] = [
+  { key: "opp_number",     label: "Opp #" },
+  { key: "title",          label: "Title" },
+  { key: "customer",       label: "Customer" },
+  { key: "stage",          label: "Stage" },
+  { key: "probability",    label: "Prob %" },
+  { key: "expected",       label: "Expected" },
   { key: "expected_close", label: "Expected Close" },
-  { key: "owner", label: "Owner" },
-  { key: "created", label: "Created" },
+  { key: "owner",          label: "Owner" },
+  { key: "created",        label: "Created" },
 ];
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
@@ -176,7 +177,13 @@ export default function InternalCrmOpportunities() {
   const [addOpen, setAddOpen] = useState(false);
 
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CRM_OPPS_TABLE_KEY,
+    CRM_OPP_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -276,14 +283,6 @@ export default function InternalCrmOpportunities() {
             { key: "stage_changed_at",     header: "Stage Changed", format: "datetime" },
           ]}
         />
-        <TablePrefsButton
-          tableKey={TABLE_KEY}
-          columns={ALL_COLUMNS}
-          visibleColumns={visibleColumns}
-          onToggle={toggleColumn}
-          onReset={resetToDefault}
-          onSetAll={setAllVisible}
-        />
         <button type="button" style={btnPrimary} onClick={() => setAddOpen(true)}>
           + New opportunity
         </button>
@@ -325,6 +324,15 @@ export default function InternalCrmOpportunities() {
             style={inputStyle}
           />
         </div>
+        <div style={{ paddingTop: 18 }}>
+          <TablePrefsButton
+            tableKey={CRM_OPPS_TABLE_KEY}
+            columns={CRM_OPP_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
+        </div>
       </div>
 
       {err && (
@@ -343,15 +351,15 @@ export default function InternalCrmOpportunities() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!visibleColumns.has("opp_number")}>Opp #</th>
-              <th style={th} hidden={!visibleColumns.has("title")}>Title</th>
-              <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
-              <th style={th} hidden={!visibleColumns.has("stage")}>Stage</th>
-              <th style={th} hidden={!visibleColumns.has("prob")}>Prob %</th>
-              <th style={th} hidden={!visibleColumns.has("expected")}>Expected</th>
-              <th style={th} hidden={!visibleColumns.has("expected_close")}>Expected Close</th>
-              <th style={th} hidden={!visibleColumns.has("owner")}>Owner</th>
-              <th style={th} hidden={!visibleColumns.has("created")}>Created</th>
+              <th style={th} hidden={!isVisible("opp_number")}>Opp #</th>
+              <th style={th} hidden={!isVisible("title")}>Title</th>
+              <th style={th} hidden={!isVisible("customer")}>Customer</th>
+              <th style={th} hidden={!isVisible("stage")}>Stage</th>
+              <th style={th} hidden={!isVisible("probability")}>Prob %</th>
+              <th style={th} hidden={!isVisible("expected")}>Expected</th>
+              <th style={th} hidden={!isVisible("expected_close")}>Expected Close</th>
+              <th style={th} hidden={!isVisible("owner")}>Owner</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
             </tr>
           </thead>
           <tbody>
@@ -369,17 +377,17 @@ export default function InternalCrmOpportunities() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#0b1220"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
               >
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: C.textSub }} hidden={!visibleColumns.has("opp_number")}>{r.opportunity_number}</td>
-                <td style={td} hidden={!visibleColumns.has("title")}>{truncate(r.title, 60)}</td>
-                <td style={td} hidden={!visibleColumns.has("customer")}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : "—"}</td>
-                <td style={td} hidden={!visibleColumns.has("stage")}><span style={pill(STAGE_COLOR[r.stage])}>{r.stage}</span></td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!visibleColumns.has("prob")}>{r.probability_pct}</td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!visibleColumns.has("expected")}>{fmtMoney(r.expected_cents)}</td>
-                <td style={{ ...td, fontSize: 12 }} hidden={!visibleColumns.has("expected_close")}>{fmtDateOnly(r.expected_close_date)}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("owner")}>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: C.textSub }} hidden={!isVisible("opp_number")}>{r.opportunity_number}</td>
+                <td style={td} hidden={!isVisible("title")}>{truncate(r.title, 60)}</td>
+                <td style={td} hidden={!isVisible("customer")}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : "—"}</td>
+                <td style={td} hidden={!isVisible("stage")}><span style={pill(STAGE_COLOR[r.stage])}>{r.stage}</span></td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("probability")}>{r.probability_pct}</td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("expected")}>{fmtMoney(r.expected_cents)}</td>
+                <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("expected_close")}>{fmtDateOnly(r.expected_close_date)}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("owner")}>
                   {r.owner_user_id ? truncate(r.owner_user_id, 12) : "—"}
                 </td>
-                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("created")}>{fmtDate(r.created_at)}</td>
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("created")}>{fmtDate(r.created_at)}</td>
               </tr>
             ))}
           </tbody>

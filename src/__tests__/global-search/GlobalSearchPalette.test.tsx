@@ -388,7 +388,7 @@ describe("routeFor — per-entity URL mapping", () => {
     ["sku",              "sku1", "/tanda?view=skus&open=sku1"],
     ["gl_account",       "gl1",  "/tanda?view=coa&open=gl1"],
     ["case",             "c01",  "/tanda?view=cases&open=c01"],
-    ["sales_rep",        "r01",  "/tanda?view=sales-reps&open=r01"],
+    ["sales_rep",        "r01",  "/tangerine?module=employees"],
     ["bank_transaction", "b01",  "/tanda?view=bank-transactions&open=b01"],
   ])("%s → %s", (type, id, expected) => {
     expect(routeFor(row(type, id))).toBe(expected);

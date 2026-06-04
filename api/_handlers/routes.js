@@ -313,7 +313,7 @@ import h301 from "./internal/inventory-cycle-counts/finalize.js";
 import h302 from "./internal/payment-terms/index.js";
 import h303 from "./internal/payment-terms/[id].js";
 // Size Scale Master — ordered size lists (text[]) reused by Style Master.
-import h568 from "./internal/size-scales/index.js";
+import h702 from "./internal/size-scales/index.js";
 import h569 from "./internal/size-scales/[id].js";
 // Matrix shared endpoints — style matrix payload + find/create SKU per cell.
 import h570 from "./internal/style-matrix/index.js";
@@ -553,19 +553,129 @@ import h538 from "./internal/customer-locations/[id].js";
 //   h540 = GET/PATCH/DELETE /api/internal/sales-orders/:id
 //   h541 = POST /api/internal/sales-orders/:id/create-invoice (M10-C)
 //   h542 = POST /api/internal/sales-orders/:id/split (item 15 — multi-store)
-//   h566 = POST /api/internal/sales-orders/:id/allocate (M18 allocations)
-//   h567 = POST /api/internal/sales-orders/:id/ship (M44 carrier/fulfilment)
+//   h700 = POST /api/internal/sales-orders/:id/allocate (M18 allocations)
+//   h701 = POST /api/internal/sales-orders/:id/ship (M44 carrier/fulfilment)
 import h539 from "./internal/sales-orders/index.js";
 import h540 from "./internal/sales-orders/[id].js";
 import h541 from "./internal/sales-orders/create-invoice.js";
 import h542 from "./internal/sales-orders/split.js";
-import h566 from "./internal/sales-orders/allocate.js";
-import h567 from "./internal/sales-orders/ship.js";
+import h700 from "./internal/sales-orders/allocate.js";
+import h701 from "./internal/sales-orders/ship.js";
 // P16/M11 — native Purchase Orders (origination).
 //   h572 = GET/POST  /api/internal/purchase-orders
 //   h573 = GET/PATCH/DELETE /api/internal/purchase-orders/:id
 import h572 from "./internal/purchase-orders/index.js";
 import h573 from "./internal/purchase-orders/[id].js";
+// Prepack Matrix Driver master (per-size pack composition for Explode-PPK).
+//   h574 = GET/POST            /api/internal/prepack-matrices
+//   h575 = GET/PATCH/DELETE    /api/internal/prepack-matrices/:id
+import h574 from "./internal/prepack-matrices/index.js";
+import h575 from "./internal/prepack-matrices/[id].js";
+// h599 = GET /api/internal/prepack-matrices/needed (PPK styles still needing a matrix)
+import h599 from "./internal/prepack-matrices/needed.js";
+// h600 = QC failure dispositions (write-off / vendor-credit / RMA / rework) — P13 GL-C3
+import h600 from "./internal/procurement/qc/dispositions.js";
+// h601 = POST /api/internal/planning/buy-plan-to-po (M31: buy plan → draft Tangerine POs)
+import h601 from "./internal/planning/buy-plan-to-po.js";
+// P11-10 — Shopify product image pull. APPEND ONLY.
+//   h604 = POST /api/internal/pim/styles/:style_id/link-shopify
+//   h605 = POST /api/internal/pim/styles/:style_id/pull-shopify-images
+import h604 from "./internal/pim/styles/[style_id]/link-shopify.js";
+import h605 from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
+// h606 = POST /api/internal/planning/link-planning-vendor (M31: link planning vendor → Tangerine vendor)
+import h606 from "./internal/planning/link-planning-vendor.js";
+// h610 = POST /api/internal/planning/sync-tangerine-supply (M31 dir-B: Tangerine on-hand + open POs → planning supply)
+// (was h607 — collided with the accept-invite h607 import below; renumbered to fix the duplicate-identifier build break.)
+import h610 from "./internal/planning/sync-tangerine-supply.js";
+// h611 = POST /api/internal/ats-size-matrix (by-size ATS-available matrix for the ATS Excel "By Size Matrix" export)
+import h611 from "./internal/ats-size-matrix.js";
+// P19/M23 — Customer Returns / RMA.
+//   h612 = GET/POST  /api/internal/sales-returns          (list + create RMA)
+//   h613 = GET/PATCH/DELETE /api/internal/sales-returns/:id (detail + lifecycle + dispositions)
+//   h614 = POST /api/internal/sales-returns/:id/credit-memo (issue + post credit memo)
+import h612 from "./internal/sales-returns/index.js";
+import h613 from "./internal/sales-returns/[id].js";
+import h614 from "./internal/sales-returns/[id]/credit-memo.js";
+// P20/M49 — Drop-ship management.
+//   h615 = GET/POST /api/internal/drop-ship          (list + create)
+//   h616 = GET/PATCH/DELETE /api/internal/drop-ship/:id (detail + lifecycle + tracking)
+import h615 from "./internal/drop-ship/index.js";
+import h616 from "./internal/drop-ship/[id].js";
+// P21/M13 — Third-Party Logistics (3PL).
+//   h617 = GET/POST/PATCH /api/internal/tpl-providers      (provider master)
+//   h618 = GET/POST /api/internal/tpl-shipments            (list + create)
+//   h619 = GET/PATCH/DELETE /api/internal/tpl-shipments/:id (detail + lifecycle)
+import h617 from "./internal/tpl-providers/index.js";
+import h618 from "./internal/tpl-shipments/index.js";
+import h619 from "./internal/tpl-shipments/[id].js";
+// P22/M14 — EDI surfacing (over the existing api/_lib/edi engine + edi_messages).
+//   h620 = GET/POST /api/internal/edi-partners   (enable + list EDI vendors)
+//   h621 = GET /api/internal/edi-messages         (global EDI message log)
+import h620 from "./internal/edi-partners/index.js";
+import h621 from "./internal/edi-messages/index.js";
+// P24/M46 — finance KPIs for the Reports & Analytics hub.
+import h622 from "./internal/finance-kpis/index.js";
+// P25 — Finance batch (Fixed Assets M21 · Budgets M22 · 1099 M20).
+import h623 from "./internal/fixed-assets/index.js";
+import h624 from "./internal/fixed-assets/[id].js";
+import h625 from "./internal/budgets/index.js";
+import h626 from "./internal/form-1099/index.js";
+// h627 GET=preview / POST=apply  /api/internal/style-master/auto-assign-scales
+//   Bulk best-match assignment of size scales to styles (api/_lib/sizeScaleMatch).
+import h627 from "./internal/style-master/auto-assign-scales.js";
+// P16/M18 — Allocations Workbench (cross-SO allocation).
+//   h576 = GET demand + POST apply  /api/internal/allocations
+//   h577 = POST auto-allocate preview /api/internal/allocations/preview
+import h576 from "./internal/allocations/index.js";
+import h577 from "./internal/allocations/preview.js";
+// h602 = GET/PUT /api/internal/allocations/rules (configurable priority order)
+import h602 from "./internal/allocations/rules.js";
+// h603 = POST /api/internal/ats-by-size (size-grain available-to-ship for the SO ATS mode)
+import h603 from "./internal/ats-by-size.js";
+// h607 = POST /api/vendor/accept-invite (custom 72h invite — set password from token)
+import h607 from "./vendor/accept-invite.js";
+// h608 = GET /api/internal/vendor-invites (outstanding/expired/accepted invitations)
+import h608 from "./internal/vendor-invites/index.js";
+// h609 = GET/POST /api/internal/vendor-access (view active portal access; disable/enable/remove)
+import h609 from "./internal/vendor-access/index.js";
+// M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
+//   h578 = GET /api/internal/pricing/resolve
+import h578 from "./internal/pricing/resolve.js";
+// M43 — Pricing admin: price lists, their items (qty breaks), promotions.
+//   h579 = GET/POST            /api/internal/price-lists
+//   h580 = GET/PATCH/DELETE    /api/internal/price-lists/:id
+//   h581 = GET/POST            /api/internal/price-list-items
+//   h582 = PATCH/DELETE        /api/internal/price-list-items/:id
+//   h583 = GET/POST            /api/internal/price-promotions
+//   h584 = GET/PATCH/DELETE    /api/internal/price-promotions/:id
+import h579 from "./internal/price-lists/index.js";
+import h580 from "./internal/price-lists/[id].js";
+import h581 from "./internal/price-list-items/index.js";
+import h582 from "./internal/price-list-items/[id].js";
+import h583 from "./internal/price-promotions/index.js";
+import h584 from "./internal/price-promotions/[id].js";
+// P13/C1 — Receiving + landed-cost rollups + bookkeeper approval queue.
+//   h585 = GET/POST          /api/internal/procurement/receipts
+//   h586 = GET/PATCH/DELETE  /api/internal/procurement/receipts/:id
+//   h587 = POST              /api/internal/procurement/receipts/:id/post
+//   h588 = GET               /api/internal/procurement/bookkeeper-queue
+//   h589 = POST              /api/internal/procurement/bookkeeper-queue/:id
+import h585 from "./internal/procurement/receipts/index.js";
+import h586 from "./internal/procurement/receipts/[id].js";
+import h587 from "./internal/procurement/receipts/post.js";
+import h588 from "./internal/procurement/bookkeeper-queue/index.js";
+import h589 from "./internal/procurement/bookkeeper-queue/[id].js";
+// P13/C2-C4 — QC inspections, customs entries, broker invoices, 3-way match.
+import h590 from "./internal/procurement/qc/index.js";
+import h591 from "./internal/procurement/qc/[id].js";
+import h592 from "./internal/procurement/customs-entries/index.js";
+import h593 from "./internal/procurement/customs-entries/[id].js";
+import h594 from "./internal/procurement/broker-invoices/index.js";
+import h595 from "./internal/procurement/broker-invoices/[id].js";
+import h596 from "./internal/procurement/vendor-invoice-drafts/index.js";
+import h597 from "./internal/procurement/vendor-invoice-drafts/[id].js";
+// P13/C5 — procurement reconciliation inbox + open-commitments report.
+import h598 from "./internal/procurement/recon-inbox/index.js";
 
 // Cross-cutter T11-3 — Universal audit log read API.
 //   h485 = GET /api/internal/audit/row-history (per-row timeline for detail modals)
@@ -671,9 +781,14 @@ import h522 from "./internal/bank-recon-runs/compute.js";
 // P7-6 — Sales Reps master + tiers + assignments admin. Renumbered
 // h355-h358 → h523-h526 on rebase (h355-h358 taken on main). APPEND ONLY.
 import h523 from "./internal/sales-reps/index.js";
-import h524 from "./internal/sales-reps/[id].js";
+// h524 (sales-reps/[id].js master CRUD) retired — reps unified into Employees.
 import h525 from "./internal/sales-reps/[id]/tiers.js";
 import h526 from "./internal/sales-reps/[id]/assignments.js";
+
+// Costing — operator-only freeform color/vendor masters with auto-prune
+// against canonical ip_item_master / ip_vendor_master / vendors sources.
+//   h527 = GET/POST/PUT/DELETE /api/internal/costing/masters/freeform
+import h527 from "./internal/costing/masters/freeform.js";
 
 // P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
 //   h446 = POST /api/internal/shopify/post-cogs/:id (manual COGS retry for one order)
@@ -714,6 +829,13 @@ import h562 from "./b2b/catalog.js";
 import h563 from "./b2b/orders/index.js";
 import h564 from "./b2b/orders/[id].js";
 import h565 from "./b2b/account.js";
+
+// Inventory Planning crons — predate the dispatcher pattern; migrated to
+// _handlers/cron in this commit so they route through dispatch like every
+// other cron in vercel.json.
+import h800 from "./cron/ip-normalize.js";
+import h801 from "./cron/ip-freshness-refresh.js";
+import h802 from "./cron/ip-integration-health.js";
 
 export const ROUTES = [
   // ── P18-B — B2B customer portal (buyer Supabase-Auth session) ──────────────
@@ -934,6 +1056,7 @@ export const ROUTES = [
   // Same for dim-values (Polish chunk, 2026-05-30).
   { pattern: "/api/internal/style-master/dim-values", handler: h511 },
   { pattern: "/api/internal/style-master/notes", handler: h501 },
+  { pattern: "/api/internal/style-master/auto-assign-scales", handler: h627 },
   { pattern: "/api/internal/style-master/:id", handler: h252 },
   { pattern: "/api/internal/style-master", handler: h251 },
   { pattern: "/api/internal/vendor-master/:id", handler: h254 },
@@ -949,13 +1072,43 @@ export const ROUTES = [
   { pattern: "/api/internal/customer-locations",              handler: h537 },
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: h541 },
   { pattern: "/api/internal/sales-orders/:id/split",          handler: h542 },
-  { pattern: "/api/internal/sales-orders/:id/allocate",       handler: h566 },
-  { pattern: "/api/internal/sales-orders/:id/ship",           handler: h567 },
+  { pattern: "/api/internal/sales-orders/:id/allocate",       handler: h700 },
+  { pattern: "/api/internal/sales-orders/:id/ship",           handler: h701 },
   { pattern: "/api/internal/sales-orders/:id",                handler: h540 },
   { pattern: "/api/internal/sales-orders",                    handler: h539 },
   // P16/M11 — native Purchase Orders. :id before the bare collection.
   { pattern: "/api/internal/purchase-orders/:id",             handler: h573 },
   { pattern: "/api/internal/purchase-orders",                 handler: h572 },
+  // P16/M18 — Allocations Workbench. preview (action) before the bare collection.
+  { pattern: "/api/internal/allocations/rules",               handler: h602 },
+  { pattern: "/api/internal/allocations/preview",             handler: h577 },
+  { pattern: "/api/internal/allocations",                     handler: h576 },
+  // M43 — Pricing Engine resolve (suggested unit price).
+  { pattern: "/api/internal/pricing/resolve",                 handler: h578 },
+  // M43 — Pricing admin (:id before bare collection).
+  { pattern: "/api/internal/price-lists/:id",                 handler: h580 },
+  { pattern: "/api/internal/price-lists",                     handler: h579 },
+  { pattern: "/api/internal/price-list-items/:id",            handler: h582 },
+  { pattern: "/api/internal/price-list-items",                handler: h581 },
+  { pattern: "/api/internal/price-promotions/:id",            handler: h584 },
+  { pattern: "/api/internal/price-promotions",                handler: h583 },
+  // P13/C1 — Receiving. :id/post before :id before the bare collection.
+  { pattern: "/api/internal/procurement/receipts/:id/post",   handler: h587 },
+  { pattern: "/api/internal/procurement/receipts/:id",        handler: h586 },
+  { pattern: "/api/internal/procurement/receipts",            handler: h585 },
+  { pattern: "/api/internal/procurement/bookkeeper-queue/:id", handler: h589 },
+  { pattern: "/api/internal/procurement/bookkeeper-queue",    handler: h588 },
+  // P13/C2-C4 — QC, customs, broker, 3-way match (:id before bare).
+  { pattern: "/api/internal/procurement/qc/dispositions",     handler: h600 },
+  { pattern: "/api/internal/procurement/qc/:id",              handler: h591 },
+  { pattern: "/api/internal/procurement/qc",                  handler: h590 },
+  { pattern: "/api/internal/procurement/customs-entries/:id", handler: h593 },
+  { pattern: "/api/internal/procurement/customs-entries",     handler: h592 },
+  { pattern: "/api/internal/procurement/broker-invoices/:id", handler: h595 },
+  { pattern: "/api/internal/procurement/broker-invoices",     handler: h594 },
+  { pattern: "/api/internal/procurement/vendor-invoice-drafts/:id", handler: h597 },
+  { pattern: "/api/internal/procurement/vendor-invoice-drafts",     handler: h596 },
+  { pattern: "/api/internal/procurement/recon-inbox",               handler: h598 },
   { pattern: "/api/internal/gl-accounts/:id", handler: h258 },
   { pattern: "/api/internal/gl-accounts", handler: h257 },
   { pattern: "/api/internal/gl-periods/:id", handler: h260 },
@@ -1011,9 +1164,34 @@ export const ROUTES = [
   { pattern: "/api/internal/payment-terms", handler: h302 },
   // Size Scales — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/size-scales/:id", handler: h569 },
-  { pattern: "/api/internal/size-scales", handler: h568 },
+  { pattern: "/api/internal/size-scales", handler: h702 },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: h571 },
   { pattern: "/api/internal/style-matrix", handler: h570 },
+  // M31 — Inventory-Planning buy plan → draft native Tangerine POs.
+  { pattern: "/api/internal/planning/buy-plan-to-po", handler: h601 },
+  { pattern: "/api/internal/planning/link-planning-vendor", handler: h606 },
+  { pattern: "/api/internal/planning/sync-tangerine-supply", handler: h610 },
+  { pattern: "/api/internal/ats-by-size", handler: h603 },
+  { pattern: "/api/internal/ats-size-matrix", handler: h611 },
+  { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: h614 },
+  { pattern: "/api/internal/drop-ship/:id", handler: h616 },
+  { pattern: "/api/internal/tpl-shipments/:id", handler: h619 },
+  { pattern: "/api/internal/tpl-shipments", handler: h618 },
+  { pattern: "/api/internal/tpl-providers", handler: h617 },
+  { pattern: "/api/internal/edi-partners", handler: h620 },
+  { pattern: "/api/internal/edi-messages", handler: h621 },
+  { pattern: "/api/internal/finance-kpis", handler: h622 },
+  { pattern: "/api/internal/fixed-assets/:id", handler: h624 },
+  { pattern: "/api/internal/fixed-assets", handler: h623 },
+  { pattern: "/api/internal/budgets", handler: h625 },
+  { pattern: "/api/internal/form-1099", handler: h626 },
+  { pattern: "/api/internal/drop-ship", handler: h615 },
+  { pattern: "/api/internal/sales-returns/:id", handler: h613 },
+  { pattern: "/api/internal/sales-returns", handler: h612 },
+  // Prepack Matrix Driver master — :id before bare collection (first-match-wins)
+  { pattern: "/api/internal/prepack-matrices/needed", handler: h599 },
+  { pattern: "/api/internal/prepack-matrices/:id", handler: h575 },
+  { pattern: "/api/internal/prepack-matrices", handler: h574 },
   // Chunk I reference masters — :id before bare collection (first-match-wins)
   { pattern: "/api/internal/countries/:id", handler: h550 },
   { pattern: "/api/internal/countries", handler: h549 },
@@ -1050,6 +1228,9 @@ export const ROUTES = [
   { pattern: "/api/vendor/disputes", handler: h220 },
   { pattern: "/api/vendor/entities", handler: h221 },
   { pattern: "/api/vendor/invoices", handler: h222 },
+  { pattern: "/api/vendor/accept-invite", handler: h607 },
+  { pattern: "/api/internal/vendor-invites", handler: h608 },
+  { pattern: "/api/internal/vendor-access", handler: h609 },
   { pattern: "/api/vendor/payments", handler: h223 },
   { pattern: "/api/shopify/orders", handler: h224 },
   { pattern: "/api/vendor/banking", handler: h225 },
@@ -1171,6 +1352,9 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/styles/:style_id/description/publish", handler: h377 },
   { pattern: "/api/internal/pim/styles/:style_id/description",         handler: h376 },
   { pattern: "/api/internal/pim/styles/:style_id/attributes",          handler: h375 },
+  // P11-10 — Shopify link + image pull. MUST precede bare /:style_id.
+  { pattern: "/api/internal/pim/styles/:style_id/pull-shopify-images", handler: h605 },
+  { pattern: "/api/internal/pim/styles/:style_id/link-shopify",        handler: h604 },
   { pattern: "/api/internal/pim/styles/:style_id",                     handler: h374 },
   { pattern: "/api/internal/pim/attribute-defs/:id",                   handler: h373 },
   { pattern: "/api/internal/pim/attribute-defs",                       handler: h372 },
@@ -1273,6 +1457,8 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/rfqs/:id",                             handler: h506 },
   // Costing Module — PO-history popover on the costing grid (this PR).
   { pattern: "/api/internal/costing/lines/:line_id/po-history",            handler: h507 },
+  // Costing Module — operator-only freeform color/vendor masters (auto-prune).
+  { pattern: "/api/internal/costing/masters/freeform",                     handler: h527 },
   // Cross-cutter T4-7 — Personalization drawer-collapsed persistence
   // (favorites drawer redesign — operator asks #2 + #3). Listed AFTER the
   // existing /preferences/favorites + /preferences/home-route + bare
@@ -1298,10 +1484,10 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-recon-runs/:id/compute", handler: h522 },
   { pattern: "/api/internal/bank-recon-runs/:id",         handler: h521 },
   { pattern: "/api/internal/bank-recon-runs",             handler: h520 },
-  // P7-6 — Sales Reps master + tiers + assignments. Subpaths BEFORE bare /:id.
+  // Sales reps unified into Employees. Bare /:id master CRUD (h524) retired;
+  // tiers/assignments commission config kept (keyed on the shadow sales_reps.id).
   { pattern: "/api/internal/sales-reps/:id/tiers",                    handler: h525 },
   { pattern: "/api/internal/sales-reps/:id/assignments",              handler: h526 },
-  { pattern: "/api/internal/sales-reps/:id",                          handler: h524 },
   { pattern: "/api/internal/sales-reps",                              handler: h523 },
   // P8-9 — CRM tasks-due-tomorrow daily cron.
   { pattern: "/api/cron/crm-tasks-due-tomorrow",                      handler: h527 },
@@ -1333,6 +1519,10 @@ export const ROUTES = [
   { pattern: "/api/internal/channels",                                 handler: h533 },
   { pattern: "/api/internal/users-access/override",                    handler: h530 },
   { pattern: "/api/internal/users-access",                             handler: h529 },
+  // Inventory Planning crons (scheduled in vercel.json).
+  { pattern: "/api/cron/ip-normalize",                                 handler: h800 },
+  { pattern: "/api/cron/ip-freshness-refresh",                         handler: h801 },
+  { pattern: "/api/cron/ip-integration-health",                        handler: h802 },
 ];
 
 export function compileRoutes(routes) {

@@ -17,7 +17,9 @@
 // kept for any callers that still want the compact native select.
 
 import React, { useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { useCostingStore, type MasterKind } from "../store/costingStore";
+import { usePopoverAnchor } from "../hooks/usePopoverAnchor";
 
 interface Props {
   kind: MasterKind;
@@ -35,13 +37,21 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Portal the dropdown out of the grid's overflow:hidden cell. Anchor to the
+  // cell wrapper; matches ColorPickerCell.
+  const { anchorRef, pos } = usePopoverAnchor<HTMLDivElement>({ open, minWidth: 220 });
 
   useEffect(() => { setText(value || ""); }, [value]);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
     };
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
@@ -82,33 +92,49 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
 
   return (
     <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
-      <input
-        value={text}
-        placeholder={placeholder || "—"}
-        onChange={(e) => { setText(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && canAdd) { e.preventDefault(); onInlineAdd(); }
-          if (e.key === "Escape") { setOpen(false); setText(value || ""); }
-        }}
-        onBlur={(e) => {
-          // Defer so a click on a dropdown row registers first. Preserve
-          // free text so a typed-but-unsaved value still commits to the line.
-          window.setTimeout(() => { if (!open) onChange(e.target.value || null); }, 100);
-        }}
+      <div
+        ref={anchorRef}
+        title={value ? `${placeholder || kind}: ${value}` : `Click to pick ${kind}`}
         style={{
-          width: "100%", padding: "4px 6px", fontSize: 12,
-          background: "transparent", border: "1px solid transparent",
-          color: "#E2E8F0", outline: "none",
+          display: "flex", alignItems: "center", gap: 4,
+          border: `1px ${value ? "solid" : "dashed"} #475569`,
+          borderRadius: 3, cursor: "pointer",
         }}
-      />
-      {open && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 50,
-          minWidth: 220, maxHeight: 280, overflowY: "auto",
+      >
+        <input
+          ref={inputRef}
+          value={text}
+          placeholder={placeholder || "—"}
+          onChange={(e) => { setText(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canAdd) { e.preventDefault(); onInlineAdd(); }
+            if (e.key === "Escape") { setOpen(false); setText(value || ""); }
+          }}
+          onBlur={(e) => {
+            // Defer so a click on a dropdown row registers first. Preserve
+            // free text so a typed-but-unsaved value still commits to the line.
+            window.setTimeout(() => { if (!open) onChange(e.target.value || null); }, 100);
+          }}
+          style={{
+            flex: 1, minWidth: 0, padding: "4px 6px", fontSize: 12,
+            background: "transparent", border: "none",
+            color: value ? "#E2E8F0" : "#94A3B8", outline: "none",
+          }}
+        />
+        <span
+          // Clicking the chevron must open the dropdown too — without this the
+          // arrow is dead and only clicking the input field opens the list.
+          onMouseDown={(e) => { e.preventDefault(); if (open) { setOpen(false); } else { inputRef.current?.focus(); setOpen(true); } }}
+          style={{ color: "#64748B", fontSize: 9, paddingRight: 6, paddingLeft: 4, cursor: "pointer", alignSelf: "stretch", display: "flex", alignItems: "center" }}
+        >▾</span>
+      </div>
+      {open && pos && ReactDOM.createPortal(
+        <div ref={popRef} style={{
+          position: "fixed", left: pos.left, top: pos.top, width: pos.width,
+          zIndex: 9999, maxHeight: 280, overflowY: "auto",
           background: "#1E293B", border: "1px solid #475569",
-          borderRadius: 4, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-          marginTop: 2,
+          borderRadius: 8, boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
         }}>
           {value && (
             <button
@@ -153,7 +179,8 @@ export default function MasterPickerCell({ kind, value, onChange, placeholder }:
               }}
             >{adding ? "Adding…" : `+ Add "${text.trim()}" to ${kind} master`}</button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

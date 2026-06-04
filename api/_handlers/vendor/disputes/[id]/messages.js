@@ -5,7 +5,7 @@
 // Fires new_dispute_message notification to internal team.
 
 import { createClient } from "@supabase/supabase-js";
-import { getInternalRecipients } from "../../../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -72,7 +72,7 @@ export default async function handler(req, res) {
 
   // Notify internal team
   try {
-    const { emails } = getInternalRecipients("dispute", { event: "new_dispute_message" });
+    const { emails } = await resolveInternalRecipients(admin, "dispute", { event: "new_dispute_message" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "Vendor";

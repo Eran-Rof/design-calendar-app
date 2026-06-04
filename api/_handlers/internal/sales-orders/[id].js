@@ -8,6 +8,7 @@
 // DELETE → only a draft SO (cascades lines).
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveInternalRecipients } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 20 };
 
@@ -65,7 +66,19 @@ export default async function handler(req, res, params) {
     const { data: lines, error: lErr } = await admin.from("sales_order_lines")
       .select("*").eq("sales_order_id", id).order("line_number", { ascending: true });
     if (lErr) return res.status(500).json({ error: lErr.message });
-    return res.status(200).json({ ...so, lines: lines || [] });
+    // Decorate each line with its SKU decomposition (style_code / color / size /
+    // sku_code) so the SO modal can rebuild the size-matrix body when editing.
+    const ids = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
+    let skuById = new Map();
+    if (ids.length) {
+      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, sku_code").in("id", ids);
+      skuById = new Map((skus || []).map((s) => [s.id, s]));
+    }
+    const decorated = (lines || []).map((l) => {
+      const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, sku_code: s?.sku_code ?? null };
+    });
+    return res.status(200).json({ ...so, lines: decorated });
   }
 
   if (req.method === "DELETE") {
@@ -93,6 +106,7 @@ export default async function handler(req, res, params) {
       if (k in body) patch[k] = /^\d{4}-\d{2}-\d{2}$/.test(body[k] || "") ? body[k] : null;
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
+    if ("fulfillment_source" in body) patch.fulfillment_source = ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null;
 
     // Item 3 — factor / credit-insurance approval (manual).
     if ("factor_approval_status" in body) {
@@ -154,11 +168,15 @@ export default async function handler(req, res, params) {
       }
     }
 
-    // Replace lines if supplied (drafts only — confirmed SOs are line-locked here).
+    // Replace lines if supplied. Allowed while DRAFT or CONFIRMED (the "Add
+    // styles" flow re-opens a confirmed order to append styles) — but not once
+    // stock is committed: allocated / fulfilling / shipped / invoiced / closed
+    // are line-locked. (A status change in the same PATCH — e.g. the initial
+    // draft→confirm that ships lines together — is always allowed.)
     if (Array.isArray(body.lines)) {
-      if (so.status !== "draft" && !("status" in body)) {
-        // allow line edits only while draft
-        return res.status(409).json({ error: "Lines can only be edited while the order is a draft." });
+      const LINE_EDITABLE = ["draft", "confirmed"];
+      if (!LINE_EDITABLE.includes(so.status) && !("status" in body)) {
+        return res.status(409).json({ error: "Lines can only be edited while the order is draft or confirmed (before allocation / shipping)." });
       }
       // Item 9 — revenue is auto-routed from the customer master (entity fallback),
       // not taken from the per-line payload.
@@ -191,7 +209,40 @@ export default async function handler(req, res, params) {
     if (Object.keys(patch).length === 0) return res.status(200).json(so);
     const { data, error } = await admin.from("sales_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data);
+
+    // Production fulfillment alert — when this PATCH confirms the order and the
+    // effective fulfillment source is Production, notify the Production team
+    // (email + in-app) via the "production" notification category. Best-effort:
+    // never block or fail the SO save on a notification hiccup.
+    let productionNotice = null;
+    if (patch.status === "confirmed" && data.fulfillment_source === "production") {
+      try {
+        const { emails, empty } = await resolveInternalRecipients(admin, "production", { event: "production_order_requested" });
+        if (empty) {
+          productionNotice = { sent: 0, skipped: true, reason: "No Production recipient configured — tick the Production category on an employee record (or set INTERNAL_PRODUCTION_EMAILS) so the Production Manager is alerted." };
+        } else {
+          const origin = `https://${req.headers.host}`;
+          const soNo = data.so_number || String(id).slice(0, 8);
+          await Promise.all(emails.map((email) =>
+            fetch(`${origin}/api/send-notification`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                event_type: "production_order_requested",
+                title: `Production order: ${soNo}`,
+                body: `Sales order ${soNo} was confirmed for PRODUCTION fulfillment. Review it in Tangerine → Sales Orders.`,
+                link: "/tangerine?m=sales_orders",
+                metadata: { sales_order_id: id, so_number: data.so_number || null, fulfillment_source: "production" },
+                recipient: { internal_id: "production", email },
+                dedupe_key: `production_order_${id}`,
+                email: true,
+              }),
+            }).catch(() => {})
+          ));
+          productionNotice = { sent: emails.length };
+        }
+      } catch { /* non-blocking */ }
+    }
+    return res.status(200).json(productionNotice ? { ...data, production_notice: productionNotice } : data);
   }
 
   res.setHeader("Allow", "GET, PATCH, DELETE");

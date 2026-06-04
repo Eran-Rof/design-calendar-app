@@ -8,17 +8,17 @@ import { useEffect, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
-const TABLE_KEY = "tanda.approval_requests";
-const ALL_COLUMNS: ColumnDef[] = [
-  { key: "kind", label: "Kind" },
-  { key: "context", label: "Context" },
-  { key: "amount", label: "Amount" },
+// Universal column-visibility registry for this panel (operator ask #1).
+const APPROVAL_REQ_TABLE_KEY = "tangerine:approvalrequests:columns";
+const APPROVAL_REQ_COLUMNS: ColumnDef[] = [
+  { key: "kind",         label: "Kind" },
+  { key: "context",      label: "Context" },
+  { key: "amount",       label: "Amount" },
   { key: "current_step", label: "Current step" },
-  { key: "status", label: "Status" },
-  { key: "created", label: "Created" },
-  { key: "actions", label: "Actions" },
+  { key: "status",       label: "Status" },
+  { key: "created",      label: "Created" },
 ];
 
 type Step = {
@@ -99,7 +99,13 @@ export default function InternalApprovalRequests() {
   const [statusFilter, setStatusFilter] = useState<Request["status"]>("pending");
   const [kindFilter, setKindFilter] = useState("");
   const [deciding, setDeciding] = useState<Request | null>(null);
-  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    APPROVAL_REQ_TABLE_KEY,
+    APPROVAL_REQ_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -164,15 +170,7 @@ export default function InternalApprovalRequests() {
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
         />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <TablePrefsButton
-            tableKey={TABLE_KEY}
-            columns={ALL_COLUMNS}
-            visibleColumns={visibleColumns}
-            onToggle={toggleColumn}
-            onReset={resetToDefault}
-            onSetAll={setAllVisible}
-          />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="approval-requests"
@@ -189,6 +187,13 @@ export default function InternalApprovalRequests() {
               { key: "expires_at",              header: "Expires At",    format: "datetime" },
             ] as ExportColumn<Record<string, unknown>>[]}
           />
+          <TablePrefsButton
+            tableKey={APPROVAL_REQ_TABLE_KEY}
+            columns={APPROVAL_REQ_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
         </div>
       </div>
 
@@ -198,13 +203,13 @@ export default function InternalApprovalRequests() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!visibleColumns.has("kind")}>Kind</th>
-              <th style={th} hidden={!visibleColumns.has("context")}>Context</th>
-              <th style={th} hidden={!visibleColumns.has("amount")}>Amount</th>
-              <th style={th} hidden={!visibleColumns.has("current_step")}>Current step</th>
-              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
-              <th style={th} hidden={!visibleColumns.has("created")}>Created</th>
-              <th style={th} hidden={!visibleColumns.has("actions")}>Actions</th>
+              <th style={th} hidden={!isVisible("kind")}>Kind</th>
+              <th style={th} hidden={!isVisible("context")}>Context</th>
+              <th style={th} hidden={!isVisible("amount")}>Amount</th>
+              <th style={th} hidden={!isVisible("current_step")}>Current step</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
+              <th style={th}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -218,19 +223,19 @@ export default function InternalApprovalRequests() {
               const cur = currentStep(r);
               return (
                 <tr key={r.id}>
-                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!visibleColumns.has("kind")}>{r.kind}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!visibleColumns.has("context")}>
+                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("kind")}>{r.kind}</td>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!isVisible("context")}>
                     {r.context_table}#{r.context_id.slice(0, 8)}
                   </td>
-                  <td style={td} hidden={!visibleColumns.has("amount")}>{formatCents(r.requested_amount_cents)}</td>
-                  <td style={td} hidden={!visibleColumns.has("current_step")}>
+                  <td style={td} hidden={!isVisible("amount")}>{formatCents(r.requested_amount_cents)}</td>
+                  <td style={td} hidden={!isVisible("current_step")}>
                     {cur ? `${cur.step_order}. ${cur.mode}/${cur.role_required}` : "—"}
                   </td>
-                  <td style={{ ...td, color: STATUS_COLOR[r.status] }} hidden={!visibleColumns.has("status")}>{r.status}</td>
-                  <td style={{ ...td, color: C.textSub, fontSize: 12 }} hidden={!visibleColumns.has("created")}>
+                  <td style={{ ...td, color: STATUS_COLOR[r.status] }} hidden={!isVisible("status")}>{r.status}</td>
+                  <td style={{ ...td, color: C.textSub, fontSize: 12 }} hidden={!isVisible("created")}>
                     {new Date(r.created_at).toLocaleString()}
                   </td>
-                  <td style={td} hidden={!visibleColumns.has("actions")}>
+                  <td style={td}>
                     {r.status === "pending" && cur && (
                       <>
                         <button style={btnPrimary} onClick={() => setDeciding(r)}>Decide</button>

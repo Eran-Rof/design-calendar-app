@@ -15,8 +15,9 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
-import { getRfq, updateRfq } from "../services/costingApi";
+import { getRfq, updateRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
+import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
 import type { RfqDetail, RfqListRow, RfqPatch, RfqStatus, RfqLineItem, RfqInvitation } from "../types";
 
@@ -37,6 +38,8 @@ export default function RfqEditView() {
   const [paymentTerms, setPaymentTerms] = useState<Array<{ id: string; code: string | null; name: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [awarding, setAwarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Undo stack — capped at UNDO_LIMIT. Each snapshot is the form state
   // BEFORE the change that pushed it.
@@ -118,6 +121,70 @@ export default function RfqEditView() {
     });
   }, []);
 
+  // "Send to Vendor" — publish + notify every invited vendor. Idempotent on
+  // the server, so this doubles as the "Re-send" path once already published.
+  const onSendToVendor = useCallback(async () => {
+    if (!id || !detail) return;
+    const iv = detail.intended_vendor;
+    const vendorLabel =
+      (detail.invitations || [])
+        .map((i) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id)
+        .join(", ")
+      || iv?.name || iv?.legal_name || iv?.code
+      || "the vendor";
+    setPublishing(true);
+    try {
+      const result = await publishRfq(id);
+      // Reflect status='published' locally + keep the form in sync so the
+      // status dropdown + button state update without a full reload.
+      setDetail((prev) => prev ? { ...prev, rfq: { ...prev.rfq, status: "published" } } : prev);
+      setForm((prev) => ({ ...prev, status: "published" }));
+      const n = result.notified;
+      setNotice(
+        `RFQ sent to ${vendorLabel} — ${n === 0 ? "no invited vendors to notify yet" : `${n} ${n === 1 ? "vendor has" : "vendors have"} been notified`}.`,
+        "info",
+      );
+    } catch (e) {
+      setNotice(`Could not send to vendor: ${(e as Error).message}`, "error");
+    } finally {
+      setPublishing(false);
+    }
+  }, [id, detail, setNotice]);
+
+  // "Award" — award the RFQ to its invited vendor. The award handler requires
+  // the vendor to have a SUBMITTED quote (it 409s otherwise); we also gate the
+  // button on the invitation showing status='submitted' so we don't offer an
+  // action that's going to bounce. Confirm → award → reflect status='awarded'.
+  const onAward = useCallback(() => {
+    if (!id || !detail) return;
+    const inv = (detail.invitations || []).find((i) => i.status === "submitted")
+      || (detail.invitations || [])[0];
+    if (!inv) {
+      setNotice("No invited vendor to award.", "error");
+      return;
+    }
+    const vendorLabel = inv.vendors?.name || inv.vendors?.legal_name || inv.vendors?.code || inv.vendor_id;
+    appConfirm(
+      `Award this RFQ to ${vendorLabel}? This notifies the vendor and the Production Manager and flows the price into the costing project.`,
+      "Award",
+      async () => {
+        setAwarding(true);
+        try {
+          await awardRfq(id, inv.vendor_id);
+          // Reflect awarded locally so the header + status dropdown update
+          // without a full reload.
+          setDetail((prev) => prev ? { ...prev, rfq: { ...prev.rfq, status: "awarded" } } : prev);
+          setForm((prev) => ({ ...prev, status: "awarded" }));
+          setNotice(`RFQ awarded to ${vendorLabel}. Vendor + Production Manager notified; price flowed into the costing project.`, "info");
+        } catch (e) {
+          setNotice(`Could not award: ${(e as Error).message}`, "error");
+        } finally {
+          setAwarding(false);
+        }
+      },
+    );
+  }, [id, detail, setNotice]);
+
   const onUndo = () => {
     setUndoStack((stack) => {
       if (stack.length === 0) return stack;
@@ -171,6 +238,76 @@ export default function RfqEditView() {
           }}>
             {saving ? "Saving…" : dirty ? "Unsaved" : "✓ Saved"}
           </span>
+          {detail && (() => {
+            const isDraft = (detail.rfq.status || "draft") === "draft";
+            const canSend = detail.rfq.status === "draft" || detail.rfq.status === "published";
+            if (!canSend) {
+              // awarded is shown by the dedicated "✓ Awarded" badge below;
+              // here just surface the 'closed' state (publish rejected server-side).
+              if (detail.rfq.status === "awarded") return null;
+              return (
+                <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+                  {detail.rfq.status}
+                </span>
+              );
+            }
+            return (
+              <button
+                onClick={onSendToVendor}
+                disabled={publishing}
+                title={isDraft
+                  ? "Publish this RFQ and notify the invited vendor(s)"
+                  : "Already sent — re-notify the invited vendor(s)"}
+                style={{
+                  background: isDraft ? "#1D4ED8" : "transparent",
+                  color: isDraft ? "#FFFFFF" : "#60A5FA",
+                  border: `1px solid ${isDraft ? "#1D4ED8" : "#1D4ED8"}`,
+                  padding: "6px 14px", borderRadius: 4,
+                  cursor: publishing ? "wait" : "pointer",
+                  fontSize: 13, fontWeight: 600,
+                  opacity: publishing ? 0.6 : 1,
+                }}
+              >
+                {publishing ? "Sending…" : isDraft ? "Send to Vendor" : "✓ Sent · Re-send"}
+              </button>
+            );
+          })()}
+          {detail && (() => {
+            const status = detail.rfq.status || "draft";
+            if (status === "awarded") {
+              return (
+                <span style={{
+                  fontSize: 11, color: "#10B981", fontWeight: 700,
+                  textTransform: "uppercase", letterSpacing: ".04em",
+                  border: "1px solid #10B981", borderRadius: 4, padding: "4px 10px",
+                }}>✓ Awarded</span>
+              );
+            }
+            // Only offer Award once the RFQ is published. (draft = not sent yet;
+            // closed = no longer awardable here.)
+            if (status !== "published") return null;
+            const hasSubmitted = (detail.invitations || []).some((i) => i.status === "submitted");
+            return (
+              <button
+                onClick={onAward}
+                disabled={awarding || !hasSubmitted}
+                title={hasSubmitted
+                  ? "Award this RFQ to the invited vendor — notifies the vendor + Production Manager and flows the price into costing"
+                  : "Award unlocks once the invited vendor submits a quote"}
+                style={{
+                  background: hasSubmitted ? "#047857" : "transparent",
+                  color: hasSubmitted ? "#FFFFFF" : "#475569",
+                  border: `1px solid ${hasSubmitted ? "#047857" : "#334155"}`,
+                  padding: "6px 14px", borderRadius: 4,
+                  cursor: awarding ? "wait" : hasSubmitted ? "pointer" : "not-allowed",
+                  fontSize: 13, fontWeight: 600,
+                  opacity: awarding ? 0.6 : hasSubmitted ? 1 : 0.55,
+                }}
+              >
+                {awarding ? "Awarding…" : "Award"}
+              </button>
+            );
+          })()}
           <button
             onClick={onUndo}
             disabled={undoStack.length === 0}
@@ -201,7 +338,7 @@ export default function RfqEditView() {
             background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
             fontSize: 12,
           }}>
-            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || "—"} />
+            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code} (not sent yet)` : "—")} />
             <ContextField label="Customer" value={customerName || "—"} />
             <ContextField label="Source project" value={project?.project_name || "—"} />
             <ContextField label="Lines" value={String(items.length)} />
@@ -209,27 +346,38 @@ export default function RfqEditView() {
             <ContextField label="Created" value={detail.rfq.created_at ? fmtDateDisplay(detail.rfq.created_at.slice(0, 10)) : "—"} />
           </div>
 
-          {/* Editable header form. */}
+          {/* Header form. Most fields are backfilled from the source costing
+              project at generation (generate-rfqs.js) and are READ-ONLY here —
+              the project is the single source of truth, edit them there. Only
+              Status + Payment terms are RFQ-native and stay editable. */}
+          <div style={{ marginBottom: 6, color: "#64748B", fontSize: 11, fontStyle: "italic" }}>
+            Fields from the source project are read-only here — edit them on the costing project. Only Status and Payment terms are set on the RFQ.
+          </div>
           <div style={{
             background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
             padding: "14px 16px", display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
             maxWidth: 1080,
           }}>
+            {/* Backfilled — read-only. */}
             <Field label="Title" span={4}>
-              <input value={form.title || ""} onChange={(e) => setField("title", e.target.value)} style={inp} />
+              <ReadOnlyValue value={detail.rfq.title} />
             </Field>
+
+            {/* RFQ-native — editable. */}
             <Field label="Status">
               <select value={form.status || "draft"} onChange={(e) => setField("status", e.target.value as RfqStatus)} style={inp}>
                 {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
-            <Field label="Category">
-              <input value={form.category || ""} onChange={(e) => setField("category", e.target.value || null)} style={inp} placeholder="e.g. BOYS" />
+            {/* Backfilled — read-only. */}
+            <Field label="Brand">
+              <ReadOnlyValue value={detail.rfq.category} />
             </Field>
             <Field label="Currency">
-              <input value={form.currency || ""} onChange={(e) => setField("currency", e.target.value || "USD")} style={inp} placeholder="USD" />
+              <ReadOnlyValue value={detail.rfq.currency || "USD"} />
             </Field>
+            {/* RFQ-native — editable. */}
             <Field label="Payment terms">
               <SearchableSelect
                 value={form.payment_terms_id || null}
@@ -239,31 +387,26 @@ export default function RfqEditView() {
               />
             </Field>
 
-            {/* Three date fields mirror the costing project header (request,
-                due, projected delivery). Replaces the legacy submission_deadline
-                + delivery_required_by inputs — those columns still exist on the
-                row for other procurement readers, just not surfaced here. */}
+            {/* Backfilled dates — read-only, displayed in canonical MMM/DD/YYYY. */}
             <Field label="Request date">
-              <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={dateInp} />
+              <ReadOnlyValue value={detail.rfq.request_date ? fmtDateDisplay(detail.rfq.request_date) : null} />
             </Field>
             <Field label="Due date">
-              <input type="date" value={form.due_date || ""} onChange={(e) => setField("due_date", e.target.value || null)} style={dateInp} />
+              <ReadOnlyValue value={detail.rfq.due_date ? fmtDateDisplay(detail.rfq.due_date) : null} />
             </Field>
             <Field label="Projected delivery date">
-              <input type="date" value={form.projected_delivery_date || ""} onChange={(e) => setField("projected_delivery_date", e.target.value || null)} style={dateInp} />
+              <ReadOnlyValue value={detail.rfq.projected_delivery_date ? fmtDateDisplay(detail.rfq.projected_delivery_date) : null} />
             </Field>
-            {/* type="text" + inputMode removes the up/down stepper arrows
-                while keeping the field typeable (mirrors the inventory-planning
-                numeric cells). */}
+            {/* Backfilled estimates — read-only. */}
             <Field label="Estimated qty">
-              <input type="text" inputMode="numeric" value={form.estimated_quantity ?? ""} onChange={(e) => { const t = e.target.value.trim(); const n = Number(t); setField("estimated_quantity", t === "" || Number.isNaN(n) ? null : n); }} style={inp} />
+              <ReadOnlyValue value={typeof detail.rfq.estimated_quantity === "number" ? fmtQty.format(detail.rfq.estimated_quantity) : null} />
             </Field>
             <Field label="Estimated budget">
-              <input type="text" inputMode="decimal" value={form.estimated_budget ?? ""} onChange={(e) => { const t = e.target.value.trim(); const n = Number(t); setField("estimated_budget", t === "" || Number.isNaN(n) ? null : n); }} style={inp} />
+              <ReadOnlyValue value={typeof detail.rfq.estimated_budget === "number" ? fmtMoney.format(detail.rfq.estimated_budget) : null} />
             </Field>
 
             <Field label="Description" span={4}>
-              <textarea value={form.description || ""} onChange={(e) => setField("description", e.target.value || null)} rows={3} style={{ ...inp, fontFamily: "inherit", resize: "vertical" }} />
+              <ReadOnlyValue value={detail.rfq.description} multiline />
             </Field>
           </div>
 
@@ -321,20 +464,15 @@ export default function RfqEditView() {
   );
 }
 
+// Only the RFQ-NATIVE fields are seeded into the editable form — everything
+// else (title, description, brand/category, currency, the three dates,
+// estimated qty/budget) is backfilled from the source costing project at
+// generation time (see generate-rfqs.js) and is the project's to own, so it
+// renders read-only below and is never sent on the PATCH. Status +
+// payment_terms_id are the only operator-entered, RFQ-stage fields.
 function seedForm(r: RfqListRow): RfqPatch {
   return {
-    title: r.title,
-    description: r.description,
-    category: r.category,
     status: r.status,
-    submission_deadline: r.submission_deadline,
-    delivery_required_by: r.delivery_required_by,
-    request_date: r.request_date,
-    due_date: r.due_date,
-    projected_delivery_date: r.projected_delivery_date,
-    estimated_quantity: r.estimated_quantity,
-    estimated_budget: r.estimated_budget,
-    currency: r.currency,
     payment_terms_id: r.payment_terms_id,
   };
 }
@@ -357,6 +495,25 @@ function Field({ label, span, children }: { label: string; span?: 1 | 2 | 3 | 4;
   );
 }
 
+// Read-only display for a backfilled field — styled to match the disabled
+// look of the editable inputs (same box, dimmed text) so the form reads as a
+// consistent grid. `multiline` switches to a min-height block for description.
+function ReadOnlyValue({ value, multiline }: { value: string | null | undefined; multiline?: boolean }) {
+  const text = value != null && String(value).trim() !== "" ? String(value) : "—";
+  return (
+    <div style={{
+      ...inp,
+      background: "#162033",
+      color: "#94A3B8",
+      cursor: "default",
+      whiteSpace: multiline ? "pre-wrap" : "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      minHeight: multiline ? 54 : undefined,
+    }}>{text}</div>
+  );
+}
+
 function Th({ children, align, width }: { children: React.ReactNode; align?: "left" | "right" | "center"; width?: number }) {
   return <th style={{ textAlign: align || "left", padding: "6px 10px", fontWeight: 600, fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", width }}>{children}</th>;
 }
@@ -368,9 +525,4 @@ const inp: React.CSSProperties = {
   width: "100%", background: "#0F172A", color: "#E2E8F0",
   border: "1px solid #334155", borderRadius: 4, padding: "5px 8px", fontSize: 12,
   outline: "none",
-};
-
-const dateInp: React.CSSProperties = {
-  ...inp,
-  colorScheme: "dark",
 };

@@ -23,7 +23,7 @@ import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../_lib/vendor-auth.js";
 import { fireWorkflowEvent } from "../../_lib/workflow.js";
 import { toMoneyString, MoneyError } from "../../_lib/money.js";
-import { getInternalRecipients } from "../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -223,7 +223,7 @@ export default async function handler(req, res) {
     // invoice id within an hour.
     try {
       const origin = `https://${req.headers.host}`;
-      const { emails: discrepancyEmails } = getInternalRecipients("invoice", { event: "invoice_discrepancy" });
+      const { emails: discrepancyEmails } = await resolveInternalRecipients(admin, "invoice", { event: "invoice_discrepancy" });
       if (discrepancyEmails.length > 0) {
         const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
         const vendorName = vendor?.name || "A vendor";
@@ -306,7 +306,7 @@ export default async function handler(req, res) {
 
   // Fire internal notifications
   try {
-    const { emails } = getInternalRecipients("invoice", { event: "invoice_submitted" });
+    const { emails } = await resolveInternalRecipients(admin, "invoice", { event: "invoice_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";

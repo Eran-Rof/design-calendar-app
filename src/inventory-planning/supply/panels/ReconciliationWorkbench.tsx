@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { IpItem } from "../../types/entities";
-import type { IpPlanningRun } from "../../types/wholesale";
+import type { IpPlanningRun, IpSupplySource } from "../../types/wholesale";
 import type {
   IpAllocationRule,
   IpInventoryRecommendation,
@@ -19,11 +19,12 @@ import type {
   IpSupplyException,
 } from "../types/supply";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
-import { supplyRepo, buildReconciliationGrid, runReconciliationPass } from "../services";
+import { supplyRepo, buildReconciliationGrid, runReconciliationPass, syncTangerineSupply } from "../services";
+import { can } from "../../governance/services/permissionService";
+import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { S, PAL, formatDate } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
-import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import ReconciliationGrid from "./ReconciliationGrid";
@@ -48,6 +49,10 @@ export default function ReconciliationWorkbench() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [showNewRun, setShowNewRun] = useState(false);
   const [selectedRow, setSelectedRow] = useState<IpReconciliationGridRow | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const user = useCurrentUser();
+  const canSync = user ? can(user, "manage_integrations") : false;
 
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
@@ -144,6 +149,22 @@ export default function ReconciliationWorkbench() {
     }
   }
 
+  // M31 dir-B: pull native Tangerine on-hand + open POs into the planning
+  // supply tables (source='tangerine'). A run with supply_source='tangerine'
+  // then reconciles against this. Global sync (not per-run); re-run
+  // reconciliation afterward to apply.
+  async function syncTangerine() {
+    setSyncing(true);
+    try {
+      const r = await syncTangerineSupply("all");
+      setToast({ text: r.message || "Tangerine supply synced", kind: "success" });
+    } catch (e) {
+      setToast({ text: "Tangerine sync failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   // Inline toggle for the planned-buys flag — kept here on the
   // header card (not buried inside a modal) so the planner can flip
   // it on an existing run and re-reconcile without spinning up a
@@ -188,6 +209,7 @@ export default function ReconciliationWorkbench() {
           <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
           <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }}>Scenarios →</a>
+          <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
           <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>DQ</a>
           <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
         </div>
@@ -195,10 +217,6 @@ export default function ReconciliationWorkbench() {
 
       <div style={S.content}>
         <SystemHealthBanner />
-        <StaleDataBanner
-          watch={["xoro_inventory", "xoro_open_pos", "planning_run", "wholesale_forecast", "ecom_forecast"]}
-          dismissKey="supply_workbench"
-        />
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Reconciliation run</strong>
@@ -215,6 +233,11 @@ export default function ReconciliationWorkbench() {
             </button>
             <button style={S.btnPrimary} onClick={runPass} disabled={building || !selectedRun}>
               {building ? "Reconciling…" : "Run reconciliation"}
+            </button>
+            <button style={{ ...S.btnSecondary, background: "#EA580C22", color: "#EA580C", borderColor: "#EA580C" }}
+                    onClick={syncTangerine} disabled={syncing || !canSync}
+                    title={canSync ? "Pull native Tangerine on-hand + open POs into the planning supply tables (for 'Tangerine ERP' runs)" : "Missing permission: manage_integrations"}>
+              {syncing ? "Syncing…" : "🍊 Sync Tangerine supply"}
             </button>
           </div>
           {/* Inline create-run form. Same place the request panel
@@ -235,10 +258,18 @@ export default function ReconciliationWorkbench() {
           )}
           {selectedRun && (
             <>
-              <div style={{ color: PAL.textMuted, fontSize: 12 }}>
-                Snapshot {formatDate(selectedRun.source_snapshot_date)} ·
+              <div style={{ color: PAL.textMuted, fontSize: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>Snapshot {formatDate(selectedRun.source_snapshot_date)} ·
                 wholesale source {selectedRun.wholesale_source_run_id ? selectedRun.wholesale_source_run_id.slice(0, 8) : "—"} ·
-                ecom source {selectedRun.ecom_source_run_id ? selectedRun.ecom_source_run_id.slice(0, 8) : "—"}
+                ecom source {selectedRun.ecom_source_run_id ? selectedRun.ecom_source_run_id.slice(0, 8) : "—"}</span>
+                <span style={{ ...S.chip,
+                  background: (selectedRun.supply_source === "tangerine" ? "#EA580C" : PAL.accent) + "22",
+                  color: selectedRun.supply_source === "tangerine" ? "#EA580C" : PAL.accent }}>
+                  supply: {selectedRun.supply_source === "tangerine" ? "Tangerine ERP" : "Xoro / ATS mirror"}
+                </span>
+                {selectedRun.supply_source === "tangerine" && (
+                  <span style={{ color: PAL.textMuted, fontSize: 11 }}>(run 🍊 Sync Tangerine supply, then reconcile)</span>
+                )}
               </div>
               {/* Inline toggle: count Phase 1 planned_buy_qty as
                   inbound supply on the next recon. Editable here on the
@@ -316,6 +347,7 @@ function NewReconciliationRunForm({
   const [wholesaleId, setWholesaleId] = useState<string>(wholesaleRuns.find((r) => r.status === "active")?.id ?? wholesaleRuns[0]?.id ?? "");
   const [ecomId, setEcomId] = useState<string>(ecomRuns.find((r) => r.status === "active")?.id ?? ecomRuns[0]?.id ?? "");
   const [snapshot, setSnapshot] = useState(today.toISOString().slice(0, 10));
+  const [supplySource, setSupplySource] = useState<IpSupplySource>("xoro");
   const [horizonStart, setHorizonStart] = useState(`${yyyy}-${mm}-01`);
   const [horizonEnd, setHorizonEnd] = useState(new Date(Date.UTC(yyyy, today.getUTCMonth() + 5, 0)).toISOString().slice(0, 10));
   const [note, setNote] = useState("");
@@ -335,6 +367,7 @@ function NewReconciliationRunForm({
         planning_scope: "all",
         status: "draft",
         source_snapshot_date: snapshot,
+        supply_source: supplySource,
         horizon_start: horizonStart,
         horizon_end: horizonEnd,
         forecast_method_preference: "ly_sales",
@@ -398,6 +431,14 @@ function NewReconciliationRunForm({
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Snapshot:</span>
       <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={snapshot} onCommit={setSnapshot} />
+
+      <span style={{ color: PAL.textMuted, fontSize: 11 }}>Supply source:</span>
+      <select style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+              value={supplySource} onChange={(e) => setSupplySource(e.target.value as IpSupplySource)}
+              title="Where on-hand + open POs come from: the Xoro/ATS mirror (default) or native Tangerine ERP">
+        <option value="xoro">Xoro / ATS mirror</option>
+        <option value="tangerine">Tangerine ERP</option>
+      </select>
 
       <input style={{ ...S.input, minWidth: 160, fontSize: 12, padding: "4px 8px" }}
              value={note} placeholder="Note (optional)"

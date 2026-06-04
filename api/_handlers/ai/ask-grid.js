@@ -33,7 +33,7 @@ import {
   logAICall,
 } from "../../_lib/ai/budget.js";
 import {
-  MODEL,
+  modelForApp,
   MAX_TOKENS,
   MAX_TOOL_ITERATIONS,
   MAX_QUESTION_LEN,
@@ -110,6 +110,9 @@ export default async function handler(req, res) {
     user_id: typeof body.user_id === "string" ? body.user_id.trim().slice(0, 80) || null : null,
     app:     typeof body.app_id  === "string" ? body.app_id.trim().slice(0, 40)  || null : null,
   };
+  // Per-app model (Tangerine → Opus, others → Haiku). Resolved once here and
+  // threaded through the streaming + non-streaming paths + cost logging.
+  const model = modelForApp(execCtx.app);
 
   try {
     await assertWithinBudget(db);
@@ -239,7 +242,7 @@ export default async function handler(req, res) {
   if (accept.includes("text/event-stream")) {
     return runStreaming(req, res, {
       client, db, messages, SYSTEM_CACHED, TOOLS_CACHED, trace,
-      cacheKey, question, execCtx,
+      cacheKey, question, execCtx, model,
     });
   }
 
@@ -253,14 +256,14 @@ export default async function handler(req, res) {
     let resp;
     try {
       resp = await client.messages.create({
-        model: MODEL,
+        model,
         max_tokens: MAX_TOKENS,
         system: SYSTEM_CACHED,
         tools: TOOLS_CACHED,
         messages,
       });
     } catch (err) {
-      await logAICall(db, { handler: HANDLER, model: MODEL, cost_usd: totalCost, error: err.message });
+      await logAICall(db, { handler: HANDLER, model, cost_usd: totalCost, error: err.message });
       return res.status(502).json({ error: `Claude API error: ${err.message}`, trace });
     }
 
@@ -328,7 +331,7 @@ export default async function handler(req, res) {
 
   await logAICall(db, {
     handler: HANDLER,
-    model: MODEL,
+    model,
     input_tokens:  totalIn,
     output_tokens: totalOut,
     cost_usd: totalCost,

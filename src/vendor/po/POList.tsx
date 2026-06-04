@@ -2,12 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtDate, fmtMoney, daysUntil, parseLocalDate } from "../utils";
+import { fmtDate, fmtMoney, daysUntil, parseLocalDate, errMsg } from "../utils";
+
+// Only surface current POs. Anything ordered before this date is legacy Xoro
+// history the vendor doesn't need to act on. Keyed on tanda_pos.date_order
+// (the PO order/creation date).
+const MIN_PO_DATE = "2025-12-01";
 import { showAlert } from "../ui/AppDialog";
 
-// tanda_pos row shape (subset we care about in the portal). RLS scopes the
-// SELECT to rows where vendor_id matches the logged-in vendor_user, so we
-// don't need a vendor_id filter in the query.
+// tanda_pos row shape (subset we care about in the portal). The query is scoped
+// to the logged-in vendor with an explicit .eq("vendor_id", …) — RLS is NOT
+// relied on for isolation (it's permissive; see vendorId.ts).
 type POItem = {
   QtyOrder?: number;
   QtyReceived?: number;
@@ -87,18 +92,25 @@ export default function POList() {
         const uid = userRes.user?.id;
         if (!uid) throw new Error("Not signed in.");
 
-        const [{ data: vu, error: vuErr }, { data: pos, error: posErr }] = await Promise.all([
-          supabaseVendor.from("vendor_users").select("id").eq("auth_id", uid).maybeSingle(),
-          supabaseVendor
-            .from("tanda_pos")
-            .select("id, uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id")
-            .order("date_order", { ascending: false }),
-        ]);
+        // Resolve the vendor first — the PO query MUST be scoped to this
+        // vendor explicitly (RLS is permissive, see vendorId.ts), otherwise
+        // every vendor's POs leak into the list.
+        const { data: vu, error: vuErr } = await supabaseVendor
+          .from("vendor_users").select("id, vendor_id").eq("auth_id", uid).maybeSingle();
         if (vuErr) throw vuErr;
-        if (posErr) throw posErr;
         if (!vu) throw new Error("Your account is not linked to a vendor.");
-
         const vuId = vu.id as string;
+        const vendorId = vu.vendor_id as string | null;
+        if (!vendorId) throw new Error("Your account is not linked to a vendor.");
+
+        const { data: pos, error: posErr } = await supabaseVendor
+          .from("tanda_pos")
+          .select("id, uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id")
+          .eq("vendor_id", vendorId)
+          .gte("date_order", MIN_PO_DATE)
+          .order("date_order", { ascending: false });
+        if (posErr) throw posErr;
+
         const { data: acks, error: acksErr } = await supabaseVendor
           .from("po_acknowledgments")
           .select("po_number, acknowledged_at")
@@ -137,7 +149,7 @@ export default function POList() {
           if (!cancelled) setShippedPoIds(shipped);
         }
       } catch (e: unknown) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(errMsg(e));
       } finally {
         if (!cancelled) setLoading(false);
       }

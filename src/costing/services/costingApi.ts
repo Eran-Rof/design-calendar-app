@@ -469,6 +469,53 @@ export async function addVendor(name: string, opts?: { code?: string; country?: 
   }));
 }
 
+// ── Freeform color/vendor masters (auto-pruned against canonical sources) ──
+//
+// Returns the operator-managed extras lists (server already drops anything
+// that has since appeared in ip_item_master.color / ip_vendor_master /
+// vendors). Backed by h527.
+
+export type FreeformKind = "colors" | "vendors";
+
+export interface FreeformMasters {
+  colors: string[];
+  vendors: string[];
+}
+
+export async function getFreeformMasters(): Promise<FreeformMasters> {
+  return json<FreeformMasters>(await fetch(`/api/internal/costing/masters/freeform`));
+}
+
+export async function addFreeformMaster(kind: FreeformKind, name: string): Promise<string[]> {
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, name }),
+    }),
+  );
+  return r.list;
+}
+
+export async function renameFreeformMaster(kind: FreeformKind, oldName: string, newName: string): Promise<string[]> {
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, oldName, newName }),
+    }),
+  );
+  return r.list;
+}
+
+export async function deleteFreeformMaster(kind: FreeformKind, name: string): Promise<string[]> {
+  const sp = new URLSearchParams({ kind, name });
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform?${sp.toString()}`, { method: "DELETE" }),
+  );
+  return r.list;
+}
+
 // ── Style → SKU / target-cost seed helper ───────────────────────────────────
 //
 // Given a style code, returns a representative SKU + its avg cost (from
@@ -549,4 +596,69 @@ export async function updateRfq(id: string, patch: RfqPatch): Promise<RfqListRow
 
 export async function deleteRfq(id: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/rfqs/${id}`, { method: "DELETE" }));
+}
+
+export interface PublishRfqResult {
+  ok: true;
+  id: string;
+  status: "published";
+  /** Number of invited vendors that were (re-)notified via rfq_invited. */
+  notified: number;
+}
+
+/**
+ * "Send to Vendor" — publish the RFQ and notify every invited vendor.
+ *
+ * POSTs to the internal publish handler (api/_handlers/internal/rfqs/:id/publish.js,
+ * routes.js h49). That handler flips rfqs.status draft → published and fires the
+ * rfq_invited notification to each invited vendor; it is idempotent (re-publishing
+ * a published RFQ re-sends, deduped server-side by rfq_id+vendor_id), so the
+ * caller can offer a "Re-send" affordance safely. Same authenticateInternalCaller
+ * gate the rest of /api/internal/costing/* uses, so it is reachable from the
+ * costing app's auth context.
+ */
+export async function publishRfq(rfqId: string): Promise<PublishRfqResult> {
+  return json<PublishRfqResult>(await fetch(`/api/internal/rfqs/${rfqId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }));
+}
+
+export interface AwardRfqResult {
+  ok: true;
+  rfq_id: string;
+  awarded_to: string;
+  /** Count of losing vendors that received an rfq_not_awarded notification. */
+  losers_notified: number;
+  /** Whether the Production-Manager in-app/email notification was sent, and how the recipient was resolved. */
+  pm_notify?: {
+    sent: boolean;
+    /** 'employee' = matched a Production-Manager employee; 'internal_procurement' = env fallback; 'none' = no recipient resolvable. */
+    resolved_via: "employee" | "internal_procurement" | "none";
+    recipients: number;
+  };
+  /** Costing write-back diagnostics (see award handler). */
+  costing_writeback?: {
+    written: number;
+    skipped_reason: string | null;
+    errors: Array<Record<string, unknown>>;
+  };
+}
+
+/**
+ * "Award" — award the RFQ to its invited vendor.
+ *
+ * POSTs to api/_handlers/internal/rfqs/:id/award/:vendor_id.js (routes.js).
+ * The handler flips rfqs.status → 'awarded', marks the winning rfq_quote
+ * 'awarded' + losers 'rejected', notifies the winner (rfq_awarded) and every
+ * loser (rfq_not_awarded), notifies + emails the Production Manager, fires the
+ * rfq_awarded workflow event, AND flows the awarded quote back into the source
+ * costing project. It requires the awarded vendor to have a SUBMITTED quote —
+ * returns 409 with a descriptive message otherwise (surfaced to the caller).
+ */
+export async function awardRfq(rfqId: string, vendorId: string): Promise<AwardRfqResult> {
+  return json<AwardRfqResult>(await fetch(`/api/internal/rfqs/${rfqId}/award/${vendorId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }));
 }
