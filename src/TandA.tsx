@@ -28,6 +28,7 @@ import MessagesView from "./tanda/MessagesView";
 import VendorLeaderboard from "./tanda/VendorLeaderboard";
 import SpendReport from "./tanda/SpendReport";
 import InternalOnboarding from "./tanda/InternalOnboarding";
+import { WarnHost } from "./shared/ui/warn";
 import InternalAnomalies from "./tanda/InternalAnomalies";
 import InternalAnalytics from "./tanda/InternalAnalytics";
 import InternalHealthScores from "./tanda/InternalHealthScores";
@@ -405,7 +406,16 @@ function TandaNavSearch({ items }: { items: TandaNavItem[] }) {
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TandAAppWrapper() {
-  return <TandAApp />;
+  // WarnHost renders the toast + confirm modal. The Tanda app (incl. the
+  // isolated /vendor/onboarding tab) lives OUTSIDE the Tangerine shell that
+  // mounts it elsewhere — without this, confirmDialog() never resolves and
+  // confirm-gated actions (e.g. vendor-access Disable/Remove) silently hang.
+  return (
+    <>
+      <TandAApp />
+      <WarnHost />
+    </>
+  );
 }
 
 function TandAApp() {
