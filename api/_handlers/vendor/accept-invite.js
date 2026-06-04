@@ -61,14 +61,19 @@ export default async function handler(req, res) {
   // Mark the token used (best-effort — password is already set).
   await admin.from("vendor_invite_tokens").update({ used_at: new Date().toISOString() }).eq("id", row.id);
 
-  // Ensure the vendor_users link exists (idempotent).
+  // Ensure the vendor_users link exists and is now 'active' — they've accepted
+  // (the invite created the link as 'pending'). This is what promotes them into
+  // the "Active vendor access" list.
   const { data: existing } = await admin.from("vendor_users").select("id").eq("auth_id", authId).maybeSingle();
-  if (!existing) {
+  if (existing) {
+    await admin.from("vendor_users").update({ status: "active" }).eq("id", existing.id);
+  } else {
     await admin.from("vendor_users").insert({
       auth_id: authId,
       vendor_id: row.vendor_id,
       display_name: row.display_name || null,
       role: "primary",
+      status: "active",
     });
   }
 

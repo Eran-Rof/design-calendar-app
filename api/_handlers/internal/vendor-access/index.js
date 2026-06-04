@@ -74,17 +74,21 @@ async function doList(req, res, admin) {
     .order("last_login", { ascending: false, nullsFirst: false });
   if (error) return res.status(500).json({ error: error.message });
 
-  const out = (data || []).map((r) => ({
-    id: r.id,
-    auth_id: r.auth_id,
-    vendor_id: r.vendor_id,
-    vendor_name: r.vendor?.name || null,
-    email: r.vendor?.email || null,
-    display_name: r.display_name || null,
-    role: r.role || null,
-    last_login: r.last_login || null,
-    status: r.status || "active",
-  }));
+  const out = (data || [])
+    .map((r) => ({
+      id: r.id,
+      auth_id: r.auth_id,
+      vendor_id: r.vendor_id,
+      vendor_name: r.vendor?.name || null,
+      email: r.vendor?.email || null,
+      display_name: r.display_name || null,
+      role: r.role || null,
+      last_login: r.last_login || null,
+      status: r.status || "active",
+    }))
+    // 'pending' = invited but not yet accepted. Those belong to the
+    // "Outstanding invitations" panel, NOT "Active vendor access".
+    .filter((r) => r.status !== "pending");
 
   // active first, then disabled, then removed; within a group newest-login first.
   const rank = { active: 0, disabled: 1, removed: 2 };

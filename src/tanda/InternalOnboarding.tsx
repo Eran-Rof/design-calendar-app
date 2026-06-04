@@ -128,6 +128,7 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [resending, setResending] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
   const [editInvite, setEditInvite] = useState<InviteRow | null>(null);
 
   async function load() {
@@ -160,6 +161,52 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
     } finally { setResending(null); }
   }
 
+  // Manual-delivery fallback for when the invite email isn't arriving (e.g. an
+  // unverified sending domain). Re-mints a fresh 72h link and copies it so the
+  // operator can send it to the vendor directly. (Also re-sends the email.)
+  async function copyLink(row: InviteRow) {
+    setActing(row.id);
+    try {
+      const r = await fetch("/api/vendor-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendor_id: row.vendor_id, email: row.email, display_name: row.display_name || null, site_url: window.location.origin }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Failed to generate link (${r.status})`);
+      const link = body?.invite_url;
+      if (!link) throw new Error("No invite link was returned.");
+      await navigator.clipboard.writeText(link);
+      notify(`Invite link copied for ${row.email} — paste it to the vendor directly. (A fresh email was also sent.)`, "success");
+      onResent();
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally { setActing(null); }
+  }
+
+  async function deleteInvite(row: InviteRow) {
+    const ok = await confirmDialog(
+      `Delete the expired invitation for ${row.vendor_name || row.email}?\n\n` +
+      `This removes the invite (and the unaccepted login it created). You can invite them again anytime.`,
+      { confirmText: "Delete invitation" },
+    );
+    if (!ok) return;
+    setActing(row.id);
+    try {
+      const r = await fetch("/api/internal/vendor-invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", invite_id: row.id }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Delete failed (${r.status})`);
+      notify(`Invitation for ${row.vendor_name || row.email} deleted.`, "success");
+      onResent();
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally { setActing(null); }
+  }
+
   return (
     <div style={{ marginTop: 28 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
@@ -169,8 +216,8 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
       </div>
       {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 90px 120px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-          <div>Vendor</div><div>Email</div><div>Status</div><div>Expires</div><div></div><div></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 110px 150px 1fr", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+          <div>Vendor</div><div>Email</div><div>Status</div><div>Expires</div><div></div>
         </div>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
@@ -184,21 +231,26 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
               onClick={() => setEditInvite(row)}
               onMouseEnter={(e) => { e.currentTarget.style.background = "#0F172A"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 90px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
+              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 110px 150px 1fr", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
             >
               <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
               <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email}</div>
               <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span></div>
               <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString()} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-              <div style={{ textAlign: "left" }}>
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                 <button onClick={(e) => { e.stopPropagation(); setEditInvite(row); }} style={btnSecondary}>Edit</button>
-              </div>
-              <div style={{ textAlign: "right" }}>
+                <button onClick={(e) => { e.stopPropagation(); void copyLink(row); }} disabled={acting === row.id} title="Copy a fresh invite link to send manually" style={{ ...btnSecondary, opacity: acting === row.id ? 0.6 : 1 }}>{acting === row.id ? "…" : "Copy link"}</button>
                 <button onClick={(e) => { e.stopPropagation(); void resend(row); }} disabled={resending === row.id} style={{ ...btnPrimary, opacity: resending === row.id ? 0.6 : 1 }}>{resending === row.id ? "Resending…" : "Resend"}</button>
+                {expired && (
+                  <button onClick={(e) => { e.stopPropagation(); void deleteInvite(row); }} disabled={acting === row.id} style={{ ...btnSecondary, color: "#fff", background: C.danger, borderColor: C.danger, opacity: acting === row.id ? 0.6 : 1 }}>Delete</button>
+                )}
               </div>
             </div>
           );
         })}
+      </div>
+      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 8 }}>
+        Vendor not receiving the email? Use <b>Copy link</b> to grab a fresh invite link and send it to them directly. Once an invite is expired, a <b>Delete</b> button appears to clear it.
       </div>
       {editInvite && (
         <EditInviteModal

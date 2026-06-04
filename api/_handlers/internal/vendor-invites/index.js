@@ -63,6 +63,9 @@ export default async function handler(req, res) {
     // list panel working as before.
     const auth = authenticateInternalCaller(req);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+    let parsed = req.body;
+    if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = {}; } }
+    if (String(parsed?.action || "").toLowerCase() === "delete") return doDelete(req, res, admin, parsed);
     return doEditAndResend(req, res, admin);
   }
 
@@ -191,8 +194,9 @@ async function doEditAndResend(req, res, admin) {
   const { data: existingLink } = await admin
     .from("vendor_users").select("id").eq("auth_id", authId).maybeSingle();
   if (!existingLink) {
+    // Still pre-acceptance (we're just correcting the invite) — keep 'pending'.
     const { error: linkErr } = await admin.from("vendor_users").insert({
-      auth_id: authId, vendor_id: invite.vendor_id, display_name: newDisplayName, role: "primary",
+      auth_id: authId, vendor_id: invite.vendor_id, display_name: newDisplayName, role: "primary", status: "pending",
     });
     if (linkErr) return res.status(500).json({ error: "vendor_users link failed: " + linkErr.message });
   } else if (hasDisplayName) {
@@ -259,4 +263,62 @@ async function doEditAndResend(req, res, admin) {
   }
 
   return res.status(200).json(result);
+}
+
+// Delete an invitation (used for EXPIRED, never-accepted invites). Removes the
+// token row(s) for that (vendor, email). If the invite was never accepted, the
+// auth user + vendor_users link created at invite time are junk — clean them up
+// too (only when the link is still 'pending'/never-logged-in, so a real active
+// vendor is never deleted). Accepted invites: only the tokens are removed.
+async function doDelete(req, res, admin, body) {
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const inviteId = String(body?.invite_id || url.searchParams.get("invite_id") || "").trim();
+  if (!inviteId) return res.status(400).json({ error: "invite_id is required" });
+
+  const { data: invite, error: iErr } = await admin
+    .from("vendor_invite_tokens")
+    .select("id, vendor_id, auth_id, email, used_at")
+    .eq("id", inviteId)
+    .maybeSingle();
+  if (iErr) return res.status(500).json({ error: "Invite lookup failed: " + iErr.message });
+  if (!invite) return res.status(404).json({ error: "Invitation not found" });
+
+  // Ever accepted by this (vendor, email)? If so, leave the live login intact.
+  const { data: siblings } = await admin
+    .from("vendor_invite_tokens")
+    .select("used_at")
+    .eq("vendor_id", invite.vendor_id)
+    .ilike("email", invite.email || "");
+  const accepted = !!invite.used_at || (siblings || []).some((s) => s.used_at);
+
+  // Remove every token for this (vendor, email).
+  const { error: dErr } = await admin
+    .from("vendor_invite_tokens")
+    .delete()
+    .eq("vendor_id", invite.vendor_id)
+    .ilike("email", invite.email || "");
+  if (dErr) return res.status(500).json({ error: "Could not delete invitation: " + dErr.message });
+
+  let cleaned_login = false;
+  if (!accepted && invite.auth_id) {
+    const { data: vu } = await admin
+      .from("vendor_users")
+      .select("id, status, last_login")
+      .eq("auth_id", invite.auth_id)
+      .maybeSingle();
+    // Only clean up an unaccepted, never-logged-in link (pending). Never touch a
+    // disabled/removed/active record here.
+    if (vu && vu.status === "pending" && !vu.last_login) {
+      const { error: delUserErr } = await admin.auth.admin.deleteUser(invite.auth_id);
+      if (!delUserErr) {
+        cleaned_login = true; // auth_id is ON DELETE CASCADE → vendor_users link drops too
+      } else {
+        // GoTrue delete failed — drop the dangling pending link directly.
+        await admin.from("vendor_users").delete().eq("id", vu.id);
+        cleaned_login = true;
+      }
+    }
+  }
+
+  return res.status(200).json({ ok: true, deleted: true, accepted, cleaned_login });
 }

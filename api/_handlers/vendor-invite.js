@@ -141,8 +141,10 @@ export default async function handler(req, res) {
     // Ensure the vendor_users link (idempotent — guard the re-invite case).
     const { data: existingLink } = await admin.from("vendor_users").select("id").eq("auth_id", authId).maybeSingle();
     if (!existingLink) {
+      // status='pending' — they haven't accepted yet. accept-invite flips it to
+      // 'active'. This keeps unaccepted invitees out of "Active vendor access".
       const { error: linkErr } = await admin.from("vendor_users").insert({
-        auth_id: authId, vendor_id: vendor.id, display_name: display_name || null, role: "primary",
+        auth_id: authId, vendor_id: vendor.id, display_name: display_name || null, role: "primary", status: "pending",
       });
       if (linkErr) return res.status(500).json({ error: "vendor_users link failed: " + linkErr.message });
     }
@@ -181,7 +183,9 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: "Invite email failed to send: " + t.slice(0, 300), invite_url: inviteUrl });
     }
 
-    return res.status(200).json({ ok: true, vendor_id: vendor.id, vendor_name: vendor.name, email });
+    // Always return invite_url so the UI can offer a "Copy link" manual fallback
+    // (useful when email deliverability is flaky / the sending domain is unverified).
+    return res.status(200).json({ ok: true, vendor_id: vendor.id, vendor_name: vendor.name, email, invite_url: inviteUrl });
   } catch (err) {
     return res.status(500).json({ error: "Invite handler error: " + (err?.message || String(err)) });
   }
