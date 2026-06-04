@@ -103,6 +103,31 @@ export default async function handler(req, res) {
     }
   } catch { /* non-fatal: fall back to raw codes */ }
 
+  // ── 4. Primary product image per style (M41 storefront) ─────────────────────
+  // Batched + non-fatal: one query for the styles' primary images, then a
+  // signed web-derivative URL. No-op (empty) until images exist; never blocks
+  // the catalog if storage signing fails.
+  const imageUrlByStyle = new Map();
+  try {
+    const { data: imgs } = await admin
+      .from("product_images")
+      .select("owner_id, storage_path_web, storage_path_thumb, storage_path, is_primary, sort_order")
+      .eq("owner_type", "style")
+      .in("owner_id", styleIds)
+      .order("is_primary", { ascending: false })
+      .order("sort_order", { ascending: true });
+    // First (primary, lowest sort) image per style wins.
+    const firstByStyle = new Map();
+    for (const im of imgs || []) if (!firstByStyle.has(im.owner_id)) firstByStyle.set(im.owner_id, im);
+    const bucket = admin.storage.from("pim-images");
+    for (const [styleId, im] of firstByStyle.entries()) {
+      const path = im.storage_path_web || im.storage_path_thumb || im.storage_path;
+      if (!path) continue;
+      const { data: signed } = await bucket.createSignedUrl(path, 3600);
+      if (signed && signed.signedUrl) imageUrlByStyle.set(styleId, signed.signedUrl);
+    }
+  } catch { /* non-fatal: cards fall back to the placeholder */ }
+
   const out = styles.map((s) => {
     const best = priceMap.get(s.id);
     return {
@@ -120,6 +145,7 @@ export default async function handler(req, res) {
       price_cents:       best ? best.price_cents : null,
       currency:          best ? best.currency : null,
       min_qty:           best ? Number(best.min_qty) || 0 : null,
+      image_url:         imageUrlByStyle.get(s.id) || null,
     };
   });
 

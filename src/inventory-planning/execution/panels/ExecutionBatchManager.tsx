@@ -15,6 +15,8 @@ import {
   buildExecutionBatchFromRecommendations,
   executionRepo,
 } from "../services";
+import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
+import type { IpScenario } from "../../scenarios/types/scenarios";
 import { S, PAL, formatDate } from "../../components/styles";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
@@ -248,12 +250,30 @@ function TabBtn({ active, onClick, disabled, children }: { active: boolean; onCl
   );
 }
 
+type BuildSource = "scenario" | "run";
+
 function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   runs: IpPlanningRun[];
   onClose: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
 }) {
+  // Approved scenarios are the normal build source — the Scenarios screen is
+  // where a plan gets approved, and that approval is recorded on the SCENARIO
+  // (status='approved'), NOT on the underlying planning run. The old form only
+  // offered a run picker, so an approved scenario was invisible here and the
+  // run-level approval gate rejected the build. We now load approved scenarios
+  // and let the planner build straight from one (passing scenario_id, which
+  // the service uses to derive the run + satisfy the approval gate).
+  const [scenarios, setScenarios] = useState<IpScenario[]>([]);
+  const [scenariosLoaded, setScenariosLoaded] = useState(false);
+  const approvedScenarios = useMemo(
+    () => scenarios.filter((s) => s.status === "approved"),
+    [scenarios],
+  );
+
+  const [source, setSource] = useState<BuildSource>("run");
+  const [scenarioId, setScenarioId] = useState("");
   const [runId, setRunId] = useState(runs[0]?.id ?? "");
   const [batchType, setBatchType] = useState<IpExecutionBatchType>("buy_plan");
   const [name, setName] = useState(`Buy plan ${new Date().toISOString().slice(0, 10)}`);
@@ -261,17 +281,50 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   const [allowUnapproved, setAllowUnapproved] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    let alive = true;
+    scenarioRepo.listScenarios()
+      .then((list) => {
+        if (!alive) return;
+        setScenarios(list);
+        const firstApproved = list.find((s) => s.status === "approved");
+        // Default to building from an approved scenario when one exists —
+        // that's what the planner expects after approving in Scenarios.
+        if (firstApproved) { setSource("scenario"); setScenarioId(firstApproved.id); }
+        setScenariosLoaded(true);
+      })
+      .catch(() => { if (alive) setScenariosLoaded(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
+
   async function save() {
-    if (!runId) { onToast({ text: "Pick a planning run", kind: "error" }); return; }
     setSaving(true);
     try {
-      const b = await buildExecutionBatchFromRecommendations({
-        planning_run_id: runId,
-        batch_name: name.trim(),
-        batch_type: batchType,
-        note: note.trim() || null,
-        allowUnapproved,
-      });
+      let input;
+      if (source === "scenario") {
+        const scen = approvedScenarios.find((s) => s.id === scenarioId);
+        if (!scen) { onToast({ text: "Pick an approved scenario", kind: "error" }); setSaving(false); return; }
+        input = {
+          planning_run_id: scen.planning_run_id,
+          scenario_id: scen.id,
+          batch_name: name.trim(),
+          batch_type: batchType,
+          note: note.trim() || null,
+          allowUnapproved,
+        };
+      } else {
+        if (!runId) { onToast({ text: "Pick a planning run", kind: "error" }); setSaving(false); return; }
+        input = {
+          planning_run_id: runId,
+          batch_name: name.trim(),
+          batch_type: batchType,
+          note: note.trim() || null,
+          allowUnapproved,
+        };
+      }
+      const b = await buildExecutionBatchFromRecommendations(input);
       await onCreated(b.id);
     } catch (e) {
       onToast({ text: "Create failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
@@ -279,6 +332,9 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
       setSaving(false);
     }
   }
+
+  const selectedScenario = approvedScenarios.find((s) => s.id === scenarioId);
+  const derivedRun = selectedScenario ? runById.get(selectedScenario.planning_run_id) : undefined;
 
   return (
     <div style={S.drawerOverlay} onClick={onClose}>
@@ -290,11 +346,48 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
         <div style={S.drawerBody}>
           <div style={{ display: "grid", gap: 10 }}>
             <div>
-              <label style={S.label}>Planning run</label>
-              <select style={{ ...S.select, width: "100%" }} value={runId} onChange={(e) => setRunId(e.target.value)}>
-                {runs.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>)}
+              <label style={S.label}>Build from</label>
+              <select style={{ ...S.select, width: "100%" }} value={source} onChange={(e) => setSource(e.target.value as BuildSource)}>
+                <option value="scenario">Approved scenario{scenariosLoaded ? ` (${approvedScenarios.length})` : "…"}</option>
+                <option value="run">Planning run (direct)</option>
               </select>
             </div>
+
+            {source === "scenario" ? (
+              <div>
+                <label style={S.label}>Approved scenario</label>
+                {approvedScenarios.length > 0 ? (
+                  <select style={{ ...S.select, width: "100%" }} value={scenarioId} onChange={(e) => setScenarioId(e.target.value)}>
+                    <option value="">— pick —</option>
+                    {approvedScenarios.map((s) => (
+                      <option key={s.id} value={s.id}>{s.scenario_name} · {s.scenario_type} · approved</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={{ color: PAL.textMuted, fontSize: 12 }}>
+                    {scenariosLoaded
+                      ? "No approved scenarios yet. Approve one in Scenarios, or build from a planning run."
+                      : "Loading scenarios…"}
+                  </div>
+                )}
+                {derivedRun && (
+                  <div style={{ color: PAL.textMuted, fontSize: 11, marginTop: 4 }}>
+                    Pulls recommendations from run: {derivedRun.name} · {derivedRun.planning_scope}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label style={S.label}>Planning run</label>
+                <select style={{ ...S.select, width: "100%" }} value={runId} onChange={(e) => setRunId(e.target.value)}>
+                  {runs.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>)}
+                </select>
+                <div style={{ color: PAL.textMuted, fontSize: 11, marginTop: 4 }}>
+                  Requires a run-level approval (or the override below).
+                </div>
+              </div>
+            )}
+
             <div>
               <label style={S.label}>Batch type</label>
               <select style={{ ...S.select, width: "100%" }} value={batchType} onChange={(e) => setBatchType(e.target.value as IpExecutionBatchType)}>
