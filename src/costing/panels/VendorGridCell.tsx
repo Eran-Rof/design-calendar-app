@@ -142,7 +142,12 @@ export default function VendorGridCell({ lineId }: Props) {
           status: "received",
         });
         if (created) await selectQuote(lineId, created.id);
-        else setNotice("Could not record vendor pick — see console for details.", "error");
+        else {
+          // addQuote swallowed the server error into the store — surface the
+          // real reason (FK/constraint message) instead of a generic toast.
+          const reason = useCostingStore.getState().error || "see console for details";
+          setNotice(`Could not record vendor pick: ${reason}`, "error");
+        }
       }
       setOpen(false);
     } catch (e) {

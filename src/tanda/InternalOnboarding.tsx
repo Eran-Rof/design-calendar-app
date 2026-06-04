@@ -128,6 +128,7 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [resending, setResending] = useState<string | null>(null);
+  const [viewInvite, setViewInvite] = useState<InviteRow | null>(null);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -164,6 +165,7 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Outstanding invitations</h3>
         <span style={{ color: C.textMuted, fontSize: 12 }}>{rows.length} not yet accepted</span>
+        <span style={{ color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>· click a row to view</span>
       </div>
       {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
@@ -177,17 +179,64 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
         ) : rows.map((row) => {
           const expired = row.status === "expired";
           return (
-            <div key={row.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
+            <div
+              key={row.id}
+              onClick={() => setViewInvite(row)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#0F172A"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 120px 150px 120px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
+            >
               <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
               <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email}</div>
               <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span></div>
               <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString()} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
               <div style={{ textAlign: "right" }}>
-                <button onClick={() => void resend(row)} disabled={resending === row.id} style={{ ...btnPrimary, opacity: resending === row.id ? 0.6 : 1 }}>{resending === row.id ? "Resending…" : "Resend"}</button>
+                <button onClick={(e) => { e.stopPropagation(); void resend(row); }} disabled={resending === row.id} style={{ ...btnPrimary, opacity: resending === row.id ? 0.6 : 1 }}>{resending === row.id ? "Resending…" : "Resend"}</button>
               </div>
             </div>
           );
         })}
+      </div>
+      {viewInvite && <InviteDetailModal invite={viewInvite} onClose={() => setViewInvite(null)} />}
+    </div>
+  );
+}
+
+function InviteDetailModal({ invite, onClose }: { invite: InviteRow; onClose: () => void }) {
+  const expired = invite.status === "expired";
+  const fmtDateTime = (s: string | null) => {
+    if (!s) return "—";
+    const d = new Date(s);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  };
+  const fields: { label: string; value: React.ReactNode }[] = [
+    { label: "Vendor", value: invite.vendor_name || "Unknown" },
+    { label: "Email", value: invite.email },
+    { label: "Contact name", value: invite.display_name || "—" },
+    { label: "Status", value: <span style={{ textTransform: "capitalize" }}>{invite.status}</span> },
+    { label: "Sent", value: fmtDateTime(invite.sent_at) },
+    { label: "Expires", value: fmtDateTime(invite.expires_at) },
+  ];
+
+  return (
+    <div onClick={(e) => { if (e.currentTarget === e.target) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "min(480px, calc(100vw - 32px))", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>{invite.vendor_name || "Unknown vendor"}</div>
+          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span>
+        </div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Portal invitation — not yet accepted.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 10, columnGap: 12, fontSize: 13 }}>
+          {fields.map((f) => (
+            <React.Fragment key={f.label}>
+              <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, alignSelf: "center" }}>{f.label}</div>
+              <div style={{ color: C.textSub, wordBreak: "break-word" }}>{f.value}</div>
+            </React.Fragment>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 22 }}>
+          <button onClick={onClose} style={btnSecondary}>Close</button>
+        </div>
       </div>
     </div>
   );
@@ -209,6 +258,7 @@ function ActiveVendorAccess() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [viewVendorId, setViewVendorId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -268,6 +318,7 @@ function ActiveVendorAccess() {
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Active vendor access</h3>
         <span style={{ color: C.textMuted, fontSize: 12 }}>{activeCount} with portal access</span>
+        <span style={{ color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>· click a row to view</span>
       </div>
       {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
@@ -282,7 +333,13 @@ function ActiveVendorAccess() {
           const isBusy = busy === row.id;
           const badge = accessBadge(row.status);
           return (
-            <div key={row.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 100px 150px 110px 200px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
+            <div
+              key={row.id}
+              onClick={() => setViewVendorId(row.vendor_id)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#0F172A"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 100px 150px 110px 200px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", cursor: "pointer", background: "transparent", transition: "background 0.1s" }}
+            >
               <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
               <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email || "—"}</div>
               <div style={{ color: C.textSub, textTransform: "capitalize" }}>{row.role || "—"}</div>
@@ -294,11 +351,11 @@ function ActiveVendorAccess() {
                 ) : (
                   <>
                     {row.status === "disabled" ? (
-                      <button onClick={() => void mutate(row, "enable")} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.success, borderColor: C.success }}>Enable</button>
+                      <button onClick={(e) => { e.stopPropagation(); void mutate(row, "enable"); }} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.success, borderColor: C.success }}>Enable</button>
                     ) : (
-                      <button onClick={() => void mutate(row, "disable")} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.warn, borderColor: C.warn }}>Disable</button>
+                      <button onClick={(e) => { e.stopPropagation(); void mutate(row, "disable"); }} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.warn, borderColor: C.warn }}>Disable</button>
                     )}
-                    <button onClick={() => void mutate(row, "remove")} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: "#fff", background: C.danger, borderColor: C.danger }}>Remove</button>
+                    <button onClick={(e) => { e.stopPropagation(); void mutate(row, "remove"); }} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: "#fff", background: C.danger, borderColor: C.danger }}>Remove</button>
                   </>
                 )}
               </div>
@@ -309,6 +366,7 @@ function ActiveVendorAccess() {
       <div style={{ color: C.textMuted, fontSize: 11, marginTop: 8 }}>
         Disable is reversible (vendor is signed out and blocked, can be re-enabled). Remove permanently deletes the login; financial history is preserved.
       </div>
+      {viewVendorId && <ReviewModal vendorId={viewVendorId} onClose={() => setViewVendorId(null)} onAction={() => { setViewVendorId(null); void load(); }} />}
     </div>
   );
 }
