@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { eventMatchesApp, appAllowedEvents, type AppKey } from "./notificationApps";
+import { notificationMatchesApp, appAllowedEvents, type AppKey } from "./notificationApps";
 
 interface Args {
   supabase: SupabaseClient | null | undefined;
@@ -40,14 +40,18 @@ export function useAppUnreadCount({ supabase, userId, recipientColumn, app }: Ar
         if (!cancelled) setCount(c || 0);
         return;
       }
+      // Fetch metadata too so per-recipient app routing (metadata.target_apps)
+      // can be applied alongside the event-type allowlist.
       const { data, error } = await supabase
         .from("notifications")
-        .select("event_type")
+        .select("event_type, metadata")
         .eq(recipientColumn, userId)
         .is("read_at", null)
         .limit(500);
       if (cancelled || error) return;
-      const filtered = (data || []).filter((n: { event_type: string }) => eventMatchesApp(n.event_type, app));
+      const filtered = (data || []).filter(
+        (n: { event_type: string; metadata?: Record<string, unknown> | null }) => notificationMatchesApp(n, app),
+      );
       setCount(filtered.length);
     }
 

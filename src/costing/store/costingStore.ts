@@ -125,10 +125,19 @@ type State = {
   updateMaster: (kind: MasterKind, id: string, name: string) => Promise<void>;
   deleteMaster: (kind: MasterKind, id: string) => Promise<void>;
 
-  // Operator-added extra colors (saved to app_data.costing_extra_colors so
-  // /search/colors will pick them up next reload).
+  // Operator-only freeform color + vendor masters. Stored server-side in
+  // app_data.costing_extra_colors / costing_extra_vendors. Auto-pruned by
+  // the server against ip_item_master.color / ip_vendor_master / vendors
+  // on every read — entries that have since become canonical drop out.
   extraColors: string[];
+  extraVendors: string[];
   addExtraColor: (name: string) => Promise<void>;
+  addExtraVendor: (name: string) => Promise<void>;
+  renameExtraColor: (oldName: string, newName: string) => Promise<void>;
+  renameExtraVendor: (oldName: string, newName: string) => Promise<void>;
+  deleteExtraColor: (name: string) => Promise<void>;
+  deleteExtraVendor: (name: string) => Promise<void>;
+  loadFreeformMasters: () => Promise<void>;
 
   // Pre-loaded vendor list for the grid's vendor picker. Loaded once on
   // grid mount (small, <100 active vendors typically). Same pattern the
@@ -578,17 +587,18 @@ export const useCostingStore = create<State>((set, get) => ({
 
   masters: { fit: [], closure: [], waist: [], comment: [], compliance: [], fabric: [] },
   extraColors: [],
+  extraVendors: [],
 
   async loadMasters() {
     try {
-      const [fit, closure, waist, comment, compliance, fabric, extras] = await Promise.all([
+      const [fit, closure, waist, comment, compliance, fabric, freeform] = await Promise.all([
         sbLoadSvc(MASTER_KEY.fit),
         sbLoadSvc(MASTER_KEY.closure),
         sbLoadSvc(MASTER_KEY.waist),
         sbLoadSvc(MASTER_KEY.comment),
         sbLoadSvc(MASTER_KEY.compliance),
         sbLoadSvc(MASTER_KEY.fabric),
-        sbLoadSvc("costing_extra_colors"),
+        api.getFreeformMasters().catch(() => ({ colors: [], vendors: [] })),
       ]);
       // Compliance is auto-seeded the first time it loads empty so the
       // grid dropdown isn't blank for new operators. Persisted immediately
@@ -622,7 +632,8 @@ export const useCostingStore = create<State>((set, get) => ({
           compliance: complianceList,
           fabric:     Array.isArray(fabric)  ? (fabric as MasterEntry[])  : [],
         },
-        extraColors: Array.isArray(extras) ? (extras as string[]) : [],
+        extraColors:  Array.isArray((freeform as api.FreeformMasters).colors)  ? (freeform as api.FreeformMasters).colors  : [],
+        extraVendors: Array.isArray((freeform as api.FreeformMasters).vendors) ? (freeform as api.FreeformMasters).vendors : [],
       });
     } catch (e) {
       set({ error: `loadMasters: ${(e as Error).message}` });
@@ -663,12 +674,63 @@ export const useCostingStore = create<State>((set, get) => ({
   async addExtraColor(name) {
     const clean = name.trim();
     if (!clean) return;
-    const current = get().extraColors;
-    if (current.some((c) => c.toLowerCase() === clean.toLowerCase())) return;
-    const next = [...current, clean].sort();
-    set({ extraColors: next });
-    try { await sbSaveSvc("costing_extra_colors", next); }
-    catch (e) { set({ error: `addExtraColor: ${(e as Error).message}` }); }
+    if (get().extraColors.some((c) => c.toLowerCase() === clean.toLowerCase())) return;
+    try {
+      const list = await api.addFreeformMaster("colors", clean);
+      set({ extraColors: list });
+    } catch (e) { set({ error: `addExtraColor: ${(e as Error).message}` }); }
+  },
+
+  async addExtraVendor(name) {
+    const clean = name.trim();
+    if (!clean) return;
+    if (get().extraVendors.some((v) => v.toLowerCase() === clean.toLowerCase())) return;
+    try {
+      const list = await api.addFreeformMaster("vendors", clean);
+      set({ extraVendors: list });
+    } catch (e) { set({ error: `addExtraVendor: ${(e as Error).message}` }); }
+  },
+
+  async renameExtraColor(oldName, newName) {
+    const clean = newName.trim();
+    if (!clean || clean.toLowerCase() === oldName.trim().toLowerCase()) return;
+    try {
+      const list = await api.renameFreeformMaster("colors", oldName, clean);
+      set({ extraColors: list });
+    } catch (e) { set({ error: `renameExtraColor: ${(e as Error).message}` }); }
+  },
+
+  async renameExtraVendor(oldName, newName) {
+    const clean = newName.trim();
+    if (!clean || clean.toLowerCase() === oldName.trim().toLowerCase()) return;
+    try {
+      const list = await api.renameFreeformMaster("vendors", oldName, clean);
+      set({ extraVendors: list });
+    } catch (e) { set({ error: `renameExtraVendor: ${(e as Error).message}` }); }
+  },
+
+  async deleteExtraColor(name) {
+    try {
+      const list = await api.deleteFreeformMaster("colors", name);
+      set({ extraColors: list });
+    } catch (e) { set({ error: `deleteExtraColor: ${(e as Error).message}` }); }
+  },
+
+  async deleteExtraVendor(name) {
+    try {
+      const list = await api.deleteFreeformMaster("vendors", name);
+      set({ extraVendors: list });
+    } catch (e) { set({ error: `deleteExtraVendor: ${(e as Error).message}` }); }
+  },
+
+  async loadFreeformMasters() {
+    try {
+      const r = await api.getFreeformMasters();
+      set({
+        extraColors:  Array.isArray(r.colors)  ? r.colors  : [],
+        extraVendors: Array.isArray(r.vendors) ? r.vendors : [],
+      });
+    } catch (e) { set({ error: `loadFreeformMasters: ${(e as Error).message}` }); }
   },
 
   // ── Vendor picker pre-load ────────────────────────────────────────────────

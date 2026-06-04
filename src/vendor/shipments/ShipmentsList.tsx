@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
+import { resolveVendorId } from "../vendorId";
 import { fmtDate } from "../utils";
 import ShipmentAddForm from "./ShipmentAddForm";
 
@@ -35,9 +36,13 @@ export default function ShipmentsList() {
     setLoading(true);
     setErr(null);
     try {
+      // Scope to this vendor explicitly — RLS is permissive (see vendorId.ts).
+      const vendorId = await resolveVendorId();
+      if (!vendorId) { setRows([]); return; }
       const { data, error } = await supabaseVendor
         .from("shipments")
         .select("id, number, number_type, sealine_scac, sealine_name, carrier, invoice_created_at, pol_locode, pod_locode, eta, ata, current_status, last_tracked_at, po_number, updated_at")
+        .eq("vendor_id", vendorId)
         .order("updated_at", { ascending: false });
       if (error) throw error;
       setRows((data ?? []) as ShipmentRow[]);

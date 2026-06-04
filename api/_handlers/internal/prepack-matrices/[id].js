@@ -39,11 +39,11 @@ async function fetchWithSizes(admin, id) {
   if (!m) return { data: null };
   const { data: sizeRows } = await admin
     .from("prepack_matrix_sizes")
-    .select("size, qty_per_pack, sort_order")
+    .select("size, qty_per_pack, inner_pack_qty, sort_order")
     .eq("matrix_id", id)
     .order("sort_order", { ascending: true });
-  const sizes = (sizeRows || []).map((s) => ({ size: s.size, qty_per_pack: s.qty_per_pack, sort_order: s.sort_order }));
-  return { data: { ...m, sizes, pack_total_computed: sizes.reduce((a, s) => a + (s.qty_per_pack || 0), 0) } };
+  const sizes = (sizeRows || []).map((s) => ({ size: s.size, qty_per_pack: s.qty_per_pack, inner_pack_qty: s.inner_pack_qty ?? 0, sort_order: s.sort_order }));
+  return { data: { ...m, sizes, pack_total_computed: sizes.reduce((a, s) => a + (s.qty_per_pack || 0), 0), inner_packs_computed: sizes.reduce((a, s) => a + (s.inner_pack_qty || 0), 0) } };
 }
 
 export function validatePatch(body) {
@@ -139,7 +139,7 @@ export default async function handler(req, res) {
 
     if (v.sizes != null) {
       await admin.from("prepack_matrix_sizes").delete().eq("matrix_id", id);
-      const rows = v.sizes.map((s) => ({ matrix_id: id, size: s.size, qty_per_pack: s.qty_per_pack, sort_order: s.sort_order }));
+      const rows = v.sizes.map((s) => ({ matrix_id: id, size: s.size, qty_per_pack: s.qty_per_pack, inner_pack_qty: s.inner_pack_qty ?? 0, sort_order: s.sort_order }));
       if (rows.length > 0) {
         const { error: sErr } = await admin.from("prepack_matrix_sizes").insert(rows);
         if (sErr) return res.status(500).json({ error: `sizes update failed: ${sErr.message}` });

@@ -7,7 +7,7 @@
 // invite backup vendors.
 
 import { createClient } from "@supabase/supabase-js";
-import { getInternalRecipients } from "../../../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
 
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
   }).eq("id", invitation.id);
 
   try {
-    const { emails } = getInternalRecipients("procurement", { event: "rfq_declined" });
+    const { emails } = await resolveInternalRecipients(admin, "procurement", { event: "rfq_declined" });
     if (emails.length > 0) {
       const [{ data: rfq }, { data: vendor }] = await Promise.all([
         admin.from("rfqs").select("title").eq("id", rfqId).maybeSingle(),

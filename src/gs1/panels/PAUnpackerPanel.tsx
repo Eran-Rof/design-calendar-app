@@ -13,6 +13,23 @@ import {
 } from "../services/paUnpackerService";
 import type { PAParsedFile, PARecord, PAChannel } from "../services/paUnpackerService";
 import { downloadPAWorkbook } from "../services/paUnpackerExport";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+
+// Column visibility applies to the Flat Table view (the only static-column
+// table here — Size Matrix and Pivot are dynamic pivots driven by sizes/combos).
+const TABLE_KEY = "gs1.pa_unpacker";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "file", label: "File" },
+  { key: "sheet", label: "Sheet" },
+  { key: "gender", label: "Gender" },
+  { key: "style", label: "Style" },
+  { key: "style_desc", label: "Style Desc" },
+  { key: "color", label: "Color" },
+  { key: "indc_date", label: "IN DC Date" },
+  { key: "channel", label: "Channel" },
+  { key: "size", label: "Size" },
+  { key: "units", label: "Units" },
+];
 
 type ViewMode = "matrix" | "pivot" | "flat";
 
@@ -56,6 +73,8 @@ export default function PAUnpackerPanel() {
   const [viewMode, setViewMode] = useState<ViewMode>("matrix");
   const [flatFilter, setFlatFilter] = useState("");
   const [flatSort, setFlatSort] = useState<{ col: keyof PARecord; dir: "asc" | "desc" }>({ col: "style", dir: "asc" });
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const allParsed = useMemo(() => uploads.map(u => u.parsed).filter((p): p is PAParsedFile => p !== null), [uploads]);
   const allRecords = useMemo(() => flattenRecords(allParsed), [allParsed]);
@@ -503,13 +522,23 @@ export default function PAUnpackerPanel() {
       {hasData && viewMode === "flat" && (
         <div style={{ background: TH.surface, borderRadius: 10, boxShadow: `0 1px 4px ${TH.shadow}` }}>
           <div style={{ padding: "10px 14px", borderBottom: `1px solid ${TH.border}` }}>
-            <input
-              type="text"
-              placeholder="Filter by style, color, channel, size, date…"
-              value={flatFilter}
-              onChange={e => setFlatFilter(e.target.value)}
-              style={{ width: "100%", padding: "6px 10px", fontSize: 13, border: `1px solid ${TH.border}`, borderRadius: 6 }}
-            />
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <input
+                type="text"
+                placeholder="Filter by style, color, channel, size, date…"
+                value={flatFilter}
+                onChange={e => setFlatFilter(e.target.value)}
+                style={{ flex: 1, padding: "6px 10px", fontSize: 13, border: `1px solid ${TH.border}`, borderRadius: 6 }}
+              />
+              <TablePrefsButton
+                tableKey={TABLE_KEY}
+                columns={ALL_COLUMNS}
+                visibleColumns={visibleColumns}
+                onToggle={toggleColumn}
+                onReset={resetToDefault}
+                onSetAll={setAllVisible}
+              />
+            </div>
             <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 6 }}>
               {filteredFlat.length.toLocaleString()} of {allRecords.length.toLocaleString()} rows
             </div>
@@ -518,31 +547,31 @@ export default function PAUnpackerPanel() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <FlatTh col="file" label="File" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="sheet" label="Sheet" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="gender" label="Gender" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="style" label="Style" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="style_desc" label="Style Desc" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="color" label="Color" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="indc_date" label="IN DC Date" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="channel" label="Channel" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="size" label="Size" sort={flatSort} toggle={toggleSort} />
-                  <FlatTh col="units" label="Units" sort={flatSort} toggle={toggleSort} numeric />
+                  <FlatTh col="file" label="File" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("file")} />
+                  <FlatTh col="sheet" label="Sheet" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("sheet")} />
+                  <FlatTh col="gender" label="Gender" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("gender")} />
+                  <FlatTh col="style" label="Style" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("style")} />
+                  <FlatTh col="style_desc" label="Style Desc" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("style_desc")} />
+                  <FlatTh col="color" label="Color" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("color")} />
+                  <FlatTh col="indc_date" label="IN DC Date" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("indc_date")} />
+                  <FlatTh col="channel" label="Channel" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("channel")} />
+                  <FlatTh col="size" label="Size" sort={flatSort} toggle={toggleSort} hidden={!visibleColumns.has("size")} />
+                  <FlatTh col="units" label="Units" sort={flatSort} toggle={toggleSort} numeric hidden={!visibleColumns.has("units")} />
                 </tr>
               </thead>
               <tbody>
                 {filteredFlat.map((r, i) => (
                   <tr key={i}>
-                    <td style={{ ...TD_STYLE, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{r.file}</td>
-                    <td style={TD_STYLE}>{r.sheet}</td>
-                    <td style={TD_STYLE}>{r.gender}</td>
-                    <td style={TD_STYLE}>{r.style}</td>
-                    <td style={TD_STYLE}>{r.style_desc}</td>
-                    <td style={TD_STYLE}>{r.color}</td>
-                    <td style={TD_STYLE}>{r.indc_date}</td>
-                    <td style={{ ...TD_STYLE, fontWeight: 600 }}>{r.channel}</td>
-                    <td style={TD_STYLE}>{r.size}</td>
-                    <td style={{ ...TD_NUM, fontWeight: 700 }}>{r.units.toLocaleString()}</td>
+                    <td style={{ ...TD_STYLE, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} hidden={!visibleColumns.has("file")}>{r.file}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("sheet")}>{r.sheet}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("gender")}>{r.gender}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("style")}>{r.style}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("style_desc")}>{r.style_desc}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("color")}>{r.color}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("indc_date")}>{r.indc_date}</td>
+                    <td style={{ ...TD_STYLE, fontWeight: 600 }} hidden={!visibleColumns.has("channel")}>{r.channel}</td>
+                    <td style={TD_STYLE} hidden={!visibleColumns.has("size")}>{r.size}</td>
+                    <td style={{ ...TD_NUM, fontWeight: 700 }} hidden={!visibleColumns.has("units")}>{r.units.toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -582,15 +611,16 @@ function ViewToggleButton({ active, onClick, children }: { active: boolean; onCl
   );
 }
 
-function FlatTh({ col, label, sort, toggle, numeric }: {
+function FlatTh({ col, label, sort, toggle, numeric, hidden }: {
   col: keyof PARecord; label: string;
   sort: { col: keyof PARecord; dir: "asc" | "desc" };
   toggle: (c: keyof PARecord) => void;
   numeric?: boolean;
+  hidden?: boolean;
 }) {
   const isActive = sort.col === col;
   return (
-    <th onClick={() => toggle(col)}
+    <th onClick={() => toggle(col)} hidden={hidden}
       style={{ ...TH_STYLE, textAlign: numeric ? "right" : "left", cursor: "pointer", userSelect: "none" }}>
       {label}{isActive ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
     </th>

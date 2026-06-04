@@ -16,6 +16,43 @@
 
 const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
+// Canonical letter-size labels (match the size_scales master: "Mens S–2XL" =
+// SMALL/MEDIUM/LARGE/XLARGE/2XLARGE, "Kids XS–XL" = XSMALL…). The catalog's
+// ip_item_master.size carries Xoro abbreviations (SML/MED/LRG/XLG/XXL/…) and a
+// mix of single-letter forms (S/M/L/XL) that DON'T line up with the scale
+// columns, so a letter-size style renders columns its SKUs can't match. We map
+// every variant to one canonical label for the matrix VIEW (display + cell
+// match). Non-letter tokens (numeric waists, OS, PPKxx, "S/8", "XS(5-6)") pass
+// through unchanged. Presentation-only — ip_item_master is NOT mutated.
+const LETTER_SIZE_CANON = {
+  XS: "XSMALL", XSM: "XSMALL", "X-SMALL": "XSMALL", XSMALL: "XSMALL",
+  S: "SMALL", SM: "SMALL", SML: "SMALL", SMALL: "SMALL",
+  M: "MEDIUM", MD: "MEDIUM", MED: "MEDIUM", MEDIUM: "MEDIUM",
+  L: "LARGE", LG: "LARGE", LRG: "LARGE", LARGE: "LARGE",
+  XL: "XLARGE", XLG: "XLARGE", "X-LARGE": "XLARGE", XLARGE: "XLARGE",
+  XXL: "2XLARGE", "2X": "2XLARGE", "2XL": "2XLARGE", XXLARGE: "2XLARGE", "2XLARGE": "2XLARGE",
+  XXXL: "3XLARGE", "3X": "3XLARGE", "3XL": "3XLARGE", "3XLARGE": "3XLARGE",
+};
+export function normalizeSize(raw) {
+  if (raw == null) return raw;
+  return LETTER_SIZE_CANON[String(raw).trim().toUpperCase()] || raw;
+}
+// Inverse: a canonical label → every raw token that maps to it. Lets the SKU
+// resolver MATCH an existing row whatever spelling it was stored with (so a
+// caller asking for "SMALL" reuses a legacy "SML"/"S" row instead of forking a
+// new one — the root cause of the duplicate-SKU sprawl).
+const SIZE_VARIANTS = (() => {
+  const m = {};
+  for (const [tok, canon] of Object.entries(LETTER_SIZE_CANON)) (m[canon] ||= new Set()).add(tok);
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, [...v]]));
+})();
+// All DB size tokens that mean the same size as `raw` (incl. raw itself).
+export function sizeVariantsOf(raw) {
+  if (raw == null) return [];
+  const canon = normalizeSize(raw);
+  return SIZE_VARIANTS[canon] || [String(raw).trim()];
+}
+
 // Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
 const WH_UNASSIGNED = "(unassigned)";
@@ -72,7 +109,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
 
   if (sizes.length === 0) {
     const seen = new Set();
-    for (const s of skus) { if (s.size && !seen.has(s.size)) { seen.add(s.size); sizes.push(s.size); } }
+    for (const s of skus) { const sz = normalizeSize(s.size); if (sz && !seen.has(sz)) { seen.add(sz); sizes.push(sz); } }
   }
   const colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
   const inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
@@ -181,15 +218,47 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       packs_unmatched: explode.unmatched,    // [{ ppk_style_code, color, pack_token, qty }]
       ppk_styles: explode.ppkStyles,         // distinct PPK sibling style_codes found
     } : (explodePpk ? { enabled: true, cells: [], packs_exploded: 0, packs_unmatched: [], ppk_styles: [] } : undefined),
-    skus: skus.map((s) => ({
-      ...s,
-      on_hand_qty: onHand.get(s.id) || 0,
-      on_hand_by_wh: onHandByWh.get(s.id) || {},
-      available_qty: avail.has(s.id) ? avail.get(s.id) : null,
-      avg_cost_cents: s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null,
-      last_received: lastReceived.has(s.id) ? lastReceived.get(s.id) : null,
-    })),
+    skus: mergeSkusByCell(skus, { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku }),
   };
+}
+
+// Collapse SKUs that share a (color, normalized-size, inseam) cell into ONE
+// entry for the matrix view. The catalog has many duplicate SKUs — straight
+// dups (two "SML" rows) and split letter forms ("L" + "LRG") — that would
+// otherwise render twice or hide each other's on-hand (consumers match a cell
+// with `.find`, so only the first dup's stock would show). We sum on-hand /
+// available / per-warehouse, take the latest received, a representative avg
+// cost, and keep ONE primary SKU id per cell — preferring the dup that actually
+// carries on-hand so the SO resolves against the stocked row. Size is the
+// canonical scale label so cells line up with the scale-driven columns.
+// Non-destructive: ip_item_master rows are untouched.
+function mergeSkusByCell(skus, maps) {
+  const { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku } = maps;
+  const cells = new Map(); // `${color}|${size}|${inseam}` → merged sku (+ _primaryOnHand)
+  for (const s of skus) {
+    const size = normalizeSize(s.size);
+    const key = `${s.color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
+    const oh = onHand.get(s.id) || 0;
+    const av = avail.has(s.id) ? avail.get(s.id) : null;
+    const avgC = s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null;
+    const lr = lastReceived.has(s.id) ? lastReceived.get(s.id) : null;
+    let cell = cells.get(key);
+    if (!cell) {
+      cell = { ...s, size, on_hand_qty: 0, on_hand_by_wh: {}, available_qty: null, avg_cost_cents: null, last_received: null, _primaryOnHand: -1 };
+      cells.set(key, cell);
+    }
+    // Primary (id + sku-level attrs) = the dup with the most on-hand; first wins ties.
+    if (oh > cell._primaryOnHand) {
+      cell._primaryOnHand = oh;
+      cell.id = s.id; cell.sku_code = s.sku_code; cell.length = s.length; cell.fit = s.fit; cell.rise = s.rise;
+    }
+    cell.on_hand_qty += oh;
+    for (const [wh, q] of Object.entries(onHandByWh.get(s.id) || {})) cell.on_hand_by_wh[wh] = (cell.on_hand_by_wh[wh] || 0) + q;
+    if (av != null) cell.available_qty = (cell.available_qty || 0) + av;
+    if (avgC != null && cell.avg_cost_cents == null) cell.avg_cost_cents = avgC;
+    if (lr && (!cell.last_received || lr > cell.last_received)) cell.last_received = lr;
+  }
+  return [...cells.values()].map(({ _primaryOnHand, ...rest }) => rest);
 }
 
 /**
@@ -286,7 +355,8 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
     packsExploded += 1;
     const color = ppk.color || "—";
     extraColors.add(color);
-    for (const { size, qty_per_pack } of comp) {
+    for (const { size: rawSize, qty_per_pack } of comp) {
+      const size = normalizeSize(rawSize); // align pack sizes with the canonical grid columns
       if (!size || !(qty_per_pack > 0)) continue;
       extraSizes.add(size);
       const key = `${color}|${size}`;
@@ -311,18 +381,32 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
 }
 
 /** Find (or create) the ip_item_master SKU for one matrix cell. */
-export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }) {
+export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }, opts = {}) {
   if (!style_id || !size) return { error: "style_id and size required" };
+  const isApparel = opts.isApparel !== false; // default true; ingest passes false
   const colorVal = color ? String(color).trim() : null;
-  const sizeVal = String(size).trim();
+  const canonSize = String(normalizeSize(String(size).trim()));   // store + create canonical
   const inseamVal = inseam ? String(inseam).trim() : null;
 
-  // Find existing (style, color, size, inseam).
-  let q = admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("style_id", style_id).eq("size", sizeVal);
-  q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
-  q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
-  const { data: existing } = await q.maybeSingle();
-  if (existing?.id) return { id: existing.id, created: false };
+  // Find existing — match ANY stored spelling of this size (SML/S/SMALL all
+  // resolve to the same row) so we REUSE rather than fork a duplicate. Tolerate
+  // multiple legacy dups: pick deterministically (prefer the canonical spelling,
+  // then oldest) instead of erroring — the old `.maybeSingle()` threw on 2+ rows
+  // and the caller then created a THIRD, which is how the catalog fragmented.
+  // Reused on a 23505 below so a race / the logical-tuple UNIQUE index
+  // (uq_ip_item_master_logical_sku) resolves to the existing row, not an error.
+  async function findExistingId() {
+    let q = admin.from("ip_item_master").select("id, size, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
+    q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
+    q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
+    const { data: rows, error: e } = await q;
+    if (e || !rows || !rows.length) return null;
+    return rows.slice().sort((a, b) =>
+      (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical first
+      || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0].id;
+  }
+  const existingId = await findExistingId();
+  if (existingId) return { id: existingId, created: false };
 
   // Need the style_code if not supplied.
   let sc = style_code;
@@ -331,19 +415,24 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
     sc = st?.style_code || null;
   }
 
-  const base = [SKU_SAFE(sc), SKU_SAFE(colorVal), SKU_SAFE(sizeVal), inseamVal ? SKU_SAFE(inseamVal) : ""].filter(Boolean).join("-");
+  const base = [SKU_SAFE(sc), SKU_SAFE(colorVal), SKU_SAFE(canonSize), inseamVal ? SKU_SAFE(inseamVal) : ""].filter(Boolean).join("-");
   // sku_code is globally UNIQUE — retry with a numeric suffix on collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const skuCode = attempt === 0 ? base : `${base}-${attempt}`;
     const { data: created, error } = await admin
       .from("ip_item_master")
-      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: sizeVal, inseam: inseamVal, is_apparel: true })
+      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, is_apparel: isApparel })
       .select("id")
       .single();
     if (!error && created) return { id: created.id, created: true };
     if (error && error.code !== "23505") return { error: error.message };
-    // 23505 → sku_code collided; if it's the same combo that raced in, re-find.
-    const { data: again } = await admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("style_id", style_id).eq("size", sizeVal).eq("sku_code", skuCode).maybeSingle();
+    // 23505 → either the logical-tuple UNIQUE index (a variant/race row for the
+    // same (style,color,canonical-size,inseam) landed) or the sku_code unique (a
+    // DIFFERENT tuple grabbed this sku_code). Re-find by the tuple first and
+    // reuse; else by the exact sku_code; else bump the suffix and retry.
+    const viaTuple = await findExistingId();
+    if (viaTuple) return { id: viaTuple, created: false };
+    const { data: again } = await admin.from("ip_item_master").select("id").eq("entity_id", entityId).eq("sku_code", skuCode).maybeSingle();
     if (again?.id) return { id: again.id, created: false };
   }
   return { error: "could not allocate a unique sku_code" };

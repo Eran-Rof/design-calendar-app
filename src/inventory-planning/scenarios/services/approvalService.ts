@@ -3,11 +3,15 @@
 //   draft → in_review → approved | rejected → archived
 //
 //   from:          to:
-//   draft          → in_review
-//   in_review      → approved | rejected | draft (send back)
+//   draft          → in_review | archived (close)
+//   in_review      → approved | rejected | draft (send back) | archived (close)
 //   approved       → archived | in_review (reopen)
-//   rejected       → draft (revise)
+//   rejected       → draft (revise) | archived (close)
 //   archived       → (terminal)
+//
+// Any non-terminal state can be archived ("close") so a bad scenario can be
+// retired; hard DELETE (scenarioRepo.deleteScenario) is also available in the
+// UI for junk scenarios (children cascade / SET NULL — FK-safe).
 //
 // The service just validates the transition, writes the approval row,
 // updates the denormalized status on ip_scenarios, and audits.
@@ -17,10 +21,13 @@ import { scenarioRepo } from "./scenarioRepo";
 import { logChange } from "./auditLogService";
 
 const TRANSITIONS: Record<IpApprovalStatus, IpApprovalStatus[]> = {
-  draft:     ["in_review"],
-  in_review: ["approved", "rejected", "draft"],
+  // "archived" is allowed from every non-terminal state so a bad/abandoned
+  // scenario can be CLOSED without first dragging it through review. (Before,
+  // a draft could only go to in_review, leaving junk drafts with no exit.)
+  draft:     ["in_review", "archived"],
+  in_review: ["approved", "rejected", "draft", "archived"],
   approved:  ["archived", "in_review"],
-  rejected:  ["draft"],
+  rejected:  ["draft", "archived"],
   archived:  [],
 };
 

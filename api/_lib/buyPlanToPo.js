@@ -1,0 +1,143 @@
+// api/_lib/buyPlanToPo.js
+//
+// Pure core for M31 direction-A (Inventory-Planning buy plan → DRAFT native
+// Tangerine purchase orders). Lifted out of the route handler so the
+// grouping / cost-fallback / skip-reason / idempotency logic is
+// unit-testable without a Supabase client. The handler does the IO (load
+// actions + vendor master + item master + avg costs + Tangerine vendors,
+// insert POs, stamp actions) and calls planBuyPlanPos for the decisions.
+//
+// DO NOT add a Supabase client / res-req args here — keep it framework-
+// agnostic (mirrors the planning-sync.js split).
+
+// Skip codes — coarse categories so the UI can render a "why nothing was
+// created" breakdown without parsing free-text reasons.
+export const SKIP_CODES = {
+  ALREADY_LINKED: "already_linked",
+  CANCELLED: "cancelled",
+  ZERO_QTY: "zero_qty",
+  NO_SKU: "no_sku",
+  NO_VENDOR: "no_vendor",
+  VENDOR_MISSING: "vendor_missing",
+  VENDOR_UNLINKED: "vendor_unlinked",
+};
+
+// Resolve a PO-line unit cost (cents) for a SKU, falling back through the
+// available cost sources so a missing ip_item_master.unit_cost doesn't
+// silently produce a $0 line. Order: item-master unit_cost → last-known
+// average cost → standard unit price → 0 (caller warns).
+export function resolveUnitCostCents(im, avgRow) {
+  const tries = [
+    [im && im.unit_cost, "item_master"],
+    [avgRow && avgRow.avg_cost, "avg_cost"],
+    [avgRow && avgRow.standard_unit_price, "standard_price"],
+  ];
+  for (const [dollars, source] of tries) {
+    const cents = Math.round(Number(dollars || 0) * 100);
+    if (cents > 0) return { cents, source };
+  }
+  return { cents: 0, source: "none" };
+}
+
+// Match a planning vendor to candidate Tangerine vendors by exact code,
+// name, or alias (all case-insensitive). Read-only suggestion used to make
+// the "vendor not linked" skip actionable — the operator confirms the link.
+export function matchTangerineVendor(vm, tangerineVendors) {
+  const code = (vm.vendor_code || "").trim().toLowerCase();
+  const name = (vm.name || "").trim().toLowerCase();
+  const out = [];
+  for (const tv of tangerineVendors || []) {
+    const tcode = (tv.code || "").trim().toLowerCase();
+    const tname = (tv.name || "").trim().toLowerCase();
+    const aliases = Array.isArray(tv.aliases) ? tv.aliases.map((x) => String(x).trim().toLowerCase()) : [];
+    let matchOn = null;
+    if (code && tcode && code === tcode) matchOn = "code";
+    else if (name && tname && name === tname) matchOn = "name";
+    else if (name && aliases.includes(name)) matchOn = "alias";
+    if (matchOn) out.push({ id: tv.id, name: tv.name, code: tv.code, match_on: matchOn });
+  }
+  return out;
+}
+
+// Group eligible create_buy_request actions by Tangerine vendor, deciding
+// which to skip (and why) and resolving each line's cost.
+//
+//   actions       — ip_execution_actions rows (create_buy_request)
+//   vmById        — Map<ip_vendor_master.id, vendorMasterRow>
+//   imById        — Map<ip_item_master.id, itemMasterRow>
+//   avgBySku      — Map<sku_code, ip_item_avg_cost row>  (optional)
+//   existingPoIds — Set<purchase_orders.id> still present (optional). When a
+//                   previously-linked PO id is NOT in the set, the draft was
+//                   deleted in Procurement, so the action is re-planned
+//                   instead of skipped (re-create safety).
+//
+// Returns { byVendor: Map<portal_vendor_id, group>, skipped, warnings,
+//           referencedVendors: Map<vm.id, vm>, diagnostics }.
+export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds } = {}) {
+  const skipped = [];
+  const warnings = [];
+  const byVendor = new Map();
+  const referencedVendors = new Map();
+  const acts = actions || [];
+
+  for (const a of acts) {
+    const linkedPo = a.response_json && a.response_json.tangerine_po_id;
+    if (linkedPo && (!existingPoIds || existingPoIds.has(linkedPo))) {
+      skipped.push({ action_id: a.id, code: SKIP_CODES.ALREADY_LINKED, reason: "already linked to a Tangerine PO", po_id: linkedPo });
+      continue;
+    }
+    if (a.execution_status === "cancelled") {
+      skipped.push({ action_id: a.id, code: SKIP_CODES.CANCELLED, reason: "action cancelled" });
+      continue;
+    }
+    const qty = Number(a.approved_qty != null ? a.approved_qty : a.suggested_qty) || 0;
+    if (qty <= 0) {
+      skipped.push({ action_id: a.id, code: SKIP_CODES.ZERO_QTY, reason: "zero approved qty" });
+      continue;
+    }
+    if (!a.sku_id || !imById.has(a.sku_id)) {
+      skipped.push({ action_id: a.id, code: SKIP_CODES.NO_SKU, reason: "SKU not found in item master" });
+      continue;
+    }
+    if (!a.vendor_id) {
+      skipped.push({ action_id: a.id, code: SKIP_CODES.NO_VENDOR, reason: "no vendor on this buy action (assign a vendor in the buy plan, or populate ip_vendor_master)" });
+      continue;
+    }
+    const vm = vmById.get(a.vendor_id);
+    if (!vm) {
+      skipped.push({ action_id: a.id, code: SKIP_CODES.VENDOR_MISSING, reason: `vendor ${a.vendor_id} not found in ip_vendor_master` });
+      continue;
+    }
+    referencedVendors.set(vm.id, vm);
+    if (!vm.portal_vendor_id) {
+      skipped.push({
+        action_id: a.id, code: SKIP_CODES.VENDOR_UNLINKED, planning_vendor_id: vm.id,
+        reason: `planning vendor "${vm.vendor_code || vm.name}" is not linked to a Tangerine vendor (set its Tangerine link)`,
+      });
+      continue;
+    }
+    const im = imById.get(a.sku_id);
+    const { cents: unitCostCents, source: costSource } = resolveUnitCostCents(im, avgBySku && avgBySku.get(im.sku_code));
+    if (unitCostCents <= 0) {
+      warnings.push({ action_id: a.id, message: `SKU ${im.sku_code} has no cost in any source — PO line at $0 (edit before issuing)` });
+    }
+
+    const g = byVendor.get(vm.portal_vendor_id) || { vendor_name: vm.name, planning_vendor_id: vm.id, period_starts: [], lines: [] };
+    g.lines.push({ action_id: a.id, inventory_item_id: a.sku_id, sku_code: im.sku_code, qty, unit_cost_cents: unitCostCents, cost_source: costSource });
+    if (a.period_start) g.period_starts.push(a.period_start);
+    byVendor.set(vm.portal_vendor_id, g);
+  }
+
+  const skip_breakdown = {};
+  for (const s of skipped) skip_breakdown[s.code] = (skip_breakdown[s.code] || 0) + 1;
+  const diagnostics = {
+    actions_total: acts.length,
+    vendors: byVendor.size,
+    eligible_lines: [...byVendor.values()].reduce((n, g) => n + g.lines.length, 0),
+    skipped: skipped.length,
+    warnings: warnings.length,
+    skip_breakdown,
+  };
+
+  return { byVendor, skipped, warnings, referencedVendors, diagnostics };
+}

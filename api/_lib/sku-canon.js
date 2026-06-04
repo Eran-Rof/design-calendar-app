@@ -66,7 +66,16 @@ export function buildItemRow(canonicalSku, overrides = {}) {
     uom: overrides.uom ?? "each",
     active: true,
   };
-  if (!minimal) {
+  if (minimal) {
+    // A minimal stub carries no size/inseam/length/fit, so it MUST be
+    // is_apparel:false — otherwise ip_item_master's apparel_dims_required
+    // CHECK rejects every new bottoms/apparel SKU, the insert chunk errors,
+    // and the SKU is dropped from the sync ("no id ... after stub insert"
+    // in planning-sync). Same workaround /api/master/sync uses on its
+    // new-row path; the merchandiser flips is_apparel back to true via the
+    // admin UI once dims are backfilled.
+    row.is_apparel = false;
+  } else {
     row.color = overrides.colorDisplay ?? color;
     if (overrides.unit_cost != null) row.unit_cost = overrides.unit_cost;
     if (overrides.unit_price != null) row.unit_price = overrides.unit_price;

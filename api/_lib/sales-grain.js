@@ -73,21 +73,30 @@ export function computeRowMargin({ netAmount, qtyUnits, perUnitCost }) {
 
 // Resolve a per-unit cost from a master snapshot + the row's grain +
 // the row's per-unit sale price. master.unit_cost grain is
-// inconsistent across ip_item_master: usually per-pack for true
-// prepack-master rows, but per-unit for variant rows under a
-// prepack family (and per-unit for non-prepack items).
+// inconsistent across ip_item_master: per-pack for true prepack-master
+// rows (RBB-PPK: 264 = 48×5.5), but per-unit for others — variant rows
+// under a prepack family, non-prepack items, AND whole prepack families
+// like RCB* where a pack_size=48 row carries a per-UNIT cost (4.45).
 //
-// Rules:
-//  1. Pack-grain sale: master.unit_cost is per-pack (Xoro convention),
-//     divide by pack_size for per-unit.
-//  2. Unit-grain sale: if master.unit_cost > 2 x unit-price, master
-//     cost is implausibly high relative to the per-unit sale price
-//     and is almost certainly stored at per-pack grain — divide.
-//  3. Otherwise master.unit_cost is at per-unit grain; use as-is.
+// The grain of the master cost is NOT reliably implied by the sale's
+// qty grain, so we judge it against the per-unit SALE PRICE, which is
+// available on every real sales row:
 //
-// The 2x threshold mirrors the legacy cost-implausibility gate that
-// exportExcel.ts used to apply at READ time — moving it to the WRITE
-// path so the snapshot persisted on every row is already correct.
+//  - When a per-unit sale price is derivable (netAmount / qtyUnits),
+//    master.unit_cost is treated as per-pack ONLY if it's implausibly
+//    high for a per-unit figure — cost > 2 × unit-price. This single
+//    test governs BOTH grains. (Previously pack-grain sales ALWAYS
+//    divided, which collapsed RCB*-family per-unit costs ~48× and
+//    produced bogus 98–99% wholesale margins.) The 2× threshold is the
+//    legacy cost-implausibility gate; it tolerates near-/below-cost
+//    clearance sales where the unit price legitimately dips under cost.
+//  - When no usable sale price is available to judge, fall back to the
+//    grain hint: a pack-grain Xoro line most commonly carries a
+//    per-pack master cost, so divide; unit-grain uses cost as-is.
+//
+// Mirrors the legacy cost-implausibility gate exportExcel.ts applied at
+// READ time — moved to the WRITE path so the persisted snapshot is
+// already correct.
 export function resolvePerUnitCost({ masterUnitCost, packSize, grain, netAmount, qtyUnits }) {
   if (masterUnitCost == null) return null;
   const cost = Number(masterUnitCost);
@@ -98,13 +107,15 @@ export function resolvePerUnitCost({ masterUnitCost, packSize, grain, netAmount,
   // instead of misleading "100.0%" rows.
   if (cost <= 0) return null;
   const ps = Math.max(1, Number(packSize) || 1);
-  if (grain === "pack") return cost / ps;
+  // Sale price available → trust it for BOTH grains.
   if (netAmount != null && qtyUnits > 0) {
     const unitPrice = Number(netAmount) / Number(qtyUnits);
-    if (Number.isFinite(unitPrice) && unitPrice > 0 && cost > unitPrice * 2) {
-      return cost / ps;
+    if (Number.isFinite(unitPrice) && unitPrice > 0) {
+      return cost > unitPrice * 2 ? cost / ps : cost;
     }
   }
+  // No usable sale price to judge — fall back to the grain hint.
+  if (grain === "pack") return cost / ps;
   return cost;
 }
 
@@ -259,32 +270,37 @@ export function detectPackPricedAsUnit({
   return sibling;
 }
 
-// avgCostPerRawQty (optional): per-row-qty cost looked up from
-// ip_item_avg_cost — keyed by the FULL raw Xoro sku (with size/PPK
-// suffix), so PPK lines see the per-pack cost and size lines see the
-// per-each cost. When present it's authoritative: cogs = qty ×
-// avgCostPerRawQty, no pack arithmetic needed. When absent we fall
-// back to the master.unit_cost smart-cost rule.
+// avgCostPerRawQty (optional): cost looked up from ip_item_avg_cost,
+// keyed by the CANONICALISED raw Xoro sku. Intended grain is per native
+// qty — per-pack on a PPK row, per-each on a size row — and when that
+// holds it's the authoritative, size-granular cost.
+//
+// But the key is canonicalised (PPK token stripped), so a PPK pack line
+// can collapse onto a per-EACH avg_cost row: the RCB* family, where
+// canonSku("RCB1459W-NAVY-PPK48") = "RCB1459W-NAVY" → $4.45 per-each.
+// Multiplying that per-each cost by the native PACK qty collapses cogs
+// ~pack_size× and fakes a ~99% wholesale margin. So the avg cost is run
+// through the SAME per-unit-vs-per-pack plausibility resolver as master
+// cost (judged against the per-unit sale price) instead of being
+// multiplied by native qty blindly. For genuine per-pack / per-each avg
+// rows the result is identical to qty × avgCost — only the mis-keyed
+// pathological rows change. When no avg cost, fall back to master.unit_cost.
 export function deriveSalesGrainFields({ rawItemNumber, qty, netAmount, master, avgCostPerRawQty }) {
   const packSize = Math.max(1, Number(master?.pack_size) || 1);
   const grain = inferQtyGrain(rawItemNumber, packSize);
   const qtyUnits = toQtyUnits(qty, grain, packSize);
-  let perUnitCost;
-  let cogsAmount;
   const ac = Number(avgCostPerRawQty);
-  if (Number.isFinite(ac) && ac > 0) {
-    cogsAmount = Number(qty) * ac;
-    perUnitCost = qtyUnits > 0 ? cogsAmount / qtyUnits : null;
-  } else {
-    perUnitCost = resolvePerUnitCost({
-      masterUnitCost: master?.unit_cost ?? null,
-      packSize,
-      grain,
-      netAmount,
-      qtyUnits,
-    });
-    cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
-  }
+  const candidateCost = (Number.isFinite(ac) && ac > 0)
+    ? ac
+    : (master?.unit_cost ?? null);
+  const perUnitCost = resolvePerUnitCost({
+    masterUnitCost: candidateCost,
+    packSize,
+    grain,
+    netAmount,
+    qtyUnits,
+  });
+  const cogsAmount = perUnitCost != null ? qtyUnits * perUnitCost : null;
   const { amount, pct } = computeRowMargin({
     netAmount,
     qtyUnits,

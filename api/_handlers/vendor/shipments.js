@@ -19,7 +19,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../_lib/vendor-auth.js";
-import { getInternalRecipients } from "../../_lib/internal-recipients.js";
+import { getInternalRecipients, resolveInternalRecipients } from "../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
 
   // Internal notification
   try {
-    const { emails } = getInternalRecipients("shipment", { event: "asn_submitted" });
+    const { emails } = await resolveInternalRecipients(admin, "shipment", { event: "asn_submitted" });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";

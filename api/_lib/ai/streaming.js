@@ -49,6 +49,8 @@ export async function runStreaming(req, res, opts) {
     client, db, messages, SYSTEM_CACHED, TOOLS_CACHED, trace,
     cacheKey, question, execCtx,
   } = opts;
+  // Per-app model resolved by the handler; fall back to the default if absent.
+  const model = opts.model || MODEL;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -76,7 +78,7 @@ export async function runStreaming(req, res, opts) {
       sseWrite(res, "stage", { label: iter === 0 ? "Thinking…" : "Continuing…" });
 
       const stream = await client.messages.stream({
-        model: MODEL,
+        model,
         max_tokens: MAX_TOKENS,
         system: SYSTEM_CACHED,
         tools: TOOLS_CACHED,
@@ -182,7 +184,7 @@ export async function runStreaming(req, res, opts) {
     }
 
     await logAICall(db, {
-      handler: HANDLER, model: MODEL,
+      handler: HANDLER, model,
       input_tokens: totalIn, output_tokens: totalOut, cost_usd: totalCost,
     });
 
@@ -206,7 +208,7 @@ export async function runStreaming(req, res, opts) {
     });
     res.end();
   } catch (err) {
-    await logAICall(db, { handler: HANDLER, model: MODEL, cost_usd: totalCost, error: err.message });
+    await logAICall(db, { handler: HANDLER, model, cost_usd: totalCost, error: err.message });
     sseWrite(res, "error", { error: `Claude API error: ${err.message}`, trace });
     res.end();
   }

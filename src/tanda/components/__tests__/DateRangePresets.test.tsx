@@ -6,7 +6,7 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import DateRangePresets from "../DateRangePresets.tsx";
-import { DEFAULT_PRESETS, type Preset } from "../dateRangePresets.ts";
+import { DEFAULT_PRESETS, type Preset } from "../dateRangeMath";
 
 describe("<DateRangePresets /> — render", () => {
   it("renders one chip per default preset", () => {
