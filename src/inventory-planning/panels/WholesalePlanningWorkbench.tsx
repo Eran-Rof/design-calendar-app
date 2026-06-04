@@ -35,7 +35,6 @@ import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
 import LastUploadStamp from "../../shared/ui/LastUploadStamp";
-import StaleDataBanner from "../shared/components/StaleDataBanner";
 import SystemHealthBanner from "../shared/components/SystemHealthBanner";
 import {
   MonthlyTotalsCards,
@@ -2190,10 +2189,6 @@ export default function WholesalePlanningWorkbench() {
         ) : (
         <>
         <SystemHealthBanner />
-        <StaleDataBanner
-          watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
-          dismissKey="wholesale_workbench"
-        />
         {/* Xoro sales-history ingestion controls — only relevant on the
             planning grid. The Future Demand Requests tab has its own
             sales-history readout (per Cat / Sub Cat / Style) so this
