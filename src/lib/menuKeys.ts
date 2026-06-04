@@ -219,6 +219,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/procurement/broker-invoices", label: "Broker Invoices", app: "tanda", route: "/tangerine?m=broker_invoices", group: "Procurement", icon: "🚢" },
   { key: "tanda/procurement/three-way-match", label: "3-Way Match", app: "tanda", route: "/tangerine?m=three_way_match", group: "Procurement", icon: "⚖️" },
   { key: "tanda/procurement/recon", label: "Procurement Recon", app: "tanda", route: "/tangerine?m=procurement_recon", group: "Procurement", icon: "🧮" },
+  { key: "tanda/procurement/edi",        label: "EDI",               app: "tanda", route: "/tangerine?m=edi",               group: "Procurement", icon: "🔌" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
   { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Inventory", icon: "📦" },
   { key: "tanda/inventory/3pl",          label: "3PL",               app: "tanda", route: "/tangerine?m=three_pl",          group: "Inventory", icon: "🚚" },

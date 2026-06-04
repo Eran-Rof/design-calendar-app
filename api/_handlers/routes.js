@@ -608,6 +608,11 @@ import h616 from "./internal/drop-ship/[id].js";
 import h617 from "./internal/tpl-providers/index.js";
 import h618 from "./internal/tpl-shipments/index.js";
 import h619 from "./internal/tpl-shipments/[id].js";
+// P22/M14 — EDI surfacing (over the existing api/_lib/edi engine + edi_messages).
+//   h620 = GET/POST /api/internal/edi-partners   (enable + list EDI vendors)
+//   h621 = GET /api/internal/edi-messages         (global EDI message log)
+import h620 from "./internal/edi-partners/index.js";
+import h621 from "./internal/edi-messages/index.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1150,6 +1155,8 @@ export const ROUTES = [
   { pattern: "/api/internal/tpl-shipments/:id", handler: h619 },
   { pattern: "/api/internal/tpl-shipments", handler: h618 },
   { pattern: "/api/internal/tpl-providers", handler: h617 },
+  { pattern: "/api/internal/edi-partners", handler: h620 },
+  { pattern: "/api/internal/edi-messages", handler: h621 },
   { pattern: "/api/internal/drop-ship", handler: h615 },
   { pattern: "/api/internal/sales-returns/:id", handler: h613 },
   { pattern: "/api/internal/sales-returns", handler: h612 },
