@@ -195,6 +195,9 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/balance-sheet", label: "Balance Sheet",  app: "tanda", route: "/tangerine?m=balance_sheet",     group: "Accounting", icon: "📋" },
   { key: "tanda/accounting/cash-flow",  label: "Cash Flow",         app: "tanda", route: "/tangerine?m=cash_flow",         group: "Accounting", icon: "💧" },
   { key: "tanda/accounting/year-end-close", label: "Year-End Close", app: "tanda", route: "/tangerine?m=year_end_close",   group: "Accounting", icon: "🔚" },
+  { key: "tanda/accounting/fixed-assets", label: "Fixed Assets",     app: "tanda", route: "/tangerine?m=fixed_assets",      group: "Accounting", icon: "🏢" },
+  { key: "tanda/accounting/budgets",      label: "Budgets",           app: "tanda", route: "/tangerine?m=budgets",           group: "Accounting", icon: "🎯" },
+  { key: "tanda/accounting/form-1099",    label: "1099 Worksheet",    app: "tanda", route: "/tangerine?m=form_1099",         group: "Accounting", icon: "🧾" },
   { key: "tanda/accounting/bank-reconciliation", label: "Bank Reconciliation", app: "tanda", route: "/tangerine?m=bank_reconciliation", group: "Accounting", icon: "🏦" },
   // CRM
   { key: "tanda/crm/opportunities",     label: "CRM Opportunities", app: "tanda", route: "/tangerine?m=crm_opportunities", group: "CRM", icon: "💼" },
@@ -206,6 +209,7 @@ const TANDA_MENU: MenuKey[] = [
   // Nav reorg: Sales by Rep moved to the Sales section; Sales by Customer to Customers.
   { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Sales", icon: "🧑‍💼" },
   { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Customers", icon: "🤝" },
+  { key: "tanda/reports/hub",           label: "Reports & Analytics", app: "tanda", route: "/tangerine?m=reports_hub",      group: "Reports", icon: "📊" },
   { key: "tanda/reports/gl-detail",     label: "GL Detail",         app: "tanda", route: "/tangerine?m=gl_detail",         group: "Reports", icon: "🔍" },
   // Scorecards — nav-reachable entry points under Vendors / Customers.
   { key: "tanda/vendors/scorecard",     label: "Vendor Scorecard",   app: "tanda", route: "/tangerine?m=vendor_scorecard",   group: "Vendors", icon: "📊" },
@@ -219,8 +223,10 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/procurement/broker-invoices", label: "Broker Invoices", app: "tanda", route: "/tangerine?m=broker_invoices", group: "Procurement", icon: "🚢" },
   { key: "tanda/procurement/three-way-match", label: "3-Way Match", app: "tanda", route: "/tangerine?m=three_way_match", group: "Procurement", icon: "⚖️" },
   { key: "tanda/procurement/recon", label: "Procurement Recon", app: "tanda", route: "/tangerine?m=procurement_recon", group: "Procurement", icon: "🧮" },
+  { key: "tanda/procurement/edi",        label: "EDI",               app: "tanda", route: "/tangerine?m=edi",               group: "Procurement", icon: "🔌" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
   { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Inventory", icon: "📦" },
+  { key: "tanda/inventory/3pl",          label: "3PL",               app: "tanda", route: "/tangerine?m=three_pl",          group: "Inventory", icon: "🚚" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tangerine?m=inventory_transfers", group: "Inventory", icon: "🔁" },
   { key: "tanda/inventory/adjustments", label: "Inventory Adjustments", app: "tanda", route: "/tangerine?m=inventory_adjustments", group: "Inventory", icon: "📐" },
   { key: "tanda/inventory/cycle-counts", label: "Cycle Counts",     app: "tanda", route: "/tangerine?m=cycle_counts",      group: "Inventory", icon: "📋" },

@@ -601,6 +601,25 @@ import h614 from "./internal/sales-returns/[id]/credit-memo.js";
 //   h616 = GET/PATCH/DELETE /api/internal/drop-ship/:id (detail + lifecycle + tracking)
 import h615 from "./internal/drop-ship/index.js";
 import h616 from "./internal/drop-ship/[id].js";
+// P21/M13 — Third-Party Logistics (3PL).
+//   h617 = GET/POST/PATCH /api/internal/tpl-providers      (provider master)
+//   h618 = GET/POST /api/internal/tpl-shipments            (list + create)
+//   h619 = GET/PATCH/DELETE /api/internal/tpl-shipments/:id (detail + lifecycle)
+import h617 from "./internal/tpl-providers/index.js";
+import h618 from "./internal/tpl-shipments/index.js";
+import h619 from "./internal/tpl-shipments/[id].js";
+// P22/M14 — EDI surfacing (over the existing api/_lib/edi engine + edi_messages).
+//   h620 = GET/POST /api/internal/edi-partners   (enable + list EDI vendors)
+//   h621 = GET /api/internal/edi-messages         (global EDI message log)
+import h620 from "./internal/edi-partners/index.js";
+import h621 from "./internal/edi-messages/index.js";
+// P24/M46 — finance KPIs for the Reports & Analytics hub.
+import h622 from "./internal/finance-kpis/index.js";
+// P25 — Finance batch (Fixed Assets M21 · Budgets M22 · 1099 M20).
+import h623 from "./internal/fixed-assets/index.js";
+import h624 from "./internal/fixed-assets/[id].js";
+import h625 from "./internal/budgets/index.js";
+import h626 from "./internal/form-1099/index.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1140,6 +1159,16 @@ export const ROUTES = [
   { pattern: "/api/internal/ats-size-matrix", handler: h611 },
   { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: h614 },
   { pattern: "/api/internal/drop-ship/:id", handler: h616 },
+  { pattern: "/api/internal/tpl-shipments/:id", handler: h619 },
+  { pattern: "/api/internal/tpl-shipments", handler: h618 },
+  { pattern: "/api/internal/tpl-providers", handler: h617 },
+  { pattern: "/api/internal/edi-partners", handler: h620 },
+  { pattern: "/api/internal/edi-messages", handler: h621 },
+  { pattern: "/api/internal/finance-kpis", handler: h622 },
+  { pattern: "/api/internal/fixed-assets/:id", handler: h624 },
+  { pattern: "/api/internal/fixed-assets", handler: h623 },
+  { pattern: "/api/internal/budgets", handler: h625 },
+  { pattern: "/api/internal/form-1099", handler: h626 },
   { pattern: "/api/internal/drop-ship", handler: h615 },
   { pattern: "/api/internal/sales-returns/:id", handler: h613 },
   { pattern: "/api/internal/sales-returns", handler: h612 },

@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-04 (COA loaded)
+**Last updated:** 2026-06-04 (Tangerine front-door switch added)
 
 ---
 
@@ -24,6 +24,7 @@
 | `RBAC_MODE` = `log` → `enforce` (Vercel) | Turns on per-user permission enforcement | First configure roles in 🔐 User Access; run `log` a few days to watch telemetry, then `enforce`. The per-user JWT prerequisite is now live (`TANGERINE_JWT_SECRET` set), so `enforce` is technically unblocked. |
 | `BRAND_SCOPE_MODE` = `log` → `enforce` (Vercel) | Activates ALL brand behavior, currently inert: brand/channel report filtering (C3), **M50 GL allocation auto-splitting** of postings into brand sub-accounts, and **P15 inventory pool separation** (FIFO draws from the brand pool). | **Sizable go-live — do the prereqs first (see the dedicated checklist below).** Run `log` first to watch telemetry, then `enforce`. Verify a brand-filtered report sums back to "All". |
 | Xoro cutover gates (P9) | Retire Xoro per area | 2 consecutive months reconciling within tolerance; first gate (Cash) ~2026-07-28. |
+| `VITE_TANGERINE_AS_HOME` = `true` (Vercel) | **Makes Tangerine the front door + retires the PLM launcher.** Root `/` then redirects to the standalone Tangerine login (`/login`, Microsoft-365 sign-in); from there users launch every other app via the 🧩 Apps menu. OFF today: `/` still shows the PLM launcher and `/login` is reachable directly for preview. | Build is done — flip when you're ready to retire the PLM launcher. Verify `/login` signs in and the 🧩 Apps menu reaches all apps first. Note: the other apps still use the username/password `plm_user` session for their own gating, so keep those credentials working (or migrate them) before fully dropping PLM. |
 
 ## 🟠 Module go-lives — config / data the operator must enter (the build is done)
 
@@ -38,6 +39,7 @@ These modules are **built and shipped** but produce nothing / stay inert until y
 | **M31 / P17 Planning (direction B: Tangerine supply)** (#880) | Now available — on the `/planning` **Supply** screen click **🍊 Sync Tangerine supply**, then create a reconciliation run with **Supply source: Tangerine ERP** to reconcile against native Tangerine on-hand (~1.35M units synced). Native open-PO input stays empty until you issue POs in Procurement. No action required unless you want to use it. |
 | **P&L Dilution line** (#701–#710) | Tag the dilution GL accounts `account_type='contra_revenue'`, `account_subtype='dilution'` so the Income Statement Dilution line populates. |
 | **Sales-rep commissions** (#701–#717) | Set **Wholesale / Closeout %** on sales-role employees and assign reps + commission % on customers (Closeout = margin ≤ 14%). |
+| **EDI** (P22, vendor-side) | EDI is built + surfaced (Procurement → 🔌 EDI) but **inert** until: (1) set `EDI_INBOUND_SHARED_SECRET` on Vercel; (2) configure each EDI vendor (partner / ISA sender ID) in the EDI Partners tab; (3) stand up the **AS2/SFTP/VAN transport** (your EDI provider) — Tangerine prepares/stores X12 but does not yet transmit. Retailer-side EDI (850 from Macy's/Ross → SO, 810/856 out) is not built. |
 | **Internal notifications** (#829) | Per-employee notification **subscriptions** route internal alerts to staff emails. Verify `INTERNAL_ONBOARDING_EMAILS` (and any other `INTERNAL_*_EMAILS`) are set / employees subscribed — before #829 no internal alerts reached anyone. |
 
 ## 🔵 Decisions the operator must make

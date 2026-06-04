@@ -38,7 +38,7 @@ fields), `collapse.ts` (group by category/sub-category/style), `filter.ts`
 ## Exports (`src/ats/export*.ts`)
 
 - **Full grid** (`exportExcel.ts`) — identity + on-hand/PO/SO + period projections + totals; optional avg-cost, margin %, trailing-3-months / same-period-LY blocks, customer-facing redaction, PPK explode/merge.
-- **By-Size Matrix** (PR #887) — pivots ATS-available into a **color × size** matrix (sizes resolved from the master), with availability-tier cell colors and PPK pack handling. Warehouse-facing view of a style.
+- **By-Size Matrix** (PRs #887/#898/#902) — pivots ATS-available into a **color × size** matrix (sizes resolved from the master), report-palette fills + spacer columns, a separate **PPK** pack column, one tab per selected report period (22pt banner), and a separate **PPK explode** block when the grid toggle is on. It **reprojects the main ATS report** (`sizeMatrixDistribute.ts` largest-remainder split over an on-hand/incoming size shape from h611) so totals tie to the main sheet to the unit. The export **View preview** (`ExportPreviewModal.tsx`) carries a tab switcher across every `wb.SheetNames` worksheet — non-main sheets are reconstructed from their stored cells via `sheetToRows.ts`.
 - **Aged inventory** (`exportAgedInven.ts`) — days-on-hand aging tiers.
 - **Negative ATS** (`exportNegInven.ts`) — rows where on-hand can't cover committed SOs.
 - **Stock vs SO** (`exportStockVsSo.ts`) — style × SO matrix with deficit cells.

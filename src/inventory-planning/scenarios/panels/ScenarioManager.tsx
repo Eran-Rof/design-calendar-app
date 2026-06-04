@@ -211,6 +211,29 @@ export default function ScenarioManager() {
     }
   }
 
+  async function deleteSelected() {
+    if (!selected) return;
+    const ok = window.confirm(
+      `Permanently DELETE scenario "${selected.scenario_name}" (${selected.status})?\n\n` +
+      `This removes the scenario and its assumptions/approvals/exports. ` +
+      `It cannot be undone. To keep a record instead, use Archive (close).`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await scenarioRepo.deleteScenario(selected.id);
+      // Children cascade (assumptions/approvals/exports); audit + execution
+      // batches keep the row with scenario_id set null (FK ON DELETE SET NULL).
+      setSelectedId(null);
+      setToast({ text: "Scenario deleted", kind: "success" });
+      await refresh();
+    } catch (e) {
+      setToast({ text: "Delete failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doExport(kind: "wholesale" | "ecom" | "shortage" | "excess" | "recs" | "comparison" | "consolidated") {
     if (!selected) return;
     const run = runs.find((r) => r.id === selected.planning_run_id);
@@ -281,6 +304,12 @@ export default function ScenarioManager() {
               <>
                 <button style={S.btnSecondary} onClick={duplicate} disabled={busy}>Duplicate</button>
                 <button style={S.btnSecondary} onClick={() => setShowAudit(true)}>History ({audit.length})</button>
+                <button
+                  style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
+                  onClick={deleteSelected}
+                  disabled={busy}
+                  title="Permanently delete this scenario (or use Archive to close it without deleting)"
+                >🗑 Delete</button>
               </>
             )}
             {selected && (
