@@ -46,6 +46,10 @@ A **size scale** is an *ordered* list of size labels — e.g. `ALPHA-XS-3XL = [X
 
 A style links to one scale via `style_master.size_scale_id`. When a matrix surface needs size columns, `enumerateStyleMatrix` reads `size_scales.sizes` for that style's scale (falling back to the distinct sizes on existing SKUs only when the style has no scale assigned).
 
+**Assigning a scale to a style.** Two ways:
+- **Per style** — Master Data → **Style Master** → edit a style → the **Size Scale** field (a searchable picker of the `size_scales` master). This is the manual override and always wins.
+- **Bulk auto-assign** — Style Master header → **🎯 Auto-assign size scales**. It matches every *unscaled* style to the **best-available** scale by its actual size variants (the distinct non-PPK sizes on its SKUs), using its gender to disambiguate look-alike runs (e.g. an `S–XL` run goes to KIDS for a kids' gender, MENS for a men's). Size tokens are normalised first (`SML`→S, `LRG`→L, `XLG`→XL, `XXL`→2XL, combined `L/12` matches alpha *or* numeric scales). It **previews** the per-scale breakdown before writing, only fills styles that have **no scale yet** (never overwrites), and **skips** styles that are too ambiguous (a single size) or have no good match (<60% of variants covered) — those stay unassigned for you to set by hand. Matcher: pure `api/_lib/sizeScaleMatch.js` (unit-tested); writes via `apply_size_scale_assignments`. This is what makes the **Prepack "Download all PPK"** workbook consolidate styles onto one tab per scale (§28.5).
+
 ### The panel
 
 `src/tanda/InternalSizeScales.tsx` is a standard master CRUD: search by code/name, "Show inactive" toggle, create/edit modal, hard-delete (rejected with a 409 + reference detail if any `style_master` row still points at the scale — deactivate instead). It carries the suite-standard `ExportButton` + `TablePrefsButton` + row-click-to-edit. A right-click context menu offers **"Add size scale below"** (PR #735), which shifts every lower scale's `sort_order` by +1 so the new one slots cleanly into the ordered list.

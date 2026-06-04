@@ -620,6 +620,9 @@ import h623 from "./internal/fixed-assets/index.js";
 import h624 from "./internal/fixed-assets/[id].js";
 import h625 from "./internal/budgets/index.js";
 import h626 from "./internal/form-1099/index.js";
+// h627 GET=preview / POST=apply  /api/internal/style-master/auto-assign-scales
+//   Bulk best-match assignment of size scales to styles (api/_lib/sizeScaleMatch).
+import h627 from "./internal/style-master/auto-assign-scales.js";
 // P16/M18 — Allocations Workbench (cross-SO allocation).
 //   h576 = GET demand + POST apply  /api/internal/allocations
 //   h577 = POST auto-allocate preview /api/internal/allocations/preview
@@ -1041,6 +1044,7 @@ export const ROUTES = [
   // Same for dim-values (Polish chunk, 2026-05-30).
   { pattern: "/api/internal/style-master/dim-values", handler: h511 },
   { pattern: "/api/internal/style-master/notes", handler: h501 },
+  { pattern: "/api/internal/style-master/auto-assign-scales", handler: h627 },
   { pattern: "/api/internal/style-master/:id", handler: h252 },
   { pattern: "/api/internal/style-master", handler: h251 },
   { pattern: "/api/internal/vendor-master/:id", handler: h254 },
