@@ -38,6 +38,7 @@ import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
 import InternalAllocations        from "./tanda/InternalAllocations";
+import InternalSalesReturns       from "./tanda/InternalSalesReturns";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalReceiving          from "./tanda/InternalReceiving";
 import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
@@ -160,6 +161,7 @@ type ModuleKey =
   | "ar_receipts"
   | "sales_orders"
   | "sales_allocations"
+  | "sales_returns"
   | "ar_aging"
   | "ar_backfill"
   | "trial_balance"
@@ -299,6 +301,7 @@ const MODULES: ModuleDef[] = [
   { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
   // P16/M18 — Allocations Workbench (cross-SO allocation).
   { key: "sales_allocations", label: "Allocations",       emoji: "📊", group: "Sales" },
+  { key: "sales_returns",     label: "Returns/RMA",        emoji: "↩️", group: "Sales" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
@@ -621,6 +624,7 @@ export default function Tangerine() {
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
         {activeModule === "sales_allocations" && <InternalAllocations />}
+        {activeModule === "sales_returns" && <InternalSalesReturns />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "receiving"         && <InternalReceiving />}
         {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
