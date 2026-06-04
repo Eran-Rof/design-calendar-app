@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-04 (COA gap added)
+**Last updated:** 2026-06-04 (COA loaded)
 
 ---
 
@@ -10,7 +10,6 @@
 
 | Item | Needed for | Detail |
 |---|---|---|
-| **Chart of Accounts — core AR / Revenue / COGS / AP accounts** | ALL transactional GL posting (AR invoices, AP bills, COGS, drop-ship, returns) | ⚠️ Found 2026-06-04: the prod COA (52 accounts) has **no standard Accounts Receivable, Sales Revenue, COGS, or Accounts Payable account**, and the entity's `default_ar/revenue/cogs/ap_account_id` are all **null**. So any invoice/bill posting can't resolve its control accounts. Seed these accounts (e.g. 1200 AR · 4000 Revenue · 5000 COGS · 2000 AP) **and** set the entity defaults (or set them per-document). This unblocks P20 drop-ship document generation and de-risks all AR/AP posting. |
 | **Shopify store + Admin API token** | P11 Shopify (orders + COGS + product images) | `shopify_stores` is **empty in prod** (0 stores, no token) — the entire Shopify integration (order/refund/payout webhooks, COGS posting, product mirror, image re-host) is **dormant** until a store + Admin API token are connected. |
 | **`VENDOR_DATA_ENCRYPTION_KEY` on Preview** | Vendor portal field crypto on preview deploys | Set on Vercel **prod + dev**; the **Preview** environment still needs it or banking/card submit fails with "Encryption failed". ⚠️ Never change once data is encrypted (orphans all ciphertext). |
 | **Paycor access** | M51 Payroll | Confirm your Paycor plan exposes a **GL export** (preferred) **or the API**, and get credentials (API key/OAuth, or SFTP). Usually a plan-tier/partner gate — ask your Paycor rep. Then: the **pay-code→GL mapping**, a **Net-Pay-Clearing vs Cash** choice, and whether to **brand-allocate labor** on day one. *(arch: `payroll-paycor-integration-architecture.md`)* |
@@ -58,6 +57,7 @@ Everything below is **built and inert today**; flipping the flag turns it on. Do
 
 ## ✅ Done
 
+- **Chart of Accounts loaded** (#PRCOA, 2026-06-04) — the full COA from your QuickBooks export: **474 new accounts** (+ the 52 existing kept) grouped under **reporting headers** via `parent_account_id`, control accounts pinned (**AR 1200 · AP 2000 · Revenue 4000 · COGS 5000**), and the **entity default accounts wired** (AR/AP/Revenue/COGS/Inventory 1300/Bank 1000/Retained Earnings 3900). AR/AP/COGS posting + drop-ship document generation are now **unblocked**. ⚠️ **Review** `Downloads/COA_assigned_mapping_for_review.csv` and tell me any account that should be re-typed or re-grouped. A few legacy operational accounts (e.g. Inbound Freight 5100, Sales Commissions 6210, Inventory Write-off 6420) overlap conceptually with new ones — they coexist; say the word to merge.
 - **`ip_item_master` dup-SKU cleanup** (#867 / #872 / #874 / #866) — the ~7,047 duplicate rows are merged + a logical `UNIQUE` backstop + dup-proof SKU resolver are in place. Prod now: 12,691 rows, only **14 residual dup rows in 4 groups** (down from ~7k). No operator decision needed.
 - **CEO planning `admin` role** granted (#875) → the buy-plan → Tangerine-PO buttons are usable; `run_writeback` / `manage_integrations` available.
 - **`VENDOR_DATA_ENCRYPTION_KEY`** set on Vercel **prod + dev** (Preview still pending — see 🔴 above).
