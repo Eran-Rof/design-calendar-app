@@ -5,6 +5,16 @@
 import { useMemo, useState } from "react";
 import type { IpSupplyException } from "../types/supply";
 import { S, PAL, formatPeriodCode } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.supply_exception";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "severity", label: "Severity" },
+  { key: "type", label: "Type" },
+  { key: "sku", label: "SKU" },
+  { key: "period", label: "Period" },
+  { key: "detail", label: "Detail" },
+];
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: "#EF4444",
@@ -32,6 +42,7 @@ export interface SupplyExceptionPanelProps {
 export default function SupplyExceptionPanel({ exceptions, skuCodeById }: SupplyExceptionPanelProps) {
   const [filterType, setFilterType] = useState<string>("all");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const types = useMemo(() => {
     const s = new Set<string>();
@@ -80,34 +91,44 @@ export default function SupplyExceptionPanel({ exceptions, skuCodeById }: Supply
           <option value="all">All types</option>
           {types.map((t) => <option key={t} value={t}>{EXCEPTION_LABEL[t] ?? t}</option>)}
         </select>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
+        </div>
       </div>
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Severity</th>
-              <th style={S.th}>Type</th>
-              <th style={S.th}>SKU</th>
-              <th style={S.th}>Period</th>
-              <th style={S.th}>Detail</th>
+              <th style={S.th} hidden={!visibleColumns.has("severity")}>Severity</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={S.th} hidden={!visibleColumns.has("sku")}>SKU</th>
+              <th style={S.th} hidden={!visibleColumns.has("period")}>Period</th>
+              <th style={S.th} hidden={!visibleColumns.has("detail")}>Detail</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((e) => (
               <tr key={e.id}>
-                <td style={S.td}>
+                <td style={S.td} hidden={!visibleColumns.has("severity")}>
                   <span style={{
                     ...S.chip,
                     background: (SEVERITY_COLOR[e.severity] ?? PAL.textMuted) + "33",
                     color: SEVERITY_COLOR[e.severity] ?? PAL.textMuted,
                   }}>{e.severity}</span>
                 </td>
-                <td style={S.td}>{EXCEPTION_LABEL[e.exception_type] ?? e.exception_type}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
+                <td style={S.td} hidden={!visibleColumns.has("type")}>{EXCEPTION_LABEL[e.exception_type] ?? e.exception_type}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }} hidden={!visibleColumns.has("sku")}>
                   {skuCodeById.get(e.sku_id) ?? "(unknown sku)"}
                 </td>
-                <td style={S.td}>{formatPeriodCode(e.period_code)}</td>
-                <td style={{ ...S.td, color: PAL.textDim, fontFamily: "monospace", fontSize: 11 }}>
+                <td style={S.td} hidden={!visibleColumns.has("period")}>{formatPeriodCode(e.period_code)}</td>
+                <td style={{ ...S.td, color: PAL.textDim, fontFamily: "monospace", fontSize: 11 }} hidden={!visibleColumns.has("detail")}>
                   {describeDetails(e)}
                 </td>
               </tr>

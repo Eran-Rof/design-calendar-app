@@ -47,6 +47,17 @@ import ChangeAuditDrawer from "../components/ChangeAuditDrawer";
 import ScenarioAssumptionsPanel from "./ScenarioAssumptionsPanel";
 import ScenarioComparisonView from "./ScenarioComparisonView";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const SCENARIO_LIST_TABLE_KEY = "ip.scenario_manager";
+const SCENARIO_LIST_COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "status", label: "Status" },
+  { key: "base_run", label: "Base run" },
+  { key: "created", label: "Created" },
+  { key: "note", label: "Note" },
+];
 
 type TabKey = "list" | "assumptions" | "comparison" | "exports";
 
@@ -522,18 +533,29 @@ function ScenarioList({
   selectedId: string | null; onSelect: (id: string) => void; loading?: boolean;
 }) {
   const runNameById = new Map(runs.map((r) => [r.id, r.name]));
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(SCENARIO_LIST_TABLE_KEY, SCENARIO_LIST_COLUMNS);
   return (
     <div style={S.card}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <TablePrefsButton
+          tableKey={SCENARIO_LIST_TABLE_KEY}
+          columns={SCENARIO_LIST_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Name</th>
-              <th style={S.th}>Type</th>
-              <th style={S.th}>Status</th>
-              <th style={S.th}>Base run</th>
-              <th style={S.th}>Created</th>
-              <th style={S.th}>Note</th>
+              <th style={S.th} hidden={!visibleColumns.has("name")}>Name</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={S.th} hidden={!visibleColumns.has("status")}>Status</th>
+              <th style={S.th} hidden={!visibleColumns.has("base_run")}>Base run</th>
+              <th style={S.th} hidden={!visibleColumns.has("created")}>Created</th>
+              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
             </tr>
           </thead>
           <tbody>
@@ -541,20 +563,20 @@ function ScenarioList({
               <tr key={s.id}
                   style={{ cursor: "pointer", background: s.id === selectedId ? PAL.panelAlt : undefined }}
                   onClick={() => onSelect(s.id)}>
-                <td style={{ ...S.td, fontWeight: s.id === selectedId ? 700 : 400 }}>{s.scenario_name}</td>
-                <td style={S.td}>{s.scenario_type}</td>
-                <td style={S.td}>
+                <td style={{ ...S.td, fontWeight: s.id === selectedId ? 700 : 400 }} hidden={!visibleColumns.has("name")}>{s.scenario_name}</td>
+                <td style={S.td} hidden={!visibleColumns.has("type")}>{s.scenario_type}</td>
+                <td style={S.td} hidden={!visibleColumns.has("status")}>
                   <span style={{
                     ...S.chip,
                     background: STATUS_COLOR[s.status] + "33",
                     color: STATUS_COLOR[s.status],
                   }}>{s.status.replace(/_/g, " ")}</span>
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>
+                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("base_run")}>
                   {s.base_run_reference_id ? (runNameById.get(s.base_run_reference_id) ?? s.base_run_reference_id.slice(0, 8)) : "—"}
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>{formatDate(s.created_at.slice(0, 10))}</td>
-                <td style={{ ...S.td, color: PAL.textMuted, fontSize: 12 }}>{s.note ?? ""}</td>
+                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("created")}>{formatDate(s.created_at.slice(0, 10))}</td>
+                <td style={{ ...S.td, color: PAL.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("note")}>{s.note ?? ""}</td>
               </tr>
             ))}
             {!loading && scenarios.length === 0 && (

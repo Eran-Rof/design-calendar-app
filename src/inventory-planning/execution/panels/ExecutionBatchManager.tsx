@@ -19,6 +19,7 @@ import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
 import type { IpScenario } from "../../scenarios/types/scenarios";
 import { confirmDialog } from "../../../shared/ui/warn";
 import { S, PAL, formatDate } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
 import ExecutionAuditPanel from "./ExecutionAuditPanel";
@@ -41,6 +42,16 @@ const BATCH_TYPES: IpExecutionBatchType[] = [
   "reserve_update", "protection_update", "reallocation_plan",
 ];
 
+const TABLE_KEY = "ip.execution_batches";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "status", label: "Status" },
+  { key: "created", label: "Created" },
+  { key: "approved", label: "Approved" },
+  { key: "note", label: "Note" },
+];
+
 export default function ExecutionBatchManager() {
   const [batches, setBatches] = useState<IpExecutionBatch[]>([]);
   const [runs, setRuns] = useState<IpPlanningRun[]>([]);
@@ -55,6 +66,7 @@ export default function ExecutionBatchManager() {
   const [showNew, setShowNew] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const selected = useMemo(() => batches.find((b) => b.id === selectedId) ?? null, [batches, selectedId]);
   const selectedRun = useMemo(() => runs.find((r) => r.id === selected?.planning_run_id) ?? null, [runs, selected]);
@@ -175,6 +187,12 @@ export default function ExecutionBatchManager() {
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabBtn active={tab === "list"} onClick={() => setTab("list")}>Batches ({batches.length})</TabBtn>
           <TabBtn active={tab === "detail"} onClick={() => setTab("detail")} disabled={!selected}>Detail</TabBtn>
+          {tab === "list" && (
+            <div style={{ marginLeft: "auto" }}>
+              <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                                onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+            </div>
+          )}
         </div>
 
         {tab === "list" && (
@@ -183,28 +201,28 @@ export default function ExecutionBatchManager() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    <th style={S.th}>Name</th>
-                    <th style={S.th}>Type</th>
-                    <th style={S.th}>Status</th>
-                    <th style={S.th}>Created</th>
-                    <th style={S.th}>Approved</th>
-                    <th style={S.th}>Note</th>
+                    <th hidden={!visibleColumns.has("name")} style={S.th}>Name</th>
+                    <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
+                    <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
+                    <th hidden={!visibleColumns.has("created")} style={S.th}>Created</th>
+                    <th hidden={!visibleColumns.has("approved")} style={S.th}>Approved</th>
+                    <th hidden={!visibleColumns.has("note")} style={S.th}>Note</th>
                   </tr>
                 </thead>
                 <tbody>
                   {batches.map((b) => (
                     <tr key={b.id} style={{ cursor: "pointer", background: b.id === selectedId ? PAL.panelAlt : undefined }}
                         onClick={() => { setSelectedId(b.id); setTab("detail"); }}>
-                      <td style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
-                      <td style={S.td}>{b.batch_type}</td>
-                      <td style={S.td}>
+                      <td hidden={!visibleColumns.has("name")} style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
+                      <td hidden={!visibleColumns.has("type")} style={S.td}>{b.batch_type}</td>
+                      <td hidden={!visibleColumns.has("status")} style={S.td}>
                         <span style={{ ...S.chip, background: BATCH_STATUS_COLOR[b.status] + "33", color: BATCH_STATUS_COLOR[b.status] }}>
                           {b.status.replace(/_/g, " ")}
                         </span>
                       </td>
-                      <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(b.created_at.slice(0, 10))}</td>
-                      <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{b.approved_at ? formatDate(b.approved_at.slice(0, 10)) : "—"}</td>
-                      <td style={{ ...S.td, fontSize: 12, color: PAL.textMuted }}>{b.note ?? ""}</td>
+                      <td hidden={!visibleColumns.has("created")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(b.created_at.slice(0, 10))}</td>
+                      <td hidden={!visibleColumns.has("approved")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{b.approved_at ? formatDate(b.approved_at.slice(0, 10)) : "—"}</td>
+                      <td hidden={!visibleColumns.has("note")} style={{ ...S.td, fontSize: 12, color: PAL.textMuted }}>{b.note ?? ""}</td>
                     </tr>
                   ))}
                   {!loading && batches.length === 0 && (

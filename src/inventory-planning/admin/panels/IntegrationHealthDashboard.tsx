@@ -11,6 +11,18 @@ import {
   thresholdsByEntity,
 } from "../services/dataFreshnessService";
 import { S, PAL, formatDateTime } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.integration_health";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "system", label: "System" },
+  { key: "endpoint", label: "Endpoint" },
+  { key: "status", label: "Status" },
+  { key: "last_success", label: "Last success" },
+  { key: "last_attempt", label: "Last attempt" },
+  { key: "rows", label: "Rows" },
+  { key: "error", label: "Error" },
+];
 
 const STATUS_COLOR: Record<string, string> = {
   healthy: "#10B981",
@@ -30,6 +42,7 @@ export default function IntegrationHealthDashboard() {
   const [rows, setRows] = useState<IpIntegrationHealth[]>([]);
   const [signals, setSignals] = useState<IpFreshnessSignal[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function refresh() {
     setRefreshing(true);
@@ -55,41 +68,45 @@ export default function IntegrationHealthDashboard() {
       <div style={S.card}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
           <h3 style={S.cardTitle}>Integration health</h3>
-          <button style={{ ...S.btnSecondary, marginLeft: "auto" }} onClick={refresh} disabled={refreshing}>
-            {refreshing ? "Refreshing…" : "Refresh status"}
-          </button>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                              onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+            <button style={S.btnSecondary} onClick={refresh} disabled={refreshing}>
+              {refreshing ? "Refreshing…" : "Refresh status"}
+            </button>
+          </div>
         </div>
         <div style={S.tableWrap}>
           <table style={S.table}>
             <thead>
               <tr>
-                <th style={S.th}>System</th>
-                <th style={S.th}>Endpoint</th>
-                <th style={S.th}>Status</th>
-                <th style={S.th}>Last success</th>
-                <th style={S.th}>Last attempt</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Rows</th>
-                <th style={S.th}>Error</th>
+                <th hidden={!visibleColumns.has("system")} style={S.th}>System</th>
+                <th hidden={!visibleColumns.has("endpoint")} style={S.th}>Endpoint</th>
+                <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
+                <th hidden={!visibleColumns.has("last_success")} style={S.th}>Last success</th>
+                <th hidden={!visibleColumns.has("last_attempt")} style={S.th}>Last attempt</th>
+                <th hidden={!visibleColumns.has("rows")} style={{ ...S.th, textAlign: "right" }}>Rows</th>
+                <th hidden={!visibleColumns.has("error")} style={S.th}>Error</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td style={S.td}>{r.system_name}</td>
-                  <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.endpoint}</td>
-                  <td style={S.td}>
+                  <td hidden={!visibleColumns.has("system")} style={S.td}>{r.system_name}</td>
+                  <td hidden={!visibleColumns.has("endpoint")} style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.endpoint}</td>
+                  <td hidden={!visibleColumns.has("status")} style={S.td}>
                     <span style={{ ...S.chip, background: STATUS_COLOR[r.status] + "33", color: STATUS_COLOR[r.status] }}>
                       {r.status}
                     </span>
                   </td>
-                  <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
+                  <td hidden={!visibleColumns.has("last_success")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
                     {r.last_success_at ? formatDateTime(r.last_success_at) : "—"}
                   </td>
-                  <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
+                  <td hidden={!visibleColumns.has("last_attempt")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
                     {r.last_attempt_at ? formatDateTime(r.last_attempt_at) : "—"}
                   </td>
-                  <td style={S.tdNum}>{r.last_rows_synced ?? "—"}</td>
-                  <td style={{ ...S.td, fontSize: 11, color: PAL.red }}>{r.last_error_message ?? ""}</td>
+                  <td hidden={!visibleColumns.has("rows")} style={S.tdNum}>{r.last_rows_synced ?? "—"}</td>
+                  <td hidden={!visibleColumns.has("error")} style={{ ...S.td, fontSize: 11, color: PAL.red }}>{r.last_error_message ?? ""}</td>
                 </tr>
               ))}
               {rows.length === 0 && (
