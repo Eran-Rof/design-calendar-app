@@ -9,19 +9,25 @@
 //   • Per action: qty = approved_qty ?? suggested_qty (>0); SKU = sku_id
 //     (ip_item_master.id, which is also purchase_order_lines.inventory_item_id);
 //     vendor = ip_vendor_master.portal_vendor_id (→ vendors.id); unit cost =
-//     ip_item_master.unit_cost (dollars → cents).
+//     ip_item_master.unit_cost, falling back to last-known avg cost / standard
+//     price (ip_item_avg_cost) so a missing master cost doesn't silently make a
+//     $0 line.
 //   • Groups eligible actions by Tangerine vendor → ONE draft PO per vendor with
 //     N lines. POs are created `status='draft'` (no po_number, no commitments) —
 //     the operator reviews + issues them in the Tangerine Procurement PO panel.
-//   • Idempotent: an action already linked to a PO (response_json.tangerine_po_id)
-//     is skipped. Actions with no vendor / no portal link / zero qty are skipped
-//     with a reason. dry_run previews without writing.
+//   • Idempotent: an action already linked to a still-existing PO
+//     (response_json.tangerine_po_id) is skipped; if that PO was deleted the
+//     action is re-planned. Actions with no vendor / no portal link / zero qty
+//     are skipped with a coded reason. For unlinked planning vendors the
+//     response carries read-only Tangerine-vendor match suggestions so the
+//     operator can link them. dry_run previews without writing.
 //
-// No Xoro involvement; no data plumbing into planning (read-only on ip_* +
-// ip_vendor_master/ip_item_master). Mirrors purchase-orders/index.js inserts.
+// Decision/cost/skip logic lives in api/_lib/buyPlanToPo.js (pure, unit-tested);
+// this handler only does IO + grouping → inserts. No Xoro involvement.
 
 import { createClient } from "@supabase/supabase-js";
 import { checkPermission } from "../../../_lib/ip-permissions.js";
+import { planBuyPlanPos, matchTangerineVendor } from "../../../_lib/buyPlanToPo.js";
 
 export const config = { maxDuration: 30 };
 
@@ -33,6 +39,26 @@ function corsHeaders(res) {
 function client() {
   const u = process.env.VITE_SUPABASE_URL, k = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return u && k ? createClient(u, k, { auth: { persistSession: false } }) : null;
+}
+
+// Chunk a column-IN lookup into ≤100-id batches (PostgREST URL-length guard;
+// see the by-size cutover lesson where a single wide .in() 400'd).
+async function fetchByIds(admin, table, select, ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await admin.from(table).select(select).in("id", ids.slice(i, i + 100));
+    if (data) out.push(...data);
+  }
+  return out;
+}
+async function fetchAvgCosts(admin, skuCodes) {
+  const out = new Map();
+  for (let i = 0; i < skuCodes.length; i += 100) {
+    const { data } = await admin.from("ip_item_avg_cost")
+      .select("sku_code, avg_cost, standard_unit_price").in("sku_code", skuCodes.slice(i, i + 100));
+    for (const r of data || []) out.set(r.sku_code, r);
+  }
+  return out;
 }
 
 const READY_BATCH_STATUSES = ["approved", "exported", "submitted", "partially_executed"];
@@ -68,44 +94,42 @@ export default async function handler(req, res) {
     .eq("action_type", "create_buy_request");
   if (!actions || actions.length === 0) return res.status(409).json({ error: "Batch has no create_buy_request actions." });
 
-  // ── Bulk-resolve vendor portal links + item costs ───────────────────────
+  // ── Resolve vendor portal links, item costs, avg-cost fallback ──────────
   const vendorIds = [...new Set(actions.map((a) => a.vendor_id).filter(Boolean))];
   const skuIds = [...new Set(actions.map((a) => a.sku_id).filter(Boolean))];
-  const { data: vmRows } = vendorIds.length
-    ? await admin.from("ip_vendor_master").select("id, vendor_code, name, portal_vendor_id").in("id", vendorIds) : { data: [] };
-  const vmById = new Map((vmRows || []).map((v) => [v.id, v]));
-  const { data: imRows } = skuIds.length
-    ? await admin.from("ip_item_master").select("id, sku_code, unit_cost").in("id", skuIds) : { data: [] };
-  const imById = new Map((imRows || []).map((i) => [i.id, i]));
+  const vmRows = vendorIds.length ? await fetchByIds(admin, "ip_vendor_master", "id, vendor_code, name, portal_vendor_id", vendorIds) : [];
+  const vmById = new Map(vmRows.map((v) => [v.id, v]));
+  const imRows = skuIds.length ? await fetchByIds(admin, "ip_item_master", "id, sku_code, unit_cost", skuIds) : [];
+  const imById = new Map(imRows.map((i) => [i.id, i]));
+  const avgBySku = await fetchAvgCosts(admin, [...new Set(imRows.map((i) => i.sku_code).filter(Boolean))]);
 
-  const skipped = [];
-  const warnings = [];
-  const byVendor = new Map(); // portal vendor_id → { vendor_name, lines:[{action_id, inventory_item_id, qty, unit_cost_cents, ...}], period_starts:[] }
+  // Idempotency re-check: which previously-linked PO ids still exist.
+  const linkedPoIds = [...new Set(actions.map((a) => a.response_json && a.response_json.tangerine_po_id).filter(Boolean))];
+  let existingPoIds;
+  if (linkedPoIds.length) {
+    const live = await fetchByIds(admin, "purchase_orders", "id", linkedPoIds);
+    existingPoIds = new Set(live.map((p) => p.id));
+  }
 
-  for (const a of actions) {
-    if (a.response_json && a.response_json.tangerine_po_id) { skipped.push({ action_id: a.id, reason: "already linked to a Tangerine PO" }); continue; }
-    if (a.execution_status === "cancelled") { skipped.push({ action_id: a.id, reason: "action cancelled" }); continue; }
-    const qty = Number(a.approved_qty != null ? a.approved_qty : a.suggested_qty) || 0;
-    if (qty <= 0) { skipped.push({ action_id: a.id, reason: "zero approved qty" }); continue; }
-    if (!a.sku_id || !imById.has(a.sku_id)) { skipped.push({ action_id: a.id, reason: "SKU not found in item master" }); continue; }
-    if (!a.vendor_id) { skipped.push({ action_id: a.id, reason: "no vendor assigned on action" }); continue; }
-    const vm = vmById.get(a.vendor_id);
-    if (!vm || !vm.portal_vendor_id) {
-      skipped.push({ action_id: a.id, reason: `planning vendor ${vm ? vm.vendor_code : a.vendor_id} has no Tangerine vendor link (set ip_vendor_master.portal_vendor_id)` });
-      continue;
-    }
-    const im = imById.get(a.sku_id);
-    const unitCostCents = Math.round(Number(im.unit_cost || 0) * 100);
-    if (unitCostCents <= 0) warnings.push({ action_id: a.id, message: `SKU ${im.sku_code} has no unit cost — PO line created at $0 (edit before issuing)` });
+  const { byVendor, skipped, warnings, referencedVendors, diagnostics } =
+    planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds });
 
-    const g = byVendor.get(vm.portal_vendor_id) || { vendor_name: vm.name, period_starts: [], lines: [] };
-    g.lines.push({ action_id: a.id, inventory_item_id: a.sku_id, sku_code: im.sku_code, qty, unit_cost_cents: unitCostCents });
-    if (a.period_start) g.period_starts.push(a.period_start);
-    byVendor.set(vm.portal_vendor_id, g);
+  // ── Vendor link suggestions for unlinked referenced vendors ─────────────
+  let vendor_suggestions = [];
+  const unlinked = [...referencedVendors.values()].filter((vm) => !vm.portal_vendor_id);
+  if (unlinked.length) {
+    const { data: tvs } = await admin.from("vendors").select("id, name, code, aliases").is("deleted_at", null);
+    vendor_suggestions = unlinked.map((vm) => ({
+      planning_vendor_id: vm.id, vendor_code: vm.vendor_code, name: vm.name,
+      candidates: matchTangerineVendor(vm, tvs || []),
+    }));
   }
 
   if (byVendor.size === 0) {
-    return res.status(200).json({ dry_run: dryRun, created: [], skipped, warnings, message: "No eligible actions to create POs from (see skipped)." });
+    return res.status(200).json({
+      dry_run: dryRun, created: [], skipped, warnings, vendor_suggestions, diagnostics,
+      message: "No eligible actions to create POs from (see skipped / vendor_suggestions).",
+    });
   }
 
   // ── Entity (ROF) ────────────────────────────────────────────────────────
@@ -151,7 +175,7 @@ export default async function handler(req, res) {
   }
 
   return res.status(dryRun ? 200 : 201).json({
-    dry_run: dryRun, created, skipped, warnings,
+    dry_run: dryRun, created, skipped, warnings, vendor_suggestions, diagnostics,
     message: dryRun
       ? `Preview: ${created.length} draft PO(s) across ${created.length} vendor(s), ${skipped.length} action(s) skipped.`
       : `Created ${created.length} draft Tangerine PO(s); review + issue them in Procurement → Purchase Orders. ${skipped.length} action(s) skipped.`,

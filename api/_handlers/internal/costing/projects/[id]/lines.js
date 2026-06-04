@@ -16,6 +16,7 @@ const LINE_FIELDS = [
   "bottom_closure", "waist_type", "waste_type",
   "category_id", "sub_category_id", "style_state",
   "comment", "remarks",
+  "status",
   "target_qty", "target_cost", "avg_cost", "sell_target", "sell_price",
   "priced_date", "fob_cost", "duty_rate", "freight", "insurance", "other_costs",
   "landed_cost", "margin_pct",
@@ -62,7 +63,21 @@ export default async function handler(req, res) {
       .select("*").eq("project_id", projectId)
       .order("sort_order", { ascending: true }).range(0, 999);
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+    const lines = data || [];
+
+    // Derive the "on RFQ" auto-status: a line is on an RFQ once an
+    // rfq_line_items row references it (the Vendor RFQ button generated one).
+    // Attached as `_on_rfq` so the grid can show On RFQ without a per-row query.
+    if (lines.length > 0) {
+      try {
+        const ids = lines.map((l) => l.id);
+        const { data: rli } = await admin.from("rfq_line_items")
+          .select("costing_line_id").in("costing_line_id", ids);
+        const onRfq = new Set((rli || []).map((r) => r.costing_line_id).filter(Boolean));
+        for (const l of lines) l._on_rfq = onRfq.has(l.id);
+      } catch { /* non-fatal — falls back to no on_rfq flag */ }
+    }
+    return res.status(200).json(lines);
   }
 
   if (req.method === "POST") {

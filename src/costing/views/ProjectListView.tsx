@@ -6,12 +6,13 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates } from "../helpers";
+import { fmtDateDisplay, navigate, defaultProjectDates } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { stripExcelPrefix } from "../services/costingApi";
 import { tabStyle } from "./tabStyle";
-import type { CostingProject, CostingStatus } from "../types";
+import { stageColor, stageLabel, stageIcon } from "../hooks/usePlanFlow";
+import type { CostingProject, CostingLineEffectiveStatus } from "../types";
 
 // Canonical dark-slate palette (matches the Tangerine Internal* modals).
 const C = {
@@ -20,17 +21,22 @@ const C = {
   primary: "#3B82F6", inputBg: "#0b1220",
 };
 
-// WIP-pipeline tab split (modeled on the Tanda PO detail fused-tab strip).
-// "Active" folds the three working stages; the outcome stages each get a tab.
-type TabKey = "all" | "active" | "awarded" | "closed" | "cancelled";
-const ACTIVE_STATUSES: CostingStatus[] = ["draft", "in_progress", "quoted"];
-const TABS: { key: TabKey; label: string; match: (s: CostingStatus) => boolean }[] = [
-  { key: "all",       label: "All",       match: () => true },
-  { key: "active",    label: "Active",    match: (s) => ACTIVE_STATUSES.includes(s) },
-  { key: "awarded",   label: "Awarded",   match: (s) => s === "awarded" },
-  { key: "closed",    label: "Closed",    match: (s) => s === "closed" },
-  { key: "cancelled", label: "Cancelled", match: (s) => s === "cancelled" },
+// Status is per LINE now — the list buckets/filters by line status presence.
+const LINE_STATUSES: CostingLineEffectiveStatus[] = ["draft", "on_rfq", "awarded", "closed"];
+type TabKey = "all" | CostingLineEffectiveStatus;
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "all",     label: "All" },
+  { key: "draft",   label: "Draft" },
+  { key: "on_rfq",  label: "On RFQ" },
+  { key: "awarded", label: "Awarded" },
+  { key: "closed",  label: "Closed" },
 ];
+
+// A project matches a status tab if it has ≥1 line in that status.
+function projectHasStatus(p: CostingProject, key: TabKey): boolean {
+  if (key === "all") return true;
+  return (p._status_counts?.[key] || 0) > 0;
+}
 
 export default function ProjectListView() {
   const projects = useCostingStore((s) => s.projects);
@@ -51,16 +57,17 @@ export default function ProjectListView() {
 
   useEffect(() => { list(); }, [list]);
 
-  // Per-tab counts (off the full list) + the rows the active tab shows.
+  // Per-tab counts (number of PROJECTS having ≥1 line in that status) + the
+  // rows the active tab shows.
   const tabCounts = React.useMemo(() => {
-    const counts: Record<TabKey, number> = { all: 0, active: 0, awarded: 0, closed: 0, cancelled: 0 };
-    for (const t of TABS) counts[t.key] = projects.filter((p) => t.match(p.status)).length;
+    const counts: Record<TabKey, number> = { all: 0, draft: 0, on_rfq: 0, awarded: 0, closed: 0 };
+    for (const t of TABS) counts[t.key] = projects.filter((p) => projectHasStatus(p, t.key)).length;
     return counts;
   }, [projects]);
 
   const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
   const visible = React.useMemo(
-    () => projects.filter((p) => activeTab.match(p.status)),
+    () => projects.filter((p) => projectHasStatus(p, activeTab.key)),
     [projects, activeTab],
   );
 
@@ -110,7 +117,7 @@ export default function ProjectListView() {
     gender_code: p.gender_code || "",
     customer_code: (p.customer as { display_name?: string | null } | null | undefined)?.display_name || stripExcelPrefix(p.customer?.code) || "",
     sales_rep: p.sales_rep?.display_name || "",
-    status: statusLabel(p.status),
+    line_status: statusSummaryText(p),
     request_date: p.request_date ? fmtDateDisplay(p.request_date) : "",
     due_date: p.due_date ? fmtDateDisplay(p.due_date) : "",
     projected_delivery_date: p.projected_delivery_date ? fmtDateDisplay(p.projected_delivery_date) : "",
@@ -151,7 +158,7 @@ export default function ProjectListView() {
               <Th>Gender</Th>
               <Th>Customer</Th>
               <Th>Sales Rep</Th>
-              <Th>Status</Th>
+              <Th>Line Status</Th>
               <Th>Due</Th>
               <Th>Created</Th>
               <Th></Th>
@@ -166,7 +173,6 @@ export default function ProjectListView() {
               </td></tr>
             )}
             {visible.map((p) => {
-              const sc = statusColor(p.status);
               return (
                 <tr
                   key={p.id}
@@ -183,11 +189,7 @@ export default function ProjectListView() {
                   <Td>{p.gender_code || "—"}</Td>
                   <Td>{(p.customer as { display_name?: string | null } | null | undefined)?.display_name || stripExcelPrefix(p.customer?.code) || "—"}</Td>
                   <Td>{p.sales_rep?.display_name || "—"}</Td>
-                  <Td>
-                    <span style={{ background: sc.bg, color: sc.fg, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                      {statusLabel(p.status)}
-                    </span>
-                  </Td>
+                  <Td><StatusBreakdown counts={p._status_counts} /></Td>
                   <Td>{p.due_date ? fmtDateDisplay(p.due_date) : "—"}</Td>
                   <Td>{p.created_at ? fmtDateDisplay(p.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
@@ -288,4 +290,43 @@ function rowBtn(color: string): React.CSSProperties {
     background: "transparent", color, border: `1px solid ${color}`,
     padding: "3px 10px", borderRadius: 3, cursor: "pointer", fontSize: 11, marginRight: 4,
   };
+}
+
+type StatusCounts = CostingProject["_status_counts"];
+
+// Per-project line-status breakdown — a chip per non-zero status showing
+// "<count>/<total>" (e.g. 1/5 Awarded · 4/5 Draft), colored by status.
+function StatusBreakdown({ counts }: { counts: StatusCounts }) {
+  if (!counts || counts.total === 0) {
+    return <span style={{ color: "#64748B", fontSize: 11 }}>— no lines —</span>;
+  }
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+      {LINE_STATUSES.filter((s) => (counts[s] || 0) > 0).map((s) => {
+        const sc = stageColor(s);
+        return (
+          <span
+            key={s}
+            title={`${stageLabel(s)}: ${counts[s]} of ${counts.total} line${counts.total === 1 ? "" : "s"}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              background: sc.bg, color: sc.fg, border: `1px solid ${sc.bar}`,
+              borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 700,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {stageIcon(s)} {counts[s]}/{counts.total} {stageLabel(s)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function statusSummaryText(p: CostingProject): string {
+  const c = p._status_counts;
+  if (!c || c.total === 0) return "no lines";
+  return LINE_STATUSES.filter((s) => (c[s] || 0) > 0)
+    .map((s) => `${c[s]}/${c.total} ${stageLabel(s)}`)
+    .join(", ");
 }

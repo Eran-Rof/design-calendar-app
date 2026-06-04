@@ -9,6 +9,11 @@ export type CostingStatus =
   | "closed"
   | "cancelled";
 
+// Per-line status. Manual/stored values are draft|closed (user-settable);
+// on_rfq + awarded are derived auto-states layered on top in the app.
+export type CostingLineStatus = "draft" | "closed";
+export type CostingLineEffectiveStatus = "draft" | "on_rfq" | "awarded" | "closed";
+
 export type CostingQuoteStatus =
   | "pending"
   | "received"
@@ -44,6 +49,9 @@ export interface CostingProject {
    *  matches /DDP/i against this to hide cost-component cols + rename Tgt Cost. */
   payment_terms_name: string | null;
   grid_state: Record<string, unknown>;
+  /** Per-line status breakdown from the projects-list GET (status is per line
+   *  now). Drives the list's status column + tab counts. */
+  _status_counts?: { draft: number; on_rfq: number; awarded: number; closed: number; total: number };
   user_id: string | null;
   created_at: string;
   updated_at: string;
@@ -99,6 +107,11 @@ export interface CostingLine {
   landed_cost: number | null;
   margin_pct: number | null;
   selected_vendor_quote_id: string | null;
+  /** Manual per-line status: 'draft' (default) or 'closed'. The on_rfq +
+   *  awarded states are derived (see _on_rfq + selected_vendor_quote_id). */
+  status: CostingLineStatus | null;
+  /** Derived (read-only, from the lines GET): the line is on a generated RFQ. */
+  _on_rfq?: boolean;
   ly_qty: number | null;
   ly_unit_cost: number | null;
   ly_total_margin: number | null;
