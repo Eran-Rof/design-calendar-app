@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -62,9 +63,9 @@ export default function InternalPreferred() {
   useEffect(() => { void load(); }, []);
 
   async function remove(vendorId: string, prefId: string) {
-    if (!confirm("Remove this preferred entry?")) return;
+    if (!(await confirmDialog("Remove this preferred entry?"))) return;
     const r = await fetch(`/api/internal/vendors/${vendorId}/preferred/${prefId}`, { method: "DELETE" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -73,7 +74,7 @@ export default function InternalPreferred() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category, rank: newRank, set_by: "internal" }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load();
   }
 
@@ -178,7 +179,7 @@ function AddModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   }, []);
 
   async function submit() {
-    if (!vendorId || !category.trim()) { alert("Vendor and category required."); return; }
+    if (!vendorId || !category.trim()) { notify("Vendor and category required.", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch(`/api/internal/vendors/${vendorId}/preferred`, {
@@ -188,7 +189,7 @@ function AddModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
       if (!r.ok) throw new Error(await r.text());
       onSaved();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
     } finally { setSaving(false); }
   }
 
@@ -225,7 +226,7 @@ function SuggestModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
 
   async function run() {
-    if (!category.trim()) { alert("Category required."); return; }
+    if (!category.trim()) { notify("Category required.", "error"); return; }
     setLoading(true);
     try {
       const params = new URLSearchParams({ category: category.trim() });
@@ -235,7 +236,7 @@ function SuggestModal({ onClose }: { onClose: () => void }) {
       const data = await r.json() as { suggestions: Suggestion[] };
       setSuggestions(data.suggestions);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), "error");
     } finally { setLoading(false); }
   }
 

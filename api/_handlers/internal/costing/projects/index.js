@@ -50,6 +50,66 @@ export default async function handler(req, res) {
 
     const { data, error } = await q.order("created_at", { ascending: false }).range(0, 999);
     if (error) return res.status(500).json({ error: error.message });
+
+    // Enrich each project's joined customer with ip_customer_master.name so
+    // the projects-list customer column shows the friendly name. Bulk lookup
+    // by customer_code; 100% coverage of EXCEL:* codes today.
+    const codes = Array.from(new Set(
+      (data || []).map((p) => p.customer?.code).filter((c) => typeof c === "string" && c.length > 0),
+    ));
+    if (codes.length > 0) {
+      try {
+        const { data: ipcm } = await admin.from("ip_customer_master")
+          .select("customer_code, name")
+          .in("customer_code", codes);
+        const nameByCode = new Map();
+        for (const r of ipcm || []) {
+          if (r.customer_code && r.name) nameByCode.set(r.customer_code, r.name);
+        }
+        for (const p of data || []) {
+          if (p.customer?.code) {
+            const friendly = nameByCode.get(p.customer.code);
+            if (friendly) p.customer.display_name = friendly;
+          }
+        }
+      } catch (e) {
+        console.warn("[costing/projects] ip_customer_master enrichment failed:", e.message);
+      }
+    }
+    // Per-project line-status breakdown (status is per LINE now). Effective
+    // status precedence: closed > awarded > on_rfq > draft. Attached as
+    // `_status_counts` so the list shows "1/5 awarded, 4/5 draft" per project.
+    const projectIds = (data || []).map((p) => p.id);
+    if (projectIds.length > 0) {
+      try {
+        const { data: lineRows } = await admin.from("costing_lines")
+          .select("id, project_id, status, selected_vendor_quote_id")
+          .in("project_id", projectIds).range(0, 9999);
+        const lineIds = (lineRows || []).map((l) => l.id);
+        const onRfq = new Set();
+        if (lineIds.length > 0) {
+          const { data: rli } = await admin.from("rfq_line_items")
+            .select("costing_line_id").in("costing_line_id", lineIds);
+          for (const r of rli || []) if (r.costing_line_id) onRfq.add(r.costing_line_id);
+        }
+        const counts = new Map(); // project_id → { draft, on_rfq, awarded, closed, total }
+        for (const l of lineRows || []) {
+          let eff;
+          if (l.status === "closed") eff = "closed";
+          else if (l.selected_vendor_quote_id) eff = "awarded";
+          else if (onRfq.has(l.id)) eff = "on_rfq";
+          else eff = "draft";
+          let c = counts.get(l.project_id);
+          if (!c) { c = { draft: 0, on_rfq: 0, awarded: 0, closed: 0, total: 0 }; counts.set(l.project_id, c); }
+          c[eff]++; c.total++;
+        }
+        for (const p of data || []) {
+          p._status_counts = counts.get(p.id) || { draft: 0, on_rfq: 0, awarded: 0, closed: 0, total: 0 };
+        }
+      } catch (e) {
+        console.warn("[costing/projects] line-status breakdown failed:", e.message);
+      }
+    }
     return res.status(200).json(data || []);
   }
 
@@ -61,6 +121,7 @@ export default async function handler(req, res) {
       sales_rep_id, customer_id,
       request_date, due_date, projected_delivery_date,
       notes, status, grid_state, user_id, created_by_user_id,
+      payment_terms_id, payment_terms_name,
     } = body || {};
 
     if (!project_name || !String(project_name).trim()) {
@@ -97,6 +158,8 @@ export default async function handler(req, res) {
       grid_state: grid_state || {},
       user_id: user_id || null,
       created_by_user_id: created_by_user_id || null,
+      payment_terms_id: payment_terms_id || null,
+      payment_terms_name: payment_terms_name || null,
     };
 
     const { data, error } = await admin.from("costing_projects").insert(insert).select("*").single();

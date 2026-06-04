@@ -9,17 +9,21 @@
 //          ?limit=N                — default 200, max 500
 //        tax_exempt_certificate is OMITTED from list responses (PII-adjacent).
 // POST — create a customer. Body: { name (required), code, customer_type,
-//        country, payment_terms, default_currency, tax_exempt, credit_limit,
-//        status, billing_address, shipping_address }
-//        tax_exempt_certificate is rejected — must go through dedicated PII
-//        endpoint (not built).
+//        country, payment_terms, default_currency, tax_exempt,
+//        tax_exempt_certificate, credit_limit, credit_limit_cents,
+//        status, billing_address, shipping_address,
+//        contact_name, contact_title, email, phone, website, wechat_id,
+//        default_gl_ar_account_id, default_gl_revenue_account_id }
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
 import { createClient } from "@supabase/supabase-js";
+import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 
 export const config = { maxDuration: 15 };
 
+// Chunk M — customer codes are server-generated + read-only (operator item 14).
+const CODE_PREFIX = "CUST-";
 const CUSTOMER_TYPES = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
@@ -28,9 +32,26 @@ const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
   "customer_tier", "country", "channel_id", "customer_type",
   "default_gl_ar_account_id", "default_gl_revenue_account_id",
+  // P16 — SO routing defaults (brand/channel prefill + per-line revenue routing).
+  "default_brand_id", "default_channel_id",
+  "default_revenue_account_id", "default_returns_account_id", "default_cogs_account_id",
   "payment_terms", "payment_terms_id",
   "default_currency", "tax_exempt", "credit_limit",
   "credit_limit_cents", "credit_limit_currency",
+  // Chunk K — customer factoring (operator item 17).
+  "is_factored", "factor_id",
+  // P4-family sales-rep / default / GL-routing columns.
+  "sales_rep_1_id",
+  "sales_rep_1_commission_pct",
+  "sales_rep_2_id",
+  "sales_rep_2_commission_pct",
+  "default_brand_id",
+  "default_channel_id",
+  "default_revenue_account_id",
+  "default_returns_account_id",
+  "default_cogs_account_id",
+  "default_ar_account_id",
+  "price_list_id",
   "status", "billing_address", "shipping_address", "attributes",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
@@ -109,10 +130,11 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const row = {
+    // Chunk M — `code` is always server-generated; any client-supplied code is ignored.
+    const buildRow = (code) => ({
       entity_id: entityId,
       name: v.data.name,
-      code: v.data.code || null,
+      code,
       customer_type: v.data.customer_type || "wholesale",
       country: v.data.country || null,
       payment_terms: v.data.payment_terms || null,
@@ -122,20 +144,41 @@ export default async function handler(req, res) {
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
       credit_limit_cents: v.data.credit_limit_cents ?? null,
       credit_limit_currency: v.data.credit_limit_currency ?? null,
+      // Chunk K — customer factoring (operator item 17).
+      is_factored: v.data.is_factored === true,
+      factor_id: v.data.factor_id || null,
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
-    };
+      default_gl_ar_account_id: v.data.default_gl_ar_account_id || null,
+      default_gl_revenue_account_id: v.data.default_gl_revenue_account_id || null,
+      // P4-family sales-rep / default / GL-routing columns.
+      sales_rep_1_id: v.data.sales_rep_1_id || null,
+      sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
+      sales_rep_2_id: v.data.sales_rep_2_id || null,
+      sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      default_brand_id: v.data.default_brand_id || null,
+      default_channel_id: v.data.default_channel_id || null,
+      default_revenue_account_id: v.data.default_revenue_account_id || null,
+      default_returns_account_id: v.data.default_returns_account_id || null,
+      default_cogs_account_id: v.data.default_cogs_account_id || null,
+      default_ar_account_id: v.data.default_ar_account_id || null,
+      contact_name: v.data.contact_name || null,
+      contact_title: v.data.contact_title || null,
+      email: v.data.email || null,
+      phone: v.data.phone || null,
+      website: v.data.website || null,
+      wechat_id: v.data.wechat_id || null,
+    });
 
-    const { data, error } = await admin
-      .from("customers")
-      .insert(row)
-      .select(LIST_COLUMNS)
-      .single();
+    const { data, error } = await insertWithAutoCode(
+      admin, "customers", "code", CODE_PREFIX, buildRow,
+      { entityId, select: LIST_COLUMNS },
+    );
 
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `code '${row.code}' already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique customer code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -150,12 +193,12 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  // PII rejection — tax_exempt_certificate is not accepted via this endpoint.
-  if ("tax_exempt_certificate" in body) {
-    return { error: "tax_exempt_certificate must be set via the dedicated PII endpoint (not this admin route)" };
-  }
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
+  }
+  // tax_exempt_certificate is PII-workflow-only — never accepted via this endpoint.
+  if (body.tax_exempt_certificate != null && String(body.tax_exempt_certificate).trim() !== "") {
+    return { error: "tax_exempt_certificate must be set via the dedicated PII workflow, not this endpoint" };
   }
   const out = { ...body };
   out.name = String(out.name).trim();
@@ -220,6 +263,15 @@ export function validateInsert(body) {
   if (out.tax_exempt != null && typeof out.tax_exempt !== "boolean") {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
   }
+  // Chunk K — customer factoring (operator item 17).
+  if (out.is_factored != null && typeof out.is_factored !== "boolean") {
+    out.is_factored = out.is_factored === "true" || out.is_factored === 1;
+  }
+  if (out.factor_id === "" || out.factor_id == null) {
+    out.factor_id = null;
+  } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.factor_id))) {
+    return { error: "factor_id must be a valid UUID" };
+  }
   // P3-9: payment_terms_id structured FK. Validate UUID when provided.
   if (out.payment_terms_id != null && out.payment_terms_id !== "") {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(out.payment_terms_id))) {
@@ -227,6 +279,38 @@ export function validateInsert(body) {
     }
   } else {
     out.payment_terms_id = null;
+  }
+  // UUID FK fields — coerce empty string to null.
+  for (const k of ["default_gl_ar_account_id", "default_gl_revenue_account_id"]) {
+    if (out[k] === "" || out[k] == null) out[k] = null;
+  }
+  // P4-family UUID FK fields — coerce empty string to null + validate UUID.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const k of [
+    "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
+    "default_revenue_account_id", "default_returns_account_id",
+    "default_cogs_account_id", "default_ar_account_id",
+  ]) {
+    if (out[k] === "" || out[k] == null) {
+      out[k] = null;
+    } else if (!UUID_RE.test(String(out[k]))) {
+      return { error: `${k} must be a valid UUID` };
+    }
+  }
+  // P4-family commission percentages — numeric, 0..100.
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+    if (out[k] === "" || out[k] == null) {
+      out[k] = null;
+    } else {
+      const n = typeof out[k] === "number" ? out[k] : parseFloat(out[k]);
+      if (!Number.isFinite(n)) return { error: `${k} must be a number` };
+      if (n < 0 || n > 100) return { error: `${k} must be between 0 and 100` };
+      out[k] = n;
+    }
+  }
+  // Free-text contact fields — coerce empty string to null.
+  for (const k of ["contact_name", "contact_title", "email", "phone", "website", "wechat_id"]) {
+    if (out[k] === "") out[k] = null;
   }
   return { data: out };
 }

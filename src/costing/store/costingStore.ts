@@ -8,6 +8,7 @@ import { create } from "zustand";
 import * as api from "../services/costingApi";
 import { fetchLyComp, fetchT3Comp } from "../services/compService";
 import { sbLoad as sbLoadSvc, sbSave as sbSaveSvc } from "../../store/supabaseService";
+import { notify } from "../../shared/ui/warn";
 import type {
   CostingProject,
   CostingLine,
@@ -39,6 +40,21 @@ const MASTER_KEY: Record<MasterKind, string> = {
 // have to type these in by hand. They can edit/delete from Settings later.
 const DEFAULT_COMPLIANCE_CODES = ["CPSIA", "PROP65", "FLAMMABILITY", "LABEL_FIBER_CONTENT", "COO"];
 
+// Default bottom-closure options seeded the first time the closure master
+// loads empty, so the grid dropdown isn't blank for new operators. Same
+// auto-seed-when-empty pattern as DEFAULT_COMPLIANCE_CODES; the SQL seed
+// migration (20260713210000_costing_closure_seed.sql) also lands these in
+// prod, so this client seed only fires for entities the migration hasn't
+// touched. Idempotent: only inserts names not already present.
+const DEFAULT_CLOSURES = [
+  "Fixed waist with adjuster",
+  "Elastic waist",
+  "Side zip closure",
+  "Snap button closure",
+  "Button closure",
+  "Drawcord",
+];
+
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `m_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
 
 type State = {
@@ -52,8 +68,10 @@ type State = {
   // Null = no filter (show all lines). Stage names are derived in usePlanFlow.
   stageFilter: string | null;
   setStageFilter: (stage: string | null) => void;
-  // In-app toast notice (replaces window.alert across the costing UI; same
-  // visual language as App.tsx's saveErr toast).
+  // In-app toast notice. Now routed through the canonical Tangerine warn
+  // surface (src/shared/ui/warn → notify) so every costing toast matches the
+  // ATS / PO-WIP layout + app colors. `notice`/`clearNotice` are kept as inert
+  // shims for backward compatibility; the toast itself renders via <WarnHost/>.
   notice: { message: string; level: "error" | "info" } | null;
   setNotice: (message: string, level?: "error" | "info") => void;
   clearNotice: () => void;
@@ -104,6 +122,7 @@ type State = {
   masters: Record<MasterKind, MasterEntry[]>;
   loadMasters: () => Promise<void>;
   addMaster: (kind: MasterKind, name: string) => Promise<void>;
+  updateMaster: (kind: MasterKind, id: string, name: string) => Promise<void>;
   deleteMaster: (kind: MasterKind, id: string) => Promise<void>;
 
   // Operator-only freeform color + vendor masters. Stored server-side in
@@ -151,8 +170,10 @@ export const useCostingStore = create<State>((set, get) => ({
   stageFilter: null,
   setStageFilter(stage) { set({ stageFilter: stage }); },
   notice: null,
-  setNotice(message, level = "error") { set({ notice: { message, level } }); },
-  clearNotice() { set({ notice: null }); },
+  // Route through the canonical warn surface so the toast matches ATS / PO-WIP.
+  // `level` ("error" | "info") maps 1:1 onto notify()'s ToastKind.
+  setNotice(message, level = "error") { notify(message, level); },
+  clearNotice() { /* no-op: WarnHost owns toast dismissal/auto-hide */ },
   loading: false,
   error: null,
 
@@ -587,10 +608,25 @@ export const useCostingStore = create<State>((set, get) => ({
         complianceList = DEFAULT_COMPLIANCE_CODES.map((name) => ({ id: newId(), name }));
         try { await sbSaveSvc(MASTER_KEY.compliance, complianceList); } catch { /* non-blocking */ }
       }
+      // Closure master — idempotent seed of the standard bottom-closure
+      // options. Merges any missing DEFAULT_CLOSURES into the existing list
+      // (case-insensitive on name) so it tops up rather than overwrites; only
+      // persists when something was actually added. Mirrors the SQL seed
+      // migration so the dropdown is never blank, regardless of which side
+      // (client or migration) reached the entity first.
+      let closureList: MasterEntry[] = Array.isArray(closure) ? (closure as MasterEntry[]) : [];
+      {
+        const have = new Set(closureList.map((m) => m.name.toLowerCase()));
+        const missing = DEFAULT_CLOSURES.filter((n) => !have.has(n.toLowerCase()));
+        if (missing.length > 0) {
+          closureList = [...closureList, ...missing.map((name) => ({ id: newId(), name }))];
+          try { await sbSaveSvc(MASTER_KEY.closure, closureList); } catch { /* non-blocking */ }
+        }
+      }
       set({
         masters: {
           fit:        Array.isArray(fit)     ? (fit as MasterEntry[])     : [],
-          closure:    Array.isArray(closure) ? (closure as MasterEntry[]) : [],
+          closure:    closureList,
           waist:      Array.isArray(waist)   ? (waist as MasterEntry[])   : [],
           comment:    Array.isArray(comment) ? (comment as MasterEntry[]) : [],
           compliance: complianceList,
@@ -613,6 +649,19 @@ export const useCostingStore = create<State>((set, get) => ({
     set((s) => ({ masters: { ...s.masters, [kind]: next } }));
     try { await sbSaveSvc(MASTER_KEY[kind], next); }
     catch (e) { set({ error: `addMaster: ${(e as Error).message}` }); }
+  },
+
+  async updateMaster(kind, id, name) {
+    const clean = name.trim();
+    if (!clean) return;
+    const current = get().masters[kind] || [];
+    // Block renaming onto a different entry's name (case-insensitive); a
+    // no-op rename onto itself is allowed.
+    if (current.some((m) => m.id !== id && m.name.toLowerCase() === clean.toLowerCase())) return;
+    const next = current.map((m) => (m.id === id ? { ...m, name: clean } : m));
+    set((s) => ({ masters: { ...s.masters, [kind]: next } }));
+    try { await sbSaveSvc(MASTER_KEY[kind], next); }
+    catch (e) { set({ error: `updateMaster: ${(e as Error).message}` }); }
   },
 
   async deleteMaster(kind, id) {

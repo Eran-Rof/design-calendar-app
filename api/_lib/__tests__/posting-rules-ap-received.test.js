@@ -29,6 +29,34 @@ function baseEvent(extra = {}) {
   };
 }
 
+describe("apInvoiceReceived — vendor credit memo (#3B expense offset)", () => {
+  it("reverses DR/CR: credits the expense (offset), debits AP", () => {
+    const r = apInvoiceReceived(baseEvent({
+      invoice_kind: "vendor_credit_memo",
+      amount: "250.00",
+      expense_account_id: EXP,
+    }));
+    expect(r.accrual.journal_type).toBe("ap_credit_memo");
+    expect(r.accrual.lines).toHaveLength(2);
+    // expense line is now a CREDIT (offsetting the expense)
+    expect(r.accrual.lines[0].account_id).toBe(EXP);
+    expect(r.accrual.lines[0].credit).toBe("250.00");
+    expect(r.accrual.lines[0].debit).toBe("0");
+    // AP line is now a DEBIT (reduces payable / vendor receivable)
+    expect(r.accrual.lines[1].account_id).toBe(AP);
+    expect(r.accrual.lines[1].debit).toBe("250.00");
+    expect(r.accrual.lines[1].credit).toBe("0");
+  });
+
+  it("drops queued inventory layers on a credit memo (no FIFO layer)", () => {
+    const r = apInvoiceReceived(baseEvent({
+      invoice_kind: "vendor_credit_memo",
+      lines: [{ amount: "100.00", inventory_item_id: ITEM, inventory_account_id: INV_ACC, qty: "10", unit_cost_cents: "1000" }],
+    }));
+    expect(r.inventoryLayers).toBeUndefined();
+  });
+});
+
 describe("apInvoiceReceived — single-amount path", () => {
   it("produces accrual-only JE with DR expense / CR AP", () => {
     const r = apInvoiceReceived(baseEvent({ amount: "1000.00", expense_account_id: EXP }));

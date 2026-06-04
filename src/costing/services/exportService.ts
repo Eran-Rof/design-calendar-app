@@ -62,7 +62,9 @@ export function buildExportRows(
       style_name:    line.style_name || "",
       description:   line.description || "",
       size_scale:    line.size_scale_label || "",
-      fabric:        line.fabric_code || "",
+      fabric:        Array.isArray(line.fabric_codes) && line.fabric_codes.length > 0
+                       ? line.fabric_codes.join(", ")
+                       : (line.fabric_code || ""),
       fit:           line.fit || "",
       color:         line.color || "",
       bottom_closure: line.bottom_closure || "",

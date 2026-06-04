@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify } from "../shared/ui/warn";
 
 interface Branding {
   entity_id?: string;
@@ -55,7 +56,7 @@ export default function InternalEntityBranding({ entityId, onClose, onSaved }: {
       });
       if (!r.ok) throw new Error(await r.text());
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

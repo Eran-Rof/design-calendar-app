@@ -40,7 +40,8 @@ export type SearchEntityType =
   | "gl_account"
   | "case"
   | "sales_rep"
-  | "bank_transaction";
+  | "bank_transaction"
+  | "brand";
 
 export interface SearchResult {
   entity_type: SearchEntityType | string;
@@ -72,6 +73,7 @@ const BADGES: Record<string, { label: string; bg: string; fg: string }> = {
   case:             { label: "case",     bg: "#5c0d0d", fg: "#fca5a5" },
   sales_rep:        { label: "rep",      bg: "#0d5c5c", fg: "#67e8f9" },
   bank_transaction: { label: "bank",     bg: "#0d5c2c", fg: "#86efac" },
+  brand:            { label: "brand",    bg: "#4a2c0d", fg: "#fcd34d" },
 };
 
 const DEFAULT_BADGE = { label: "result", bg: "#334155", fg: "#cbd5e1" };
@@ -95,6 +97,7 @@ const PILL_ORDER: { value: string; label: string }[] = [
   { value: "case",             label: "Case" },
   { value: "sales_rep",        label: "Rep" },
   { value: "bank_transaction", label: "Bank" },
+  { value: "brand",            label: "Brand" },
 ];
 
 // ─── Recents (localStorage-backed) ──────────────────────────────────────────
@@ -179,8 +182,9 @@ export function routeFor(result: SearchResult): string {
     case "sku":              return `/tanda?view=skus&open=${id}`;
     case "gl_account":       return `/tanda?view=coa&open=${id}`;
     case "case":             return `/tanda?view=cases&open=${id}`;
-    case "sales_rep":        return `/tanda?view=sales-reps&open=${id}`;
+    case "sales_rep":        return `/tangerine?module=employees`;
     case "bank_transaction": return `/tanda?view=bank-transactions&open=${id}`;
+    case "brand":            return `/tangerine?module=pim_catalog`;
     default:                 return `/tanda`;
   }
 }
@@ -606,7 +610,7 @@ export function GlobalSearchPalette({ open, onClose, onToggle, navigate, openInN
                 lineHeight: 1.5,
               }}
             >
-              Type to search across customers, vendors, invoices, POs, styles, SKUs, GL accounts, cases, sales reps, bank transactions.
+              Type to search across customers, vendors, invoices, POs, styles, SKUs, brands, GL accounts, cases, sales reps, bank transactions.
             </div>
           )}
 

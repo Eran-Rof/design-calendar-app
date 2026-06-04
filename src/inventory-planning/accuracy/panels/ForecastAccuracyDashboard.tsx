@@ -33,10 +33,10 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
     for (const r of filtered) {
       let key: string, label: string;
       switch (groupBy) {
-        case "sku": key = r.sku_id; label = skuCodeById.get(r.sku_id) ?? r.sku_id.slice(0, 8); break;
+        case "sku": key = r.sku_id; label = skuCodeById.get(r.sku_id) ?? "(unknown sku)"; break;
         case "category": key = r.category_id ?? "(none)"; label = categoryNameById.get(r.category_id ?? "") ?? "—"; break;
-        case "customer": key = r.customer_id ?? "(none)"; label = (r.customer_id ? customerNameById.get(r.customer_id) ?? r.customer_id.slice(0, 8) : "—"); break;
-        case "channel": key = r.channel_id ?? "(none)"; label = (r.channel_id ? channelNameById.get(r.channel_id) ?? r.channel_id.slice(0, 8) : "—"); break;
+        case "customer": key = r.customer_id ?? "(none)"; label = (r.customer_id ? customerNameById.get(r.customer_id) ?? "—" : "—"); break;
+        case "channel": key = r.channel_id ?? "(none)"; label = (r.channel_id ? channelNameById.get(r.channel_id) ?? "—" : "—"); break;
         case "method": key = r.forecast_method ?? "(none)"; label = r.forecast_method ? (METHOD_LABEL[r.forecast_method] ?? r.forecast_method) : "—"; break;
       }
       const bucket = m.get(key) ?? { label, rows: [] };

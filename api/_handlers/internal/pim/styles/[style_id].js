@@ -18,6 +18,34 @@ export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const IMAGE_BUCKET = "pim-images";
+const SIGNED_URL_TTL_S = 3600;
+
+/**
+ * Attach signed URLs (thumb/web/print) to each product_images row. The stored
+ * storage_path* values are bucket-relative; the UI needs real URLs to render.
+ * Best-effort: a path that fails to sign yields null for that derivative
+ * rather than failing the whole composite read.
+ */
+export async function signImageRows(admin, rows) {
+  return Promise.all((rows || []).map(async (row) => {
+    const paths = {
+      thumb: row.storage_path_thumb,
+      web: row.storage_path_web,
+      print: row.storage_path_print,
+    };
+    const signed = { thumb: null, web: null, print: null };
+    await Promise.all(Object.keys(paths).map(async (k) => {
+      if (!paths[k]) return;
+      const { data, error } = await admin.storage
+        .from(IMAGE_BUCKET)
+        .createSignedUrl(paths[k], SIGNED_URL_TTL_S);
+      if (!error && data?.signedUrl) signed[k] = data.signedUrl;
+    }));
+    return { ...row, signed_urls: signed };
+  }));
+}
+
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -86,7 +114,7 @@ export default async function handler(req, res) {
 
   const { data: style, error: sErr } = await admin
     .from("style_master")
-    .select("id, entity_id, style_code, style_name, category_id, gender_code, lifecycle_status, season, design_year")
+    .select("id, entity_id, style_code, style_name, category_id, gender_code, lifecycle_status, season, design_year, shopify_product_id")
     .eq("id", style_id)
     .maybeSingle();
   if (sErr) return res.status(500).json({ error: sErr.message });
@@ -121,10 +149,16 @@ export default async function handler(req, res) {
     if (r.error) return res.status(500).json({ error: r.error.message });
   }
 
+  // product_images.storage_path* are bucket-relative paths, not URLs. Sign
+  // each derivative so the client can render it directly. Without this the UI
+  // would use the raw bucket path as an <img src> (resolves to a 404 against
+  // the page origin) — which is why no PIM image ever displayed.
+  const images = await signImageRows(admin, imagesRes.data || []);
+
   return res.status(200).json({
     style,
     attributes: mergeAttributesWithDefs(attrsRes.data || [], defsRes.data || [], style.category_id),
     descriptions: descsRes.data || [],
-    images: imagesRes.data || [],
+    images,
   });
 }

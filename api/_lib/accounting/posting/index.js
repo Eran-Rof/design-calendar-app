@@ -27,6 +27,9 @@ import { arInvoiceSent } from "./rules/arInvoiceSent.js";
 import { arPaymentReceived } from "./rules/arPaymentReceived.js";
 import { inventoryReceipt } from "./rules/inventoryReceipt.js";
 import { inventoryAdjustment } from "./rules/inventoryAdjustment.js";
+import { apInvoiceGrirMatch } from "./rules/apInvoiceGrirMatch.js";
+import { landedCostRevaluation } from "./rules/landedCostRevaluation.js";
+import { qcVendorCredit } from "./rules/qcVendorCredit.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -52,6 +55,9 @@ const RULE_BY_KIND = {
   ar_payment_received:   arPaymentReceived,
   inventory_receipt:     inventoryReceipt,
   inventory_adjustment:  inventoryAdjustment,
+  ap_invoice_grir_match: apInvoiceGrirMatch,
+  landed_cost_revaluation: landedCostRevaluation,
+  qc_vendor_credit:      qcVendorCredit,
 };
 
 export class PostingError extends Error {
@@ -157,6 +163,7 @@ export async function postEvent(supabase, event) {
         qty: plan.qty,
         consumer_kind: plan.consumer_kind,
         consumer_ref_id: plan.consumer_ref_id,
+        partition_id: plan.partition_id || null, // P15 — draw from the sale's brand pool (gated)
         user_id: event.created_by_user_id || null,
       });
       perEntryCogs.push(cogs_cents);
@@ -279,6 +286,7 @@ export async function postEvent(supabase, event) {
           source_kind: sourceKind,
           source_invoice_id: pending.source_invoice_id || null,
           source_adjustment_id: pending.source_adjustment_id || null,
+          partition_id: pending.partition_id || null, // P15 brand stock pool
           received_at: pending.received_at || null,
           notes: pending.notes || null,
           created_by_user_id: event.created_by_user_id ?? null,

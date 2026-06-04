@@ -64,9 +64,37 @@ export function applyPpkMultiplierToRow(row: ATSRow): ATSRow {
   };
 }
 
-export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"]): ATSRow[] {
+// Optional ship/cancel-date window applied ONLY to the `onOrder`
+// aggregate (the "On Order" column + totals + exports, which all read
+// row.onOrder). When set, a SO line counts toward onOrder only if its
+// internal date — the Xoro "Date to be Cancelled" (ship date is just a
+// parser fallback; see ats-parse.js) — falls within [start, end]
+// inclusive. Bounds are ISO YYYY-MM-DD so plain string comparison is
+// chronological. Leaving a bound null/"" makes that side unbounded.
+// The per-period projection columns (dateMap / freeMap / ATS) are
+// deliberately NOT windowed — only the headline On Order total is, so
+// the operator can reproduce a date-windowed Xoro "Open Orders" total
+// without disturbing the forward availability math. Undated SOs (empty
+// date key) fall outside any window and so drop from onOrder while a
+// window is active — matching a dated Xoro report.
+export interface SoDateWindow { start?: string | null; end?: string | null }
+
+export function computeRowsFromExcelData(data: ExcelData, dates: string[], poStores: string[] = ["All"], soStores: string[] = ["All"], soWindow?: SoDateWindow): ATSRow[] {
   const allPo = poStores.includes("All");
   const allSo = soStores.includes("All");
+  // Active only when at least one bound is a non-empty string.
+  const winStart = soWindow?.start || null;
+  const winEnd   = soWindow?.end || null;
+  const winActive = winStart !== null || winEnd !== null;
+  const inWindow = (date: string): boolean => {
+    // Undated SO lines (empty key) can't belong to any date window — an
+    // empty string sorts before every real date, so without this guard
+    // an end-only window would wrongly include them.
+    if (!date) return false;
+    if (winStart !== null && date < winStart) return false;
+    if (winEnd   !== null && date > winEnd)   return false;
+    return true;
+  };
 
   // Pre-index events by SKU::STORE → date → qty so each store row only gets its own events
   const poIdx: Record<string, Record<string, number>> = {};
@@ -158,9 +186,18 @@ export function computeRowsFromExcelData(data: ExcelData, dates: string[], poSto
     // Multiplied aggregates so onPO/onOrder land in eaches grain
     // alongside the per-date deltas. For bare-style rows mult=1 (no-op).
     const filteredOnOrder = Object.values(poDates).reduce((a, b) => a + b, 0) * mult;
-    const filteredOnCommitted = Object.values(soDates).reduce((a, b) => a + b, 0) * mult;
+    // When a SO date window is active, sum only the in-window SO buckets
+    // and DON'T fall back to the undated s.onOrder aggregate (that total
+    // can't be windowed). Without a window, behavior is unchanged: sum
+    // all SO buckets, falling back to the snapshot aggregate when the
+    // event-level data is absent.
+    const filteredOnCommitted = winActive
+      ? Object.entries(soDates).reduce((a, [d, q]) => a + (inWindow(d) ? q : 0), 0) * mult
+      : Object.values(soDates).reduce((a, b) => a + b, 0) * mult;
     const onPO = filteredOnOrder > 0 ? filteredOnOrder : (s.onPO || 0) * mult;
-    const onOrder = filteredOnCommitted > 0 ? filteredOnCommitted : (s.onOrder || 0) * mult;
+    const onOrder = winActive
+      ? filteredOnCommitted
+      : (filteredOnCommitted > 0 ? filteredOnCommitted : (s.onOrder || 0) * mult);
     // Cost grain matches qty grain: pack-grain rows have pack-priced
     // avgCost (divide by pack_size); bare-style rows are per-unit
     // already (mult=1, no division).

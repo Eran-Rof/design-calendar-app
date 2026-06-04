@@ -17,9 +17,13 @@ const EDITABLE_FIELDS = [
   "status",
   "submission_deadline",
   "delivery_required_by",
+  "request_date",
+  "due_date",
+  "projected_delivery_date",
   "estimated_quantity",
   "estimated_budget",
   "currency",
+  "payment_terms_id",
 ];
 
 function getId(req) {
@@ -70,12 +74,38 @@ export default async function handler(req, res) {
         .select("id, project_name, customer:customers(id, code, billing_address)")
         .eq("id", rfq.source_costing_project_id).maybeSingle();
       project = pr || null;
+      // Enrich the joined customer with ip_customer_master.name so the
+      // header strip can render the Xoro-friendly name ("Ross Procurement")
+      // instead of the raw "EXCEL:ROSSPROCUREMENT" code. Same source ATS uses.
+      if (project?.customer?.code) {
+        try {
+          const { data: ipcm } = await admin.from("ip_customer_master")
+            .select("name")
+            .eq("customer_code", project.customer.code)
+            .maybeSingle();
+          if (ipcm?.name) project.customer.display_name = ipcm.name;
+        } catch (e) {
+          console.warn("[costing/rfqs/:id] ip_customer_master enrichment failed:", e.message);
+        }
+      }
+    }
+
+    // Intended vendor: on a not-yet-sent draft there are no invitations, so
+    // surface the destined vendor (stamped at generation) for the header strip
+    // + the "Send to Vendor" confirmation label.
+    let intendedVendor = null;
+    if (rfq.intended_vendor_id) {
+      const { data: iv } = await admin.from("vendors")
+        .select("id, code, name, legal_name, country, default_currency")
+        .eq("id", rfq.intended_vendor_id).maybeSingle();
+      intendedVendor = iv || null;
     }
 
     return res.status(200).json({
       rfq,
       line_items: items || [],
       invitations: invitations || [],
+      intended_vendor: intendedVendor,
       source_project: project,
     });
   }

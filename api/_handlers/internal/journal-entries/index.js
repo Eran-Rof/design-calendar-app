@@ -13,6 +13,8 @@
 // Tangerine P1 Chunk 8c. Wraps Chunk 3's posting service from the accountant UI.
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope } from "../../../_lib/brandContext.js";
+import { expandJeLines } from "../../../_lib/glAllocation.js";
 import {
   extractActorFromRequest,
   setAuditSessionVars,
@@ -76,11 +78,14 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("journal_entries")
-      .select("id, entity_id, period_id, basis, journal_type, posting_date, source_module, source_table, source_id, source, description, status, posted_at, sibling_je_id, reversed_by_je_id, reverses_je_id, created_at")
+      .select("id, entity_id, period_id, basis, journal_type, posting_date, source_module, source_table, source_id, source, description, status, posted_at, sibling_je_id, reversed_by_je_id, reverses_je_id, created_at, posted_by_user_id, created_by_user_id")
       .eq("entity_id", entityId)
       .order("posting_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
+
+    // P15 C3 — brand scoping (no-op unless BRAND_SCOPE_MODE=enforce + a brand selected).
+    query = applyBrandScope(query, req);
 
     if (!includeDrafts) query = query.eq("status", "posted");
     if (periodId)       query = query.eq("period_id", periodId);
@@ -91,7 +96,31 @@ export default async function handler(req, res) {
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+
+    // Resolve who posted / created each JE to a display name so the detail
+    // modal can show "Posted at <time> by <name>". v_audit_user_resolved maps
+    // auth.users → employees.display_name (email fallback). Best-effort: on any
+    // failure the rows still return, just without the *_by_name fields.
+    const rows = data || [];
+    const userIds = Array.from(new Set(
+      rows.flatMap((r) => [r.posted_by_user_id, r.created_by_user_id]).filter(Boolean),
+    ));
+    if (userIds.length > 0) {
+      try {
+        const { data: users } = await admin
+          .from("v_audit_user_resolved")
+          .select("user_id, display_name, email")
+          .in("user_id", userIds);
+        const nameById = Object.fromEntries(
+          (users || []).map((u) => [u.user_id, u.display_name || u.email || null]),
+        );
+        for (const r of rows) {
+          r.posted_by_name = r.posted_by_user_id ? (nameById[r.posted_by_user_id] || null) : null;
+          r.created_by_name = r.created_by_user_id ? (nameById[r.created_by_user_id] || null) : null;
+        }
+      } catch { /* non-fatal — omit names */ }
+    }
+    return res.status(200).json(rows);
   }
 
   if (req.method === "POST") {
@@ -138,6 +167,11 @@ export default async function handler(req, res) {
       );
     }
 
+    // M50 C — split any brand-rollup account line into its brand-child accounts
+    // by the allocation %. No-op unless BRAND_SCOPE_MODE=enforce. Stays balanced
+    // (each split foots to the original) so the RPC posts unchanged.
+    const postLines = await expandJeLines(admin, v.data.lines);
+
     // Build the payload(s) — BOTH expands to two RPC calls; single-basis is one.
     const bases = v.data.basis === "BOTH" ? ["ACCRUAL", "CASH"] : [v.data.basis];
     const journalType = v.data.journal_type || "manual";
@@ -154,7 +188,7 @@ export default async function handler(req, res) {
       description,
       sibling_je_id: null,
       created_by_user_id: null,
-      lines: v.data.lines,
+      lines: postLines,
     });
 
     const jeIds = [];

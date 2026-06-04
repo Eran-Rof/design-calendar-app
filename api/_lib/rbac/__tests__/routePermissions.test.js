@@ -32,12 +32,32 @@ describe("routePermissionFor", () => {
     expect(routePermissionFor("/api/internal/shopify/x", "POST")).toBeNull();    // shopify read/export only
   });
 
+  it("gates the RBAC admin surface but NOT personalization", () => {
+    // The admin matrix/role/override surface requires users_access.
+    expect(routePermissionFor("/api/internal/users-access", "GET")).toEqual({ module: "users_access", action: "read" });
+    expect(routePermissionFor("/api/internal/users-access", "PUT")).toEqual({ module: "users_access", action: "write" });
+    expect(routePermissionFor("/api/internal/users-access/override", "PUT")).toEqual({ module: "users_access", action: "write" });
+    // /users/me/* is each user's OWN prefs — must stay UNMAPPED so a viewer can
+    // still save their column prefs / favorites once enforcement is on.
+    expect(routePermissionFor("/api/internal/users/me/preferences", "GET")).toBeNull();
+    expect(routePermissionFor("/api/internal/users/me/preferences/favorites", "PUT")).toBeNull();
+    expect(routePermissionFor("/api/internal/users/me/entity-switch", "PUT")).toBeNull();
+  });
+
   it("skips non-internal, cron, vendor, and uncatalogued paths", () => {
     expect(routePermissionFor("/api/vendor/rfqs", "GET")).toBeNull();
     expect(routePermissionFor("/api/cron/xoro-mirror-nightly", "GET")).toBeNull();
     expect(routePermissionFor("/api/internal/some-future-module/x", "GET")).toBeNull();
     expect(routePermissionFor("", "GET")).toBeNull();
     expect(routePermissionFor(null, "GET")).toBeNull();
+  });
+
+  it("exempts the self-read /users-access/me endpoint (P14-4 menu hide)", () => {
+    // A viewer must read their OWN perms to hide their own menus, so /me is
+    // never gated on users_access. The admin matrix route still is.
+    expect(routePermissionFor("/api/internal/users-access/me", "GET")).toBeNull();
+    expect(routePermissionFor("/api/internal/users-access/me/", "GET")).toBeNull();
+    expect(routePermissionFor("/api/internal/users-access", "GET")).toEqual({ module: "users_access", action: "read" });
   });
 
   it("only ever emits (module, action) pairs the module actually exposes", () => {

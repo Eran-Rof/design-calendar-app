@@ -9,8 +9,47 @@
 // Tangerine P2 Chunk 8.
 
 import { createClient } from "@supabase/supabase-js";
+import { NOTIFICATION_CATEGORIES } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 15 };
+
+// Validate an employee.notification_subscriptions array: every entry must be a
+// known notification category key. Returns a deduped array or an error string.
+export function validateSubscriptions(raw) {
+  if (raw == null) return { value: [] };
+  if (!Array.isArray(raw)) return { error: "notification_subscriptions must be an array of category keys" };
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return { error: "notification_subscriptions entries must be strings" };
+    const key = item.trim();
+    if (!NOTIFICATION_CATEGORIES.includes(key)) return { error: `unknown notification category: ${JSON.stringify(item)}` };
+    if (!out.includes(key)) out.push(key);
+  }
+  return { value: out };
+}
+
+// Internal app keys an employee may receive in-app notifications in.
+// Mirrors the AppKey values in src/components/notifications/notificationApps.ts.
+// NULL apps = all apps (back-compat).
+const ALLOWED_APP_KEYS = ["tanda", "design", "ats", "techpack", "gs1", "planning", "rof"];
+
+// Validate + normalize an `apps` value into a deduped string[] of allowed
+// keys, or null (= all apps). Empty array → null. Returns { value } or { error }.
+export function validateApps(raw) {
+  if (raw == null) return { value: null };
+  if (!Array.isArray(raw)) return { error: "apps must be an array of app keys or null" };
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") return { error: "apps entries must be strings" };
+    const key = item.trim();
+    if (!key) continue;
+    if (!ALLOWED_APP_KEYS.includes(key)) {
+      return { error: `unknown app key: ${JSON.stringify(item)} (allowed: ${ALLOWED_APP_KEYS.join(", ")})` };
+    }
+    if (!out.includes(key)) out.push(key);
+  }
+  return { value: out.length > 0 ? out : null };
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -56,12 +95,30 @@ export default async function handler(req, res, params) {
     }
     const v = validatePatch(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
-    if (Object.keys(v.data).length === 0) {
+
+    // plm_user_id is merged into the existing metadata jsonb (read-modify-write)
+    // so it can't clobber other metadata keys. Only runs when the field is
+    // present in the body (string sets it, null/"" clears it).
+    const updatePayload = { ...v.data };
+    if (body && Object.prototype.hasOwnProperty.call(body, "plm_user_id")) {
+      const { data: existing, error: readErr } = await admin
+        .from("employees").select("metadata").eq("id", id).maybeSingle();
+      if (readErr) return res.status(500).json({ error: readErr.message });
+      if (!existing) return res.status(404).json({ error: "Employee not found" });
+      const meta = (existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata))
+        ? { ...existing.metadata } : {};
+      const raw = body.plm_user_id;
+      const id_str = typeof raw === "string" ? raw.trim() : "";
+      if (id_str) meta.plm_user_id = id_str; else delete meta.plm_user_id;
+      updatePayload.metadata = meta;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
       return res.status(400).json({ error: "No mutable fields supplied" });
     }
     const { data, error } = await admin
       .from("employees")
-      .update(v.data)
+      .update(updatePayload)
       .eq("id", id)
       .select()
       .single();
@@ -98,6 +155,17 @@ function isUuid(s) {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }
 
+// P16 — parse an optional commission percent. null/""/undefined → 0.
+// Accepts a number or numeric string in [0, 100]. Returns { value } or { error }.
+function parsePct(raw) {
+  if (raw == null || raw === "") return { value: 0 };
+  const n = typeof raw === "number" ? raw : parseFloat(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    return { error: "must be a number in [0, 100]" };
+  }
+  return { value: n };
+}
+
 export function validatePatch(body) {
   const data = {};
 
@@ -118,6 +186,34 @@ export function validatePatch(body) {
   }
   if ("title" in body) data.title = body.title ? String(body.title).trim() : null;
   if ("department" in body) data.department = body.department ? String(body.department).trim() : null;
+  // P16 — title_id / department_id FK pointers (uuid-or-null).
+  if ("title_id" in body) {
+    const v = body.title_id;
+    const trimmed = typeof v === "string" ? v.trim() : v;
+    if (trimmed && !isUuid(trimmed)) {
+      return { error: `title_id must be a uuid (got: ${JSON.stringify(v)})` };
+    }
+    data.title_id = trimmed || null;
+  }
+  if ("department_id" in body) {
+    const v = body.department_id;
+    const trimmed = typeof v === "string" ? v.trim() : v;
+    if (trimmed && !isUuid(trimmed)) {
+      return { error: `department_id must be a uuid (got: ${JSON.stringify(v)})` };
+    }
+    data.department_id = trimmed || null;
+  }
+  // P16 — commission rates: numeric percent in 0..100.
+  if ("commission_wholesale_pct" in body) {
+    const p = parsePct(body.commission_wholesale_pct);
+    if (p.error) return { error: `commission_wholesale_pct: ${p.error}` };
+    data.commission_wholesale_pct = p.value;
+  }
+  if ("commission_closeout_pct" in body) {
+    const p = parsePct(body.commission_closeout_pct);
+    if (p.error) return { error: `commission_closeout_pct: ${p.error}` };
+    data.commission_closeout_pct = p.value;
+  }
   if ("hire_date" in body) {
     if (body.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(body.hire_date)) return { error: "hire_date must be YYYY-MM-DD" };
     data.hire_date = body.hire_date || null;
@@ -148,6 +244,29 @@ export function validatePatch(body) {
     data.manager_employee_id = trimmed || null;
   }
   if ("metadata" in body) data.metadata = body.metadata || {};
+  if ("notification_subscriptions" in body) {
+    const s = validateSubscriptions(body.notification_subscriptions);
+    if (s.error) return { error: s.error };
+    data.notification_subscriptions = s.value;
+  }
+  if ("apps" in body) {
+    const a = validateApps(body.apps);
+    if (a.error) return { error: a.error };
+    data.apps = a.value;
+  }
+  // plm_user_id is validated here but APPLIED in the handler via a
+  // read-modify-write merge into metadata (so it doesn't clobber other
+  // metadata keys). We only validate its shape; presence is signalled by
+  // returning it on the result so the handler knows to merge.
+  if ("plm_user_id" in body) {
+    const v = body.plm_user_id;
+    if (v !== null && v !== "" && typeof v !== "string") {
+      return { error: "plm_user_id must be a string or null" };
+    }
+    if (typeof v === "string" && v.trim().length > 64) {
+      return { error: "plm_user_id too long" };
+    }
+  }
 
   return { data };
 }

@@ -6,7 +6,10 @@
 // flat-amount lines. Post / Void actions wired to dedicated handlers.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
+import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
@@ -60,6 +63,7 @@ type ARInvoice = {
   id: string;
   entity_id: string;
   customer_id: string;
+  ship_to_location_id: string | null;
   invoice_number: string;
   invoice_kind: string;
   gl_status: GlStatus;
@@ -79,6 +83,8 @@ type ARInvoice = {
   source?: string | null;
   created_at: string;
 };
+
+type ShipToLocation = { id: string; name: string; code: string | null; is_default: boolean };
 
 type ARInvoiceLine = {
   id?: string;
@@ -104,6 +110,8 @@ type Account = {
   is_postable: boolean;
   status: string;
 };
+
+type ARItem = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 
 type DraftLine = {
   key: number;
@@ -254,18 +262,18 @@ export default function InternalARInvoices() {
   }, [customers]);
 
   async function doPost(inv: ARInvoice) {
-    if (!confirm(`Post invoice ${inv.invoice_number}? This creates the accrual JE and consumes FIFO inventory for any inventory lines.`)) return;
+    if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This creates the accrual JE and consumes FIFO inventory for any inventory lines.`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ar-invoices/${inv.id}/post`, { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok && r.status !== 202) throw new Error(j.error || `HTTP ${r.status}`);
       if (j.requires_approval) {
-        alert(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`);
+        notify(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`, "info");
       }
       await load();
     } catch (e: unknown) {
-      alert(`Post failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Post failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -284,7 +292,7 @@ export default function InternalARInvoices() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         if (j.has_payments) {
-          alert(`Cannot void: invoice has ${fmtCents(j.paid_amount_cents)} in receipt applications. Void the receipts first.`);
+          notify(`Cannot void: invoice has ${fmtCents(j.paid_amount_cents)} in receipt applications. Void the receipts first.`, "error");
         } else {
           throw new Error(j.error || `HTTP ${r.status}`);
         }
@@ -292,14 +300,14 @@ export default function InternalARInvoices() {
       }
       await load();
     } catch (e: unknown) {
-      alert(`Void failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
   }
 
   async function doDelete(inv: ARInvoice) {
-    if (!confirm(`Delete draft invoice ${inv.invoice_number}? This is irreversible.`)) return;
+    if (!(await confirmDialog(`Delete draft invoice ${inv.invoice_number}? This is irreversible.`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ar-invoices/${inv.id}`, { method: "DELETE" });
@@ -309,7 +317,7 @@ export default function InternalARInvoices() {
       }
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -417,7 +425,7 @@ export default function InternalARInvoices() {
             { key: "posting_date",       header: "Posting Date", format: "date" },
             { key: "due_date",           header: "Due Date",     format: "date" },
             { key: "customer",           header: "Customer" },
-            { key: "invoice_kind",       header: "Kind" },
+            { key: "invoice_kind",       header: "Type" },
             { key: "gl_status",          header: "Status" },
             { key: "source",             header: "Source" },
             { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
@@ -478,7 +486,7 @@ export default function InternalARInvoices() {
                       <SourceBadge source={inv.source} />
                     </td>
                     <td style={td} hidden={!isVisible("invoice_date")}>{inv.invoice_date}</td>
-                    <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || inv.customer_id.slice(0, 8)}</td>
+                    <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
                       hidden={!isVisible("total")}
@@ -575,7 +583,8 @@ function ARInvoiceModal({
   const editable = isNew || invoice?.gl_status === "draft" || invoice?.gl_status === "unposted";
 
   const [customerId, setCustomerId] = useState(invoice?.customer_id || "");
-  const [invoiceNumber, setInvoiceNumber] = useState(invoice?.invoice_number || "");
+  const [shipToLocationId, setShipToLocationId] = useState(invoice?.ship_to_location_id || "");
+  const [shipToLocations, setShipToLocations] = useState<ShipToLocation[]>([]);
   const [kind, setKind] = useState(invoice?.invoice_kind || "customer_invoice");
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoice_date || new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState(invoice?.due_date || "");
@@ -587,11 +596,13 @@ function ARInvoiceModal({
   const [inventoryAccountId, setInventoryAccountId] = useState(invoice?.inventory_asset_account_id || "");
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [items, setItems] = useState<ARItem[]>([]); // inventory items for the line picker
   const [paymentTerms, setPaymentTerms] = useState<{ id: string; code: string; name: string }[]>([]);
   const [lines, setLines] = useState<DraftLine[]>([
     { key: 1, description: "", inventory_item_id: "", quantity: "", unit_price_dollars: "", line_total_dollars: "", revenue_account_id: "" },
   ]);
   const [loading, setLoading] = useState(!isNew);
+  const [stagedDocs, setStagedDocs] = useState<File[]>([]); // attached before save (new invoice)
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -604,7 +615,35 @@ function ARInvoiceModal({
       .then((r) => r.json())
       .then((arr: { id: string; code: string; name: string }[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
       .catch(() => {});
+    // Inventory items for the line picker (searchable dropdown).
+    fetch("/api/internal/items?limit=500")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: ARItem[]) => setItems(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
   }, []);
+
+  // Reload ship-to location options whenever the customer changes.
+  useEffect(() => {
+    if (!customerId) {
+      setShipToLocations([]);
+      setShipToLocationId("");
+      return;
+    }
+    fetch(`/api/internal/customer-locations?customer_id=${encodeURIComponent(customerId)}`)
+      .then((r) => r.json())
+      .then((arr: ShipToLocation[]) => {
+        if (Array.isArray(arr)) {
+          setShipToLocations(arr);
+          // Auto-select the default location when creating a new invoice and no
+          // location is set yet; don't override an existing selection on edit.
+          if (isNew && !shipToLocationId) {
+            const def = arr.find((l) => l.is_default);
+            if (def) setShipToLocationId(def.id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [customerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazy-load existing lines on edit.
   useEffect(() => {
@@ -670,6 +709,26 @@ function ARInvoiceModal({
     setLines((ll) => ll.filter((_, i) => i !== idx));
   }
 
+  // M43 — suggest a unit price from the Pricing Engine for the line's SKU +
+  // this invoice's customer + qty. Prefills only when the unit-price box is empty
+  // (manual entries/edits preserved); `force` overwrites (the ↻ button). The
+  // engine prices at style level; the resolve endpoint maps the SKU → style.
+  const [priceSrc, setPriceSrc] = useState<Record<number, string>>({});
+  async function suggestPrice(lineKey: number, itemId: string, qtyStr: string, force: boolean) {
+    if (!itemId || !customerId) return;
+    try {
+      const p = new URLSearchParams({ customer_id: customerId, item_id: itemId });
+      const qn = Number(qtyStr); if (Number.isFinite(qn) && qn > 0) p.set("qty", String(qn));
+      const r = await fetch(`/api/internal/pricing/resolve?${p.toString()}`);
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j?.price_cents == null) { if (force) notify("No price found for this style/customer.", "info"); return; }
+      const dollars = centsToDollarsStr(j.price_cents);
+      setLines((prev) => prev.map((l) => l.key === lineKey ? (force || !l.unit_price_dollars ? { ...l, unit_price_dollars: dollars } : l) : l));
+      if (j.source_list_code) setPriceSrc((m) => ({ ...m, [lineKey]: j.source_list_code }));
+    } catch { /* non-fatal — operator can type the price */ }
+  }
+
   const totalCents = useMemo(() => {
     let total = 0n;
     for (const l of lines) {
@@ -711,7 +770,9 @@ function ARInvoiceModal({
 
       const body: Record<string, unknown> = {
         customer_id: customerId,
-        invoice_number: invoiceNumber.trim() || null,
+        ship_to_location_id: shipToLocationId || null,
+        // invoice_number is always system-assigned on create (never sent) and
+        // immutable on edit — so it is deliberately omitted from the body.
         invoice_kind: kind,
         invoice_date: invoiceDate,
         due_date: dueDate || null,
@@ -739,6 +800,14 @@ function ARInvoiceModal({
         });
       }
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      // Upload any documents staged on a brand-new invoice now that it has an id.
+      if (isNew && stagedDocs.length > 0) {
+        const created = await r.json().catch(() => null);
+        if (created?.id) {
+          try { await uploadStagedDocs("ar_invoices", created.id, stagedDocs); }
+          catch (upErr) { notify(`Invoice saved, but a document upload failed: ${upErr instanceof Error ? upErr.message : String(upErr)}`, "error"); }
+        }
+      }
       onSaved();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -787,31 +856,53 @@ function ARInvoiceModal({
               </div>
             )}
 
+            {/* Row 1: Customer + Ship-to + Invoice # */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Customer">
                 <SearchableSelect
                   value={customerId || null}
-                  onChange={(v) => setCustomerId(v)}
-                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                  onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
+                  // Show the clean customer name (matches the costing app's
+                  // customer source), not the source-prefixed import code
+                  // (EXCEL:/ATS:/XORO:). Still searchable by code via haystack.
+                  options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
                   placeholder="(pick customer…)"
                   disabled={!editable}
                 />
-                {!customerId && (
-                  <input
-                    type="text" placeholder="…or paste customer uuid"
-                    onChange={(e) => setCustomerId(e.target.value.trim())}
-                    style={{ ...inputStyle, marginTop: 6, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
-                  />
-                )}
+              </Field>
+              <Field label="Ship-to location">
+                <SearchableSelect
+                  value={shipToLocationId || null}
+                  onChange={(v) => setShipToLocationId(v)}
+                  options={[
+                    { value: "", label: "(select)" },
+                    ...shipToLocations.map((l) => ({
+                      value: l.id,
+                      label: l.code ? `${l.code} — ${l.name}` : l.name,
+                    })),
+                  ]}
+                  placeholder={customerId ? "(select)" : "(pick customer first)"}
+                  disabled={!editable || !customerId}
+                />
               </Field>
               <Field label="Invoice number">
-                <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)}
-                       placeholder="(auto-generated if blank)" disabled={!editable} style={inputStyle} />
+                {/* Always system-assigned at save — never operator-editable. */}
+                <input
+                  type="text"
+                  value={invoice?.invoice_number || ""}
+                  readOnly
+                  disabled
+                  placeholder="(auto-generated on save)"
+                  style={{ ...inputStyle, opacity: 0.6 }}
+                />
               </Field>
-              <Field label="Kind">
+            </div>
+            {/* Row 2: Type (standalone) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <Field label="Type">
                 <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="customer_invoice">customer_invoice</option>
-                  <option value="customer_credit_memo">customer_credit_memo</option>
+                  <option value="customer_invoice">Invoice</option>
+                  <option value="customer_credit_memo">Credit memo</option>
                 </select>
               </Field>
             </div>
@@ -825,10 +916,10 @@ function ARInvoiceModal({
                   value={paymentTermsId || null}
                   onChange={(v) => setPaymentTermsId(v)}
                   options={[
-                    { value: "", label: "(none — set due date manually)" },
+                    { value: "", label: "(select)" },
                     ...paymentTerms.map((pt) => ({ value: pt.id, label: `${pt.code} — ${pt.name}` })),
                   ]}
-                  placeholder="(none — set due date manually)"
+                  placeholder="(select)"
                   disabled={!editable}
                 />
               </Field>
@@ -850,7 +941,7 @@ function ARInvoiceModal({
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <Field label="Revenue (default)">
+              <Field label="Revenue / offset acct (default)">
                 <SearchableSelect
                   value={revenueAccountId || null}
                   onChange={(v) => setRevenueAccountId(v)}
@@ -905,11 +996,11 @@ function ARInvoiceModal({
                   <tr>
                     <th style={{ ...th, width: 36 }}>#</th>
                     <th style={th}>Description</th>
-                    <th style={th}>Inventory item</th>
+                    <th style={th}>Style (optional)</th>
                     <th style={{ ...th, width: 70 }}>Qty</th>
                     <th style={{ ...th, width: 100 }}>Unit $</th>
                     <th style={{ ...th, width: 110 }}>Or total $</th>
-                    <th style={th}>Revenue acct</th>
+                    <th style={th} title="Revenue account, OR an expense account to offset (e.g. rebilling a vendor for a personal portion of a bill)">Revenue / offset acct</th>
                     <th style={{ ...th, width: 36 }}></th>
                   </tr>
                 </thead>
@@ -921,19 +1012,36 @@ function ARInvoiceModal({
                         <input type="text" value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} disabled={!editable} style={inputStyle} />
                       </td>
                       <td style={td}>
-                        <input
-                          type="text" value={l.inventory_item_id}
-                          onChange={(e) => updateLine(idx, { inventory_item_id: e.target.value.trim() })}
+                        <SearchableSelect
+                          value={l.inventory_item_id || null}
+                          onChange={(v) => { updateLine(idx, { inventory_item_id: v }); if (v) void suggestPrice(l.key, v, l.quantity, false); }}
+                          options={(() => {
+                            const opts = [
+                              { value: "", label: "(select)" },
+                              ...items.map((it) => ({
+                                value: it.id,
+                                label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`,
+                                searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""} ${it.color || ""} ${it.size || ""}`,
+                              })),
+                            ];
+                            if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
+                              opts.push({ value: l.inventory_item_id, label: "(saved item)", searchHaystack: l.inventory_item_id });
+                            }
+                            return opts;
+                          })()}
+                          placeholder="(select)"
                           disabled={!editable}
-                          placeholder="ip_item_master uuid (optional)"
-                          style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
                         />
                       </td>
                       <td style={td}>
                         <input type="number" min="0" step="0.0001" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })} disabled={!editable} style={inputStyle} />
                       </td>
                       <td style={td}>
-                        <input type="text" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="unit $" style={inputStyle} />
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <input type="text" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="unit $" style={inputStyle} />
+                          {editable && l.inventory_item_id && customerId && <button type="button" title="Suggest price from the pricing engine" onClick={() => void suggestPrice(l.key, l.inventory_item_id, l.quantity, true)} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 12 }}>↻</button>}
+                        </div>
+                        {priceSrc[l.key] && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>from {priceSrc[l.key]}</div>}
                       </td>
                       <td style={td}>
                         <input type="text" value={l.line_total_dollars} onChange={(e) => updateLine(idx, { line_total_dollars: e.target.value })} disabled={!editable || (!!l.unit_price_dollars && !!l.quantity)} placeholder="0.00" style={inputStyle} />
@@ -980,6 +1088,13 @@ function ARInvoiceModal({
                   contextId={invoice.id}
                   kinds={["customer_invoice_pdf", "approval_correspondence", "other"]}
                 />
+              </div>
+            )}
+
+            {isNew && editable && (
+              <div style={{ marginTop: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Supporting documents</div>
+                <StagedDocsPicker files={stagedDocs} onChange={setStagedDocs} hint="attach the customer invoice / PO; uploaded when you save." />
               </div>
             )}
 

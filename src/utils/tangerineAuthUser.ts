@@ -23,6 +23,13 @@
 const NEW_KEY        = "tangerine.auth_user_id";
 const LEGACY_KEY     = "tangerine.notifications.user_id";
 const EMAIL_KEY      = "tangerine.auth_user_email";
+// Chunk I item 1 — snapshot of the signed-in display name (MS Graph
+// /me displayName). The shell top bar shows this instead of the raw email.
+const NAME_KEY       = "tangerine.auth_user_name";
+// P14 JWT phase — the per-user Supabase-compatible access token minted by
+// /api/internal/auth/provision (only present when SUPABASE_JWT_SECRET is set
+// server-side). Attached as Authorization: Bearer by internalApiAuth.ts.
+const JWT_KEY        = "tangerine.auth_jwt";
 
 export function getCachedAuthUserId(): string {
   try {
@@ -49,6 +56,22 @@ export function setCachedAuthUserId(uid: string): void {
   } catch (_) { /* SSR / private mode */ }
 }
 
+export function getCachedAuthJwt(): string {
+  try {
+    const v = localStorage.getItem(JWT_KEY);
+    if (v && v.trim()) return v.trim();
+  } catch (_) { /* SSR / private mode */ }
+  return "";
+}
+
+export function setCachedAuthJwt(token: string | null | undefined): void {
+  try {
+    const trimmed = (token || "").trim();
+    if (trimmed) localStorage.setItem(JWT_KEY, trimmed);
+    else         localStorage.removeItem(JWT_KEY);
+  } catch (_) { /* SSR / private mode */ }
+}
+
 export function getCachedAuthUserEmail(): string {
   try {
     const v = localStorage.getItem(EMAIL_KEY);
@@ -62,5 +85,21 @@ export function setCachedAuthUserEmail(email: string | null | undefined): void {
     const trimmed = (email || "").trim();
     if (trimmed) localStorage.setItem(EMAIL_KEY, trimmed);
     else        localStorage.removeItem(EMAIL_KEY);
+  } catch (_) { /* SSR / private mode */ }
+}
+
+export function getCachedAuthUserName(): string {
+  try {
+    const v = localStorage.getItem(NAME_KEY);
+    if (v && v.trim()) return v.trim();
+  } catch (_) { /* SSR / private mode */ }
+  return "";
+}
+
+export function setCachedAuthUserName(name: string | null | undefined): void {
+  try {
+    const trimmed = (name || "").trim();
+    if (trimmed) localStorage.setItem(NAME_KEY, trimmed);
+    else        localStorage.removeItem(NAME_KEY);
   } catch (_) { /* SSR / private mode */ }
 }

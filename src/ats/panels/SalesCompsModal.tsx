@@ -1043,7 +1043,7 @@ export const SalesCompsModal: React.FC<Props> = ({
           // contribution still folds under the customer) while making
           // the unresolved chunk visible as its own row in explode-OFF
           // mode — operator can investigate without a silent drop.
-          const skuKey = master?.sku_code ?? `__unresolved:${skuId.slice(0, 8)}`;
+          const skuKey = master?.sku_code ?? "(unknown sku)";
           const row = ensure(entry.customerName, skuKey);
           // result.byCustomer.bySku qty is UNIT GRAIN (qty_units = eaches)
           // — see exportSalesFetch.ts:807. The customer-dim aggregator

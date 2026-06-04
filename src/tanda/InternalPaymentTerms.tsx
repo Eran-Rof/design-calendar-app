@@ -11,8 +11,22 @@
 // 2_10_NET30) — operators add edge-case terms here (NET75, special discounts).
 
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const PAYMENT_TERMS_TABLE_KEY = "tangerine:paymentterms:columns";
+const PAYMENT_TERM_COLUMNS: ColumnDef[] = [
+  { key: "code",          label: "Code" },
+  { key: "name",          label: "Name" },
+  { key: "due_days",      label: "Due days" },
+  { key: "discount_pct",  label: "Disc. %" },
+  { key: "discount_days", label: "Disc. days" },
+  { key: "is_active",     label: "Active" },
+];
 
 type PaymentTerm = {
   id: string;
@@ -45,6 +59,13 @@ const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borde
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+};
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -82,6 +103,19 @@ export default function InternalPaymentTerms() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentTerm | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    PAYMENT_TERMS_TABLE_KEY,
+    PAYMENT_TERM_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { getRowProps } = useRowClickEdit<PaymentTerm>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit payment term ${r.code}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -103,21 +137,21 @@ export default function InternalPaymentTerms() {
   useEffect(() => { void load(); }, [includeInactive]);
 
   async function del(pt: PaymentTerm) {
-    if (!confirm(`Delete payment term ${pt.code} (${pt.name})?\nWill fail if any vendor / customer / invoice still references it — toggle is_active=false in that case.`)) return;
+    if (!(await confirmDialog(`Delete payment term ${pt.code} (${pt.name})?\nWill fail if any vendor / customer / invoice still references it — toggle is_active=false in that case.`))) return;
     try {
       const r = await fetch(`/api/internal/payment-terms/${pt.id}`, { method: "DELETE" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         if (r.status === 409 && j.references) {
           const d = j.references;
-          alert(`Cannot delete — still referenced by:\n  ${d.vendors} vendor(s)\n  ${d.customers} customer(s)\n  ${d.invoices} invoice(s)\n\nReassign those rows first, or toggle is_active=false instead.`);
+          notify(`Cannot delete — still referenced by:\n  ${d.vendors} vendor(s)\n  ${d.customers} customer(s)\n  ${d.invoices} invoice(s)\n\nReassign those rows first, or toggle is_active=false instead.`, "error");
           return;
         }
         throw new Error(j.error || `HTTP ${r.status}`);
       }
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -161,6 +195,13 @@ export default function InternalPaymentTerms() {
             { key: "updated_at",    header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={PAYMENT_TERMS_TABLE_KEY}
+          columns={PAYMENT_TERM_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -181,29 +222,35 @@ export default function InternalPaymentTerms() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={{ ...th, textAlign: "right" }}>Due days</th>
-                <th style={{ ...th, textAlign: "right" }}>Disc. %</th>
-                <th style={{ ...th, textAlign: "right" }}>Disc. days</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("due_days")}>Due days</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_pct")}>Disc. %</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_days")}>Disc. days</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((pt) => (
-                <tr key={pt.id} style={!pt.is_active ? { opacity: 0.5 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{pt.code}</td>
-                  <td style={td}>{pt.name}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pt.due_days}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPct(pt.discount_pct)}</td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pt.discount_days || "—"}</td>
-                  <td style={td}>{pt.is_active ? "yes" : "no"}</td>
+                <ScrollHighlightRow
+                  key={pt.id}
+                  rowId={pt.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(pt)}
+                  style={!pt.is_active ? { opacity: 0.5 } : undefined}
+                >
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{pt.code}</td>
+                  <td style={td} hidden={!isVisible("name")}>{pt.name}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("due_days")}>{pt.due_days}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("discount_pct")}>{formatPct(pt.discount_pct)}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("discount_days")}>{pt.discount_days || "—"}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{pt.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => setEditing(pt)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => void del(pt)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditing(pt); }} style={btnSecondary}>Edit</button>
+                    <button onClick={(e) => { e.stopPropagation(); void del(pt); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>
@@ -251,7 +298,7 @@ function PaymentTermFormModal({ mode, term, onClose, onSaved }: ModalProps) {
         url = "/api/internal/payment-terms";
         method = "POST";
         body = {
-          code:          form.code.trim().toUpperCase(),
+          // Chunk M — code is server-generated; never sent from the client.
           name:          form.name.trim(),
           due_days:      parseInt(form.due_days, 10),
           discount_pct:  form.discount_pct.trim() === "" ? 0 : parseFloat(form.discount_pct),
@@ -298,20 +345,13 @@ function PaymentTermFormModal({ mode, term, onClose, onSaved }: ModalProps) {
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Code *">
-            {mode === "add" ? (
-              <input
-                type="text"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                style={inputStyle}
-                placeholder="e.g. NET75"
-                autoFocus
-                maxLength={32}
-              />
-            ) : (
-              <input type="text" value={form.code} disabled style={{ ...inputStyle, opacity: 0.5 }} />
-            )}
+          <Field label="Code">
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (term?.code || "—")}
+            </div>
           </Field>
           <Field label="Name *">
             <input

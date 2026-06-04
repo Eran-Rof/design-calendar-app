@@ -27,7 +27,8 @@
 //     admins commit a never-seen-before group / category / sub-category
 //     value without leaving the keyboard.
 
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type SearchableSelectOption = {
   value: string;
@@ -193,6 +194,26 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLUListElement>(null);
+  // The options panel renders in a portal with fixed positioning so it escapes
+  // any scrollable/overflow-clipped ancestor (e.g. a modal with overflow:auto —
+  // otherwise the dropdown gets "buried"/clipped). We track the anchor rect.
+  const [panelRect, setPanelRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) { setPanelRect(null); return; }
+    const reposition = () => {
+      const r = inputRef.current?.getBoundingClientRect();
+      if (r) setPanelRect({ left: r.left, top: r.bottom + 2, width: r.width });
+    };
+    reposition();
+    // Reposition on scroll (capture: catch scrolls in any ancestor) + resize.
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open]);
 
   const selected = useMemo(
     () => options.find(o => o.value === value) ?? null,
@@ -245,8 +266,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
-      if (!wrapperRef.current) return;
-      if (!wrapperRef.current.contains(e.target as Node)) {
+      const t = e.target as Node;
+      const inWrapper = wrapperRef.current?.contains(t);
+      const inPanel = panelRef.current?.contains(t); // panel is portaled outside the wrapper
+      if (!inWrapper && !inPanel) {
         setOpen(false);
         setQuery("");
       }
@@ -425,11 +448,24 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         onKeyDown={onKeyDown}
         style={mergedInputStyle}
       />
-      {open && (
+      {open && panelRect && createPortal(
         <ul
+          ref={panelRef}
           id={listboxId}
           role="listbox"
-          style={{ ...PANEL_STYLE, maxHeight: panelMaxHeight }}
+          style={{
+            ...PANEL_STYLE,
+            position: "fixed",
+            top: panelRect.top,
+            left: panelRect.left,
+            width: panelRect.width,
+            right: "auto",
+            marginTop: 0,
+            maxHeight: panelMaxHeight,
+            // Above app modal overlays (typically z-index 9999) so the popover
+            // is never trapped behind a modal that hosts the select.
+            zIndex: 10001,
+          }}
         >
           {capped.length === 0 && !showAddNew && (
             <li
@@ -501,7 +537,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               {(addNewLabel ?? defaultAddNewLabel)(query)}
             </li>
           )}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );

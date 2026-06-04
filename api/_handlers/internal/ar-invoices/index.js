@@ -29,6 +29,7 @@
 // Tangerine P4 Chunk 4 (M4 Accounts Receivable admin UI + handlers).
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope, applyChannelScope } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
     let query = admin
       .from("ar_invoices")
       .select(
-        "id, entity_id, customer_id, invoice_number, invoice_kind, gl_status, " +
+        "id, entity_id, customer_id, ship_to_location_id, invoice_number, invoice_kind, gl_status, " +
         "invoice_date, posting_date, due_date, payment_terms_id, " +
         "ar_account_id, revenue_account_id, cogs_account_id, inventory_asset_account_id, " +
         "accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
@@ -113,6 +114,11 @@ export default async function handler(req, res) {
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
+
+    // P15 C3 — brand/channel scoping. No-op unless BRAND_SCOPE_MODE=enforce AND
+    // a specific brand/channel is selected (else returns the query unchanged).
+    query = applyBrandScope(query, req);
+    query = applyChannelScope(query, req);
 
     if (status) {
       query = query.eq("gl_status", status);
@@ -159,6 +165,7 @@ export default async function handler(req, res) {
     const insertHeader = {
       entity_id: entityId,
       customer_id: v.data.customer_id,
+      ship_to_location_id: v.data.ship_to_location_id || null,
       invoice_number: invoiceNumber,
       invoice_kind: v.data.invoice_kind,
       gl_status: "draft",
@@ -299,6 +306,9 @@ export function validateInsert(body) {
       return { error: `${fld} must be a uuid` };
     }
   }
+  if (body.ship_to_location_id && !isUuid(body.ship_to_location_id)) {
+    return { error: "ship_to_location_id must be a uuid" };
+  }
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     return { error: "lines must be a non-empty array" };
   }
@@ -372,6 +382,7 @@ export function validateInsert(body) {
   return {
     data: {
       customer_id: body.customer_id,
+      ship_to_location_id: body.ship_to_location_id || null,
       invoice_number: invoiceNumber || null,
       invoice_kind: kind,
       invoice_date: body.invoice_date,

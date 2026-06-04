@@ -8,10 +8,28 @@
 // the other Internal* panels.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import SearchableSelect from "./components/SearchableSelect";
+import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
+import type { EditableMatrixRow } from "../shared/matrix";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const INV_ADJ_TABLE_KEY = "tangerine:inventoryadjustments:columns";
+const INV_ADJ_COLUMNS: ColumnDef[] = [
+  { key: "when",    label: "When" },
+  { key: "type",    label: "Type" },
+  { key: "style",   label: "Style" },
+  { key: "qty",     label: "Qty" },
+  { key: "cost",    label: "Cost (cents)" },
+  { key: "counter", label: "Counter Account" },
+  { key: "reason",  label: "Reason" },
+  { key: "status",  label: "Status" },
+];
 
 type Adjustment = {
   id: string;
@@ -113,6 +131,14 @@ export default function InternalInventoryAdjustments() {
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<Adjustment | null>(null);
+  const [matrixModalOpen, setMatrixModalOpen] = useState(false);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    INV_ADJ_TABLE_KEY,
+    INV_ADJ_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -179,18 +205,18 @@ export default function InternalInventoryAdjustments() {
   }
 
   async function handleDelete(row: Adjustment) {
-    if (!window.confirm(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`)) return;
+    if (!(await confirmDialog(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`))) return;
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}`, { method: "DELETE" });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
-      alert(`Delete failed: ${e.error || r.status}`);
+      notify(`Delete failed: ${e.error || r.status}`, "error");
       return;
     }
     void load();
   }
 
   async function handlePost(row: Adjustment) {
-    if (!window.confirm(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`)) return;
+    if (!(await confirmDialog(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`))) return;
     const actor_user_id = getCachedAuthUserId();
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}/post`, {
       method: "POST",
@@ -199,13 +225,13 @@ export default function InternalInventoryAdjustments() {
     });
     const out = await r.json().catch(() => ({}));
     if (!r.ok && r.status !== 202) {
-      alert(`Post failed: ${out.error || r.status}`);
+      notify(`Post failed: ${out.error || r.status}`, "error");
       return;
     }
     if (out.requires_approval) {
-      alert(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`);
+      notify(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`, "info");
     } else {
-      alert(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`);
+      notify(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`, "success");
     }
     void load();
   }
@@ -219,7 +245,14 @@ export default function InternalInventoryAdjustments() {
         </span>
         <button
           type="button"
-          style={{ ...btnPrimary, marginLeft: "auto" }}
+          style={{ ...btnSecondary, marginLeft: "auto" }}
+          onClick={() => setMatrixModalOpen(true)}
+        >
+          ▦ Matrix adjustment
+        </button>
+        <button
+          type="button"
+          style={btnPrimary}
           onClick={() => { setEditingRow(null); setModalOpen(true); }}
         >
           + Add
@@ -270,7 +303,14 @@ export default function InternalInventoryAdjustments() {
           to={filterTo}
           onChange={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={INV_ADJ_TABLE_KEY}
+            columns={INV_ADJ_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="inventory-adjustments"
@@ -300,14 +340,14 @@ export default function InternalInventoryAdjustments() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>When</th>
-              <th style={th}>Type</th>
-              <th style={th}>Item</th>
-              <th style={th}>Qty</th>
-              <th style={th}>Cost (cents)</th>
-              <th style={th}>Counter Account</th>
-              <th style={th}>Reason</th>
-              <th style={th}>Status</th>
+              <th style={th} hidden={!isVisible("when")}>When</th>
+              <th style={th} hidden={!isVisible("type")}>Type</th>
+              <th style={th} hidden={!isVisible("style")}>Style</th>
+              <th style={th} hidden={!isVisible("qty")}>Qty</th>
+              <th style={th} hidden={!isVisible("cost")}>Cost (cents)</th>
+              <th style={th} hidden={!isVisible("counter")}>Counter Account</th>
+              <th style={th} hidden={!isVisible("reason")}>Reason</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
               <th style={th}></th>
             </tr>
           </thead>
@@ -324,16 +364,16 @@ export default function InternalInventoryAdjustments() {
               const isPositive = row.qty_delta > 0;
               return (
                 <tr key={row.id}>
-                  <td style={td}>{fmtDate(row.created_at)}</td>
-                  <td style={td}>{row.adjustment_type}</td>
-                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{itemLabel(row.item_id)}</td>
-                  <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }}>
+                  <td style={td} hidden={!isVisible("when")}>{fmtDate(row.created_at)}</td>
+                  <td style={td} hidden={!isVisible("type")}>{row.adjustment_type}</td>
+                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(row.item_id)}</td>
+                  <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }} hidden={!isVisible("qty")}>
                     {isPositive ? "+" : ""}{row.qty_delta}
                   </td>
-                  <td style={{ ...td, fontFamily: "monospace" }}>{fmtMoneyCents(row.unit_cost_cents)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{glLabel(row.gl_account_id)}</td>
-                  <td style={{ ...td, color: C.textSub, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.reason}</td>
-                  <td style={td}>
+                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("cost")}>{fmtMoneyCents(row.unit_cost_cents)}</td>
+                  <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("counter")}>{glLabel(row.gl_account_id)}</td>
+                  <td style={{ ...td, color: C.textSub, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} hidden={!isVisible("reason")}>{row.reason}</td>
+                  <td style={td} hidden={!isVisible("status")}>
                     {row.posted_je_id
                       ? <span style={{ color: C.success }}>POSTED</span>
                       : <span style={{ color: C.warn }}>DRAFT</span>}
@@ -365,6 +405,14 @@ export default function InternalInventoryAdjustments() {
           onSaved={() => { setModalOpen(false); setEditingRow(null); void load(); }}
         />
       )}
+
+      {matrixModalOpen && (
+        <MatrixAdjustmentModal
+          glAccounts={glAccounts}
+          onClose={() => setMatrixModalOpen(false)}
+          onSaved={() => { setMatrixModalOpen(false); void load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -392,6 +440,9 @@ function AdjustmentModal({
   );
   const [glAccountId, setGlAccountId] = useState(existing?.gl_account_id || "");
   const [reason, setReason] = useState(existing?.reason || "");
+  // P15 — for a positive (found/correction-up) adjustment, which brand pool the
+  // new layer lands in (WS/EC). Single-pool brands ignore it.
+  const [receivingChannel, setReceivingChannel] = useState<"WS" | "EC">("WS");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -447,7 +498,7 @@ function AdjustmentModal({
           reason,
           gl_account_id: glAccountId,
         };
-        if (isPositive) body.unit_cost_cents = Number(unitCostCents);
+        if (isPositive) { body.unit_cost_cents = Number(unitCostCents); body.receiving_channel = receivingChannel; }
         const actorUid = getCachedAuthUserId();
         if (actorUid) body.created_by_user_id = actorUid;
       }
@@ -483,7 +534,7 @@ function AdjustmentModal({
 
         {!isEdit && (
           <>
-            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Item</label>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Style</label>
             {selectedItem ? (
               <div style={{ marginBottom: 12 }}>
                 <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || selectedItem.id.slice(0, 8)}</span>{" "}
@@ -563,6 +614,19 @@ function AdjustmentModal({
               onChange={(e) => setUnitCostCents(e.target.value)}
               placeholder="e.g. 1250 = $12.50/unit"
             />
+            {!isEdit && (
+              <>
+                <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Receive into (brand pool)</label>
+                <select
+                  style={{ ...inputStyle, marginBottom: 12 }}
+                  value={receivingChannel}
+                  onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                >
+                  <option value="WS">Wholesale pool</option>
+                  <option value="EC">Ecom pool</option>
+                </select>
+              </>
+            )}
           </>
         )}
 
@@ -599,6 +663,403 @@ function AdjustmentModal({
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" style={btnPrimary} onClick={() => void save()} disabled={saving}>
             {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Draft"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MX-ADJ — Matrix inventory adjustments entry.
+//
+// Pick adjustment_type + counter GL account + reason ONCE (applies to the
+// whole batch) + a style → fetch /api/internal/style-matrix → editable
+// color × size (× inseam) grid. Each cell captures a signed qty_delta. On
+// "Create adjustments" each non-zero cell resolves to a SKU id
+// (resolve-sku) then POSTs one row to the EXISTING create endpoint.
+// ─────────────────────────────────────────────────────────────────────────
+
+type StyleOption = { id: string; style_code: string; style_name?: string | null };
+
+type MatrixSku = {
+  id: string;
+  color: string | null;
+  size: string | null;
+  inseam: string | null;
+  length: string | null;
+  fit: string | null;
+  on_hand_qty?: number | null;
+};
+type StyleMatrixPayload = {
+  style: { id: string; style_code: string; style_name?: string | null };
+  sizes: string[];
+  colors: string[];
+  inseams: string[];
+  skus: MatrixSku[];
+};
+
+// (color,size,inseam) → existing-SKU lookup key.
+function cellKey(color: string | null, size: string | null, inseam: string | null): string {
+  return `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
+}
+// Per-row key (color × inseam) used by the grid + the unit-cost map.
+function rowKeyOf(color: string | null, inseam: string | null): string {
+  return `${color ?? ""}|${inseam ?? ""}`;
+}
+
+function MatrixAdjustmentModal({
+  glAccounts, onClose, onSaved,
+}: {
+  glAccounts: GlAccount[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Batch-level fields (applied to every created adjustment).
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("shrinkage");
+  const [glAccountId, setGlAccountId] = useState("");
+  const [reason, setReason] = useState("");
+  // Brand pool for POSITIVE (increase) cells only — mirrors the single "+ Add"
+  // modal's receiving_channel. Single-pool brands ignore it server-side.
+  const [receivingChannel, setReceivingChannel] = useState<"WS" | "EC">("WS");
+
+  // Style picker.
+  const [styleOpts, setStyleOpts] = useState<StyleOption[]>([]);
+  const [styleId, setStyleId] = useState("");
+
+  // Loaded matrix + per-cell deltas keyed by matrixCellKey(rowKey, size).
+  const [matrix, setMatrix] = useState<StyleMatrixPayload | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [deltas, setDeltas] = useState<Record<string, number>>({});
+  // Per-row unit COST in cents (free text), keyed by rowKey. Used only for
+  // positive (increase) rows — the create endpoint requires unit_cost_cents
+  // when qty_delta > 0.
+  const [unitCostMap, setUnitCostMap] = useState<Record<string, string>>({});
+
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  // Load up to 200 styles for the picker (SearchableSelect filters locally).
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-master?limit=200`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) {
+          setStyleOpts(data.map((s: any) => ({
+            id: s.id, style_code: s.style_code, style_name: s.style_name,
+          })));
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  // When a style is picked, fetch its matrix and reset deltas.
+  useEffect(() => {
+    if (!styleId) { setMatrix(null); setDeltas({}); setUnitCostMap({}); return; }
+    setMatrixLoading(true);
+    setErr(null);
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        setMatrix(await r.json() as StyleMatrixPayload);
+        setDeltas({});
+        setUnitCostMap({});
+      } catch (e) {
+        setErr((e as Error).message);
+        setMatrix(null);
+      } finally {
+        setMatrixLoading(false);
+      }
+    })();
+  }, [styleId]);
+
+  // Map (color,size,inseam) → existing SKU id + on-hand, for hint + reuse.
+  const skuByCell = useMemo(() => {
+    const m = new Map<string, MatrixSku>();
+    for (const s of matrix?.skus ?? []) m.set(cellKey(s.color, s.size, s.inseam), s);
+    return m;
+  }, [matrix]);
+
+  const hasMultiInseam = (matrix?.inseams?.length ?? 0) > 1;
+
+  const sizes = matrix?.sizes ?? [];
+
+  // Grid rows: one per color (× inseam when the style spans multiple inseams).
+  const rows = useMemo<EditableMatrixRow[]>(() => {
+    if (!matrix) return [];
+    const colors = matrix.colors.length
+      ? matrix.colors
+      : [...new Set((matrix.skus || []).map((s) => s.color).filter(Boolean) as string[])];
+    const colorList: (string | null)[] = colors.length ? colors : [null];
+    const inseamList: (string | null)[] = hasMultiInseam ? matrix.inseams : [null];
+    const out: EditableMatrixRow[] = [];
+    for (const color of colorList) {
+      for (const inseam of inseamList) {
+        out.push({ key: rowKeyOf(color, inseam), color: color ?? null, rise: inseam ?? null });
+      }
+    }
+    return out;
+  }, [matrix, hasMultiInseam]);
+
+  // Per-cell on-hand hint (≥ 0), keyed to grid cells = matrixCellKey(rowKey,size).
+  const onHand = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const row of rows) {
+      const [color, inseam] = row.key.split("|");
+      for (const sz of sizes) {
+        const sku = skuByCell.get(cellKey(color || null, sz, inseam || null));
+        if (sku && sku.on_hand_qty != null) m[matrixCellKey(row.key, sz)] = Math.max(0, Number(sku.on_hand_qty) || 0);
+      }
+    }
+    return m;
+  }, [rows, sizes, skuByCell]);
+
+  const enteredCount = useMemo(
+    () => Object.values(deltas).filter((v) => Number.isFinite(v) && v !== 0).length,
+    [deltas],
+  );
+
+  function setDelta(rowKey: string, size: string, n: number) {
+    const key = matrixCellKey(rowKey, size);
+    setDeltas((p) => {
+      const next = { ...p };
+      if (Number.isFinite(n) && n !== 0) next[key] = n; else delete next[key];
+      return next;
+    });
+  }
+
+  async function createAll() {
+    setErr(null);
+    if (!matrix) { setErr("Pick a style first"); return; }
+    if (!glAccountId) { setErr("Pick a counter GL account"); return; }
+    if (!reason.trim()) { setErr("Reason required"); return; }
+    const cells = Object.entries(deltas).filter(([, v]) => Number.isFinite(v) && v !== 0);
+    if (cells.length === 0) { setErr("No cells with a non-zero delta. Type a signed qty into a cell."); return; }
+
+    // Positive (increase) cells create a FIFO layer and REQUIRE a per-unit cost,
+    // captured in the row's "Unit cost (¢)" column. Block any positive cell whose
+    // row has no valid cost before we POST anything.
+    const missingCost: string[] = [];
+    for (const [k, v] of cells) {
+      if (v <= 0) continue;
+      const [rowKey, size] = k.split("__");
+      const [color] = rowKey.split("|");
+      const raw = (unitCostMap[rowKey] ?? "").trim();
+      const cents = Number(raw);
+      if (!raw || !Number.isFinite(cents) || !Number.isInteger(cents) || cents < 0) {
+        missingCost.push(`${color || "—"} / ${size}`);
+      }
+    }
+    if (missingCost.length > 0) {
+      setErr(
+        `${missingCost.length} increase cell(s) need a unit cost. Enter the per-unit cost (in cents, e.g. 1250 = $12.50) in the "Unit cost (¢)" column for: ` +
+        `${missingCost.slice(0, 5).join(", ")}${missingCost.length > 5 ? "…" : ""}.`,
+      );
+      return;
+    }
+
+    setSaving(true);
+    const actorUid = getCachedAuthUserId();
+    let created = 0;
+    const failures: string[] = [];
+    try {
+      for (const [k, qty] of cells) {
+        // k = `${rowKey}__${size}` = `${color}|${inseam}__${size}`.
+        const [rowKey, size] = k.split("__");
+        const [color, inseam] = rowKey.split("|");
+        setProgress(`Resolving SKU ${created + failures.length + 1}/${cells.length}…`);
+        // Reuse the existing SKU id when we already have it; else resolve/create.
+        let itemId = skuByCell.get(cellKey(color || null, size, inseam || null))?.id;
+        if (!itemId) {
+          const rs = await fetch(`/api/internal/style-matrix/resolve-sku`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              style_id: matrix.style.id,
+              style_code: matrix.style.style_code,
+              color: color || null,
+              size,
+              inseam: inseam || null,
+            }),
+          });
+          const out = await rs.json().catch(() => ({}));
+          if (!rs.ok || !out.id) { failures.push(`${color}/${size}: resolve-sku ${out.error || rs.status}`); continue; }
+          itemId = out.id as string;
+        }
+        // Create one adjustment via the EXISTING create endpoint. Negative →
+        // FIFO-consume (no unit cost). Positive → create a FIFO layer with the
+        // row's unit cost + brand pool — the same server path the single
+        // "+ Add" modal uses for increases.
+        const body: any = {
+          item_id: itemId,
+          adjustment_type: adjustmentType,
+          qty_delta: qty,
+          reason: reason.trim(),
+          gl_account_id: glAccountId,
+        };
+        if (qty > 0) {
+          body.unit_cost_cents = Number((unitCostMap[rowKey] ?? "").trim());
+          body.receiving_channel = receivingChannel;
+        }
+        if (actorUid) body.created_by_user_id = actorUid;
+        const rc = await fetch(`/api/internal/inventory-adjustments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!rc.ok) {
+          const e = await rc.json().catch(() => ({}));
+          failures.push(`${color}/${size}: ${e.error || rc.status}`);
+          continue;
+        }
+        created += 1;
+      }
+    } finally {
+      setSaving(false);
+      setProgress(null);
+    }
+
+    if (failures.length > 0) {
+      notify(`Created ${created} adjustment(s); ${failures.length} failed: ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? "…" : ""}`, created > 0 ? "info" : "error");
+      if (created > 0) onSaved();
+    } else {
+      notify(`Created ${created} draft adjustment(s) for style ${matrix.style.style_code}.`, "success");
+      onSaved();
+    }
+  }
+
+  const styleSelectOpts = useMemo(
+    () => styleOpts.map((s) => ({
+      value: s.id,
+      label: s.style_name ? `${s.style_code} — ${s.style_name}` : s.style_code,
+      searchHaystack: `${s.style_code} ${s.style_name ?? ""}`,
+    })),
+    [styleOpts],
+  );
+
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, width: 820 }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Adjustment</h2>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Pick type / counter account / reason once, choose a style, then type a signed qty into each cell:
+          negative = decrease (FIFO-consume), positive = increase (creates a FIFO layer). One draft adjustment is
+          created per non-zero cell. Increase rows must carry a per-unit <b>Unit cost (¢)</b> — use the column's
+          "set all" header to stamp one cost across every row.
+        </div>
+
+        {err && (
+          <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
+            {err}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 200px" }}>
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Adjustment Type</label>
+            <select
+              style={inputStyle}
+              value={adjustmentType}
+              onChange={(e) => setAdjustmentType(e.target.value as AdjustmentType)}
+            >
+              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: "2 1 320px" }}>
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
+            <select
+              style={inputStyle}
+              value={glAccountId}
+              onChange={(e) => setGlAccountId(e.target.value)}
+            >
+              <option value="">-- Pick an account --</option>
+              {glAccounts.filter((g) => g.is_postable).map((g) => (
+                <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Receive into (increase rows)</label>
+            <select
+              style={inputStyle}
+              value={receivingChannel}
+              onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+            >
+              <option value="WS">Wholesale pool</option>
+              <option value="EC">Ecom pool</option>
+            </select>
+          </div>
+        </div>
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Reason</label>
+        <input
+          style={{ ...inputStyle, marginBottom: 12 }}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Applies to every adjustment in this batch — flows into each JE memo"
+        />
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Style</label>
+        <div style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            value={styleId || null}
+            onChange={(v) => setStyleId(v)}
+            options={styleSelectOpts}
+            placeholder="Search by style number or name…"
+            emptyText="No styles match"
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Picking a style loads its color × size grid below.
+          </div>
+        </div>
+
+        {matrixLoading && (
+          <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>Loading matrix…</div>
+        )}
+
+        {matrix && !matrixLoading && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: C.textSub, marginBottom: 6 }}>
+              {matrix.colors.length} color(s) × {matrix.sizes.length} size(s)
+              {hasMultiInseam ? ` × ${matrix.inseams.length} inseam(s)` : ""} ·{" "}
+              <span style={{ color: C.warn }}>{enteredCount} cell(s) with a delta</span> ·{" "}
+              <span style={{ color: C.textMuted }}>type −5 to decrease, 12 to increase; faint number is on-hand</span>
+            </div>
+            {sizes.length === 0 ? (
+              <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>
+                This style has no sized SKUs or size scale yet — nothing to adjust in matrix mode.
+              </div>
+            ) : (
+              <EditableSizeMatrix
+                rows={rows}
+                sizes={sizes}
+                showRise={hasMultiInseam}
+                riseLabel="Inseam"
+                qty={deltas}
+                onQtyChange={setDelta}
+                onHand={onHand}
+                allowNegative
+                unit={{
+                  label: "Unit cost (¢)",
+                  placeholder: "e.g. 1250",
+                  values: unitCostMap,
+                  onChange: (rowKey, v) => setUnitCostMap((p) => ({ ...p, [rowKey]: v })),
+                  onSetAll: (v) => setUnitCostMap(() => Object.fromEntries(rows.map((r) => [r.key, v]))),
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+          {progress && <span style={{ color: C.textMuted, fontSize: 12, marginRight: "auto" }}>{progress}</span>}
+          <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" style={btnPrimary} onClick={() => void createAll()} disabled={saving || enteredCount === 0}>
+            {saving ? "Creating…" : `Create ${enteredCount} adjustment(s)`}
           </button>
         </div>
       </div>

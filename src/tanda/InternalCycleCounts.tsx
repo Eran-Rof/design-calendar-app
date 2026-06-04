@@ -15,9 +15,21 @@
 // Dark theme matching other Internal*.tsx panels.
 
 import { useEffect, useState, useMemo } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const CYCLE_COUNTS_TABLE_KEY = "tangerine:cyclecounts:columns";
+const CYCLE_COUNT_COLUMNS: ColumnDef[] = [
+  { key: "count_date", label: "Count date" },
+  { key: "location",   label: "Location" },
+  { key: "status",     label: "Status" },
+  { key: "created",    label: "Created" },
+  { key: "id",         label: "ID" },
+];
 
 type Status = "in_progress" | "completed" | "cancelled";
 
@@ -124,6 +136,13 @@ export default function InternalCycleCounts() {
   const [showStartModal, setShowStartModal] = useState(false);
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
 
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CYCLE_COUNTS_TABLE_KEY,
+    CYCLE_COUNT_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -189,7 +208,14 @@ export default function InternalCycleCounts() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={CYCLE_COUNTS_TABLE_KEY}
+            columns={CYCLE_COUNT_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="cycle-counts"
@@ -216,11 +242,11 @@ export default function InternalCycleCounts() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Count date</th>
-              <th style={th}>Location</th>
-              <th style={th}>Status</th>
-              <th style={th}>Created</th>
-              <th style={th}>ID</th>
+              <th style={th} hidden={!isVisible("count_date")}>Count date</th>
+              <th style={th} hidden={!isVisible("location")}>Location</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
+              <th style={th} hidden={!isVisible("id")}>ID</th>
             </tr>
           </thead>
           <tbody>
@@ -238,11 +264,11 @@ export default function InternalCycleCounts() {
                 style={{ cursor: "pointer" }}
                 onClick={() => setOpenDetailId(cc.id)}
               >
-                <td style={td}>{fmtDate(cc.count_date)}</td>
-                <td style={td}>{cc.location}</td>
-                <td style={td}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
-                <td style={td}>{fmtDate(cc.created_at)}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{cc.id.slice(0, 8)}</td>
+                <td style={td} hidden={!isVisible("count_date")}>{fmtDate(cc.count_date)}</td>
+                <td style={td} hidden={!isVisible("location")}>{cc.location}</td>
+                <td style={td} hidden={!isVisible("status")}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
+                <td style={td} hidden={!isVisible("created")}>{fmtDate(cc.created_at)}</td>
+                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("id")}>{cc.id.slice(0, 8)}</td>
               </tr>
             ))}
           </tbody>
@@ -414,7 +440,7 @@ function DetailModal({
   }
 
   async function cancelCount() {
-    if (!confirm("Cancel this cycle count? Counted lines will be discarded.")) return;
+    if (!(await confirmDialog("Cancel this cycle count? Counted lines will be discarded."))) return;
     try {
       const r = await fetch(`/api/internal/inventory-cycle-counts/${cycleCountId}`, {
         method: "PATCH",
@@ -429,7 +455,7 @@ function DetailModal({
   }
 
   async function finalize() {
-    if (!confirm("Finalize? This generates variance adjustment drafts and marks the count completed.")) return;
+    if (!(await confirmDialog("Finalize? This generates variance adjustment drafts and marks the count completed."))) return;
     try {
       const r = await fetch(`/api/internal/inventory-cycle-counts/${cycleCountId}/finalize`, {
         method: "POST",
@@ -438,14 +464,15 @@ function DetailModal({
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const j = await r.json();
-      alert(
+      notify(
         `Finalized.\n\n` +
         `Adjustments created: ${j.adjustments_created}\n` +
         `Lines with variance: ${j.lines_with_variance}\n` +
         `Skipped (zero variance): ${j.lines_skipped_zero}\n` +
         `Skipped (not counted): ${j.lines_skipped_not_counted}\n` +
         `Threshold breaches: ${j.threshold_breaches?.length ?? 0}\n\n` +
-        `Adjustments are DRAFTS — review and post via the Adjustments panel.`
+        `Adjustments are DRAFTS — review and post via the Adjustments panel.`,
+        "success"
       );
       onClose();
     } catch (e) {

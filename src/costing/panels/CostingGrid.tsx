@@ -12,20 +12,24 @@
 import React, { useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
-import { usePlanFlow } from "../hooks/usePlanFlow";
+import { usePlanFlow, effectiveLineStatus } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
-import MasterSelectCell from "./MasterSelectCell";
+import MasterPickerCell from "./MasterPickerCell";
+import LineStatusCell from "./LineStatusCell";
 import ColorPickerCell from "./ColorPickerCell";
 import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
 import ScalePickerCell from "./ScalePickerCell";
 import FabricPickerCell from "./FabricPickerCell";
 import HistoricalCostCell from "./HistoricalCostCell";
+import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
+import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { appConfirm } from "../../utils/theme";
+import { confirmDialog } from "../../shared/ui/warn";
 import type { CostingLine } from "../types";
 import type { StyleHit } from "../services/costingApi";
 
@@ -64,13 +68,14 @@ interface ColumnDef {
 const COLUMNS: ColumnDef[] = [
   { key: "_drag",          label: "",         width: 24,  align: "center" },
   { key: "_select",        label: "",         width: 28,  align: "center" },
+  { key: "_status",        label: "Status",   width: 110 },
   { key: "style_code",     label: "Style#",   width: 130 },
   { key: "description",    label: "Description", width: 220 },
   { key: "size_scale_label", label: "Scale",  width: 80 },
-  { key: "fabric_code",    label: "Fabric",   width: 110 },
+  { key: "fabric_code",    label: "Fabric",   width: 200 },
   { key: "fit",            label: "Fit",      width: 90 },
   { key: "color",          label: "Color",    width: 100 },
-  { key: "bottom_closure", label: "Closure",  width: 100 },
+  { key: "bottom_closure", label: "Closures", width: 100 },
   { key: "waist_type",     label: "Waist",    width: 90 },
   { key: "comment",        label: "Comment",  width: 160 },
   { key: "target_qty",     label: "Qty",      width: 80,  align: "right", numeric: true },
@@ -97,6 +102,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_unit_price",  label: "T3 Sls Prc",  width: 90,  align: "right" },
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
+  { key: "_docs",          label: "Docs",     width: 56, align: "center" },
   { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
 
@@ -125,14 +131,39 @@ export default function CostingGrid() {
   // COLUMNS minus the hidden set; visibleWidth keeps header/body/footer
   // minWidth in lockstep so nothing drifts when columns toggle.
   const { hiddenColumns, toggleColumn, resetColumns, setHiddenColumns } = usePersistedHiddenColumns("costing_grid_hidden_columns");
-  const visibleColumns = COLUMNS.filter((c) => !hiddenColumns.has(c.key));
+
+  // Task 10 — DDP payment terms hide the cost-component columns (the vendor
+  // quotes a delivered-duty-paid price, so FOB/Duty/Freight/Insurance/Landed/
+  // Other are not entered separately) and rename "Tgt Cost" → "Trgt DDP".
+  // Match /DDP/i against the project's payment_terms_name snapshot so "DDP",
+  // "DDP 30", "DDP 60" etc. all trigger it.
+  const isDdp = !!project?.payment_terms_name && /DDP/i.test(project.payment_terms_name);
+  const DDP_HIDDEN = new Set(["fob_cost", "duty_rate", "freight", "insurance", "other_costs", "_landed"]);
+  const displayColumns = COLUMNS
+    .filter((c) => !(isDdp && DDP_HIDDEN.has(c.key)))
+    .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Trgt DDP" } : c));
+
+  const visibleColumns = displayColumns.filter((c) => !hiddenColumns.has(c.key));
   const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
-  const toggleableColumns = COLUMNS.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
+  const toggleableColumns = displayColumns.filter((c) => c.label && c.label.trim().length > 0).map((c) => ({ key: c.key, label: c.label }));
 
   // Row-selection checkboxes drive the "Generate Vendor RFQs" button.
   // Local Set so toggling is O(1) and we don't pollute the global store.
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
+
+  // Comp-period local draft. Holds a half-filled range so picking ONE date
+  // no longer collapses the input back to empty (the old bug: onChange set
+  // compPeriod=null whenever the other end was blank, immediately wiping the
+  // value just typed). compPeriod (the store) is only set once BOTH ends are
+  // filled — that's what compService needs. Seeded from any existing store value.
+  const [compFrom, setCompFrom] = useState<string>(compPeriod?.from || "");
+  const [compTo, setCompTo] = useState<string>(compPeriod?.to || "");
+  const applyCompRange = (from: string, to: string) => {
+    setCompFrom(from);
+    setCompTo(to);
+    setCompPeriod(from && to ? { from, to } : null);
+  };
   const toggleRow = (id: string) => {
     setSelectedRowIds((prev) => {
       const next = new Set(prev);
@@ -145,10 +176,44 @@ export default function CostingGrid() {
   };
 
   const onGenerateRfqs = async () => {
-    if (!project || selectedRowIds.size === 0) return;
+    if (!project) return;
+    if (selectedRowIds.size === 0) {
+      setNotice("Tick the checkbox on at least one row, then click Vendor RFQ.", "info");
+      return;
+    }
+    const projectId = project.id;
+    const lineIds = Array.from(selectedRowIds);
     setGenerating(true);
     try {
-      const res = await generateRfqs(project.id, Array.from(selectedRowIds));
+      let res = await generateRfqs(projectId, lineIds);
+
+      // Duplicate-RFQ guard: handler returns needs_confirm (409) when an RFQ
+      // already exists for the same style + color + vendor. Prompt, then
+      // re-submit with allowDuplicate on OK.
+      if ("needs_confirm" in res) {
+        const ok = await confirmDialog(
+          "An RFQ already exists for this style / color / vendor — do you want to create another?",
+          {
+            title: "Duplicate RFQ",
+            confirmText: "Create anyway",
+            cancelText: "Cancel",
+            listItems: res.duplicates.map((d) =>
+              [d.vendor, d.style_code, d.color].filter(Boolean).join(" · "),
+            ),
+          },
+        );
+        if (!ok) {
+          setNotice("RFQ generation cancelled.", "info");
+          return;
+        }
+        res = await generateRfqs(projectId, lineIds, true);
+        if ("needs_confirm" in res) {
+          // Shouldn't happen (allowDuplicate bypasses the guard), but guard anyway.
+          setNotice("Could not generate RFQs: duplicate check did not clear.", "error");
+          return;
+        }
+      }
+
       const parts = [];
       if (res.created.length > 0) {
         const vendorSummary = res.created.map((c) => `${c.vendor} (${c.line_count})`).join(", ");
@@ -229,6 +294,7 @@ export default function CostingGrid() {
       description: style.description,
       category_id: style.category_id,
       fabric_code: style.base_fabric, // fuzzy; user can change
+      fabric_codes: style.base_fabric ? [style.base_fabric] : [], // seed multi-select
     };
     // Seed target_cost via the resolveCost cascade. We pull one SKU under
     // the style + its avg cost from ip_item_avg_cost and feed them in as
@@ -289,6 +355,10 @@ export default function CostingGrid() {
 
   return (
     <div style={{ marginTop: 20 }}>
+      {/* Awarded rows render all their fonts green. !important overrides the
+          per-cell inline colors; in-cell popovers portal to document.body so
+          they're outside .costing-row-awarded and keep their normal palette. */}
+      <style>{`.costing-row-awarded, .costing-row-awarded * { color: #34D399 !important; }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
           Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
@@ -304,10 +374,10 @@ export default function CostingGrid() {
         >+ Add row</button>
         <button
           onClick={onGenerateRfqs}
-          disabled={generating || selectedRowIds.size === 0}
+          disabled={generating}
           title={
             selectedRowIds.size === 0
-              ? "Check rows in the grid first"
+              ? "Tick a row checkbox first, then click to generate RFQs"
               : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
           }
           style={{
@@ -315,7 +385,7 @@ export default function CostingGrid() {
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
             padding: "5px 14px", borderRadius: 4,
-            cursor: generating || selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            cursor: generating ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600,
             opacity: generating ? 0.6 : 1,
           }}
@@ -324,18 +394,18 @@ export default function CostingGrid() {
         </button>
         {/* Comp period from/to — drives /comp/ly + /comp/t3 windows.
             Empty = endpoint defaults (LY: trailing 365d shifted -12mo;
-            T3: trailing 3 months). Each end stamped together — both
-            need values for the override to apply. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
+            T3: trailing 3 months). Both ends need values for the override to
+            apply, but each end can be picked independently — local draft state
+            holds a half-filled range so picking one date no longer wipes it.
+
+            Tangerine T7 <DateRangePresets/> chips (LY / This Month / Last
+            Month / …) feed the same draft. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Comp period</span>
           <input
             type="date"
-            value={compPeriod?.from || ""}
-            onChange={(e) => {
-              const from = e.target.value || "";
-              const to = compPeriod?.to || "";
-              setCompPeriod(from && to ? { from, to } : null);
-            }}
+            value={compFrom}
+            onChange={(e) => applyCompRange(e.target.value, compTo)}
             title="Comp period FROM — LY shifts back 12 months from this window"
             style={{
               background: "#0F172A", color: "#E2E8F0",
@@ -347,12 +417,8 @@ export default function CostingGrid() {
           <span style={{ color: "#64748B", fontSize: 11 }}>→</span>
           <input
             type="date"
-            value={compPeriod?.to || ""}
-            onChange={(e) => {
-              const to = e.target.value || "";
-              const from = compPeriod?.from || "";
-              setCompPeriod(from && to ? { from, to } : null);
-            }}
+            value={compTo}
+            onChange={(e) => applyCompRange(compFrom, e.target.value)}
             title="Comp period TO"
             style={{
               background: "#0F172A", color: "#E2E8F0",
@@ -361,10 +427,10 @@ export default function CostingGrid() {
               colorScheme: "dark",
             }}
           />
-          {compPeriod && (
+          {(compFrom || compTo) && (
             <button
               type="button"
-              onClick={() => setCompPeriod(null)}
+              onClick={() => { setCompFrom(""); setCompTo(""); setCompPeriod(null); }}
               title="Reset to endpoint defaults"
               style={{
                 background: "transparent", color: "#F87171",
@@ -373,6 +439,16 @@ export default function CostingGrid() {
               }}
             >reset</button>
           )}
+          <DateRangePresets
+            from={compFrom}
+            to={compTo}
+            onChange={(from, to) => {
+              // "Custom…" returns empty strings — clear and let the operator
+              // pick manually; otherwise apply the computed range.
+              if (!from && !to) { setCompFrom(""); setCompTo(""); setCompPeriod(null); return; }
+              applyCompRange(from, to);
+            }}
+          />
         </div>
         <div style={{ marginLeft: "auto" }}>
           <ColumnsButton
@@ -440,9 +516,16 @@ export default function CostingGrid() {
         {visibleLines.map((line) => {
           const math = computeLineMath(line);
           const isFocused = selectedLineId === line.id;
+          // Awarded line → render the whole row's fonts green. Keyed on the
+          // EFFECTIVE per-line status (a Closed line that was awarded is no
+          // longer green). The scoped `.costing-row-awarded *` rule below uses
+          // !important to override the cells' inline colors; popovers portal to
+          // document.body so they stay unaffected.
+          const isAwarded = effectiveLineStatus(line) === "awarded";
           return (
             <div
               key={line.id}
+              className={isAwarded ? "costing-row-awarded" : undefined}
               // Row click only highlights — does NOT open the vendor panel.
               // The "$ Qts" button in actions column is the explicit panel trigger.
               onClick={() => setSelectedLine(line.id)}
@@ -496,6 +579,18 @@ export default function CostingGrid() {
                         checked={selectedRowIds.has(line.id)}
                         onChange={() => toggleRow(line.id)}
                         title="Include this row in the Vendor RFQ batch"
+                      />
+                    </div>
+                  );
+                }
+
+                // Per-line status pill (Draft / On RFQ / Awarded / Closed).
+                if (c.key === "_status") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <LineStatusCell
+                        line={line}
+                        onChange={(s) => updateLine(line.id, { status: s })}
                       />
                     </div>
                   );
@@ -633,6 +728,18 @@ export default function CostingGrid() {
                   );
                 }
 
+                // Docs — per-row document attachments. Opens a portaled modal
+                // wrapping the shared <DocumentAttachmentList> for this line
+                // (context_table="costing_lines"). Every line is persisted on
+                // creation so line.id is always a real costing_lines id.
+                if (c.key === "_docs") {
+                  return (
+                    <div key={c.key} style={{ ...style, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <RowAttachmentsCell lineId={line.id} styleCode={line.style_code} />
+                    </div>
+                  );
+                }
+
                 // Row actions — only delete now (vendor quotes side panel
                 // removed in favour of the toolbar Vendor RFQ flow). Kept the
                 // shared button style helper so width/height stays aligned
@@ -663,6 +770,10 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <input
+                        // key tied to the numeric value so the uncontrolled
+                        // input remounts after a commit and re-displays the
+                        // thousands-separated defaultValue (e.g. 12,000).
+                        key={`${c.key}_${v == null ? "" : String(v)}`}
                         defaultValue={display === "" ? "" : String(display)}
                         type="text"
                         onBlur={(e) => {
@@ -685,7 +796,7 @@ export default function CostingGrid() {
                   const kind = c.key === "fit" ? "fit" : c.key === "bottom_closure" ? "closure" : c.key === "waist_type" ? "waist" : "comment";
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
-                      <MasterSelectCell
+                      <MasterPickerCell
                         kind={kind as "fit" | "closure" | "waist" | "comment"}
                         value={(line[c.key as keyof CostingLine] as string | null) ?? null}
                         onChange={(v) => updateLine(line.id, { [c.key]: v } as Partial<CostingLine>)}
@@ -706,13 +817,22 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Fabric — autocomplete from fabric_codes.
+                // Fabric — multi-select autocomplete from Tangerine fabric_codes.
+                // Stores the array in fabric_codes; mirrors the first element into
+                // the legacy single fabric_code column for RFQ generation +
+                // back-compat readers.
                 if (c.key === "fabric_code") {
+                  const codes = Array.isArray(line.fabric_codes) && line.fabric_codes.length > 0
+                    ? line.fabric_codes
+                    : (line.fabric_code ? [line.fabric_code] : []);
                   return (
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <FabricPickerCell
-                        value={line.fabric_code}
-                        onChange={(v) => updateLine(line.id, { fabric_code: v })}
+                        value={codes}
+                        onChange={(next) => updateLine(line.id, {
+                          fabric_codes: next,
+                          fabric_code: next.length > 0 ? next[0] : null,
+                        })}
                       />
                     </div>
                   );

@@ -20,7 +20,10 @@
 //     can grow past 7 postable bank entries).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
+import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
@@ -48,6 +51,7 @@ type APInvoice = {
   description: string | null;
   expense_account_id: string | null;
   ap_account_id: string | null;
+  receiving_channel?: "WS" | "EC" | null;
   accrual_je_id: string | null;
   cash_je_id: string | null;
   total_amount_cents: string;
@@ -78,7 +82,7 @@ type Account = {
   is_postable: boolean;
   status: string;
 };
-type Item = { id: string; sku_code: string; style?: string; color?: string };
+type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 
 type DraftLine = {
   key: number; // stable for React lists
@@ -247,18 +251,18 @@ export default function InternalAPInvoices() {
   }, [vendors]);
 
   async function doPost(inv: APInvoice) {
-    if (!confirm(`Post invoice ${inv.invoice_number}? This will create the accrual JE.`)) return;
+    if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This will create the accrual JE.`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ap-invoices/${inv.id}/post`, { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok && r.status !== 202) throw new Error(j.error || `HTTP ${r.status}`);
       if (j.requires_approval) {
-        alert(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`);
+        notify(`Approval required. Approval request id: ${j.approval_request_id || "(see Approvals tab)"}.`, "info");
       }
       await load();
     } catch (e: unknown) {
-      alert(`Post failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Post failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -278,7 +282,7 @@ export default function InternalAPInvoices() {
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Void failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setBusy(null);
     }
@@ -363,7 +367,7 @@ export default function InternalAPInvoices() {
             { key: "due_date",           header: "Due",     format: "date" },
             { key: "vendor",             header: "Vendor" },
             { key: "invoice_number",     header: "Invoice #" },
-            { key: "invoice_kind",       header: "Kind" },
+            { key: "invoice_kind",       header: "Type" },
             { key: "gl_status",          header: "Status" },
             { key: "source",             header: "Source" },
             { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
@@ -418,7 +422,7 @@ export default function InternalAPInvoices() {
                   >
                     <td style={td} hidden={!isVisible("posting_date")}>{inv.posting_date}</td>
                     <td style={td} hidden={!isVisible("due_date")}>{inv.due_date || "—"}</td>
-                    <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || inv.vendor_id.slice(0, 8)}</td>
+                    <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}
                       hidden={!isVisible("invoice_number")}
@@ -520,9 +524,13 @@ function APInvoiceModal({
   const [kind, setKind] = useState(invoice?.invoice_kind || "vendor_bill");
   const [postingDate, setPostingDate] = useState(invoice?.posting_date || new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState(invoice?.due_date || "");
+  // P15 — which brand pool side received inventory lands in (WS/EC).
+  const [receivingChannel, setReceivingChannel] = useState<"WS" | "EC">(invoice?.receiving_channel === "EC" ? "EC" : "WS");
   const [description, setDescription] = useState(invoice?.description || "");
   const [apAccountId, setApAccountId] = useState(invoice?.ap_account_id || "");
   const [expenseAccountId, setExpenseAccountId] = useState(invoice?.expense_account_id || "");
+  // The selected vendor's current defaults (for auto-fill + the write-back prompt).
+  const [vendorDefaults, setVendorDefaults] = useState<{ ap: string | null; expense: string | null }>({ ap: null, expense: null });
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -530,6 +538,7 @@ function APInvoiceModal({
     { key: 1, kind: "expense", expense_account_id: "", inventory_item_id: "", quantity: "1", amount_dollars: "", unit_cost_dollars: "", description: "" },
   ]);
   const [loading, setLoading] = useState(!isNew);
+  const [stagedDocs, setStagedDocs] = useState<File[]>([]); // attached before save (new invoice)
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -539,6 +548,37 @@ function APInvoiceModal({
       .then((arr: Account[]) => setAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
       .catch(() => {});
   }, []);
+
+  // #3A — load the selected vendor's items for the inventory-line item picker.
+  useEffect(() => {
+    if (!vendorId) { setItems([]); return; }
+    let cancel = false;
+    fetch(`/api/internal/items?vendor_id=${encodeURIComponent(vendorId)}&limit=500`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: Item[]) => { if (!cancel) setItems(Array.isArray(arr) ? arr : []); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [vendorId]);
+
+  // On vendor select, load that vendor's default AP + expense accounts and
+  // auto-fill the header accounts. New invoice → adopt the vendor's defaults;
+  // editing → only fill blanks (don't clobber the invoice's saved coding).
+  useEffect(() => {
+    if (!vendorId) { setVendorDefaults({ ap: null, expense: null }); return; }
+    let cancel = false;
+    fetch(`/api/internal/vendor-master/${vendorId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => {
+        if (cancel || !v) return;
+        const dAp = v.default_gl_ap_account_id || null;
+        const dEx = v.default_gl_expense_account_id || null;
+        setVendorDefaults({ ap: dAp, expense: dEx });
+        setApAccountId((prev) => (isNew ? (dAp || "") : (prev || dAp || "")));
+        setExpenseAccountId((prev) => (isNew ? (dEx || "") : (prev || dEx || "")));
+      })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [vendorId]);
 
   // Lazy-load existing lines when editing.
   useEffect(() => {
@@ -639,6 +679,7 @@ function APInvoiceModal({
         invoice_kind: kind,
         posting_date: postingDate,
         due_date: dueDate || null,
+        receiving_channel: receivingChannel,
         description: description.trim() || null,
         expense_account_id: expenseAccountId || null,
         ap_account_id: apAccountId || null,
@@ -660,6 +701,35 @@ function APInvoiceModal({
         });
       }
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+
+      // Upload any documents staged on a brand-new invoice now that it has an id.
+      if (isNew && stagedDocs.length > 0) {
+        const created = await r.json().catch(() => null);
+        if (created?.id) {
+          try { await uploadStagedDocs("invoices", created.id, stagedDocs); }
+          catch (upErr) { notify(`Invoice saved, but a document upload failed: ${upErr instanceof Error ? upErr.message : String(upErr)}`, "error"); }
+        }
+      }
+
+      // Offer to write back the chosen accounts as this vendor's defaults when
+      // they differ from what's on file (the "set as default for this vendor?"
+      // prompt). Best-effort; never blocks the saved invoice.
+      const updates: Record<string, string> = {};
+      if (apAccountId && apAccountId !== vendorDefaults.ap) updates.default_gl_ap_account_id = apAccountId;
+      if (expenseAccountId && expenseAccountId !== vendorDefaults.expense) updates.default_gl_expense_account_id = expenseAccountId;
+      if (vendorId && Object.keys(updates).length > 0) {
+        const which = [
+          updates.default_gl_ap_account_id ? "AP" : null,
+          updates.default_gl_expense_account_id ? "expense" : null,
+        ].filter(Boolean).join(" + ");
+        if (await confirmDialog(`Set the chosen ${which} account${which.includes("+") ? "s" : ""} as the default for this vendor on future invoices?`)) {
+          try {
+            await fetch(`/api/internal/vendor-master/${vendorId}`, {
+              method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates),
+            });
+          } catch { /* non-fatal — the invoice already saved */ }
+        }
+      }
       onSaved();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -722,11 +792,11 @@ function APInvoiceModal({
               <Field label="Invoice number">
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
-              <Field label="Kind">
+              <Field label="Type">
                 <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="vendor_bill">vendor_bill</option>
-                  <option value="vendor_credit_memo">vendor_credit_memo</option>
-                  <option value="expense_report">expense_report</option>
+                  <option value="vendor_bill">Invoice</option>
+                  <option value="vendor_credit_memo">Credit</option>
+                  <option value="expense_report">Expense report</option>
                 </select>
               </Field>
             </div>
@@ -743,10 +813,10 @@ function APInvoiceModal({
                   value={expenseAccountId || null}
                   onChange={(v) => setExpenseAccountId(v)}
                   options={[
-                    { value: "", label: "(none — set per line)" },
+                    { value: "", label: "(select)" },
                     ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
                   ]}
-                  placeholder="(none — set per line)"
+                  placeholder="(select)"
                   disabled={!editable}
                 />
               </Field>
@@ -768,6 +838,25 @@ function APInvoiceModal({
               <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" />
             </Field>
 
+            {lines.some((l) => l.kind === "inventory") && (
+              <div style={{ marginTop: 12 }}>
+                <Field label="Receive inventory into (brand pool)">
+                  <select
+                    value={receivingChannel}
+                    onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                    disabled={!editable}
+                    style={inputStyle as React.CSSProperties}
+                  >
+                    <option value="WS">Wholesale pool</option>
+                    <option value="EC">Ecom pool</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                    Received units land in the brand's {receivingChannel === "EC" ? "Ecom" : "Wholesale"} pool when posted (single-pool brands ignore this).
+                  </div>
+                </Field>
+              </div>
+            )}
+
             <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
               {editable && (
@@ -784,7 +873,7 @@ function APInvoiceModal({
                   <tr>
                     <th style={{ ...th, width: 36 }}>#</th>
                     <th style={{ ...th, width: 90 }}>Kind</th>
-                    <th style={th}>Account / Item</th>
+                    <th style={th}>Account / Style</th>
                     <th style={{ ...th, width: 80 }}>Qty</th>
                     <th style={{ ...th, width: 110 }}>Amount $</th>
                     <th style={th}>Description</th>
@@ -814,12 +903,26 @@ function APInvoiceModal({
                             disabled={!editable}
                           />
                         ) : (
-                          <input
-                            type="text" value={l.inventory_item_id}
-                            onChange={(e) => updateLine(idx, { inventory_item_id: e.target.value })}
-                            disabled={!editable}
-                            placeholder="ip_item_master uuid"
-                            style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
+                          <SearchableSelect
+                            value={l.inventory_item_id || null}
+                            onChange={(v) => updateLine(idx, { inventory_item_id: v })}
+                            options={(() => {
+                              const opts = [
+                                { value: "", label: vendorId ? "(pick item…)" : "(select a vendor first)" },
+                                ...items.map((it) => ({
+                                  value: it.id,
+                                  label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`,
+                                  searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""} ${it.color || ""} ${it.size || ""}`,
+                                })),
+                              ];
+                              // Preserve an already-saved item not in the vendor's current list.
+                              if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
+                                opts.push({ value: l.inventory_item_id, label: "(saved item)", searchHaystack: l.inventory_item_id });
+                              }
+                              return opts;
+                            })()}
+                            placeholder={vendorId ? "(pick item…)" : "(select a vendor first)"}
+                            disabled={!editable || !vendorId}
                           />
                         )}
                       </td>
@@ -870,6 +973,13 @@ function APInvoiceModal({
                   contextId={invoice.id}
                   kinds={["vendor_invoice_pdf", "receipt", "approval_correspondence", "other"]}
                 />
+              </div>
+            )}
+
+            {isNew && editable && (
+              <div style={{ marginTop: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Supporting documents</div>
+                <StagedDocsPicker files={stagedDocs} onChange={setStagedDocs} hint="attach the vendor invoice / receipt; uploaded when you save." />
               </div>
             )}
 

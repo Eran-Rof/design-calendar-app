@@ -46,8 +46,19 @@
 //   • C   Gender dropdown labels now show just the descriptive name
 //         ("Mens", "Boys", "Child", "Girls", "Womens", "Unisex"). The
 //         stored value remains the single-letter code (M/B/C/G/W/U).
+//
+// Chunk J — Style Master + Catalog + Fabric (2026-06-01):
+//   • Item 4   Brand picker (SearchableSelect from /api/internal/brands) bound
+//              to style_master.brand_id; new Brand list column + export field.
+//   • Items 10/11  The Group / Category / Sub-category dropdowns now read the
+//              style_classifications master (/api/internal/style-classifications
+//              ?kind=…) instead of the old dim-values endpoint. Admin "+ Add
+//              new…" POSTs a new style_classifications row so the master grows.
+//   • Item 13  Gender options come from gender_master (/api/internal/genders),
+//              which carries Toddler ("T"); saved gender_code pre-selects.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
@@ -71,6 +82,7 @@ const STYLE_MASTER_COLUMNS: ColumnDef[] = [
   { key: "group_name",        label: "Group" },
   { key: "category_name",     label: "Category" },
   { key: "sub_category_name", label: "Sub Category" },
+  { key: "brand_name",        label: "Brand" },
   { key: "base_fabric",       label: "Base Fabric" },
   { key: "season",            label: "Season" },
   { key: "design_year",       label: "Year" },
@@ -98,6 +110,9 @@ type Style = {
   group_name: string | null;
   category_name: string | null;
   sub_category_name: string | null;
+  brand_id: string | null;
+  size_scale_id: string | null;
+  rise: string | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -119,28 +134,38 @@ type DimValues = {
   sub_categories: string[];
 };
 
+type Brand = { id: string; code: string; name: string; is_default?: boolean };
+
+type SizeScaleLite = { id: string; code: string; name: string };
+
+// gender_master row (Chunk J item 13) — replaces the hardcoded GENDER_OPTIONS.
+type GenderMaster = { id: string; code: string; label: string; sort_order: number };
+
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 
-// Canonical gender set (operator ask #12, 2026-05-30 + polish ask C 2026-05-30).
-// The STORED value is the single letter (M/B/C/G/W/U); the display LABEL is
-// just the descriptive name with the prefix dropped (operator's preference —
-// "M — Mens" was visually busy in the dropdown).
-const GENDER_OPTIONS: { value: string; label: string }[] = [
-  { value: "",  label: "(none)" },
+// Fallback gender set used only for list-cell labels before the gender_master
+// fetch resolves (Chunk J item 13 moves the canonical list to
+// /api/internal/genders, which also carries Toddler "T"). The STORED value is
+// the single-letter code; the display LABEL is the descriptive name.
+const GENDER_FALLBACK: { value: string; label: string }[] = [
+  { value: "",  label: "(select)" },
   { value: "M", label: "Mens"   },
   { value: "B", label: "Boys"   },
   { value: "C", label: "Child"  },
   { value: "G", label: "Girls"  },
   { value: "W", label: "Womens" },
   { value: "U", label: "Unisex" },
+  { value: "T", label: "Toddler" },
 ];
 
 const LIFECYCLE_OPTIONS = ["active", "phased_out", "discontinued", "core"];
 const PLANNING_OPTIONS  = ["", "core", "seasonal", "fashion"];
+// Denim rise classification (style_master.rise). Blank = not applicable.
+const RISE_OPTIONS      = ["", "HIGH", "MID", "LOW"];
 
 const btnPrimary: React.CSSProperties = {
   background: C.primary, color: "white", border: 0, padding: "8px 14px",
@@ -170,9 +195,10 @@ const td: React.CSSProperties = {
   color: C.text, fontSize: 13,
 };
 
-function genderLabelFor(code: string | null): string {
+function genderLabelFor(code: string | null, labelMap?: Map<string, string>): string {
   if (!code) return "—";
-  const hit = GENDER_OPTIONS.find((o) => o.value === code);
+  if (labelMap && labelMap.has(code)) return labelMap.get(code)!;
+  const hit = GENDER_FALLBACK.find((o) => o.value === code);
   return hit ? hit.label : code;
 }
 
@@ -212,8 +238,10 @@ export default function InternalStyleMaster() {
   const authUserId = getCachedAuthUserId();
   const isAdmin = !!authUserId;
 
-  // Polish ask B — dim-value cache. Fetched once on mount, refreshed after
-  // a save (so newly-added values become visible without a hard reload).
+  // Chunk J items 10/11 — classifier option lists now come from the
+  // style_classifications master (/api/internal/style-classifications?kind=…),
+  // not the old dim-values endpoint. Fetched once on mount, refreshed after a
+  // save (so a newly-added classification becomes visible without a reload).
   const [dimValues, setDimValues] = useState<DimValues>({
     groups: [],
     categories: [],
@@ -222,20 +250,60 @@ export default function InternalStyleMaster() {
 
   const loadDimValues = useCallback(async () => {
     try {
-      const r = await fetch(`/api/internal/style-master/dim-values`);
-      if (!r.ok) return; // non-fatal — modal will show whatever values arrive
-      const data = await r.json();
-      if (data && typeof data === "object") {
-        setDimValues({
-          groups: Array.isArray(data.groups) ? data.groups : [],
-          categories: Array.isArray(data.categories) ? data.categories : [],
-          sub_categories: Array.isArray(data.sub_categories) ? data.sub_categories : [],
-        });
-      }
+      const [gr, cr, sr] = await Promise.all([
+        fetch(`/api/internal/style-classifications?kind=group`),
+        fetch(`/api/internal/style-classifications?kind=category`),
+        fetch(`/api/internal/style-classifications?kind=sub_category`),
+      ]);
+      const names = async (r: Response): Promise<string[]> => {
+        if (!r.ok) return [];
+        const d = await r.json();
+        return Array.isArray(d)
+          ? d.map((x: { name?: string }) => x?.name).filter((n): n is string => typeof n === "string")
+          : [];
+      };
+      const [groups, categories, sub_categories] = await Promise.all([
+        names(gr),
+        names(cr),
+        names(sr),
+      ]);
+      setDimValues({ groups, categories, sub_categories });
     } catch {
-      /* non-fatal */
+      /* non-fatal — modal will show whatever values resolved */
     }
   }, []);
+
+  // Chunk J item 4 — brand list for the create/edit picker + list column.
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const loadBrands = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/internal/brands`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d && Array.isArray(d.brands)) setBrands(d.brands as Brand[]);
+    } catch { /* non-fatal */ }
+  }, []);
+  const brandNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of brands) m.set(b.id, b.name);
+    return m;
+  }, [brands]);
+
+  // Chunk J item 13 — gender list from gender_master (carries Toddler "T").
+  const [genders, setGenders] = useState<GenderMaster[]>([]);
+  const loadGenders = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/internal/genders`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (Array.isArray(d)) setGenders(d as GenderMaster[]);
+    } catch { /* non-fatal */ }
+  }, []);
+  const genderLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of genders) m.set(g.code, g.label);
+    return m;
+  }, [genders]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -256,15 +324,17 @@ export default function InternalStyleMaster() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadDimValues(); }, [loadDimValues]);
+  useEffect(() => { void loadBrands(); }, [loadBrands]);
+  useEffect(() => { void loadGenders(); }, [loadGenders]);
 
   async function softDelete(id: string) {
-    if (!confirm("Soft-delete this style? Can be restored by an admin SQL update.")) return;
+    if (!(await confirmDialog("Soft-delete this style? Can be restored by an admin SQL update."))) return;
     try {
       const r = await fetch(`/api/internal/style-master/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -311,6 +381,7 @@ export default function InternalStyleMaster() {
             ...r,
             base_fabric_code: r.base_fabric?.code ?? null,
             base_fabric_name: r.base_fabric?.name ?? null,
+            brand_name: r.brand_id ? (brandNameById.get(r.brand_id) ?? null) : null,
           })) as unknown as Array<Record<string, unknown>>}
           filename="style-master"
           sheetName="Style Master"
@@ -322,6 +393,7 @@ export default function InternalStyleMaster() {
             { key: "group_name",        header: "Group" },
             { key: "category_name",     header: "Category" },
             { key: "sub_category_name", header: "Sub Category" },
+            { key: "brand_name",        header: "Brand" },
             { key: "season",            header: "Season" },
             { key: "design_year",       header: "Year", format: "number" },
             { key: "lifecycle_status",  header: "Lifecycle" },
@@ -360,6 +432,7 @@ export default function InternalStyleMaster() {
                 <th style={th} hidden={!isVisible("group_name")}>Group</th>
                 <th style={th} hidden={!isVisible("category_name")}>Category</th>
                 <th style={th} hidden={!isVisible("sub_category_name")}>Sub Category</th>
+                <th style={th} hidden={!isVisible("brand_name")}>Brand</th>
                 <th style={th} hidden={!isVisible("base_fabric")}>Base Fabric</th>
                 <th style={th} hidden={!isVisible("season")}>Season</th>
                 <th style={th} hidden={!isVisible("design_year")}>Year</th>
@@ -382,10 +455,11 @@ export default function InternalStyleMaster() {
                   </td>
                   <td style={td} hidden={!isVisible("style_name")}>{r.style_name || "—"}</td>
                   <td style={td} hidden={!isVisible("description")}>{r.description}</td>
-                  <td style={td} hidden={!isVisible("gender_code")}>{genderLabelFor(r.gender_code)}</td>
+                  <td style={td} hidden={!isVisible("gender_code")}>{genderLabelFor(r.gender_code, genderLabelMap)}</td>
                   <td style={td} hidden={!isVisible("group_name")}>{r.group_name || "—"}</td>
                   <td style={td} hidden={!isVisible("category_name")}>{r.category_name || "—"}</td>
                   <td style={td} hidden={!isVisible("sub_category_name")}>{r.sub_category_name || "—"}</td>
+                  <td style={td} hidden={!isVisible("brand_name")}>{r.brand_id ? (brandNameById.get(r.brand_id) || "—") : "—"}</td>
                   <td style={td} hidden={!isVisible("base_fabric")}>
                     {r.base_fabric
                       ? <span><strong>{r.base_fabric.code}</strong> — {r.base_fabric.name}</span>
@@ -416,6 +490,8 @@ export default function InternalStyleMaster() {
         <StyleFormModal
           mode="add"
           dimValues={dimValues}
+          brands={brands}
+          genders={genders}
           isAdmin={isAdmin}
           onClose={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); afterModalSave(); }}
@@ -426,6 +502,8 @@ export default function InternalStyleMaster() {
           mode="edit"
           style={editing}
           dimValues={dimValues}
+          brands={brands}
+          genders={genders}
           isAdmin={isAdmin}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); afterModalSave(); }}
@@ -439,12 +517,14 @@ interface ModalProps {
   mode: "add" | "edit";
   style?: Style;
   dimValues: DimValues;
+  brands: Brand[];
+  genders: GenderMaster[];
   isAdmin: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: ModalProps) {
+function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     style_code:           style?.style_code            ?? "",
     style_name:           style?.style_name            ?? "",
@@ -459,8 +539,12 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
     group_name:           style?.group_name            ?? "",
     category_name:        style?.category_name         ?? "",
     sub_category_name:    style?.sub_category_name     ?? "",
+    brand_id:             style?.brand_id              ?? "",
+    size_scale_id:        style?.size_scale_id         ?? "",
+    rise:                 style?.rise                  ?? "",
   });
   const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
+  const [sizeScales, setSizeScales] = useState<SizeScaleLite[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -479,9 +563,40 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
     return () => { cancelled = true; };
   }, []);
 
+  // Load active size_scales for the SearchableSelect picker. Non-fatal on error.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/size-scales`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled && Array.isArray(data)) setSizeScales(data as SizeScaleLite[]);
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const sizeScaleOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(select)" },
+      ...sizeScales.map((s) => ({
+        value: s.id,
+        label: `${s.code} — ${s.name}`,
+        searchHaystack: `${s.code} ${s.name}`,
+      })),
+    ];
+    // Defensive: surface the style's current scale if it didn't come back
+    // from the active-only fetch (e.g. it was later deactivated).
+    if (form.size_scale_id && !sizeScales.some((s) => s.id === form.size_scale_id)) {
+      opts.push({ value: form.size_scale_id, label: form.size_scale_id });
+    }
+    return opts;
+  }, [sizeScales, form.size_scale_id]);
+
   const fabricOptions: SearchableSelectOption[] = useMemo(() => {
     const opts: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...fabrics.map((f) => ({
         value: f.id,
         label: `${f.code} — ${f.name}`,
@@ -504,6 +619,32 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
     return opts;
   }, [fabrics, style?.base_fabric_code_id, style?.base_fabric]);
 
+  // Chunk J item 13 — gender options from gender_master (falls back to the
+  // hardcoded set only if the fetch hasn't resolved). A "(none)" row leads.
+  const genderSelectOptions = useMemo(() => {
+    const base = genders.length > 0
+      ? genders.map((g) => ({ value: g.code, label: g.label }))
+      : GENDER_FALLBACK.filter((o) => o.value !== "");
+    const opts = [{ value: "", label: "(select)" }, ...base];
+    // Defensive: surface the current saved code if the master doesn't list it.
+    if (form.gender_code && !opts.some((o) => o.value === form.gender_code)) {
+      opts.push({ value: form.gender_code, label: form.gender_code });
+    }
+    return opts;
+  }, [genders, form.gender_code]);
+
+  // Chunk J item 4 — brand picker options.
+  const brandOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(select)" },
+      ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code} ${b.name}` })),
+    ];
+    if (form.brand_id && !brands.some((b) => b.id === form.brand_id)) {
+      opts.push({ value: form.brand_id, label: form.brand_id });
+    }
+    return opts;
+  }, [brands, form.brand_id]);
+
   async function submit() {
     setSubmitting(true);
     setErr(null);
@@ -521,6 +662,9 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
         group_name:           form.group_name.trim() || null,
         category_name:        form.category_name.trim() || null,
         sub_category_name:    form.sub_category_name.trim() || null,
+        brand_id:             form.brand_id || null,
+        size_scale_id:        form.size_scale_id || null,
+        rise:                 form.rise.trim() || null,
       };
       let url: string;
       let method: string;
@@ -601,7 +745,7 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
               onChange={(e) => setForm({ ...form, gender_code: e.target.value })}
               style={inputStyle as React.CSSProperties}
             >
-              {GENDER_OPTIONS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+              {genderSelectOptions.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
             </select>
           </Field>
 
@@ -618,6 +762,7 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
               isAdmin={isAdmin}
               placeholder="Pick a group…"
               addNewTitle="group"
+              kind="group"
             />
           </Field>
           <Field label="Category">
@@ -628,6 +773,7 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
               isAdmin={isAdmin}
               placeholder="Pick a category…"
               addNewTitle="category"
+              kind="category"
             />
           </Field>
           <Field label="Sub Category">
@@ -638,7 +784,39 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
               isAdmin={isAdmin}
               placeholder="Pick a sub-category…"
               addNewTitle="sub-category"
+              kind="sub_category"
             />
+          </Field>
+
+          {/* Chunk J item 4 — brand picker (style_master.brand_id). */}
+          <Field label="Brand">
+            <SearchableSelect
+              value={form.brand_id || null}
+              onChange={(v) => setForm({ ...form, brand_id: v })}
+              options={brandOptions}
+              placeholder="Pick a brand…"
+            />
+          </Field>
+
+          {/* Size Scale picker (style_master.size_scale_id). */}
+          <Field label="Size Scale">
+            <SearchableSelect
+              value={form.size_scale_id || null}
+              onChange={(v) => setForm({ ...form, size_scale_id: v })}
+              options={sizeScaleOptions}
+              placeholder="Pick a size scale…"
+            />
+          </Field>
+
+          {/* Rise (style_master.rise) — denim HIGH/MID/LOW; blank = n/a. */}
+          <Field label="Rise">
+            <select
+              value={form.rise}
+              onChange={(e) => setForm({ ...form, rise: e.target.value })}
+              style={inputStyle as React.CSSProperties}
+            >
+              {RISE_OPTIONS.map((r) => <option key={r} value={r}>{r || "(select)"}</option>)}
+            </select>
           </Field>
 
           <Field label="Season">
@@ -654,7 +832,7 @@ function StyleFormModal({ mode, style, dimValues, isAdmin, onClose, onSaved }: M
           </Field>
           <Field label="Planning class">
             <select value={form.planning_class} onChange={(e) => setForm({ ...form, planning_class: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(none)"}</option>)}
+              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(select)"}</option>)}
             </select>
           </Field>
           <Field label="Base fabric">
@@ -741,6 +919,7 @@ function DimValuePicker({
   isAdmin,
   placeholder,
   addNewTitle,
+  kind,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -748,10 +927,12 @@ function DimValuePicker({
   isAdmin: boolean;
   placeholder?: string;
   addNewTitle: string;
+  /** style_classifications kind this picker manages. */
+  kind: "group" | "category" | "sub_category";
 }) {
   const options: SearchableSelectOption[] = useMemo(() => {
     const base: SearchableSelectOption[] = [
-      { value: "", label: "(none)" },
+      { value: "", label: "(select)" },
       ...choices.map((c) => ({ value: c, label: c })),
     ];
     // If the row's current value isn't one of the known choices, surface it
@@ -762,13 +943,38 @@ function DimValuePicker({
     return base;
   }, [choices, value]);
 
+  // Chunk J items 10/11 — admin "+ Add new…" now grows the style_classifications
+  // master (POST), not just the local form value. We set the value immediately
+  // for snappy UX; the POST runs in the background and a 409 (already exists) is
+  // treated as success since the name is what we wanted on the row anyway.
+  const addNew = useCallback((qRaw: string) => {
+    const name = qRaw.trim();
+    if (!name) return;
+    onChange(name);
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-classifications`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, name }),
+        });
+        if (!r.ok && r.status !== 409) {
+          const msg = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
+          notify(`Could not save new ${addNewTitle} to master: ${msg}`, "error");
+        }
+      } catch (e: unknown) {
+        notify(`Could not save new ${addNewTitle} to master: ${e instanceof Error ? e.message : String(e)}`, "error");
+      }
+    })();
+  }, [kind, onChange, addNewTitle]);
+
   return (
     <SearchableSelect
       value={value || null}
       onChange={onChange}
       options={options}
       placeholder={placeholder}
-      onAddNew={isAdmin ? (q) => { if (q.trim()) onChange(q.trim()); } : undefined}
+      onAddNew={isAdmin ? addNew : undefined}
       addNewLabel={(q) => {
         const trimmed = q.trim();
         return trimmed
@@ -866,13 +1072,13 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
   }
 
   async function removeLink(id: string) {
-    if (!confirm("Remove this fabric from the style?")) return;
+    if (!(await confirmDialog("Remove this fabric from the style?"))) return;
     try {
       const r = await fetch(`/api/internal/style-fabric-codes/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await loadLinks();
     } catch (e: unknown) {
-      alert(`Remove failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Remove failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 

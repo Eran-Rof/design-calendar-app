@@ -13,6 +13,18 @@
 //      pre-flight (P6-6 extension) passes the bank_recon_complete check.
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.bank_recon_report";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "account",        label: "Account" },
+  { key: "gl_balance",     label: "GL Balance" },
+  { key: "uncleared",      label: "+ Uncleared" },
+  { key: "bank_statement", label: "Bank Statement" },
+  { key: "diff",           label: "Diff" },
+  { key: "status",         label: "Status" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -91,6 +103,7 @@ export default function InternalBankReconReport() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<Record<string, string>>({});       // bank_account_id -> typed statement balance (dollars)
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function loadBase() {
     setLoading(true);
@@ -133,7 +146,7 @@ export default function InternalBankReconReport() {
     const raw = editing[run.bank_account_id];
     if (raw == null || raw === "") return;
     const dollars = parseFloat(raw);
-    if (!Number.isFinite(dollars)) { alert("Invalid amount"); return; }
+    if (!Number.isFinite(dollars)) { notify("Invalid amount", "error"); return; }
     const cents = Math.round(dollars * 100);
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}`, {
@@ -141,44 +154,44 @@ export default function InternalBankReconReport() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bank_statement_balance_cents: cents }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Save failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Save failed: ${e.error}`, "error"); return; }
       setEditing((p) => { const c = { ...p }; delete c[run.bank_account_id]; return c; });
       await loadRuns();
-    } catch (e: unknown) { alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Save failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   async function recompute(run: ReconRun) {
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}/compute`, { method: "POST" });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Compute failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Compute failed: ${e.error}`, "error"); return; }
       await loadRuns();
-    } catch (e: unknown) { alert(`Compute failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Compute failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   async function markReconciled(run: ReconRun) {
-    if (!confirm("Mark this bank account reconciled for this period? Requires diff = $0.00.")) return;
+    if (!(await confirmDialog("Mark this bank account reconciled for this period? Requires diff = $0.00."))) return;
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "reconciled" }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Reconcile failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Reconcile failed: ${e.error}`, "error"); return; }
       await loadRuns();
-    } catch (e: unknown) { alert(`Reconcile failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Reconcile failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   async function reopenRun(run: ReconRun) {
-    if (!confirm("Reopen this reconciliation? Status goes back to in_progress.")) return;
+    if (!(await confirmDialog("Reopen this reconciliation? Status goes back to in_progress."))) return;
     try {
       const r = await fetch(`/api/internal/bank-recon-runs/${run.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "in_progress" }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Reopen failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Reopen failed: ${e.error}`, "error"); return; }
       await loadRuns();
-    } catch (e: unknown) { alert(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   const reconciledCount = useMemo(() => runs.filter((r) => r.status === "reconciled").length, [runs]);
@@ -205,6 +218,16 @@ export default function InternalBankReconReport() {
           </div>
         )}
         {periodId && <button style={btnSecondary} onClick={() => void loadRuns()}>Refresh</button>}
+        {periodId && (
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
+        )}
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>{err}</div>}
@@ -225,12 +248,12 @@ export default function InternalBankReconReport() {
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
-              <th style={th}>Account</th>
-              <th style={{ ...th, textAlign: "right" }}>GL Balance</th>
-              <th style={{ ...th, textAlign: "right" }}>+ Uncleared</th>
-              <th style={{ ...th, textAlign: "right" }}>Bank Statement</th>
-              <th style={{ ...th, textAlign: "right" }}>Diff</th>
-              <th style={th}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("account")}>Account</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("gl_balance")}>GL Balance</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("uncleared")}>+ Uncleared</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("bank_statement")}>Bank Statement</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("diff")}>Diff</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
               <th style={{ ...th, width: 280 }}>Actions</th>
             </tr></thead>
             <tbody>
@@ -240,13 +263,13 @@ export default function InternalBankReconReport() {
                 const diffColor = diff == null ? C.textMuted : Math.abs(Number(diff)) <= 1 ? C.success : C.danger;
                 return (
                   <tr key={r.id}>
-                    <td style={td}>
+                    <td style={td} hidden={!visibleColumns.has("account")}>
                       <strong>{r.bank_accounts.name}</strong>
                       {r.bank_accounts.mask && <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>••{r.bank_accounts.mask}</span>}
                     </td>
-                    <td style={tdNum}>{fmtCents(r.gl_balance_cents)}</td>
-                    <td style={tdNum}>{fmtCents(r.uncleared_txn_cents)}</td>
-                    <td style={tdNum}>
+                    <td style={tdNum} hidden={!visibleColumns.has("gl_balance")}>{fmtCents(r.gl_balance_cents)}</td>
+                    <td style={tdNum} hidden={!visibleColumns.has("uncleared")}>{fmtCents(r.uncleared_txn_cents)}</td>
+                    <td style={tdNum} hidden={!visibleColumns.has("bank_statement")}>
                       {isReconciled ? (
                         <span>{fmtCents(r.bank_statement_balance_cents)}</span>
                       ) : (
@@ -263,8 +286,8 @@ export default function InternalBankReconReport() {
                         </span>
                       )}
                     </td>
-                    <td style={{ ...tdNum, color: diffColor, fontWeight: 700 }}>{fmtCents(diff)}</td>
-                    <td style={{ ...td, color: isReconciled ? C.success : r.status === "flagged" ? C.danger : C.warn, fontWeight: 600 }}>
+                    <td style={{ ...tdNum, color: diffColor, fontWeight: 700 }} hidden={!visibleColumns.has("diff")}>{fmtCents(diff)}</td>
+                    <td style={{ ...td, color: isReconciled ? C.success : r.status === "flagged" ? C.danger : C.warn, fontWeight: 600 }} hidden={!visibleColumns.has("status")}>
                       ● {r.status}
                     </td>
                     <td style={td}>

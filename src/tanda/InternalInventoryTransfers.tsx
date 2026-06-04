@@ -9,6 +9,18 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const INV_XFER_TABLE_KEY = "tangerine:inventorytransfers:columns";
+const INV_XFER_COLUMNS: ColumnDef[] = [
+  { key: "style", label: "Style" },
+  { key: "qty",   label: "Qty" },
+  { key: "from",  label: "From" },
+  { key: "to",    label: "To" },
+  { key: "date",  label: "Date" },
+  { key: "notes", label: "Notes" },
+];
 
 type InventoryTransfer = {
   id: string;
@@ -62,6 +74,13 @@ export default function InternalInventoryTransfers() {
   const [itemId, setItemId] = useState("");
   const [fromLoc, setFromLoc] = useState("");
   const [toLoc, setToLoc] = useState("");
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    INV_XFER_TABLE_KEY,
+    INV_XFER_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -126,7 +145,14 @@ export default function InternalInventoryTransfers() {
           value={toLoc}
           onChange={(e) => setToLoc(e.target.value)}
         />
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={INV_XFER_TABLE_KEY}
+            columns={INV_XFER_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="inventory-transfers"
@@ -155,12 +181,12 @@ export default function InternalInventoryTransfers() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Item</th>
-              <th style={th}>Qty</th>
-              <th style={th}>From</th>
-              <th style={th}>To</th>
-              <th style={th}>Date</th>
-              <th style={th}>Notes</th>
+              <th style={th} hidden={!isVisible("style")}>Style</th>
+              <th style={th} hidden={!isVisible("qty")}>Qty</th>
+              <th style={th} hidden={!isVisible("from")}>From</th>
+              <th style={th} hidden={!isVisible("to")}>To</th>
+              <th style={th} hidden={!isVisible("date")}>Date</th>
+              <th style={th} hidden={!isVisible("notes")}>Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -176,12 +202,12 @@ export default function InternalInventoryTransfers() {
             )}
             {rows.map((t) => (
               <tr key={t.id}>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{t.item_id}</td>
-                <td style={td}>{t.qty}</td>
-                <td style={td}>{t.from_location}</td>
-                <td style={td}>{t.to_location}</td>
-                <td style={td}>{fmtDate(t.transfer_date)}</td>
-                <td style={{ ...td, color: C.textSub }}>{t.notes || "—"}</td>
+                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{t.item_id}</td>
+                <td style={td} hidden={!isVisible("qty")}>{t.qty}</td>
+                <td style={td} hidden={!isVisible("from")}>{t.from_location}</td>
+                <td style={td} hidden={!isVisible("to")}>{t.to_location}</td>
+                <td style={td} hidden={!isVisible("date")}>{fmtDate(t.transfer_date)}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("notes")}>{t.notes || "—"}</td>
               </tr>
             ))}
           </tbody>

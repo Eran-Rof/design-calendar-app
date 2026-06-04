@@ -13,10 +13,22 @@
 //   closed     → open       (full reopen)
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 // Cross-cutter T11-3 — audit-trail drop-in for the period detail/preflight modal.
 import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const PERIODS_TABLE_KEY = "tangerine:periods:columns";
+const PERIOD_COLUMNS: ColumnDef[] = [
+  { key: "period",     label: "Period" },
+  { key: "starts",     label: "Starts" },
+  { key: "ends",       label: "Ends" },
+  { key: "posted_jes", label: "Posted JEs" },
+  { key: "status",     label: "Status" },
+];
 
 type PeriodStatus = "open" | "soft_close" | "closed" | "closed_with_closing_jes";
 
@@ -83,6 +95,13 @@ export default function InternalPeriods() {
   const [fyFilter, setFyFilter] = useState(String(new Date().getFullYear()));
   const [statusFilter, setStatusFilter] = useState("");
 
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    PERIODS_TABLE_KEY,
+    PERIOD_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -105,12 +124,12 @@ export default function InternalPeriods() {
   const [preflight, setPreflight] = useState<{ period: Period; data: PreflightResponse | null; loading: boolean; err: string | null } | null>(null);
 
   async function softClose(p: Period) {
-    if (!confirm(`Soft-close FY${p.fiscal_year} period ${p.period_number} (${MONTH_LABELS[p.period_number - 1]})? Pre-flight checks run automatically.`)) return;
+    if (!(await confirmDialog(`Soft-close FY${p.fiscal_year} period ${p.period_number} (${MONTH_LABELS[p.period_number - 1]})? Pre-flight checks run automatically.`))) return;
     await postClose(p, "soft_close");
   }
 
   async function hardClose(p: Period) {
-    if (!confirm(`HARD-close FY${p.fiscal_year} period ${p.period_number}? Blocks all posting until reopened.`)) return;
+    if (!(await confirmDialog(`HARD-close FY${p.fiscal_year} period ${p.period_number}? Blocks all posting until reopened.`))) return;
     await postClose(p, "closed");
   }
 
@@ -124,18 +143,18 @@ export default function InternalPeriods() {
       const data = await r.json();
       if (!r.ok) {
         if (data.blocking_failures) {
-          alert(`Close blocked by pre-flight checks:\n\n${data.blocking_failures.map((f: PreflightRow) => `• ${f.check_name}: ${f.detail}`).join("\n")}`);
+          notify(`Close blocked by pre-flight checks:\n\n${data.blocking_failures.map((f: PreflightRow) => `• ${f.check_name}: ${f.detail}`).join("\n")}`, "info");
         } else {
-          alert(`Close failed: ${data.error || `HTTP ${r.status}`}`);
+          notify(`Close failed: ${data.error || `HTTP ${r.status}`}`, "error");
         }
         return;
       }
       if (data.requires_approval) {
-        alert(`Close requires approval — request ${data.approval_request_id}. Visit Approvals Inbox to approve.`);
+        notify(`Close requires approval — request ${data.approval_request_id}. Visit Approvals Inbox to approve.`, "info");
       }
       await load();
     } catch (e: unknown) {
-      alert(`Close failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Close failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -152,12 +171,12 @@ export default function InternalPeriods() {
       });
       const data = await r.json();
       if (!r.ok) {
-        alert(`Reopen failed: ${data.error || `HTTP ${r.status}`}`);
+        notify(`Reopen failed: ${data.error || `HTTP ${r.status}`}`, "error");
         return;
       }
       await load();
     } catch (e: unknown) {
-      alert(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Reopen failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -227,6 +246,13 @@ export default function InternalPeriods() {
             { key: "closed_at",       header: "Closed",      format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={PERIODS_TABLE_KEY}
+          columns={PERIOD_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -244,6 +270,7 @@ export default function InternalPeriods() {
           key={year}
           year={year}
           periods={list}
+          isVisible={isVisible}
           onSoftClose={softClose}
           onHardClose={hardClose}
           onReopen={reopen}
@@ -267,6 +294,7 @@ export default function InternalPeriods() {
 type YearCardProps = {
   year: number;
   periods: Period[];
+  isVisible: (k: string) => boolean;
   onSoftClose: (p: Period) => void;
   onHardClose: (p: Period) => void;
   onReopen:    (p: Period) => void;
@@ -281,7 +309,7 @@ const btnAction: React.CSSProperties = {
 const btnActionDanger: React.CSSProperties = { ...btnAction, color: C.danger, borderColor: "#7f1d1d" };
 const btnActionWarn: React.CSSProperties = { ...btnAction, color: C.warn, borderColor: "#78350f" };
 
-function YearCard({ year, periods, onSoftClose, onHardClose, onReopen, onRunChecks }: YearCardProps) {
+function YearCard({ year, periods, isVisible, onSoftClose, onHardClose, onReopen, onRunChecks }: YearCardProps) {
   const summary = useMemo(() => {
     let open = 0, soft = 0, closed = 0, terminal = 0;
     for (const p of periods) {
@@ -311,11 +339,11 @@ function YearCard({ year, periods, onSoftClose, onHardClose, onReopen, onRunChec
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={th}>Period</th>
-            <th style={th}>Starts</th>
-            <th style={th}>Ends</th>
-            <th style={th}>Posted JEs</th>
-            <th style={th}>Status</th>
+            <th style={th} hidden={!isVisible("period")}>Period</th>
+            <th style={th} hidden={!isVisible("starts")}>Starts</th>
+            <th style={th} hidden={!isVisible("ends")}>Ends</th>
+            <th style={th} hidden={!isVisible("posted_jes")}>Posted JEs</th>
+            <th style={th} hidden={!isVisible("status")}>Status</th>
             <th style={{ ...th, width: 320 }}>Actions</th>
           </tr>
         </thead>
@@ -324,11 +352,11 @@ function YearCard({ year, periods, onSoftClose, onHardClose, onReopen, onRunChec
             const isTerminal = p.status === "closed_with_closing_jes";
             return (
               <tr key={p.id}>
-                <td style={td}>{p.period_number} — {MONTH_LABELS[p.period_number - 1]}</td>
-                <td style={td}>{p.starts_on}</td>
-                <td style={td}>{p.ends_on}</td>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{p.posted_je_count ?? 0}</td>
-                <td style={td}>
+                <td style={td} hidden={!isVisible("period")}>{p.period_number} — {MONTH_LABELS[p.period_number - 1]}</td>
+                <td style={td} hidden={!isVisible("starts")}>{p.starts_on}</td>
+                <td style={td} hidden={!isVisible("ends")}>{p.ends_on}</td>
+                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("posted_jes")}>{p.posted_je_count ?? 0}</td>
+                <td style={td} hidden={!isVisible("status")}>
                   <span style={{ color: STATUS_COLORS[p.status], fontWeight: 600 }}>● {p.status}</span>
                 </td>
                 <td style={td}>

@@ -10,6 +10,7 @@
 //      and bf_unmatched_customers_log audits.
 
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -123,7 +124,7 @@ export default function InternalARBackfill() {
 
   async function run() {
     if (!dryRun) {
-      const proceed = confirm(
+      const proceed = await confirmDialog(
         `LIVE RUN: this will create ar_invoices + journal_entries for every invoice in ip_sales_history_wholesale ` +
         `between ${startDate} and ${endDate} for entity ROF. Re-runs are idempotent (skipped on conflict). Continue?`,
       );

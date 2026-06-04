@@ -12,10 +12,11 @@ export const config = { maxDuration: 15 };
 const EDITABLE = [
   "sort_order",
   "style_master_id", "style_code", "style_name", "description", "picture_url",
-  "size_scale_id", "size_scale_label", "fabric_code", "fit", "color",
+  "size_scale_id", "size_scale_label", "fabric_code", "fabric_codes", "fit", "color",
   "bottom_closure", "waist_type", "waste_type",
   "category_id", "sub_category_id", "style_state",
   "comment", "remarks",
+  "status",
   "target_qty", "target_cost", "avg_cost", "sell_target", "sell_price",
   "priced_date", "fob_cost", "duty_rate", "freight", "insurance", "other_costs",
   "landed_cost", "margin_pct",

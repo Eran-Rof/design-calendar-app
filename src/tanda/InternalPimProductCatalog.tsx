@@ -20,6 +20,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import InternalPimStyleDetail from "./InternalPimStyleDetail";
 import SearchableSelect from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 type Category = {
   id: string;
@@ -45,6 +47,7 @@ type Style = {
   lifecycle_status: string;
   planning_class: string | null;
   base_fabric: string | null;
+  brand_id: string | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -77,8 +80,11 @@ type PimComposite = {
   descriptions: DescriptionRow[];
 };
 
+type Brand = { id: string; code: string; name: string; is_default?: boolean };
+
 type RowVM = Style & {
   category_label: string;
+  brand_label: string;
   primary_thumb: string | null;
   publish_label: "draft" | "published" | "mixed" | "—";
   pim_updated: string | null;
@@ -178,6 +184,7 @@ function fmtDate(iso: string | null | undefined): string {
 export default function InternalPimProductCatalog() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [composites, setComposites] = useState<Map<string, PimComposite>>(new Map());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -185,8 +192,16 @@ export default function InternalPimProductCatalog() {
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>(""); // category id; expands children
   const [publishFilter, setPublishFilter] = useState<string>("");
+  const [brandFilter, setBrandFilter] = useState<string>(""); // brand id (Chunk J item 4)
 
   const [openStyleId, setOpenStyleId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { getRowProps } = useRowClickEdit<RowVM>({
+    onRowClick: (r) => setOpenStyleId(r.id),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Open product ${r.style_code}`,
+  });
 
   async function loadCategories() {
     try {
@@ -196,6 +211,18 @@ export default function InternalPimProductCatalog() {
     } catch (e: unknown) {
       // Non-fatal: catalog still renders without the filter.
       console.warn("[PIM] categories load failed:", e);
+    }
+  }
+
+  async function loadBrands() {
+    try {
+      const r = await fetch(`/api/internal/brands`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d && Array.isArray(d.brands)) setBrands(d.brands as Brand[]);
+    } catch (e: unknown) {
+      // Non-fatal: catalog still renders without the brand column/filter.
+      console.warn("[PIM] brands load failed:", e);
     }
   }
 
@@ -261,11 +288,17 @@ export default function InternalPimProductCatalog() {
 
   useEffect(() => {
     void loadCategories();
+    void loadBrands();
     void loadStyles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const catPaths = useMemo(() => buildCategoryPathMap(categories), [categories]);
+  const brandNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of brands) m.set(b.id, b.name);
+    return m;
+  }, [brands]);
 
   // Tree-aware filter: if the user picks "Womens", we include all styles
   // whose category is "Womens" OR any descendant. We compute the descendant
@@ -310,18 +343,22 @@ export default function InternalPimProductCatalog() {
       return {
         ...s,
         category_label: s.category_id ? (catPaths.get(s.category_id) || "(unmapped)") : "(unmapped)",
+        brand_label: s.brand_id ? (brandNameById.get(s.brand_id) || "(unmapped)") : "—",
         primary_thumb,
         publish_label,
         pim_updated,
         loaded,
       };
     });
-  }, [styles, composites, catPaths]);
+  }, [styles, composites, catPaths, brandNameById]);
 
   // Apply client-side filters (category tree + publish state).
   const filteredRows: RowVM[] = useMemo(() => {
     return rows.filter((r) => {
       if (descendantOf && (!r.category_id || !descendantOf.has(r.category_id))) {
+        return false;
+      }
+      if (brandFilter && r.brand_id !== brandFilter) {
         return false;
       }
       if (publishFilter) {
@@ -330,7 +367,7 @@ export default function InternalPimProductCatalog() {
       }
       return true;
     });
-  }, [rows, descendantOf, publishFilter]);
+  }, [rows, descendantOf, brandFilter, publishFilter]);
 
   // If a row is opened, render the detail editor full-pane instead of the list.
   if (openStyleId) {
@@ -391,6 +428,18 @@ export default function InternalPimProductCatalog() {
           />
         </div>
 
+        <div style={{ width: 220 }}>
+          <SearchableSelect
+            value={brandFilter || null}
+            onChange={(v) => setBrandFilter(v)}
+            options={[
+              { value: "", label: "All brands" },
+              ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code} ${b.name}` })),
+            ]}
+            placeholder="All brands"
+          />
+        </div>
+
         <select
           value={publishFilter}
           onChange={(e) => setPublishFilter(e.target.value)}
@@ -409,6 +458,7 @@ export default function InternalPimProductCatalog() {
             { key: "style_code",     header: "Style Number" },
             { key: "style_name",     header: "Style Name" },
             { key: "category_label", header: "Category" },
+            { key: "brand_label",    header: "Brand" },
             { key: "publish_label",  header: "Publish Status" },
             { key: "pim_updated",    header: "Last Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
@@ -441,18 +491,18 @@ export default function InternalPimProductCatalog() {
                 <th style={th}>Style Number</th>
                 <th style={th}>Style Name</th>
                 <th style={th}>Category</th>
+                <th style={th}>Brand</th>
                 <th style={th}>Publish Status</th>
                 <th style={th}>Last Updated</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.map((r) => (
-                <tr
+                <ScrollHighlightRow
                   key={r.id}
-                  onClick={() => setOpenStyleId(r.id)}
-                  style={{ cursor: "pointer" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "#0b1220")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
                 >
                   <td style={{ ...td, width: 110 }}>
                     {r.primary_thumb ? (
@@ -483,11 +533,12 @@ export default function InternalPimProductCatalog() {
                   </td>
                   <td style={td}>{r.style_name || r.description || "—"}</td>
                   <td style={td}>{r.category_label}</td>
+                  <td style={td}>{r.brand_label}</td>
                   <td style={td}>
                     <PublishPill label={r.publish_label} loaded={r.loaded} />
                   </td>
                   <td style={td}>{fmtDate(r.pim_updated)}</td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>

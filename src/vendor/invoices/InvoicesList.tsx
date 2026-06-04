@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
+import { resolveVendorId } from "../vendorId";
 import { fmtDate, fmtMoney } from "../utils";
 
 interface InvoiceRow {
@@ -13,6 +14,7 @@ interface InvoiceRow {
   total: number | null;
   currency: string;
   status: string;
+  source: string;
   submitted_at: string;
   paid_at: string | null;
 }
@@ -39,9 +41,13 @@ export default function InvoicesList() {
       setLoading(true);
       setErr(null);
       try {
+        // Scope to this vendor explicitly — RLS is permissive (see vendorId.ts).
+        const vendorId = await resolveVendorId();
+        if (!vendorId) { setRows([]); return; }
         const { data, error } = await supabaseVendor
           .from("invoices")
-          .select("id, invoice_number, po_id, invoice_date, due_date, total, currency, status, submitted_at, paid_at")
+          .select("id, invoice_number, po_id, invoice_date, due_date, total, currency, status, source, submitted_at, paid_at")
+          .eq("vendor_id", vendorId)
           .order("submitted_at", { ascending: false });
         if (error) throw error;
         setRows((data ?? []) as InvoiceRow[]);
@@ -106,8 +112,9 @@ export default function InvoicesList() {
       )}
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "170px 120px 120px 140px 140px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "170px 110px 120px 120px 140px 140px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
           <div>Invoice #</div>
+          <div>Type</div>
           <div>Submitted</div>
           <div>Due</div>
           <div style={{ textAlign: "right", paddingRight: 16 }}>Amount</div>
@@ -124,9 +131,14 @@ export default function InvoicesList() {
             <Link
               key={r.id}
               to={`/vendor/invoices/${r.id}`}
-              style={{ display: "grid", gridTemplateColumns: "170px 120px 120px 140px 140px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", color: "inherit", textDecoration: "none", background: TH.surface }}
+              style={{ display: "grid", gridTemplateColumns: "170px 110px 120px 120px 140px 140px 1fr", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", color: "inherit", textDecoration: "none", background: TH.surface }}
             >
               <div style={{ fontWeight: 600, color: TH.text, fontFamily: "Menlo, monospace" }}>{r.invoice_number}</div>
+              <div>
+                <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10, fontWeight: 600, ...(r.source === "manual" ? { background: "#DBEAFE", color: "#1E40AF" } : { background: TH.surfaceHi, color: TH.textMuted }) }}>
+                  {r.source === "manual" ? "Vendor bill" : "RoF bill"}
+                </span>
+              </div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.submitted_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.due_date)}</div>
               <div style={{ color: TH.text, fontWeight: 600, textAlign: "right", paddingRight: 16 }}>{fmtMoney(r.total ?? undefined)}</div>

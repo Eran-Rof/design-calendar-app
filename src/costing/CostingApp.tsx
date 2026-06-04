@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from "react";
 import { TH, setConfirmHandler } from "../utils/theme";
-import { ConfirmModal } from "../components/Modal";
+import { WarnHost, confirmDialog } from "../shared/ui/warn";
 import CostingNavBar from "./panels/NavBar";
 import ProjectListView from "./views/ProjectListView";
 import ProjectEditView from "./views/ProjectEditView";
@@ -14,20 +14,21 @@ import SettingsView from "./views/SettingsView";
 import RfqListView from "./views/RfqListView";
 import RfqEditView from "./views/RfqEditView";
 import { getView } from "./helpers";
-import { useCostingStore } from "./store/costingStore";
-
-type ConfirmState = { message: string; action: string; onConfirm: () => void } | null;
 
 export default function CostingApp() {
   const [view, setView] = useState(getView());
-  const [confirmState, setConfirmState] = useState<ConfirmState>(null);
-  const notice = useCostingStore((s) => s.notice);
-  const clearNotice = useCostingStore((s) => s.clearNotice);
 
-  // Wire appConfirm() so calls from anywhere inside the costing tree open
-  // the ConfirmModal instead of a native browser dialog.
+  // Wire appConfirm() through the canonical Tangerine confirm surface
+  // (src/shared/ui/warn → confirmDialog) so every costing yes/no prompt
+  // matches the ATS / PO-WIP layout + app colors. The legacy
+  // appConfirm(message, action, onConfirm) signature is preserved — we just
+  // route it to confirmDialog() and fire onConfirm on a positive result.
   useEffect(() => {
-    setConfirmHandler((opts) => setConfirmState(opts));
+    setConfirmHandler(({ message, action, onConfirm }) => {
+      void confirmDialog(message, { confirmText: action }).then((ok) => {
+        if (ok) onConfirm();
+      });
+    });
   }, []);
 
   useEffect(() => {
@@ -39,13 +40,6 @@ export default function CostingApp() {
       window.removeEventListener("costing:navigate", refresh as EventListener);
     };
   }, []);
-
-  // Auto-dismiss the toast after 5 s. Operator can also dismiss manually.
-  useEffect(() => {
-    if (!notice) return;
-    const t = window.setTimeout(() => clearNotice(), 5000);
-    return () => window.clearTimeout(t);
-  }, [notice, clearNotice]);
 
   return (
     <div style={{
@@ -61,35 +55,11 @@ export default function CostingApp() {
         {view === "rfq-edit" && <RfqEditView />}
       </div>
 
-      {confirmState && (
-        <ConfirmModal
-          title="Are you sure?"
-          message={confirmState.message}
-          confirmLabel={confirmState.action}
-          danger
-          onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }}
-          onCancel={() => setConfirmState(null)}
-        />
-      )}
-
-      {notice && (
-        <div
-          onClick={clearNotice}
-          style={{
-            position: "fixed", bottom: 24, right: 24, zIndex: 9999,
-            background: notice.level === "error" ? "#C53030" : "#2D3748",
-            color: "#fff",
-            padding: "12px 18px", borderRadius: 10,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-            fontSize: 14, maxWidth: 360,
-            display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
-          }}
-          title="Click to dismiss"
-        >
-          <span style={{ fontSize: 16 }}>{notice.level === "error" ? "⚠️" : "ℹ️"}</span>
-          <span>{notice.message}</span>
-        </div>
-      )}
+      {/* Canonical Tangerine warn surface — renders the shared toast +
+          confirm modal (same layout + app colors as ATS / PO-WIP). Mounted
+          once here since the Costing app boots standalone (not under the
+          Tangerine shell where the other <WarnHost/> lives). */}
+      <WarnHost />
     </div>
   );
 }

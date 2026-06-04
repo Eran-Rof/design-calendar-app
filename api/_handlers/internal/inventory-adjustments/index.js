@@ -20,6 +20,7 @@
 // Subpath /:id/post lives in ./post.js (subpath-before-:id ordering in routes.js).
 
 import { createClient } from "@supabase/supabase-js";
+import { applyBrandScope } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -140,6 +141,9 @@ export function validateInsert(body) {
     }
   }
 
+  const receiving_channel = body.receiving_channel === "EC" ? "EC"
+    : (body.receiving_channel === "WS" ? "WS" : null);
+
   return {
     data: {
       item_id: String(body.item_id),
@@ -148,6 +152,7 @@ export function validateInsert(body) {
       unit_cost_cents: unitCost,
       reason: String(body.reason).trim(),
       gl_account_id: String(body.gl_account_id),
+      receiving_channel,
     },
   };
 }
@@ -173,6 +178,9 @@ export default async function handler(req, res) {
       .eq("entity_id", entityId)
       .order("created_at", { ascending: false })
       .limit(parsed.limit);
+
+    // P15 C3 — brand scoping (no-op unless BRAND_SCOPE_MODE=enforce + a brand selected).
+    query = applyBrandScope(query, req);
 
     if (parsed.filters.item_id) query = query.eq("item_id", parsed.filters.item_id);
     if (parsed.filters.adjustment_type) query = query.eq("adjustment_type", parsed.filters.adjustment_type);

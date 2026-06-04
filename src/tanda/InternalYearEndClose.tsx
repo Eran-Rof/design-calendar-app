@@ -16,6 +16,7 @@
 //      bumped by net income.
 
 import { useState } from "react";
+import { confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -87,7 +88,7 @@ export default function InternalYearEndClose() {
 
   async function run() {
     if (!dryRun) {
-      const proceed = confirm(
+      const proceed = await confirmDialog(
         `LIVE RUN: post the year-end closing JE for FY ${fiscalYear} and flip ALL 12 periods to closed_with_closing_jes (TERMINAL — cannot be reopened). Continue?`,
       );
       if (!proceed) return;

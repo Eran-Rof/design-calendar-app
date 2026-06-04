@@ -64,6 +64,8 @@ function mockSupabase({
   snapshotRows = [],
   itemMasterRows = [],
   avgCostRows = [],
+  sizeOnHandRows = [],
+  sizeOnHandError = null,
   deleteCount = 0,
   snapshotError = null,
   itemMasterError = null,
@@ -76,11 +78,33 @@ function mockSupabase({
   let deleteWhere = null;
 
   const from = (table) => {
+    if (table === "tangerine_size_onhand") {
+      return chain({ data: sizeOnHandRows, error: sizeOnHandError });
+    }
     if (table === "ip_inventory_snapshot") {
       return chain({ data: snapshotRows, error: snapshotError });
     }
     if (table === "ip_item_master") {
-      return chain({ data: itemMasterRows, error: itemMasterError });
+      if (itemMasterError) return chain({ data: null, error: itemMasterError });
+      // Honour `.in('id', ids)` the way PostgREST does, so size-grain routing
+      // (which reads ip_item_master filtered to the size SKUs) selects only the
+      // requested rows rather than the whole catalog.
+      let ids = null;
+      const target = {
+        select: () => target,
+        eq: () => target,
+        lte: () => target,
+        order: () => target,
+        limit: () => target,
+        in: (_col, vals) => { ids = vals; return target; },
+        maybeSingle: async () => ({ data: filtered()[0] ?? null, error: null }),
+        single: async () => ({ data: filtered()[0] ?? null, error: null }),
+        then(resolve, reject) {
+          return Promise.resolve({ data: filtered(), error: null }).then(resolve, reject);
+        },
+      };
+      const filtered = () => (ids == null ? itemMasterRows : itemMasterRows.filter((r) => ids.includes(r.id)));
+      return target;
     }
     if (table === "ip_item_avg_cost") {
       return chain({ data: avgCostRows, error: avgCostError });
@@ -463,6 +487,81 @@ describe("rebuildInventoryLayersForDate — does not touch operator rows", () =>
     const filters = supabase.deleteWhere.eqs.map(([col, val]) => `${col}=${val}`);
     expect(filters).toContain("source_kind=xoro_mirror_snapshot");
     expect(filters.some((f) => f.startsWith("source_kind=") && !f.endsWith("=xoro_mirror_snapshot"))).toBe(false);
+  });
+});
+
+describe("rebuildInventoryLayersForDate — size-grain routing (Tangerine-only)", () => {
+  it("is a NO-OP when tangerine_size_onhand is empty (color grain unchanged)", async () => {
+    const sku = uuid(1);
+    const snapshotRows = [
+      { sku_id: sku, warehouse_code: "NJ", qty_on_hand: 5, snapshot_date: SNAP_DATE },
+    ];
+    const itemMasterRows = [{ id: sku, sku_code: "SKU-1", unit_cost: 1, style_code: "STY-1", style_id: uuid(900) }];
+    const supabase = mockSupabase({ snapshotRows, itemMasterRows, sizeOnHandRows: [] });
+    const result = await rebuildInventoryLayersForDate(supabase, ENTITY, SNAP_DATE);
+    expect(result.rows_upserted).toBe(1);
+    expect(supabase.insertedRows[0].item_id).toBe(sku);
+    expect(supabase.insertedRows[0].notes).toContain("grain=color");
+  });
+
+  it("routes a cut-over style to SIZE grain and drops its COLOR-grain placeholder", async () => {
+    const styleId = uuid(900);
+    const colorSku = uuid(1); // color-grain placeholder for the style
+    const sizeSku30 = uuid(2); // per-size SKU
+    const sizeSku32 = uuid(3);
+
+    // Color-grain snapshot carries the WHOLE color total on a placeholder size.
+    const snapshotRows = [
+      { sku_id: colorSku, warehouse_code: "NJ", qty_on_hand: 100, snapshot_date: SNAP_DATE },
+    ];
+    // Size-grain source carries per-size truth for the SAME style.
+    const sizeOnHandRows = [
+      { item_id: sizeSku30, warehouse_code: "NJ", qty_on_hand: 40, snapshot_date: SNAP_DATE },
+      { item_id: sizeSku32, warehouse_code: "NJ", qty_on_hand: 55, snapshot_date: SNAP_DATE },
+    ];
+    const itemMasterRows = [
+      { id: colorSku, sku_code: "STY-1", unit_cost: 1, style_code: "STY-1", style_id: styleId },
+      { id: sizeSku30, sku_code: "STY-1-30", unit_cost: 1, style_code: "STY-1", style_id: styleId },
+      { id: sizeSku32, sku_code: "STY-1-32", unit_cost: 1, style_code: "STY-1", style_id: styleId },
+    ];
+    const supabase = mockSupabase({ snapshotRows, itemMasterRows, sizeOnHandRows });
+    const result = await rebuildInventoryLayersForDate(supabase, ENTITY, SNAP_DATE);
+
+    // 2 size layers, 0 color layers (the placeholder was dropped → no double count).
+    expect(result.rows_upserted).toBe(2);
+    const items = supabase.insertedRows.map((r) => r.item_id).sort();
+    expect(items).toEqual([sizeSku30, sizeSku32].sort());
+    expect(supabase.insertedRows.every((r) => r.notes.includes("grain=size"))).toBe(true);
+    expect(supabase.insertedRows.find((r) => r.item_id === colorSku)).toBeUndefined();
+  });
+
+  it("keeps NON-cut-over styles on color grain in the same run", async () => {
+    const styleSize = uuid(900);
+    const styleColor = uuid(901);
+    const sizeSku = uuid(2);
+    const otherColorSku = uuid(10);
+
+    const snapshotRows = [
+      // placeholder for the cut-over style — should be dropped
+      { sku_id: uuid(1), warehouse_code: "NJ", qty_on_hand: 100, snapshot_date: SNAP_DATE },
+      // a different style with no size grain — should stay
+      { sku_id: otherColorSku, warehouse_code: "NJ", qty_on_hand: 9, snapshot_date: SNAP_DATE },
+    ];
+    const sizeOnHandRows = [
+      { item_id: sizeSku, warehouse_code: "NJ", qty_on_hand: 40, snapshot_date: SNAP_DATE },
+    ];
+    const itemMasterRows = [
+      { id: uuid(1), sku_code: "A", unit_cost: 1, style_code: "A", style_id: styleSize },
+      { id: sizeSku, sku_code: "A-30", unit_cost: 1, style_code: "A", style_id: styleSize },
+      { id: otherColorSku, sku_code: "B", unit_cost: 1, style_code: "B", style_id: styleColor },
+    ];
+    const supabase = mockSupabase({ snapshotRows, itemMasterRows, sizeOnHandRows });
+    const result = await rebuildInventoryLayersForDate(supabase, ENTITY, SNAP_DATE);
+    expect(result.rows_upserted).toBe(2); // 1 size (style A) + 1 color (style B)
+    const byItem = Object.fromEntries(supabase.insertedRows.map((r) => [r.item_id, r]));
+    expect(byItem[sizeSku].notes).toContain("grain=size");
+    expect(byItem[otherColorSku].notes).toContain("grain=color");
+    expect(byItem[uuid(1)]).toBeUndefined(); // placeholder dropped
   });
 });
 

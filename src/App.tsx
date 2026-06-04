@@ -6,6 +6,7 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
+import { canAccessAppFromSession } from "./permissions";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
 import React from "react";
@@ -632,9 +633,11 @@ function App() {
               )}
             </button>
           )}
-          {currentUser && (
+          {currentUser && canAccessAppFromSession("tanda") && (
             <a
               href="/tanda"
+              target="_blank"
+              rel="noopener"
               style={{
                 padding: "7px 12px", borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.15)",
@@ -649,9 +652,11 @@ function App() {
               T&A
             </a>
           )}
-          {currentUser && (
+          {currentUser && canAccessAppFromSession("costing") && (
             <a
               href="/costing"
+              target="_blank"
+              rel="noopener"
               style={{
                 padding: "7px 12px", borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.15)",
@@ -675,6 +680,8 @@ function App() {
             alignItems: "center",
           }}
         >
+          {/* Favorites — first action icon (consistent across all apps). */}
+          <FavoritesMenu />
           {/* Undo button — always visible, disabled when nothing to undo */}
           <button
             onClick={useAppStore.getState().handleUndo}
@@ -718,7 +725,6 @@ function App() {
             onTasks={() => setShowTaskManager(true)}
             onGenders={() => setShowGenders(true)}
           />
-          <FavoritesMenu />
           <div
             style={{
               width: 1,

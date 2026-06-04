@@ -26,7 +26,7 @@ const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 // `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
 // fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -71,42 +71,47 @@ export default async function handler(req, res) {
     // any plausible style count and still fits one Vercel response.
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "5000", 10) || 5000, 10000);
 
-    let query = admin
-      .from("style_master")
-      .select(STYLE_SELECT)
-      .eq("entity_id", entityId)
-      .order("style_code", { ascending: true })
-      .limit(limit);
-
-    if (!includeDeleted) query = query.is("deleted_at", null);
-    // Polish 2026-05-30 — search covers the three classifier columns too so
-    // a query like "Tops" or "T-Shirts" matches rows even when style code /
-    // name / description don't mention them. Fabric name/code search runs
-    // as a separate lookup pass below — PostgREST `.or()` cannot reach
-    // through an embedded relation in a single filter expression. We escape
-    // % and , that PostgREST treats as filter separators inside `.or()`;
-    // both are illegal in our actual classifier strings so a strict reject
-    // is sufficient.
-    if (q) {
-      const safe = q.replace(/[,%]/g, " ").trim();
-      if (safe) {
-        query = query.or(
-          [
-            `style_code.ilike.%${safe}%`,
-            `style_name.ilike.%${safe}%`,
-            `description.ilike.%${safe}%`,
-            `group_name.ilike.%${safe}%`,
-            `category_name.ilike.%${safe}%`,
-            `sub_category_name.ilike.%${safe}%`,
-          ].join(","),
-        );
+    // Fresh base query each page. Search covers the three classifier columns
+    // too (Polish 2026-05-30) so "Tops"/"T-Shirts" match even when code/name/
+    // description don't; % and , (PostgREST `.or()` separators) are stripped.
+    const baseQuery = () => {
+      let qy = admin.from("style_master").select(STYLE_SELECT).eq("entity_id", entityId);
+      if (!includeDeleted) qy = qy.is("deleted_at", null);
+      if (q) {
+        const safe = q.replace(/[,%]/g, " ").trim();
+        if (safe) {
+          qy = qy.or(
+            [
+              `style_code.ilike.%${safe}%`,
+              `style_name.ilike.%${safe}%`,
+              `description.ilike.%${safe}%`,
+              `group_name.ilike.%${safe}%`,
+              `category_name.ilike.%${safe}%`,
+              `sub_category_name.ilike.%${safe}%`,
+            ].join(","),
+          );
+        }
       }
+      return qy;
+    };
+
+    // PostgREST silently caps each request at ~1000 rows, so a single
+    // `.limit(10000)` only ever returned the first 1000 styles (alphabetically)
+    // — RYB* and anything past the 1000th code were invisible in pickers.
+    // Keyset-paginate by style_code to assemble the full set up to `limit`.
+    const PAGE = 1000;
+    let rows = [];
+    let after = null;
+    while (rows.length < limit) {
+      let pq = baseQuery().order("style_code", { ascending: true }).limit(Math.min(PAGE, limit - rows.length));
+      if (after) pq = pq.gt("style_code", after);
+      const { data, error } = await pq;
+      if (error) return res.status(500).json({ error: error.message });
+      const page = data || [];
+      rows = rows.concat(page);
+      if (page.length < PAGE) break;
+      after = page[page.length - 1].style_code;
     }
-
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-
-    const rows = data || [];
 
     // If a search term was supplied, union in any styles whose fabric matches.
     // Cheap second query keeps the join clean and avoids a denormalized view.
@@ -169,6 +174,9 @@ export default async function handler(req, res) {
       group_name: v.data.group_name || null,
       category_name: v.data.category_name || null,
       sub_category_name: v.data.sub_category_name || null,
+      brand_id: v.data.brand_id || null,
+      size_scale_id: v.data.size_scale_id || null,
+      rise: v.data.rise || null,
       attributes: v.data.attributes || {},
     };
 
@@ -224,9 +232,25 @@ export function validateInsert(body) {
   } else {
     body.base_fabric_code_id = null;
   }
+  // Brand FK (Chunk J, item 4) — uuid or null.
+  if (body.brand_id != null && body.brand_id !== "") {
+    if (!UUID_RE.test(String(body.brand_id))) {
+      return { error: "brand_id must be a uuid" };
+    }
+  } else {
+    body.brand_id = null;
+  }
+  // Size Scale FK — uuid or null.
+  if (body.size_scale_id != null && body.size_scale_id !== "") {
+    if (!UUID_RE.test(String(body.size_scale_id))) {
+      return { error: "size_scale_id must be a uuid" };
+    }
+  } else {
+    body.size_scale_id = null;
+  }
   // Optional classifier fields — coerce empty strings to null so the
   // handler doesn't persist empty text.
-  for (const k of ["group_name", "category_name", "sub_category_name"]) {
+  for (const k of ["group_name", "category_name", "sub_category_name", "rise"]) {
     if (body[k] != null) {
       const trimmed = String(body[k]).trim();
       body[k] = trimmed === "" ? null : trimmed;

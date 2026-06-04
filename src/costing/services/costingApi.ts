@@ -205,15 +205,49 @@ export interface GenerateRfqsResult {
   message?: string;
 }
 
-export async function generateRfqs(projectId: string, lineIds: string[]): Promise<GenerateRfqsResult> {
-  return json<GenerateRfqsResult>(await fetch(
+/** One existing style/color/vendor match surfaced by the dup-RFQ guard (409). */
+export interface RfqDuplicate {
+  vendor_id: string;
+  vendor: string;
+  style_code: string | null;
+  color: string | null;
+}
+
+/** 409 body the create handler returns when a matching RFQ already exists. */
+export interface GenerateRfqsNeedsConfirm {
+  needs_confirm: true;
+  reason: "duplicate_rfq";
+  duplicates: RfqDuplicate[];
+  message: string;
+}
+
+/**
+ * Create RFQs from the selected costing lines.
+ *
+ * The handler refuses (HTTP 409 + needs_confirm) when an RFQ already exists
+ * for the same style + color + vendor, UNLESS allowDuplicate is passed. The
+ * caller should catch the needs-confirm result, show a confirm dialog, and
+ * re-call with allowDuplicate=true on OK. Returns the normal result on success
+ * or the needs-confirm payload on 409 (anything else throws).
+ */
+export async function generateRfqs(
+  projectId: string,
+  lineIds: string[],
+  allowDuplicate = false,
+): Promise<GenerateRfqsResult | GenerateRfqsNeedsConfirm> {
+  const res = await fetch(
     `/api/internal/costing/projects/${projectId}/generate-rfqs`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ line_ids: lineIds }),
+      body: JSON.stringify({ line_ids: lineIds, allow_duplicate: allowDuplicate }),
     },
-  ));
+  );
+  if (res.status === 409) {
+    const body = (await res.json()) as GenerateRfqsNeedsConfirm;
+    if (body?.needs_confirm) return body;
+  }
+  return json<GenerateRfqsResult>(res);
 }
 
 export async function selectQuote(lineId: string, quoteId: string): Promise<SelectQuoteResult> {
@@ -306,6 +340,54 @@ export async function searchScales(signal?: AbortSignal): Promise<ScaleHit[]> {
   return out.rows || [];
 }
 
+// ── Tangerine Size-Scale master (size_scales) ───────────────────────────────
+// Task 4 — the Scale cell now sources from the Tangerine size_scales master
+// (not the legacy scale_master). The handler at /api/internal/size-scales
+// returns a bare array of rows (NOT { rows }) and authenticates via the
+// default-entity (ROF) scope, no internal token needed.
+
+export interface SizeScaleHit {
+  id: string;
+  entity_id: string;
+  code: string;
+  name: string;
+  sizes: string[] | null;
+  sort_order: number | null;
+  is_active: boolean | null;
+}
+
+export async function searchSizeScales(q?: string, signal?: AbortSignal): Promise<SizeScaleHit[]> {
+  const sp = new URLSearchParams();
+  if (q && q.trim()) sp.set("q", q.trim());
+  const qs = sp.toString();
+  const res = await fetch(`/api/internal/size-scales${qs ? `?${qs}` : ""}`, { signal });
+  // size-scales returns a bare array, not { rows }.
+  return json<SizeScaleHit[]>(res);
+}
+
+// ── Tangerine Payment Terms master (payment_terms) ──────────────────────────
+// Task 10 — project-level Payment Terms dropdown. /api/internal/payment-terms
+// returns a bare array of rows, authenticated via the default-entity scope.
+
+export interface PaymentTermHit {
+  id: string;
+  entity_id: string;
+  code: string;
+  name: string;
+  due_days: number | null;
+  discount_pct: number | null;
+  discount_days: number | null;
+  is_active: boolean | null;
+}
+
+export async function listPaymentTerms(q?: string, signal?: AbortSignal): Promise<PaymentTermHit[]> {
+  const sp = new URLSearchParams();
+  if (q && q.trim()) sp.set("q", q.trim());
+  const qs = sp.toString();
+  const res = await fetch(`/api/internal/payment-terms${qs ? `?${qs}` : ""}`, { signal });
+  return json<PaymentTermHit[]>(res);
+}
+
 export interface CustomerHit {
   id: string;
   entity_id: string | null;
@@ -315,18 +397,31 @@ export interface CustomerHit {
   status: string | null;
   billing_address: { name?: string; company?: string; [k: string]: unknown } | null;
   payment_terms: string | null;
+  /** Friendly display name resolved server-side from ip_customer_master.name
+   *  (Xoro-synced, keyed by customer_code). Always preferred when present. */
+  display_name?: string | null;
 }
 
-/** Helper to extract a readable display name from a customer hit (name → company → code).
- *  The legacy Xoro export tags every code with an "EXCEL:" prefix (e.g. EXCEL:ROSSPROCUREMENT);
- *  strip it for display so the picker shows clean names. */
+/** Strip the legacy Xoro "EXCEL:" tag that prefixes every customer code on
+ *  the historic backfill. Safe on null / undefined / non-string input. */
+export function stripExcelPrefix<T extends string | null | undefined>(s: T): T {
+  if (typeof s !== "string") return s;
+  return s.replace(/^EXCEL:/i, "") as T;
+}
+
+/** Helper to extract a readable display name from a customer hit.
+ *  Preference order: ip_customer_master.name (display_name) → billing_address.name →
+ *  billing_address.company → stripped customers.code → id. */
 export function customerDisplayName(c: CustomerHit | null | undefined): string {
   if (!c) return "";
+  if (typeof c.display_name === "string" && c.display_name.trim().length > 0) {
+    return c.display_name;
+  }
   const billing = c.billing_address;
   const name = typeof billing?.name === "string" ? billing.name : undefined;
   const company = typeof billing?.company === "string" ? billing.company : undefined;
   const raw = name || company || c.code || c.id;
-  return typeof raw === "string" ? raw.replace(/^EXCEL:/i, "") : raw;
+  return typeof raw === "string" ? stripExcelPrefix(raw) : raw;
 }
 
 export async function searchCustomers(q: string, signal?: AbortSignal): Promise<CustomerHit[]> {
@@ -501,4 +596,69 @@ export async function updateRfq(id: string, patch: RfqPatch): Promise<RfqListRow
 
 export async function deleteRfq(id: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/rfqs/${id}`, { method: "DELETE" }));
+}
+
+export interface PublishRfqResult {
+  ok: true;
+  id: string;
+  status: "published";
+  /** Number of invited vendors that were (re-)notified via rfq_invited. */
+  notified: number;
+}
+
+/**
+ * "Send to Vendor" — publish the RFQ and notify every invited vendor.
+ *
+ * POSTs to the internal publish handler (api/_handlers/internal/rfqs/:id/publish.js,
+ * routes.js h49). That handler flips rfqs.status draft → published and fires the
+ * rfq_invited notification to each invited vendor; it is idempotent (re-publishing
+ * a published RFQ re-sends, deduped server-side by rfq_id+vendor_id), so the
+ * caller can offer a "Re-send" affordance safely. Same authenticateInternalCaller
+ * gate the rest of /api/internal/costing/* uses, so it is reachable from the
+ * costing app's auth context.
+ */
+export async function publishRfq(rfqId: string): Promise<PublishRfqResult> {
+  return json<PublishRfqResult>(await fetch(`/api/internal/rfqs/${rfqId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }));
+}
+
+export interface AwardRfqResult {
+  ok: true;
+  rfq_id: string;
+  awarded_to: string;
+  /** Count of losing vendors that received an rfq_not_awarded notification. */
+  losers_notified: number;
+  /** Whether the Production-Manager in-app/email notification was sent, and how the recipient was resolved. */
+  pm_notify?: {
+    sent: boolean;
+    /** 'employee' = matched a Production-Manager employee; 'internal_procurement' = env fallback; 'none' = no recipient resolvable. */
+    resolved_via: "employee" | "internal_procurement" | "none";
+    recipients: number;
+  };
+  /** Costing write-back diagnostics (see award handler). */
+  costing_writeback?: {
+    written: number;
+    skipped_reason: string | null;
+    errors: Array<Record<string, unknown>>;
+  };
+}
+
+/**
+ * "Award" — award the RFQ to its invited vendor.
+ *
+ * POSTs to api/_handlers/internal/rfqs/:id/award/:vendor_id.js (routes.js).
+ * The handler flips rfqs.status → 'awarded', marks the winning rfq_quote
+ * 'awarded' + losers 'rejected', notifies the winner (rfq_awarded) and every
+ * loser (rfq_not_awarded), notifies + emails the Production Manager, fires the
+ * rfq_awarded workflow event, AND flows the awarded quote back into the source
+ * costing project. It requires the awarded vendor to have a SUBMITTED quote —
+ * returns 409 with a descriptive message otherwise (surfaced to the caller).
+ */
+export async function awardRfq(rfqId: string, vendorId: string): Promise<AwardRfqResult> {
+  return json<AwardRfqResult>(await fetch(`/api/internal/rfqs/${rfqId}/award/${vendorId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }));
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { notify } from "../shared/ui/warn";
 
 interface Rule {
   id: string;
@@ -84,7 +85,7 @@ export default function InternalTax() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: !r.is_active }),
     });
-    if (!resp.ok) { alert(await resp.text()); return; }
+    if (!resp.ok) { notify(await resp.text(), "error"); return; }
     await load();
   }
 
@@ -235,7 +236,7 @@ function RuleModal({ entityId, onClose, onCreated }: { entityId: string; onClose
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!jurisdiction.trim() || !ratePct) { alert("Jurisdiction and rate required"); return; }
+    if (!jurisdiction.trim() || !ratePct) { notify("Jurisdiction and rate required", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/tax/rules", {
@@ -250,7 +251,7 @@ function RuleModal({ entityId, onClose, onCreated }: { entityId: string; onClose
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 
@@ -304,7 +305,7 @@ function RemittanceModal({ entityId, onClose, onCreated }: { entityId: string; o
       });
       if (!r.ok) throw new Error(await r.text());
       onCreated();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { notify } from "../shared/ui/warn";
 import InternalEntityBranding from "./InternalEntityBranding";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -209,20 +210,25 @@ export function CoaCopyModal({ entity, onClose }: { entity: { id: string; name: 
 
 function AddEntityModal({ parent, onClose, onSaved }: { parent: string | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState("");
+  const [code, setCode] = useState("");
   const [slug, setSlug] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!name.trim()) { alert("Name required"); return; }
+    if (!name.trim()) { notify("Name required", "error"); return; }
+    if (!code.trim()) { notify("Code required (short uppercase, e.g. SAG)", "error"); return; }
     setSaving(true);
     try {
       const r = await fetch("/api/internal/entities", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), slug: slug.trim() || undefined, parent_entity_id: parent || undefined }),
+        body: JSON.stringify({ name: name.trim(), code: code.trim(), slug: slug.trim() || undefined, parent_entity_id: parent || undefined }),
       });
       if (!r.ok) throw new Error(await r.text());
+      const created = await r.json().catch(() => null);
+      if (created?.coa_warning) notify(created.coa_warning, "error");
+      else notify(`Entity created${created?.coa_cloned ? ` — ${created.coa_cloned} accounts cloned from ROF` : ""}.`, "success");
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { notify(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSaving(false); }
   }
 
@@ -230,8 +236,10 @@ function AddEntityModal({ parent, onClose, onSaved }: { parent: string | null; o
     <div style={overlay} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={modal}>
         <h3 style={{ margin: "0 0 14px", fontSize: 16, color: C.text }}>{parent ? "Add child entity" : "Add entity"}</h3>
-        <Row label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inp} /></Row>
+        <Row label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Syndicated Apparel Group" /></Row>
+        <Row label="Code (short, uppercase)"><input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} style={inp} placeholder="SAG" /></Row>
         <Row label="Slug (auto-generated if blank)"><input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="west-division" style={inp} /></Row>
+        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>A starter Chart of Accounts is cloned from ROF on create.</div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={() => void save()} disabled={saving} style={btnPrimary}>{saving ? "Saving…" : "Save"}</button>

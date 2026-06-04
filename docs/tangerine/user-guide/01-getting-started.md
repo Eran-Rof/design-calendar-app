@@ -22,6 +22,8 @@ Direct URL: `https://<your-domain>/tangerine`
 >
 > **Earlier note (Chunk T1, 2026-05-26):** Tangerine is its own top-level app at `/tangerine` — previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
 
+> **Standalone front door (`/login`, 2026-06-04):** there is now a dedicated, Tangerine-branded sign-in page at **`/login`** (Microsoft-365 only). It's the planned single entry point for the whole suite — sign in once, then launch every app from the 🧩 Apps menu. It's reachable directly today; an already-signed-in browser passes straight through. When the operator flips **`VITE_TANGERINE_AS_HOME=true`** (Vercel), the root `/` redirects here and the legacy PLM launcher is retired (see OPERATOR-TODO). A `?next=<path>` param controls the post-login destination (default `/tangerine`).
+
 ### The login screen
 
 ```mermaid
@@ -66,7 +68,7 @@ Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. 
 
 ## The Tangerine nav layout
 
-Tangerine has its own **independent top nav** with **7 group dropdowns** across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each group dropdown opens a menu of the modules in that group; clicking a module navigates and closes the dropdown.
+Tangerine has its own **independent top nav** with **7 group dropdowns** across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each group dropdown opens a menu of the modules in that group; clicking a module navigates and closes the dropdown. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
 
 > **Nav layout changed 2026-05-27 night:** the original flat row of 22 module buttons got too crowded after P4 shipped (the Accounting group alone grew to 9 modules). Modules are now grouped under: 📚 Master Data · 💼 Accounting · 📦 Inventory · ✅ Approvals · 🔔 Notifications · 👥 HR · ⚙️ Operations. The active module's parent group is highlighted, so you always know where you are. Click outside or press <kbd>Esc</kbd> to close a dropdown without selecting.
 
@@ -107,9 +109,11 @@ flowchart LR
 
 - **Top-left:** Tangerine logo + "ERP" subtitle. Click anywhere on the logo to return to the home landing.
 - **Center:** 7 group buttons. Click a group to expand a dropdown of its modules. The group whose currently-active module you're on is highlighted. Click outside or press <kbd>Esc</kbd> to close without selecting.
-- **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Vendor Portal). Clicking any link navigates the browser to that app's URL in the same tab.
+- **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, **Costing**, Vendor Portal). Clicking any link **opens that app in a new browser tab** (so the shell you're in stays put). The same applies from the PLM home launcher and the Design Calendar header links (T&A, Costing).
+- **Tangerine on the PLM launcher:** the PLM home launcher now also shows a gated **🍊 Tangerine ERP** card (opens `/tangerine` in a new tab). Like every other launcher app it carries a per-user permission — admins grant or revoke it under **PLM → User Management → Tangerine ERP** (default: granted, consistent with the other apps). A user explicitly denied `tangerine` access sees the 🔒 locked tile and is blocked at the `/tangerine` route too. (Microsoft-365 direct sign-in to Tangerine — for users who never touch the PLM launcher — is unaffected.)
+- **📈 Planning (M31):** the standalone Inventory Planning app (forecasting, supply reconciliation, scenarios, accuracy, execution) is surfaced as a first-class **📈 Planning** link in the top nav and as a **Planning (M31)** section on the home landing that deep-links each screen (Wholesale / Ecom / Supply / Scenarios / Accuracy / Execution) — opening in a new tab. It appears only for users with the shared **planning** access permission. Note: Planning still reads its own Xoro/Shopify-backed data; it is not yet wired to live Tangerine sales/inventory/PO data. **Buy plan → Tangerine PO (M31):** in the planning **Execution** screen, an approved buy plan can be turned into **draft native Tangerine purchase orders** (one per vendor) with the **🍊 Create Tangerine POs** button — they land in **Procurement → Purchase Orders** as drafts for you to review + issue. (Requires each planning vendor to be linked to a Tangerine vendor via `ip_vendor_master.portal_vendor_id`.)
 
-**Home landing** (when no module is selected, e.g. just after login): shows module cards organized by the same group structure (Master Data / Accounting / Inventory / etc.), plus a "Other apps in the suite" grid at the bottom.
+**Home landing** (when no module is selected, e.g. just after login): shows module cards organized by the same group structure (Master Data / Accounting / Inventory / Planning / etc.), plus a "Other apps in the suite" grid at the bottom.
 
 ![Tangerine top nav and home landing](screenshots/01-tangerine-home.png)
 <!-- screenshot needed: /tangerine landing page showing top nav + module cards + apps grid -->

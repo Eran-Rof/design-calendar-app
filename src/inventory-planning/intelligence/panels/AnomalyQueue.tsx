@@ -112,7 +112,7 @@ export default function AnomalyQueue({ anomalies, skuCodeById }: AnomalyQueuePro
                 </td>
                 <td style={S.td}>{ANOMALY_LABEL[a.anomaly_type] ?? a.anomaly_type}</td>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
-                  {skuCodeById.get(a.sku_id) ?? a.sku_id.slice(0, 8)}
+                  {skuCodeById.get(a.sku_id) ?? "(unknown sku)"}
                 </td>
                 <td style={S.td}>{formatPeriodCode(a.period_code)}</td>
                 <td style={{ ...S.tdNum, color: PAL.textDim }}>

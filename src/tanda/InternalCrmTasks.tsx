@@ -10,6 +10,20 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
+import { confirmDialog } from "../shared/ui/warn";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+// Universal column-visibility registry for this panel (operator ask #1).
+const CRM_TASKS_TABLE_KEY = "tangerine:crmtasks:columns";
+const CRM_TASK_COLUMNS: ColumnDef[] = [
+  { key: "title",       label: "Title" },
+  { key: "status",      label: "Status" },
+  { key: "priority",    label: "Priority" },
+  { key: "due",         label: "Due" },
+  { key: "assignee",    label: "Assignee" },
+  { key: "customer",    label: "Customer" },
+  { key: "opportunity", label: "Opp" },
+];
 
 type Status = "open" | "in_progress" | "done" | "cancelled";
 type Priority = "low" | "normal" | "high" | "urgent";
@@ -141,6 +155,13 @@ export default function InternalCrmTasks() {
 
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityLite[]>([]);
+
+  // Wave 5 — universal column show/hide.
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    CRM_TASKS_TABLE_KEY,
+    CRM_TASK_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   async function load() {
     setLoading(true);
@@ -329,6 +350,15 @@ export default function InternalCrmTasks() {
             placeholder="All"
           />
         </div>
+        <div style={{ paddingTop: 18 }}>
+          <TablePrefsButton
+            tableKey={CRM_TASKS_TABLE_KEY}
+            columns={CRM_TASK_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+          />
+        </div>
       </div>
 
       {err && (
@@ -342,13 +372,13 @@ export default function InternalCrmTasks() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Title</th>
-              <th style={th}>Status</th>
-              <th style={th}>Priority</th>
-              <th style={th}>Due</th>
-              <th style={th}>Assignee</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Opp</th>
+              <th style={th} hidden={!isVisible("title")}>Title</th>
+              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <th style={th} hidden={!isVisible("priority")}>Priority</th>
+              <th style={th} hidden={!isVisible("due")}>Due</th>
+              <th style={th} hidden={!isVisible("assignee")}>Assignee</th>
+              <th style={th} hidden={!isVisible("customer")}>Customer</th>
+              <th style={th} hidden={!isVisible("opportunity")}>Opp</th>
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -367,26 +397,26 @@ export default function InternalCrmTasks() {
                   onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#0b1220"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
                 >
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("title")}>
                     <div style={{ color: C.text, fontWeight: 500 }}>{t.title}</div>
                     {t.description && (
                       <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{truncate(t.description, 80)}</div>
                     )}
                   </td>
-                  <td style={td}><span style={pill(STATUS_COLOR[t.status])}>{t.status.replace("_", " ")}</span></td>
-                  <td style={td}><span style={pill(PRIORITY_COLOR[t.priority])}>{t.priority}</span></td>
-                  <td style={{ ...td, fontSize: 12 }}>{fmtDateOnly(t.due_date)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>
+                  <td style={td} hidden={!isVisible("status")}><span style={pill(STATUS_COLOR[t.status])}>{t.status.replace("_", " ")}</span></td>
+                  <td style={td} hidden={!isVisible("priority")}><span style={pill(PRIORITY_COLOR[t.priority])}>{t.priority}</span></td>
+                  <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("due")}>{fmtDateOnly(t.due_date)}</td>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
                     {t.assignee_user_id ? truncate(t.assignee_user_id, 12) : "—"}
                   </td>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("customer")}>
                     {t.customer_id
                       ? (customerById.get(t.customer_id)
                           ? `${customerById.get(t.customer_id)!.code ?? ""} ${customerById.get(t.customer_id)!.name}`.trim()
                           : truncate(t.customer_id, 12))
                       : "—"}
                   </td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>
+                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }} hidden={!isVisible("opportunity")}>
                     {t.opportunity_id
                       ? (oppById.get(t.opportunity_id)?.opportunity_number ?? truncate(t.opportunity_id, 12))
                       : "—"}
@@ -522,7 +552,7 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
 
   async function del() {
     if (!data) return;
-    if (!confirm(`Delete task "${data.title}"?`)) return;
+    if (!(await confirmDialog(`Delete task "${data.title}"?`))) return;
     setSaving(true);
     setErr(null);
     try {
@@ -584,10 +614,10 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
                 value={customerId || null}
                 onChange={(v) => setCustomerId(v)}
                 options={[
-                  { value: "", label: "(none)" },
+                  { value: "", label: "(select)" },
                   ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
                 ]}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
             <Field label="Opportunity">
@@ -595,10 +625,10 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
                 value={oppId || null}
                 onChange={(v) => setOppId(v)}
                 options={[
-                  { value: "", label: "(none)" },
+                  { value: "", label: "(select)" },
                   ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
                 ]}
-                placeholder="(none)"
+                placeholder="(select)"
               />
             </Field>
           </div>
@@ -711,10 +741,10 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
             value={customerId || null}
             onChange={(v) => setCustomerId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
         <Field label="Opportunity">
@@ -722,10 +752,10 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
             value={oppId || null}
             onChange={(v) => setOppId(v)}
             options={[
-              { value: "", label: "(none)" },
+              { value: "", label: "(select)" },
               ...opportunities.map((o) => ({ value: o.id, label: `${o.opportunity_number} — ${truncate(o.title, 40)}` })),
             ]}
-            placeholder="(none)"
+            placeholder="(select)"
           />
         </Field>
       </div>

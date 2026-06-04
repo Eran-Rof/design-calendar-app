@@ -91,6 +91,53 @@ async function deriveDefaultRange(admin, entityId) {
   return { from: `${y}-01-01`, to: todayISO };
 }
 
+// M50 D: enrich the flat RPC rows with brand metadata so the UI can group a
+// brand-rollup parent's child accounts under a header + subtotal and offer a
+// per-brand filter. Joins gl_accounts (by code) for brand_id / brand_rollup /
+// parent code, and brand_master for the brand's code + name. Adds, per row:
+//   brand_id, brand_code, brand_name, parent_code, brand_rollup, is_brand_child
+// Non-fatal: on any error the original rows pass through unchanged (the panel
+// still renders a flat P&L, just without grouping).
+export async function enrichWithBrandMeta(admin, entityId, rows) {
+  try {
+    const { data: accts } = await admin
+      .from("gl_accounts")
+      .select("id, code, brand_id, brand_rollup, parent_account_id")
+      .eq("entity_id", entityId);
+    if (!accts || accts.length === 0) return { rows, brands: [] };
+
+    const idToCode = new Map(accts.map((a) => [a.id, a.code]));
+    const byCode = new Map(accts.map((a) => [a.code, a]));
+
+    const { data: brands } = await admin
+      .from("brand_master")
+      .select("id, code, name, sort_order, is_default")
+      .eq("entity_id", entityId)
+      .order("sort_order", { ascending: true });
+    const brandById = new Map((brands || []).map((b) => [b.id, b]));
+
+    const enriched = rows.map((r) => {
+      const a = byCode.get(r.code);
+      if (!a) return { ...r, brand_id: null, brand_code: null, brand_name: null, parent_code: null, brand_rollup: false, is_brand_child: false };
+      const brand = a.brand_id ? brandById.get(a.brand_id) : null;
+      return {
+        ...r,
+        brand_id: a.brand_id || null,
+        brand_code: brand?.code || null,
+        brand_name: brand?.name || null,
+        parent_code: a.parent_account_id ? (idToCode.get(a.parent_account_id) || null) : null,
+        brand_rollup: !!a.brand_rollup,
+        is_brand_child: !!(a.brand_id && a.parent_account_id),
+      };
+    });
+
+    const brandList = (brands || []).map((b) => ({ id: b.id, code: b.code, name: b.name, is_default: !!b.is_default }));
+    return { rows: enriched, brands: brandList };
+  } catch {
+    return { rows, brands: [] };
+  }
+}
+
 export function isISODate(v) {
   if (typeof v !== "string" || !ISO_DATE_RE.test(v)) return false;
   const d = new Date(v + "T00:00:00Z");
@@ -160,7 +207,7 @@ export default async function handler(req, res) {
     });
     if (error) return res.status(500).json({ error: error.message });
 
-    const rows = (data || []).slice().sort((a, b) => {
+    const sorted = (data || []).slice().sort((a, b) => {
       const ca = (a.code || "");
       const cb = (b.code || "");
       if (ca < cb) return -1;
@@ -168,7 +215,11 @@ export default async function handler(req, res) {
       return 0;
     });
 
-    return res.status(200).json({ basis, from, to, rows });
+    // M50 D: attach brand metadata + the entity's brand list for the panel's
+    // grouping + per-brand filter (no-op shape when no brands configured).
+    const { rows, brands } = await enrichWithBrandMeta(admin, entityId, sorted);
+
+    return res.status(200).json({ basis, from, to, rows, brands });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

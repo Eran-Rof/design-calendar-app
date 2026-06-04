@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -76,14 +77,14 @@ export default function InternalDiscountOffers() {
   useEffect(() => { void load(); }, [entityId, status]);
 
   async function runJob() {
-    if (!confirm("Run the discount offer generator now for this entity?")) return;
+    if (!(await confirmDialog("Run the discount offer generator now for this entity?"))) return;
     const r = await fetch("/api/internal/discount-offers/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ entity_id: entityId }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     const d = await r.json() as { created: Offer[]; skipped: { invoice_id: string; reason: string }[] };
-    alert(`Created ${d.created.length} offers. Skipped ${d.skipped.length}.`);
+    notify(`Created ${d.created.length} offers. Skipped ${d.skipped.length}.`, "success");
     await load();
   }
 
@@ -162,8 +163,8 @@ export default function InternalDiscountOffers() {
           {offers.map((o) => (
             <div key={o.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px 120px 100px 100px 100px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{o.vendor?.name || o.vendor_id}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {o.invoice?.invoice_number || o.invoice_id.slice(0, 8)}</div>
+                <div style={{ fontWeight: 600 }}>{o.vendor?.name || "—"}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>Inv {o.invoice?.invoice_number || "—"}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{o.early_payment_date}</div>
               <div style={{ color: C.textMuted }}>{o.days_early ?? "—"}</div>

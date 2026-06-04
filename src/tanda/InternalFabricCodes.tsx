@@ -4,9 +4,25 @@
 // List + search + country/active filter + add/edit modal + hard-delete with
 // 409-on-reference guard. Wraps /api/internal/fabric-codes and /:id.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+
+const FABRIC_CODES_TABLE_KEY = "tangerine:fabriccodes:columns";
+const FABRIC_CODE_COLUMNS: ColumnDef[] = [
+  { key: "code",              label: "Code" },
+  { key: "name",              label: "Name" },
+  { key: "composition_text",  label: "Composition" },
+  { key: "fabric_weight_gsm", label: "GSM" },
+  { key: "country_of_origin", label: "COO" },
+  { key: "hts_code",          label: "HTS" },
+  { key: "is_active",         label: "Active" },
+];
 
 type FabricCode = {
   id: string;
@@ -25,6 +41,8 @@ type FabricCode = {
 };
 
 type Vendor = { id: string; name: string };
+// Chunk J item 7 — country_master rows for the COO picker.
+type Country = { id: string; iso2: string; name: string };
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -47,6 +65,13 @@ const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -60,6 +85,7 @@ const td: React.CSSProperties = {
 export default function InternalFabricCodes() {
   const [rows, setRows] = useState<FabricCode[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -67,6 +93,19 @@ export default function InternalFabricCodes() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<FabricCode | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+    FABRIC_CODES_TABLE_KEY,
+    FABRIC_CODE_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { getRowProps } = useRowClickEdit<FabricCode>({
+    onRowClick: (r) => setEditing(r),
+    onBeforeRowClick: (id) => setHighlightedId(id),
+    ariaLabel: (r) => `Edit fabric ${r.code}`,
+  });
 
   async function load() {
     setLoading(true);
@@ -95,17 +134,27 @@ export default function InternalFabricCodes() {
     } catch { /* non-fatal */ }
   }
 
+  async function loadCountries() {
+    try {
+      const r = await fetch(`/api/internal/countries`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (Array.isArray(data)) setCountries(data as Country[]);
+    } catch { /* non-fatal */ }
+  }
+
   useEffect(() => { void load(); }, [includeInactive]);
   useEffect(() => { void loadVendors(); }, []);
+  useEffect(() => { void loadCountries(); }, []);
 
   async function hardDelete(id: string, code: string) {
-    if (!confirm(`Permanently delete fabric ${code}? This fails if any style uses it (deactivate instead).`)) return;
+    if (!(await confirmDialog(`Permanently delete fabric ${code}? This fails if any style uses it (deactivate instead).`))) return;
     try {
       const r = await fetch(`/api/internal/fabric-codes/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -160,6 +209,13 @@ export default function InternalFabricCodes() {
             { key: "updated_at",             header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={FABRIC_CODES_TABLE_KEY}
+          columns={FABRIC_CODE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+        />
       </div>
 
       {err && (
@@ -177,33 +233,39 @@ export default function InternalFabricCodes() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Name</th>
-                <th style={th}>Composition</th>
-                <th style={th}>GSM</th>
-                <th style={th}>COO</th>
-                <th style={th}>HTS</th>
-                <th style={th}>Active</th>
+                <th style={th} hidden={!isVisible("code")}>Code</th>
+                <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("composition_text")}>Composition</th>
+                <th style={th} hidden={!isVisible("fabric_weight_gsm")}>GSM</th>
+                <th style={th} hidden={!isVisible("country_of_origin")}>COO</th>
+                <th style={th} hidden={!isVisible("hts_code")}>HTS</th>
+                <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} style={!r.is_active ? { opacity: 0.5 } : {}}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                <ScrollHighlightRow
+                  key={r.id}
+                  rowId={r.id}
+                  highlightedRowId={highlightedId}
+                  {...getRowProps(r)}
+                  style={!r.is_active ? { opacity: 0.5 } : undefined}
+                >
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>
                     {r.code}
                   </td>
-                  <td style={td}>{r.name}</td>
-                  <td style={td}>{r.composition_text}</td>
-                  <td style={td}>{r.fabric_weight_gsm ?? "—"}</td>
-                  <td style={td}>{r.country_of_origin_iso2 ?? "—"}</td>
-                  <td style={td}>{r.hts_code ?? "—"}</td>
-                  <td style={td}>{r.is_active ? "yes" : "no"}</td>
+                  <td style={td} hidden={!isVisible("name")}>{r.name}</td>
+                  <td style={td} hidden={!isVisible("composition_text")}>{r.composition_text}</td>
+                  <td style={td} hidden={!isVisible("fabric_weight_gsm")}>{r.fabric_weight_gsm ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("country_of_origin")}>{r.country_of_origin_iso2 ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("hts_code")}>{r.hts_code ?? "—"}</td>
+                  <td style={td} hidden={!isVisible("is_active")}>{r.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => setEditing(r)} style={btnSecondary}>Edit</button>
-                    <button onClick={() => void hardDelete(r.id, r.code)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                    <button onClick={(e) => { e.stopPropagation(); void hardDelete(r.id, r.code); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>
-                </tr>
+                </ScrollHighlightRow>
               ))}
             </tbody>
           </table>
@@ -214,6 +276,7 @@ export default function InternalFabricCodes() {
         <FabricFormModal
           mode="add"
           vendors={vendors}
+          countries={countries}
           onClose={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); void load(); }}
         />
@@ -223,6 +286,7 @@ export default function InternalFabricCodes() {
           mode="edit"
           fabric={editing}
           vendors={vendors}
+          countries={countries}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
         />
@@ -235,16 +299,16 @@ interface ModalProps {
   mode: "add" | "edit";
   fabric?: FabricCode;
   vendors: Vendor[];
+  countries: Country[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps) {
+function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     code:                   fabric?.code                   ?? "",
     name:                   fabric?.name                   ?? "",
     composition_text:       fabric?.composition_text       ?? "",
-    composition_json:       fabric?.composition_json ? JSON.stringify(fabric.composition_json) : "",
     fabric_weight_gsm:      fabric?.fabric_weight_gsm != null ? String(fabric.fabric_weight_gsm) : "",
     country_of_origin_iso2: fabric?.country_of_origin_iso2 ?? "",
     hts_code:               fabric?.hts_code               ?? "",
@@ -252,6 +316,26 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
     default_vendor_id:      fabric?.default_vendor_id      ?? "",
     is_active:              fabric?.is_active              ?? true,
   });
+
+  // Chunk J item 7 — COO picker options ("<iso2> — <name>", value = iso2).
+  // The stored value remains the 2-letter ISO code. If the row already holds
+  // an ISO that isn't in the active country_master list, surface it so the
+  // picker can render the current selection.
+  const countryOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(select)" },
+      ...countries.map((c) => ({
+        value: c.iso2,
+        label: `${c.iso2} — ${c.name}`,
+        searchHaystack: `${c.iso2} ${c.name}`,
+      })),
+    ];
+    const cur = form.country_of_origin_iso2;
+    if (cur && !countries.some((c) => c.iso2 === cur)) {
+      opts.push({ value: cur, label: cur });
+    }
+    return opts;
+  }, [countries, form.country_of_origin_iso2]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -262,7 +346,8 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
       const body: Record<string, unknown> = {
         name:                   form.name.trim(),
         composition_text:       form.composition_text.trim(),
-        composition_json:       form.composition_json.trim() || null,
+        // Chunk J item 6 — composition_json is no longer collected in the UI.
+        // The DB column + handler support remain; we simply stop sending it.
         fabric_weight_gsm:      form.fabric_weight_gsm ? Number(form.fabric_weight_gsm) : null,
         country_of_origin_iso2: form.country_of_origin_iso2.trim().toUpperCase() || null,
         hts_code:               form.hts_code.trim() || null,
@@ -273,7 +358,7 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
       let url: string;
       let method: string;
       if (mode === "add") {
-        body.code = form.code.trim().toUpperCase();
+        // Chunk M — code is server-generated; never sent from the client.
         url = "/api/internal/fabric-codes";
         method = "POST";
       } else {
@@ -309,18 +394,12 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Code">
-            {mode === "add" ? (
-              <input
-                type="text"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-                style={inputStyle}
-                placeholder="e.g. CTN100"
-                autoFocus
-              />
-            ) : (
-              <input type="text" value={form.code} disabled style={{ ...inputStyle, opacity: 0.6 }} />
-            )}
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (fabric?.code || "—")}
+            </div>
           </Field>
           <Field label="Name">
             <input
@@ -340,14 +419,6 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
               placeholder='e.g. 60% Polyester / 40% Cotton'
             />
           </Field>
-          <Field label='Composition JSON (optional, e.g. [{"fiber":"cotton","pct":100}])' wide>
-            <textarea
-              value={form.composition_json}
-              onChange={(e) => setForm({ ...form, composition_json: e.target.value })}
-              style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12, minHeight: 60 }}
-              placeholder='[{"fiber":"cotton","pct":100}]'
-            />
-          </Field>
           <Field label="Weight (GSM)">
             <input
               type="number"
@@ -358,14 +429,12 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
               placeholder="180"
             />
           </Field>
-          <Field label="Country of origin (ISO-2)">
-            <input
-              type="text"
-              value={form.country_of_origin_iso2}
-              onChange={(e) => setForm({ ...form, country_of_origin_iso2: e.target.value.toUpperCase().slice(0, 2) })}
-              style={inputStyle}
-              placeholder="US"
-              maxLength={2}
+          <Field label="Country of origin">
+            <SearchableSelect
+              value={form.country_of_origin_iso2 || null}
+              onChange={(v) => setForm({ ...form, country_of_origin_iso2: v })}
+              options={countryOptions}
+              placeholder="Pick a country (search ISO / name)…"
             />
           </Field>
           <Field label="HTS code">
@@ -383,7 +452,7 @@ function FabricFormModal({ mode, fabric, vendors, onClose, onSaved }: ModalProps
               onChange={(e) => setForm({ ...form, default_vendor_id: e.target.value })}
               style={inputStyle as React.CSSProperties}
             >
-              <option value="">(none)</option>
+              <option value="">(select)</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </Field>

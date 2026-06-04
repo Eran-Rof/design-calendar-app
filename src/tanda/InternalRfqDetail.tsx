@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 
 interface Quote {
   id: string;
@@ -53,19 +54,19 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
 
   async function publish() {
     const r = await fetch(`/api/internal/rfqs/${rfqId}/publish`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load(); onChanged();
   }
   async function closeRfq() {
-    if (!confirm("Close this RFQ? No more quotes can be submitted.")) return;
+    if (!(await confirmDialog("Close this RFQ? No more quotes can be submitted."))) return;
     const r = await fetch(`/api/internal/rfqs/${rfqId}/close`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load(); onChanged();
   }
   async function award(vendorId: string, vendorName: string) {
-    if (!confirm(`Award this RFQ to ${vendorName}? All other quotes will be rejected.`)) return;
+    if (!(await confirmDialog(`Award this RFQ to ${vendorName}? All other quotes will be rejected.`))) return;
     const r = await fetch(`/api/internal/rfqs/${rfqId}/award/${vendorId}`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { notify(await r.text(), "error"); return; }
     await load(); onChanged();
   }
 
@@ -140,7 +141,7 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No quotes yet.</div>
         ) : quotes.map((q) => (
           <div key={q.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 130px 120px 110px 100px 140px 160px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-            <div style={{ fontWeight: 600 }}>{q.vendor_name || q.vendor_id.slice(0, 8)}</div>
+            <div style={{ fontWeight: 600 }}>{q.vendor_name || "—"}</div>
             <div style={{ textAlign: "right" }}>{q.total_price != null ? `$${Number(q.total_price).toLocaleString()}` : "—"}</div>
             <div style={{ textAlign: "right", color: C.textSub }}>{q.lead_time_days != null ? `${q.lead_time_days}d` : "—"}</div>
             <div style={{ textAlign: "right", color: q.health_score >= 80 ? C.success : q.health_score >= 60 ? C.warn : C.danger, fontWeight: 700 }}>{q.health_score}</div>

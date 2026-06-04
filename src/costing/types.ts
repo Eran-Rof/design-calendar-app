@@ -9,6 +9,11 @@ export type CostingStatus =
   | "closed"
   | "cancelled";
 
+// Per-line status. Manual/stored values are draft|closed (user-settable);
+// on_rfq + awarded are derived auto-states layered on top in the app.
+export type CostingLineStatus = "draft" | "closed";
+export type CostingLineEffectiveStatus = "draft" | "on_rfq" | "awarded" | "closed";
+
 export type CostingQuoteStatus =
   | "pending"
   | "received"
@@ -38,13 +43,21 @@ export interface CostingProject {
   projected_delivery_date: string | null;
   status: CostingStatus;
   notes: string | null;
+  /** FK to payment_terms(id) — Tangerine Payment Terms master. NULL until set. */
+  payment_terms_id: string | null;
+  /** Denormalized snapshot of the selected term name (e.g. "DDP 30"). Grid
+   *  matches /DDP/i against this to hide cost-component cols + rename Tgt Cost. */
+  payment_terms_name: string | null;
   grid_state: Record<string, unknown>;
+  /** Per-line status breakdown from the projects-list GET (status is per line
+   *  now). Drives the list's status column + tab counts. */
+  _status_counts?: { draft: number; on_rfq: number; awarded: number; closed: number; total: number };
   user_id: string | null;
   created_at: string;
   updated_at: string;
   created_by_user_id: string | null;
   // join hints
-  customer?: { id: string; code: string | null; billing_address: Record<string, unknown> | null } | null;
+  customer?: { id: string; code: string | null; billing_address: Record<string, unknown> | null; display_name?: string | null } | null;
   sales_rep?: { id: string; display_name: string } | null;
 }
 
@@ -61,6 +74,10 @@ export interface CostingLine {
   size_scale_id: string | null;
   size_scale_label: string | null;
   fabric_code: string | null;
+  /** Multi-select fabric codes (Tangerine fabric_codes.code). Authoritative
+   *  multi-fabric store; fabric_code stays in sync as the first element for
+   *  RFQ generation + back-compat readers. */
+  fabric_codes: string[] | null;
   fit: string | null;
   color: string | null;
   bottom_closure: string | null;
@@ -90,6 +107,11 @@ export interface CostingLine {
   landed_cost: number | null;
   margin_pct: number | null;
   selected_vendor_quote_id: string | null;
+  /** Manual per-line status: 'draft' (default) or 'closed'. The on_rfq +
+   *  awarded states are derived (see _on_rfq + selected_vendor_quote_id). */
+  status: CostingLineStatus | null;
+  /** Derived (read-only, from the lines GET): the line is on a generated RFQ. */
+  _on_rfq?: boolean;
   ly_qty: number | null;
   ly_unit_cost: number | null;
   ly_total_margin: number | null;
@@ -152,6 +174,8 @@ export interface CostingProjectDraft {
   projected_delivery_date?: string | null;
   status?: CostingStatus;
   notes?: string | null;
+  payment_terms_id?: string | null;
+  payment_terms_name?: string | null;
 }
 
 export interface CostingProjectPatch extends Partial<CostingProjectDraft> {
@@ -205,11 +229,22 @@ export interface RfqListRow {
   description: string | null;
   category: string | null;
   status: RfqStatus;
+  /** Legacy Tangerine field — costing UI no longer renders, but stays in
+   *  the type so other procurement readers can still consume it. */
   submission_deadline: string | null;
+  /** Legacy Tangerine field — see submission_deadline note. */
   delivery_required_by: string | null;
+  /** Snapshot of costing_projects.request_date. Null on legacy RFQs. */
+  request_date: string | null;
+  /** Snapshot of costing_projects.due_date. Null on legacy RFQs. */
+  due_date: string | null;
+  /** Snapshot of costing_projects.projected_delivery_date. Null on legacy RFQs. */
+  projected_delivery_date: string | null;
   estimated_quantity: number | null;
   estimated_budget: number | null;
   currency: string;
+  /** FK to payment_terms(id) — Tangerine Payment Terms master. NULL until set. */
+  payment_terms_id: string | null;
   source_costing_project_id: string | null;
   created_at: string;
   updated_at: string;
@@ -222,6 +257,8 @@ export interface RfqListRow {
   project_name: string | null;
   line_count: number;
   preview_lines: string[];
+  /** Σ(target_price × quantity) across line items. Null when no line is target-priced. */
+  target_cost: number | null;
 }
 
 export interface RfqLineItem {
@@ -265,10 +302,19 @@ export interface RfqDetail {
   rfq: RfqListRow;
   line_items: RfqLineItem[];
   invitations: RfqInvitation[];
+  // The destined vendor on a not-yet-sent draft (no invitation row exists yet).
+  intended_vendor?: {
+    id: string;
+    code: string | null;
+    name: string | null;
+    legal_name: string | null;
+    country: string | null;
+    default_currency: string | null;
+  } | null;
   source_project: {
     id: string;
     project_name: string;
-    customer: { id: string; code: string | null; billing_address: Record<string, unknown> | null } | null;
+    customer: { id: string; code: string | null; billing_address: Record<string, unknown> | null; display_name?: string | null } | null;
   } | null;
 }
 
@@ -279,7 +325,11 @@ export interface RfqPatch {
   status?: RfqStatus;
   submission_deadline?: string | null;
   delivery_required_by?: string | null;
+  request_date?: string | null;
+  due_date?: string | null;
+  projected_delivery_date?: string | null;
   estimated_quantity?: number | null;
   estimated_budget?: number | null;
   currency?: string;
+  payment_terms_id?: string | null;
 }

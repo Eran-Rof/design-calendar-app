@@ -25,6 +25,7 @@ import { requestIfRequired, ApprovalsError } from "../../../_lib/approvals/index
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { checkCreditLimit } from "../../../_lib/customers/creditCheck.js";
+import { brandScopeMode, resolveReceivingPartition } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 30 };
 
@@ -392,6 +393,13 @@ export async function postInvoice(admin, opts) {
 
   // 4. Build + post
   const eventData = buildPostingEventData(invoice, lines, accounts);
+
+  // P15 — under enforcement, consume inventory from the sale's brand pool
+  // (AR = wholesale channel). Inert otherwise: null → FIFO draws across all
+  // layers exactly as before.
+  if (brandScopeMode() === "enforce" && invoice.brand_id) {
+    eventData.consume_partition_id = await resolveReceivingPartition(admin, invoice.brand_id, "WS");
+  }
 
   let postResult;
   try {

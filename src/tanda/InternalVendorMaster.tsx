@@ -22,11 +22,13 @@
 //   The status select stays a native <select> (3 fixed options).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the vendor detail modal.
 import RowHistory from "./components/RowHistory";
+import AddressFields, { type Address } from "./components/AddressFields";
 // Wave 5 universal primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
@@ -34,6 +36,8 @@ import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
+// Chunk E — per-row drill-through scorecard (opened by the 📊 button).
+import VendorScorecard from "./VendorScorecard";
 
 type Vendor = {
   id: string;
@@ -44,7 +48,11 @@ type Vendor = {
   transit_days: number | null;
   categories: string[] | null;
   contact: string | null;
+  contact_title: string | null;
   email: string | null;
+  phone: string | null;
+  website: string | null;
+  wechat_id: string | null;
   moq: number | null;
   payment_terms: string | null;       // legacy free-text (read-only display)
   payment_terms_id: string | null;    // P3-9 structured FK
@@ -57,6 +65,14 @@ type Vendor = {
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type GlAccount = {
+  id: string;
+  code: string;
+  name: string;
+  is_postable: boolean;
+  status: string;
 };
 
 type PaymentTermOption = {
@@ -101,6 +117,13 @@ const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
+// Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+const readonlyCodeStyle: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
+  minHeight: 19, opacity: 0.85,
+};
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -142,6 +165,8 @@ export default function InternalVendorMaster() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Vendor | null>(null);
+  // Chunk E — vendor whose scorecard drawer is open (null = closed).
+  const [scorecardId, setScorecardId] = useState<string | null>(null);
 
   // Wave 5 — universal row-click primitive. Click anywhere on a row (except
   // Edit / Inactivate buttons) to open the edit modal. Soft-deleted vendors
@@ -194,13 +219,13 @@ export default function InternalVendorMaster() {
   );
 
   async function softDelete(id: string) {
-    if (!confirm("Inactivate this vendor?")) return;
+    if (!(await confirmDialog("Inactivate this vendor?"))) return;
     try {
       const r = await fetch(`/api/internal/vendor-master/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Inactivate failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Inactivate failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -278,7 +303,7 @@ export default function InternalVendorMaster() {
                 <th style={th} hidden={!isVisible("status")}>Status</th>
                 <th style={th} hidden={!isVisible("is_1099_vendor")}>1099</th>
                 <th style={th} hidden={!isVisible("payment_terms")}>Payment terms</th>
-                <th style={{ ...th, width: 140 }}></th>
+                <th style={{ ...th, width: 200 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -306,15 +331,23 @@ export default function InternalVendorMaster() {
                   <td style={td} hidden={!isVisible("is_1099_vendor")}>{r.is_1099_vendor ? "yes" : "no"}</td>
                   <td style={td} hidden={!isVisible("payment_terms")}>
                     {r.payment_terms_id ? (
-                      termById.get(r.payment_terms_id)?.code || r.payment_terms_id.slice(0, 8) + "…"
+                      termById.get(r.payment_terms_id)?.code || "—"
                     ) : r.payment_terms ? (
                       <span style={{ color: C.textMuted, fontStyle: "italic" }} title="Legacy free-text — edit to migrate to structured term">{r.payment_terms}</span>
                     ) : "—"}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
+                      title="Open vendor scorecard (lead time, on-time %, purchases, invoices, POs)"
+                      aria-label={`Open scorecard for ${r.name}`}
+                    >
+                      📊 Scorecard
+                    </button>
                     {!r.deleted_at && (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
                         <button onClick={(e) => { e.stopPropagation(); void softDelete(r.id); }} style={{ ...btnDanger, marginLeft: 6 }}>Inactivate</button>
                       </>
                     )}
@@ -328,6 +361,7 @@ export default function InternalVendorMaster() {
 
       {addOpen && <VendorFormModal mode="add" paymentTerms={paymentTerms} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
       {editing && <VendorFormModal mode="edit" vendor={editing} paymentTerms={paymentTerms} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {scorecardId && <VendorScorecard vendorId={scorecardId} onClose={() => setScorecardId(null)} />}
     </div>
   );
 }
@@ -342,24 +376,44 @@ interface ModalProps {
 
 function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    name:             vendor?.name             ?? "",
-    code:             vendor?.code             ?? "",
-    legal_name:       vendor?.legal_name       ?? "",
-    country:          vendor?.country          ?? "",
-    payment_terms_id: vendor?.payment_terms_id ?? "",
-    default_currency: vendor?.default_currency ?? "USD",
-    is_1099_vendor:   vendor?.is_1099_vendor   ?? false,
-    status:           vendor?.status           ?? "active",
+    name:                          vendor?.name                          ?? "",
+    code:                          vendor?.code                          ?? "",
+    legal_name:                    vendor?.legal_name                    ?? "",
+    country:                       vendor?.country                       ?? "",
+    contact:                       vendor?.contact                       ?? "",
+    contact_title:                 vendor?.contact_title                 ?? "",
+    email:                         vendor?.email                         ?? "",
+    phone:                         vendor?.phone                         ?? "",
+    address:                       (typeof vendor?.address === "object" && vendor.address !== null
+                                     ? vendor.address
+                                     : {}) as Address,
+    website:                       vendor?.website                       ?? "",
+    wechat_id:                     vendor?.wechat_id                     ?? "",
+    payment_terms_id:              vendor?.payment_terms_id              ?? "",
+    default_currency:              vendor?.default_currency              ?? "USD",
+    default_gl_ap_account_id:      vendor?.default_gl_ap_account_id      ?? "",
+    default_gl_expense_account_id: vendor?.default_gl_expense_account_id ?? "",
+    is_1099_vendor:                vendor?.is_1099_vendor                ?? false,
+    status:                        vendor?.status                        ?? "active",
   });
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Load postable GL accounts for the AP + expense account pickers.
+  useEffect(() => {
+    fetch("/api/internal/gl-accounts?limit=1000")
+      .then((r) => r.json())
+      .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active" && a.is_postable) : []))
+      .catch(() => {});
+  }, []);
 
   // Wave 5 — payment-terms picker via SearchableSelect. We include inactive
   // terms only if they are the currently-selected term (so editing an old
   // vendor doesn't silently drop their previous term off the list).
   const paymentTermOptions = useMemo(() => {
     const opts = [
-      { value: "", label: "(none — inherit / no default)" },
+      { value: "", label: "(select)" },
       ...paymentTerms
         .filter((t) => t.is_active || t.id === form.payment_terms_id)
         .map((t) => ({
@@ -371,21 +425,36 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
     return opts;
   }, [paymentTerms, form.payment_terms_id]);
 
+  // GL account picker options — postable accounts formatted as "{code} — {name}".
+  const glAccountOptions = useMemo(() => [
+    { value: "", label: "(select)" },
+    ...glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+  ], [glAccounts]);
+
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
       const body: Record<string, unknown> = {
-        name:             form.name.trim(),
-        code:             form.code.trim() ? form.code.trim().toUpperCase() : null,
-        legal_name:       form.legal_name.trim() || null,
-        country:          form.country.trim() || null,
+        name:                          form.name.trim(),
+        // Chunk M — code is server-generated; never sent from the client.
+        legal_name:                    form.legal_name.trim() || null,
+        country:                       form.country.trim() || null,
+        contact:                       form.contact.trim() || null,
+        contact_title:                 form.contact_title.trim() || null,
+        email:                         form.email.trim() || null,
+        phone:                         form.phone.trim() || null,
+        address:                       form.address,
+        website:                       form.website.trim() || null,
+        wechat_id:                     form.wechat_id.trim() || null,
         // P3-9: write the structured FK, leave the legacy text column untouched
         // (it stays read-only and can be displayed for backward-compat).
-        payment_terms_id: form.payment_terms_id || null,
-        default_currency: (form.default_currency || "USD").toUpperCase(),
-        is_1099_vendor:   form.is_1099_vendor,
-        status:           form.status,
+        payment_terms_id:              form.payment_terms_id || null,
+        default_currency:              (form.default_currency || "USD").toUpperCase(),
+        default_gl_ap_account_id:      form.default_gl_ap_account_id || null,
+        default_gl_expense_account_id: form.default_gl_expense_account_id || null,
+        is_1099_vendor:                form.is_1099_vendor,
+        status:                        form.status,
       };
       let url: string;
       let method: string;
@@ -435,13 +504,12 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
             />
           </Field>
           <Field label="Code">
-            <input
-              type="text"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              style={inputStyle}
-              placeholder="Short code (e.g. ACME01)"
-            />
+            {/* Chunk M — codes are server-generated + read-only (operator item 14). */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(auto-generated on save)</span>
+                : (vendor?.code || "—")}
+            </div>
           </Field>
           <Field label="Legal name">
             <input
@@ -461,12 +529,66 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
               placeholder="e.g. US, CN, VN"
             />
           </Field>
+          <Field label="Contact name">
+            <input
+              type="text"
+              value={form.contact}
+              onChange={(e) => setForm({ ...form, contact: e.target.value })}
+              style={inputStyle}
+              placeholder="Primary contact person"
+            />
+          </Field>
+          <Field label="Contact title">
+            <input
+              type="text"
+              value={form.contact_title}
+              onChange={(e) => setForm({ ...form, contact_title: e.target.value })}
+              style={inputStyle}
+              placeholder="e.g. Account Manager"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              style={inputStyle}
+              placeholder="vendor@example.com"
+            />
+          </Field>
+          <Field label="Phone">
+            <input
+              type="text"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              style={inputStyle}
+              placeholder="+1 212 555 0100"
+            />
+          </Field>
+          <Field label="Website">
+            <input
+              type="text"
+              value={form.website}
+              onChange={(e) => setForm({ ...form, website: e.target.value })}
+              style={inputStyle}
+              placeholder="https://example.com"
+            />
+          </Field>
+          <Field label="WeChat ID">
+            <input
+              type="text"
+              value={form.wechat_id}
+              onChange={(e) => setForm({ ...form, wechat_id: e.target.value })}
+              style={inputStyle}
+              placeholder="WeChat / 微信"
+            />
+          </Field>
           <Field label="Payment terms">
             <SearchableSelect
               value={form.payment_terms_id || ""}
               onChange={(v) => setForm({ ...form, payment_terms_id: v })}
               options={paymentTermOptions}
-              placeholder="(none — inherit / no default)"
+              placeholder="(select)"
               emptyText="No matching terms"
             />
             {mode === "edit" && vendor?.payment_terms && !form.payment_terms_id && (
@@ -500,6 +622,27 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
               Yes (issue 1099-MISC at year-end)
             </label>
           </Field>
+          <Field label="Default AP account">
+            <SearchableSelect
+              value={form.default_gl_ap_account_id || ""}
+              onChange={(v) => setForm({ ...form, default_gl_ap_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(select)"
+              emptyText="No matching accounts"
+            />
+          </Field>
+          <Field label="Default expense account">
+            <SearchableSelect
+              value={form.default_gl_expense_account_id || ""}
+              onChange={(v) => setForm({ ...form, default_gl_expense_account_id: v })}
+              options={glAccountOptions}
+              placeholder="(select)"
+              emptyText="No matching accounts"
+            />
+          </Field>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <AddressFields label="Address" value={form.address} onChange={(a) => setForm({ ...form, address: a })} />
+          </div>
         </div>
 
         <div style={{

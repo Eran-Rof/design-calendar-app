@@ -62,12 +62,57 @@ export default async function handler(req, res) {
     const { data: parentLine } = await admin.from("costing_lines")
       .select("entity_id").eq("id", lineId).maybeSingle();
     if (!parentLine) return res.status(404).json({ error: "Line not found" });
+    const lineEntityId = entity_id || parentLine.entity_id;
+
+    // Resolve vendor_id to a valid vendors(id) — costing_line_vendors.vendor_id
+    // is a NOT-NULL FK to vendors(id). The grid picker also lists planning
+    // vendors (ip_vendor_master); if one of those ids reaches here (client
+    // materialization skipped/failed) the raw insert would 500 with a foreign-
+    // key violation. Resolve it server-side so a pick can never fail: portal id
+    // → use as-is; planning id → its linked portal row, an existing vendors row
+    // with the same code, or a freshly materialized portal row.
+    let resolvedVendorId = vendor_id;
+    const { data: portalVendor } = await admin.from("vendors")
+      .select("id").eq("id", vendor_id).maybeSingle();
+    if (!portalVendor) {
+      const { data: planV } = await admin.from("ip_vendor_master")
+        .select("id, name, vendor_code, country, portal_vendor_id")
+        .eq("id", vendor_id).maybeSingle();
+      if (!planV) {
+        return res.status(400).json({ error: "vendor_id not found in vendors or ip_vendor_master" });
+      }
+      if (planV.portal_vendor_id) {
+        resolvedVendorId = planV.portal_vendor_id;
+      } else {
+        // Reuse a portal vendors row with the same code before creating one.
+        let materializedId = null;
+        if (planV.vendor_code) {
+          const { data: byCode } = await admin.from("vendors")
+            .select("id").eq("code", planV.vendor_code).maybeSingle();
+          if (byCode) materializedId = byCode.id;
+        }
+        if (!materializedId) {
+          const vins = { legal_name: planV.name || planV.vendor_code || "Vendor", status: "active" };
+          if (lineEntityId) vins.entity_id = lineEntityId;
+          if (planV.vendor_code) vins.code = planV.vendor_code;
+          if (planV.country) vins.country = planV.country;
+          const { data: created, error: cErr } = await admin.from("vendors")
+            .insert(vins).select("id").single();
+          if (cErr) return res.status(500).json({ error: `vendor materialize failed: ${cErr.message}` });
+          materializedId = created.id;
+        }
+        // Link back so future picks dedup to this portal row.
+        await admin.from("ip_vendor_master").update({ portal_vendor_id: materializedId }).eq("id", planV.id);
+        resolvedVendorId = materializedId;
+      }
+    }
+
     const insert = {
-      entity_id: entity_id || parentLine.entity_id,
+      entity_id: lineEntityId,
       costing_line_id: lineId,
-      vendor_id,
+      vendor_id: resolvedVendorId,
       quoted_cost: Number(quoted_cost),
-      currency: (currency || "USD").toUpperCase(),
+      currency: (currency || "USD").toUpperCase().slice(0, 3),
       lead_time_days: lead_time_days != null ? Number(lead_time_days) : null,
       moq: moq != null ? Number(moq) : null,
       // quoted_date is NOT NULL on costing_line_vendors. Default to today

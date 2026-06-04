@@ -53,7 +53,12 @@ const SEGMENT_MODULE = {
   "workflow-rules": "workflows", "workflow-executions": "workflows",
   "approval-requests": "workflows", "approval-rules": "workflows",
   "notifications": "notifications",
-  "users": "users_access",
+  // RBAC admin surface (matrix + role/override writes). NOTE: the bare "users"
+  // segment is the PERSONALIZATION surface (/users/me/preferences, favorites,
+  // entity-switch) — every signed-in user manages their OWN prefs, so it is
+  // intentionally UNMAPPED (not gated). Only the distinct "users-access" admin
+  // route requires the users_access permission.
+  "users-access": "users_access",
   "audit": "audit_log",
   "analytics": "analytics", "insights": "analytics", "scorecards": "analytics",
   "compliance": "compliance", "sustainability": "compliance",
@@ -70,6 +75,10 @@ const SEGMENT_MODULE = {
  */
 export function routePermissionFor(pathname, method) {
   if (typeof pathname !== "string" || !pathname.startsWith("/api/internal/")) return null;
+  // Self-read of one's OWN effective permissions (P14-4 menu hide). Must NOT be
+  // gated on users_access — a viewer has to read their own perms to hide their
+  // own menus. (It's a UX-only surface; the server still enforces every action.)
+  if (/^\/api\/internal\/users-access\/me\/?$/.test(pathname)) return null;
   const seg = pathname.slice("/api/internal/".length).split("/")[0];
   let module = SEGMENT_MODULE[seg];
   if (!module) return null;

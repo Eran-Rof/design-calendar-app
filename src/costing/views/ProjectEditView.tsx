@@ -5,22 +5,33 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { ALL_STATUSES, statusLabel, statusColor, navigate, getEditId } from "../helpers";
-import type { CostingStatus, CostingProjectPatch } from "../types";
+import { navigate, getEditId } from "../helpers";
+import type { CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
 import CompliancePanel from "../panels/CompliancePanel";
 import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
-import { customerDisplayName } from "../services/costingApi";
+import { customerDisplayName, listPaymentTerms, type PaymentTermHit } from "../services/costingApi";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
+import { tabStyle } from "./tabStyle";
 
 // Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
 const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
 
 interface BrandRow { id: string; name: string; color?: string }
+
+// Facet tabs for the project editor (Tanda PO-detail fused-tab model). The
+// Details form + PlanFlow strip stay persistent above the tabs as a page
+// header; only the work surfaces below are tabbed. "All" stacks them.
+type EditTab = "grid" | "compliance" | "all";
+const EDIT_TABS: { key: EditTab; label: string }[] = [
+  { key: "grid",       label: "Costing Grid" },
+  { key: "compliance", label: "Compliance" },
+  { key: "all",        label: "All" },
+];
 
 export default function ProjectEditView() {
   const id = getEditId();
@@ -40,8 +51,10 @@ export default function ProjectEditView() {
   );
 
   const [form, setForm] = useState<CostingProjectPatch>({});
+  const [tab, setTab] = useState<EditTab>("grid");
   const [saving, setSaving] = useState(false);
   const [brands, setBrands] = useState<BrandRow[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermHit[]>([]);
   // Tracks whether the local form differs from the project on the server —
   // drives the Discard button's enabled state.
   const dirty = !!project && Object.keys(form).some((k) => {
@@ -59,6 +72,18 @@ export default function ProjectEditView() {
         if (cancelled) return;
         if (Array.isArray(rows)) setBrands(rows as BrandRow[]);
       } catch { /* swallow; field stays freeform */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load Tangerine payment terms for the project-level dropdown (Task 10).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await listPaymentTerms();
+        if (!cancelled && Array.isArray(rows)) setPaymentTerms(rows);
+      } catch { /* swallow; dropdown just stays at "(select)" */ }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -84,6 +109,8 @@ export default function ProjectEditView() {
         projected_delivery_date: project.projected_delivery_date,
         status: project.status,
         notes: project.notes,
+        payment_terms_id: project.payment_terms_id,
+        payment_terms_name: project.payment_terms_name,
       });
     }
   }, [project]);
@@ -122,6 +149,8 @@ export default function ProjectEditView() {
       projected_delivery_date: project.projected_delivery_date,
       status: project.status,
       notes: project.notes,
+      payment_terms_id: project.payment_terms_id,
+      payment_terms_name: project.payment_terms_name,
     });
   };
 
@@ -129,10 +158,12 @@ export default function ProjectEditView() {
     setForm((f) => ({ ...f, [k]: v }));
   };
 
+  // Status is per LINE now (set in the grid), not per project — no project-level
+  // status control or auto-advance here anymore.
+
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <a href="#" onClick={(e) => { e.preventDefault(); navigate("list"); }} style={{ color: "#60A5FA", textDecoration: "none", fontSize: 13 }}>← Projects</a>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {project?.project_name || "Loading…"}
         </h2>
@@ -166,11 +197,10 @@ export default function ProjectEditView() {
 
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4, marginBottom: 12 }}>{error}</div>}
 
-      <PlanFlowWidget />
-
+      {/* Details — always-visible page header (no "Details" label, not a tab). */}
       <div style={{
         background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
-        padding: "14px 16px", maxWidth: 880, display: "grid",
+        padding: "14px 16px", marginBottom: 12, maxWidth: 880, display: "grid",
         gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
       }}>
         <Field label="Project name" span={2}>
@@ -193,20 +223,6 @@ export default function ProjectEditView() {
           </select>
         </Field>
 
-        <Field label="Status">
-          {(() => {
-            const sc = statusColor((form.status || "draft") as CostingStatus);
-            return (
-              <select
-                value={form.status || "draft"}
-                onChange={(e) => setField("status", e.target.value as CostingStatus)}
-                style={{ ...inp, background: sc.bg, color: sc.fg, border: `1px solid ${sc.border}`, fontWeight: 600 }}
-              >
-                {ALL_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-              </select>
-            );
-          })()}
-        </Field>
         <Field label="Customer">
           <CustomerPickerCell
             // Use the joined customer record's display name (name → company → code)
@@ -225,7 +241,29 @@ export default function ProjectEditView() {
             inputStyle={inp}
           />
         </Field>
-        <div />
+        <Field label="Payment terms">
+          <select
+            value={form.payment_terms_id || ""}
+            onChange={(e) => {
+              const ptId = e.target.value || null;
+              const pt = paymentTerms.find((p) => p.id === ptId) || null;
+              // Stamp both the FK and the name snapshot in one update so the
+              // grid's DDP detection (matches /DDP/i on payment_terms_name)
+              // updates immediately.
+              setForm((f) => ({
+                ...f,
+                payment_terms_id: ptId,
+                payment_terms_name: pt ? pt.name : null,
+              }));
+            }}
+            style={inp}
+          >
+            <option value="">(select)</option>
+            {paymentTerms.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </Field>
 
         <Field label="Request date">
           <input type="date" value={form.request_date || ""} onChange={(e) => setField("request_date", e.target.value || null)} style={dateInp} />
@@ -243,9 +281,34 @@ export default function ProjectEditView() {
         </Field>
       </div>
 
-      <CostingGrid />
+      {/* Collapsible stage strip — sits below the Details header. */}
+      <PlanFlowWidget />
 
-      <CompliancePanel />
+      {/* Facet tab strip — fused into the panel below (Tanda PO-detail model). */}
+      <div style={{ display: "flex", gap: 2, marginTop: 0, marginBottom: 0 }}>
+        {EDIT_TABS.map((t) => (
+          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{
+        border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px",
+        background: "#1E293B", padding: 16,
+      }}>
+
+      {/* Costing Grid */}
+      <div style={{ display: (tab === "grid" || tab === "all") ? "block" : "none" }}>
+        <CostingGrid />
+      </div>
+
+      {/* Compliance */}
+      <div style={{ display: (tab === "compliance" || tab === "all") ? "block" : "none" }}>
+        <CompliancePanel />
+      </div>
+
+      </div>
     </div>
   );
 }

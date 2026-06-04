@@ -20,6 +20,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { postEvent } from "../../../_lib/accounting/posting/index.js";
+import { resolveReceivingPartition } from "../../../_lib/brandContext.js";
 import { requestIfRequired as approvalsRequestIfRequired } from "../../../_lib/approvals/index.js";
 import { enqueue as notificationsEnqueue } from "../../../_lib/notifications/index.js";
 
@@ -41,33 +42,63 @@ function client() {
 }
 
 /**
- * Look up the entity's inventory asset account.
+ * Look up the entity's inventory asset account to capitalize the adjustment to.
+ *
+ * The canonical inventory account is code '1300'. It may be either:
+ *   (a) a single POSTABLE account, or
+ *   (b) a NON-postable brand-rollup parent (brand_rollup=true) whose postable
+ *       per-brand children are coded '1300-{BRAND}' (M50 convention). In that
+ *       case we MUST post to the postable child for the adjustment's brand —
+ *       posting to the non-postable parent would be rejected by the service.
  *
  * Heuristic (in order):
- *   1. code = '1300' (the canonical operator inventory code per arch sub-decisions)
- *   2. name ILIKE 'inventory%' AND is_postable=true
+ *   1. code = '1300' AND is_postable=true                 → that account
+ *   2. code = '1300' AND brand_rollup=true, brandId given → postable child
+ *      (parent_account_id = 1300, brand_id = brandId)
+ *   3. name ILIKE 'inventory%' AND is_postable=true, EXCLUDING brand-rollup
+ *      children of 1300 (so we don't grab an arbitrary brand child) → first hit
  *
- * If neither hits, returns null. The caller surfaces a 400 telling the
- * operator to set up the inventory account via the COA admin panel.
+ * If none hit, returns null. The caller surfaces a 400 telling the operator to
+ * set up the inventory account via the COA admin panel.
  */
-export async function resolveInventoryAccount(admin, entityId) {
-  // First pass: code = '1300'
-  const byCode = await admin
+export async function resolveInventoryAccount(admin, entityId, brandId = null) {
+  // Resolve the canonical 1300 account (postable single OR rollup parent).
+  const base = await admin
     .from("gl_accounts")
-    .select("id, code, name, is_postable, status")
+    .select("id, code, name, is_postable, status, brand_rollup")
     .eq("entity_id", entityId)
     .eq("code", "1300")
-    .eq("is_postable", true)
     .maybeSingle();
-  if (byCode.data) return byCode.data;
 
-  // Fallback: name ILIKE 'inventory%'
+  if (base.data) {
+    // (1) single postable 1300 → post directly.
+    if (base.data.is_postable) return base.data;
+    // (2) rollup parent → post to the brand child.
+    if (base.data.brand_rollup && brandId) {
+      const child = await admin
+        .from("gl_accounts")
+        .select("id, code, name, is_postable, status")
+        .eq("entity_id", entityId)
+        .eq("parent_account_id", base.data.id)
+        .eq("brand_id", brandId)
+        .eq("is_postable", true)
+        .eq("status", "active")
+        .maybeSingle();
+      if (child.data) return child.data;
+    }
+  }
+
+  // (3) Fallback: name ILIKE 'inventory%', postable, but NOT a brand child of
+  // the 1300 rollup (those have a parent_account_id) — pick a real inventory
+  // account such as 1310/1320 deterministically by code.
   const byName = await admin
     .from("gl_accounts")
     .select("id, code, name, is_postable, status")
     .eq("entity_id", entityId)
     .eq("is_postable", true)
+    .is("parent_account_id", null)
     .ilike("name", "inventory%")
+    .order("code", { ascending: true })
     .limit(1)
     .maybeSingle();
   return byName.data || null;
@@ -108,7 +139,7 @@ export default async function handler(req, res) {
   }
 
   // 2. Resolve the entity's inventory asset account
-  const inventoryAccount = await resolveInventoryAccount(admin, adj.entity_id);
+  const inventoryAccount = await resolveInventoryAccount(admin, adj.entity_id, adj.brand_id || null);
   if (!inventoryAccount) {
     return res.status(400).json({
       error: "No inventory asset account found for entity. Create a postable gl_accounts row with code='1300' or name ILIKE 'inventory%' first.",
@@ -156,6 +187,16 @@ export default async function handler(req, res) {
     console.error("[inventory-adjustments/post] approvalsRequestIfRequired error:", err);
   }
 
+  // P15: a positive (found/correction-up) adjustment creates a FIFO layer — land
+  // it in the brand pool chosen on the adjustment (brand + WS/EC). No-op for
+  // negative adjustments (those consume) or when the brand has no pool.
+  let receivingPartitionId = null;
+  if (adj.qty_delta > 0 && adj.brand_id) {
+    receivingPartitionId = await resolveReceivingPartition(
+      admin, adj.brand_id, adj.receiving_channel === "EC" ? "EC" : "WS",
+    );
+  }
+
   // 4. Invoke postEvent
   let postResult;
   try {
@@ -171,6 +212,7 @@ export default async function handler(req, res) {
         unit_cost_cents: adj.unit_cost_cents,
         inventory_account_id: inventoryAccount.id,
         gl_account_id: adj.gl_account_id,
+        receiving_partition_id: receivingPartitionId,
         posting_date: new Date().toISOString().slice(0, 10), // today (operator override TBD)
         reason: adj.reason,
       },

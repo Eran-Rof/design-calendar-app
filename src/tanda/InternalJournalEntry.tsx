@@ -7,6 +7,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import { uploadStagedDocs } from "../shared/documents/uploadDocument";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
@@ -15,6 +17,7 @@ import RowHistory from "./components/RowHistory";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 
 type JELine = {
   id?: string;
@@ -89,6 +92,8 @@ type JE = {
   reversed_by_je_id: string | null;
   source?: string | null;
   created_at: string;
+  posted_by_name?: string | null;
+  created_by_name?: string | null;
 };
 
 type Account = {
@@ -119,6 +124,9 @@ const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borde
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  // border-box so width:100% + padding doesn't overflow the grid cell and
+  // bleed into the neighbouring field (was the posting-date ↔ description overlap).
+  boxSizing: "border-box",
   colorScheme: "dark",
 };
 const th: React.CSSProperties = {
@@ -173,7 +181,7 @@ export default function InternalJournalEntry() {
 
   async function reverse(je: JE) {
     if (je.status !== "posted") {
-      alert(`Cannot reverse JE in status '${je.status}'.`);
+      notify(`Cannot reverse JE in status '${je.status}'.`, "error");
       return;
     }
     const reason = prompt(`Reverse JE "${je.description}"? Optionally enter a different posting_date (YYYY-MM-DD), or leave blank for today:`, "");
@@ -191,7 +199,7 @@ export default function InternalJournalEntry() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       await load();
     } catch (e: unknown) {
-      alert(`Reverse failed: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Reverse failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
@@ -359,7 +367,16 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   const [postingDate, setPostingDate] = useState(new Date().toISOString().slice(0, 10));
   const [journalType, setJournalType] = useState<"manual" | "adjustment">("manual");
   const [description, setDescription] = useState("");
+  // T11 D3 — a reason is REQUIRED to post; the server rejects without it.
+  // It auto-mirrors the Description until the operator edits it directly, so a
+  // single field covers the common case (and the Post button — disabled until
+  // Description is filled — never trips the "reason required" guard).
+  const [reason, setReason] = useState("");
+  const [reasonTouched, setReasonTouched] = useState(false);
   const [lines, setLines] = useState<JELine[]>([emptyLine(1), emptyLine(2)]);
+  // Documents staged during entry — uploaded after the JE posts (a brand-new
+  // entry has no id yet, so DocumentAttachmentList can't attach in place).
+  const [stagedDocs, setStagedDocs] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Ask #17 — track whether anything in this modal has been edited so we
@@ -367,11 +384,25 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   // — once any field has been touched, every close path (overlay click,
   // Cancel, Escape, browser back) goes through the confirm guard.
   const [dirty, setDirty] = useState(false);
+  // Subledger pickers — vendors / customers for the Sub id dropdown (dependent
+  // on Sub type). Fetched once; "item" stays free-text (rare in a manual JE).
+  const [subVendors, setSubVendors] = useState<SearchableSelectOption[]>([]);
+  const [subCustomers, setSubCustomers] = useState<SearchableSelectOption[]>([]);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=500")
       .then((r) => r.json())
       .then((a: Account[]) => setAccounts(a.filter((x) => x.status === "active" && x.is_postable)))
+      .catch(() => {});
+    fetch("/api/internal/vendor-master?limit=1000")
+      .then((r) => r.json())
+      .then((v: Array<{ id: string; name: string; code?: string | null }>) =>
+        setSubVendors((Array.isArray(v) ? v : []).map((x) => ({ value: x.id, label: x.code ? `${x.code} — ${x.name}` : x.name, searchHaystack: `${x.code || ""} ${x.name} ${x.id}` }))))
+      .catch(() => {});
+    fetch("/api/internal/customer-master?limit=1000")
+      .then((r) => r.json())
+      .then((c: Array<{ id: string; name: string; code?: string | null; customer_code?: string | null }>) =>
+        setSubCustomers((Array.isArray(c) ? c : []).map((x) => ({ value: x.id, label: (x.code || x.customer_code) ? `${x.code || x.customer_code} — ${x.name}` : x.name, searchHaystack: `${x.code || x.customer_code || ""} ${x.name} ${x.id}` }))))
       .catch(() => {});
   }, []);
 
@@ -389,23 +420,16 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     setLines((prev) => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
   }
 
-  // Ask #16 — auto-mirror the memo lines. Whichever field the operator
-  // edits first, the OTHER mirrors it until both fields have received user
-  // input. After both are touched the link is permanently broken for that
-  // line (per-line state, so subsequent lines mirror independently).
-  function onMemoChange(idx: number, which: "memo" | "memo_line_2", value: string) {
+  // One memo per line, auto-copied to every account on the JE: editing a memo
+  // fills all lines the user hasn't individually overridden; once a line's memo
+  // is edited directly it's "touched" and no longer auto-overwritten.
+  function onMemoChange(idx: number, value: string) {
     setDirty(true);
     setLines((prev) =>
       prev.map((l, i) => {
-        if (i !== idx) return l;
-        const next: JELine = { ...l, [which]: value, [`${which}_touched`]: true } as JELine;
-        // If the OTHER field has not yet been touched, mirror this edit.
-        if (which === "memo" && !l.memo_line_2_touched) {
-          next.memo_line_2 = value;
-        } else if (which === "memo_line_2" && !l.memo_touched) {
-          next.memo = value;
-        }
-        return next;
+        if (i === idx) return { ...l, memo: value, memo_touched: true };
+        if (!l.memo_touched) return { ...l, memo: value }; // auto-copy to untouched lines
+        return l;
       }),
     );
   }
@@ -422,9 +446,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
 
   // Single source-of-truth close path. Honours the unsaved-changes guard
   // unless the caller passes force=true (used after a successful post).
-  function requestClose(force = false) {
+  async function requestClose(force = false) {
     if (!force && dirty) {
-      const ok = window.confirm("You have unsaved changes. Discard?");
+      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444" });
       if (!ok) return;
     }
     onClose();
@@ -464,11 +488,13 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     // silently-disabled button so the user sees the exact reason.
     if (totals.diff !== 0 || totals.d === 0) {
       const diffStr = totals.diff.toFixed(2);
-      const proceed = window.confirm(
+      const proceed = await confirmDialog(
         `Journal entry is out of balance by $${diffStr}. Posting will fail server-side validation. Continue anyway?`,
+        { title: "Out of balance", icon: "⚠️", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
       );
       if (!proceed) return;
     }
+    if (!reason.trim()) { setErr("A reason is required to post (T11 D3) — fill in the Reason field."); return; }
     setSubmitting(true);
     setErr(null);
     try {
@@ -477,13 +503,14 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         posting_date: postingDate,
         description: description.trim(),
         journal_type: journalType,
+        reason: reason.trim(),
         lines: lines.map((l) => ({
           line_number: l.line_number,
           account_id: l.account_id,
           debit: l.debit || "0",
           credit: l.credit || "0",
           memo: l.memo || null,
-          memo_line_2: l.memo_line_2 || null,
+          memo_line_2: null, // single memo per line now (see onMemoChange)
           subledger_type: l.subledger_type || null,
           subledger_id: l.subledger_id || null,
         })),
@@ -496,6 +523,20 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       if (!r.ok) {
         const e = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
         throw new Error(e);
+      }
+      // Upload any documents staged during entry to the freshly-posted JE.
+      // For a BOTH-basis post we attach to the ACCRUAL entry (the primary book).
+      if (stagedDocs.length > 0) {
+        const posted = ((await r.json().catch(() => ({}))).posted || []) as Array<{ basis: string; je_id: string }>;
+        const target = posted.find((p) => p.basis === "ACCRUAL")?.je_id || posted[0]?.je_id;
+        if (target) {
+          try {
+            await uploadStagedDocs("journal_entries", target, stagedDocs);
+          } catch (upErr) {
+            // JE is already posted — surface the doc failure but don't lose the post.
+            notify(`Journal entry posted, but a document upload failed: ${upErr instanceof Error ? upErr.message : String(upErr)}`, "error");
+          }
+        }
       }
       // Successful post — bypass the dirty guard on close.
       setDirty(false);
@@ -518,7 +559,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>Post manual journal entry</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 16, marginBottom: 12 }}>
           <Field label="Basis">
             <select value={basis} onChange={(e) => { setDirty(true); setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH"); }} style={inputStyle as React.CSSProperties}>
               <option value="ACCRUAL">ACCRUAL</option>
@@ -536,7 +577,31 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
             <input type="date" value={postingDate} onChange={(e) => { setDirty(true); setPostingDate(e.target.value); }} style={inputStyle} />
           </Field>
           <Field label="Description">
-            <input type="text" value={description} onChange={(e) => { setDirty(true); setDescription(e.target.value); }} style={inputStyle} placeholder="e.g. Adjusting entry for accrued rent" />
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => {
+                setDirty(true);
+                setDescription(e.target.value);
+                // Auto-mirror into Reason until the operator edits Reason directly.
+                if (!reasonTouched) setReason(e.target.value);
+              }}
+              style={inputStyle}
+              placeholder="e.g. Adjusting entry for accrued rent"
+            />
+          </Field>
+        </div>
+
+        {/* T11 D3 — reason is required to post; surfaced as its own field so the
+            "reason required" error never blocks a user with nowhere to enter it. */}
+        <div style={{ marginBottom: 16 }}>
+          <Field label="Reason (required to post)">
+            <input
+              type="text" value={reason}
+              onChange={(e) => { setDirty(true); setReasonTouched(true); setReason(e.target.value); }}
+              style={inputStyle}
+              placeholder="Defaults to the description; edit to override"
+            />
           </Field>
         </div>
 
@@ -559,8 +624,8 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                 <th style={{ ...th, textAlign: "right" }}>Debit</th>
                 <th style={{ ...th, textAlign: "right" }}>Credit</th>
                 <th style={th}>Memo</th>
-                <th style={th}>Sub type</th>
-                <th style={th}>Sub id</th>
+                <th style={th} title="Optional subledger link for control accounts (e.g. customer for AR, vendor for AP). Leave blank for ordinary GL lines.">Sub type</th>
+                <th style={th} title="The specific subledger record id that pairs with Sub type. Leave blank when Sub type is blank.">Sub id</th>
                 <th style={th}></th>
               </tr>
             </thead>
@@ -594,41 +659,47 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    {/* Two stacked memo inputs — keep the column the same
-                        visual width as a single Memo column. */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <input
-                        type="text"
-                        value={l.memo}
-                        placeholder="Memo line 1"
-                        onChange={(e) => onMemoChange(idx, "memo", e.target.value)}
-                        style={inputStyle}
-                      />
-                      <input
-                        type="text"
-                        value={l.memo_line_2}
-                        placeholder="Memo line 2"
-                        onChange={(e) => onMemoChange(idx, "memo_line_2", e.target.value)}
-                        style={inputStyle}
-                      />
-                    </div>
+                    {/* One memo per line; copies to every line until a line is
+                        edited directly (then that line keeps its own). */}
+                    <input
+                      type="text"
+                      value={l.memo}
+                      placeholder={idx === 0 ? "Memo (copies to all lines)" : "Memo (override)"}
+                      onChange={(e) => onMemoChange(idx, e.target.value)}
+                      style={inputStyle}
+                    />
                   </td>
                   <td style={td}>
-                    <select value={l.subledger_type} onChange={(e) => updateLine(idx, { subledger_type: e.target.value })} style={inputStyle as React.CSSProperties}>
-                      <option value="">(none)</option>
+                    <select
+                      value={l.subledger_type}
+                      onChange={(e) => updateLine(idx, { subledger_type: e.target.value, subledger_id: "" })}
+                      style={inputStyle as React.CSSProperties}
+                    >
+                      <option value="">(select)</option>
                       <option value="vendor">vendor</option>
                       <option value="customer">customer</option>
                       <option value="item">item</option>
                     </select>
                   </td>
                   <td style={td}>
-                    <input
-                      type="text"
-                      value={l.subledger_id}
-                      onChange={(e) => updateLine(idx, { subledger_id: e.target.value })}
-                      placeholder="uuid"
-                      style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
-                    />
+                    {l.subledger_type === "vendor" || l.subledger_type === "customer" ? (
+                      <SearchableSelect
+                        value={l.subledger_id || null}
+                        onChange={(id) => updateLine(idx, { subledger_id: id })}
+                        options={l.subledger_type === "vendor" ? subVendors : subCustomers}
+                        placeholder={`Select ${l.subledger_type}…`}
+                      />
+                    ) : l.subledger_type === "item" ? (
+                      <input
+                        type="text"
+                        value={l.subledger_id}
+                        onChange={(e) => updateLine(idx, { subledger_id: e.target.value })}
+                        placeholder="item id"
+                        style={{ ...inputStyle, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}
+                      />
+                    ) : (
+                      <input type="text" value="" disabled placeholder="—" style={{ ...inputStyle, opacity: 0.5 }} />
+                    )}
                   </td>
                   <td style={td}>
                     {lines.length > 2 && <button onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}
@@ -653,6 +724,50 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12, lineHeight: 1.5 }}>
+          <strong>Memo</strong> auto-copies to every line; edit a line's memo to override just that line.
+          {" "}<strong>Sub type / Sub id</strong> optionally link a line to a subledger record (e.g. a
+          customer for an AR control account, a vendor for AP) — leave both blank for ordinary GL lines.
+          They don't affect the debit/credit amounts.
+        </div>
+
+        {/* Stage supporting documents during entry — uploaded after the JE
+            posts (a new entry has no id to attach to yet). */}
+        <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stagedDocs.length ? 8 : 0 }}>
+            <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              📎 Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
+            </span>
+            <label style={{ ...btnSecondary, cursor: "pointer", display: "inline-block" }}>
+              + Add files
+              <input
+                type="file"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files || []);
+                  if (picked.length) { setDirty(true); setStagedDocs((prev) => [...prev, ...picked]); }
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+          {stagedDocs.map((f, i) => (
+            <div key={`${f.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.textSub, paddingTop: 4 }}>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <button
+                onClick={() => setStagedDocs((prev) => prev.filter((_, j) => j !== i))}
+                style={{ background: "transparent", color: C.danger, border: "none", cursor: "pointer", fontSize: 12 }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {stagedDocs.length === 0 && (
+            <span style={{ fontSize: 11, color: C.textMuted }}> — attach receipts, approvals, or backup; uploaded when you post.</span>
+          )}
         </div>
 
         {err && (
@@ -900,7 +1015,13 @@ function JEDetailModal({
               />
               <DetailRow
                 label="Posted at"
-                value={data.posted_at ? new Date(data.posted_at).toLocaleString() : "—"}
+                value={data.posted_at
+                  ? `${new Date(data.posted_at).toLocaleString()}${data.posted_by_name ? ` by ${data.posted_by_name}` : ""}`
+                  : "—"}
+              />
+              <DetailRow
+                label="Created"
+                value={`${new Date(data.created_at).toLocaleString()}${data.created_by_name ? ` by ${data.created_by_name}` : ""}`}
               />
               <DetailRow
                 label="Sibling JE"

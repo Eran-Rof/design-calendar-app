@@ -7,22 +7,18 @@ import { validatePatch }  from "../../_handlers/internal/fabric-codes/[id].js";
 const UUID  = "00000000-0000-0000-0000-000000000001";
 
 describe("fabric-codes validateInsert", () => {
-  it("rejects missing code", () => {
-    expect(validateInsert({}).error).toMatch(/code/);
-  });
-
-  it("rejects missing name", () => {
-    expect(validateInsert({ code: "CTN100" }).error).toMatch(/name/);
+  it("rejects missing name (code no longer required — server-generated)", () => {
+    expect(validateInsert({}).error).toMatch(/name/);
   });
 
   it("rejects missing composition_text", () => {
     expect(validateInsert({ code: "CTN100", name: "100% Cotton" }).error).toMatch(/composition_text/);
   });
 
-  it("uppercases code", () => {
+  it("does not take code from body (server-generated)", () => {
     const v = validateInsert({ code: "ctn100", name: "100% Cotton", composition_text: "100% Cotton" });
     expect(v.error).toBeUndefined();
-    expect(v.data.code).toBe("CTN100");
+    expect(v.data.code).toBeUndefined();
   });
 
   it("uppercases country code", () => {

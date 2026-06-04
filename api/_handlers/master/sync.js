@@ -28,6 +28,11 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonStyleColor, parseStyleColor } from "../../_lib/sku-canon.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
+import {
+  normalizeRow,
+  computeCompliance,
+  DEFAULT_COMPLIANCE_THRESHOLD_PCT,
+} from "../../_lib/master-sync-normalize.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
@@ -172,6 +177,41 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "CSV decode failed", details: e.message });
   }
 
+  // Tier 2C: server-side port of daily_check.py's normalization + the
+  // >=99% compliance gate from post_master_data.py. Both paths (Playwright
+  // and REST) now run the same scrub. Idempotent: rows already cleaned
+  // upstream pass through with changed=false, so the parallel-run window
+  // does not double-mutate. See api/_lib/master-sync-normalize.js docstring.
+  const normalizedResults = csvRows.map((r) => normalizeRow(r));
+  const compliance = computeCompliance(csvRows, normalizedResults);
+
+  // Threshold can be overridden per request via ?min_compliance_pct=...
+  // (allows ops to dial it down for an emergency upload). Default mirrors
+  // post_master_data.py's --min-compliance-pct default of 99.0.
+  const overrideRaw = String(
+    (req.query && req.query.min_compliance_pct) || ""
+  ).trim();
+  const overrideNum = overrideRaw === "" ? NaN : Number(overrideRaw);
+  const threshold = Number.isFinite(overrideNum) && overrideNum >= 0 && overrideNum <= 100
+    ? overrideNum
+    : DEFAULT_COMPLIANCE_THRESHOLD_PCT;
+
+  if (csvRows.length > 0 && compliance.compliance_pct < threshold) {
+    // Hard fail: do NOT upsert anything. Mirrors post_master_data.py's
+    // exit 5 abort behavior — the DB never sees a sub-threshold snapshot.
+    return res.status(422).json({
+      error: "compliance_gate_failed",
+      request_id: requestId,
+      compliance_pct: compliance.compliance_pct,
+      threshold_pct: threshold,
+      scanned: compliance.scanned,
+      compliant: compliance.compliant,
+      auto_corrected: compliance.auto_corrected,
+      buckets: compliance.buckets,
+      message: `Compliance ${compliance.compliance_pct}% < ${threshold}% threshold; refusing upsert.`,
+    });
+  }
+
   const counts = {
     request_id: requestId,
     csv_rows: csvRows.length,
@@ -179,12 +219,24 @@ export default async function handler(req, res) {
     skipped_no_sku: 0,
     upserted: 0,
     errors: [],
+    // Surface normalization + compliance metrics so the nightly log + the
+    // operator's daily email reflect server-side scrub status.
+    compliance_pct: compliance.compliance_pct,
+    compliance_threshold_pct: threshold,
+    normalization: {
+      scanned: compliance.scanned,
+      auto_corrected: compliance.auto_corrected,
+      unchanged_ok: compliance.unchanged_ok,
+      buckets: compliance.buckets,
+    },
   };
 
-  // Build dedup'd candidate map.
+  // Build dedup'd candidate map, consuming normalized rows so buildCandidate
+  // sees already-scrubbed values. Order of csvRows + normalizedResults is
+  // preserved by Array.map above.
   const candidates = new Map();
-  for (const r of csvRows) {
-    const cand = buildCandidate(r);
+  for (let i = 0; i < csvRows.length; i++) {
+    const cand = buildCandidate(normalizedResults[i].row);
     if (!cand) { counts.skipped_no_sku++; continue; }
     if (candidates.has(cand.sku_code)) continue;
     candidates.set(cand.sku_code, cand);
@@ -237,21 +289,37 @@ export default async function handler(req, res) {
   counts.new_rows = newRows.length;
   counts.updated_rows = updateRows.length;
 
-  // Upsert each list. ignoreDuplicates: false makes existing rows go through
-  // ON CONFLICT DO UPDATE, but the SET clause only touches columns included
-  // in the payload — fields not passed stay under the prior-source authority.
-  for (const [label, rows] of [["new", newRows], ["update", updateRows]]) {
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const chunk = rows.slice(i, i + CHUNK);
-      const { error } = await admin
-        .from("ip_item_master")
-        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
-      if (error) {
-        counts.errors.push(`upsert ${label} chunk ${i}: ${error.message}`);
-        continue;
-      }
-      counts.upserted += chunk.length;
+  // NEW-row path: plain INSERT (via upsert with ignoreDuplicates so a race
+  // doesn't error). is_apparel:false in the payload satisfies
+  // apparel_dims_required on the proposed row.
+  for (let i = 0; i < newRows.length; i += CHUNK) {
+    const chunk = newRows.slice(i, i + CHUNK);
+    const { error } = await admin
+      .from("ip_item_master")
+      .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: true });
+    if (error) {
+      counts.errors.push(`upsert new chunk ${i}: ${error.message}`);
+      continue;
     }
+    counts.upserted += chunk.length;
+  }
+  // UPDATE-row path: call the bulk_refresh RPC instead of upsert. PostgREST
+  // upsert builds INSERT...ON CONFLICT, and PG evaluates CHECK on the
+  // proposed INSERT row BEFORE the conflict resolves — apparel_dims_required
+  // fails immediately because the payload's is_apparel defaults to true with
+  // size/inseam/length/fit NULL. The RPC does a true UPDATE FROM jsonb input,
+  // skipping the INSERT path entirely. Migration 20260713050000.
+  for (let i = 0; i < updateRows.length; i += CHUNK) {
+    const chunk = updateRows.slice(i, i + CHUNK);
+    const { data, error } = await admin.rpc(
+      "bulk_refresh_item_master_descriptions",
+      { payload: chunk }
+    );
+    if (error) {
+      counts.errors.push(`rpc update chunk ${i}: ${error.message}`);
+      continue;
+    }
+    counts.upserted += (typeof data === "number") ? data : chunk.length;
   }
 
   return res.status(200).json({ processed: true, ...counts });

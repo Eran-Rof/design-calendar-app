@@ -19,9 +19,20 @@
 //      check — P6-6).
 
 import { useEffect, useMemo, useState } from "react";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TXN_TABLE_KEY = "tanda.bank_recon_transactions";
+const TXN_COLUMNS: ColumnDef[] = [
+  { key: "date",        label: "Date" },
+  { key: "account",     label: "Account" },
+  { key: "description", label: "Description" },
+  { key: "amount",      label: "Amount" },
+  { key: "status",      label: "Status" },
+];
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -238,7 +249,7 @@ function AccountsTab() {
                 <td style={{ ...td, fontFamily: "monospace" }}>{r.mask ? `••${r.mask}` : "—"}</td>
                 <td style={td}>{r.account_kind}</td>
                 <td style={{ ...td, color: r.feed_source === "plaid" ? C.success : r.feed_source === "csv_upload" ? C.warn : C.textMuted }}>{r.feed_source}</td>
-                <td style={{ ...td, fontFamily: "monospace" }}>{r.gl_accounts ? `${r.gl_accounts.code} ${r.gl_accounts.name}` : r.gl_account_id.slice(0, 8)}</td>
+                <td style={{ ...td, fontFamily: "monospace" }}>{r.gl_accounts ? `${r.gl_accounts.code} ${r.gl_accounts.name}` : "—"}</td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }}>{r.last_synced_at ? new Date(r.last_synced_at).toLocaleString() : "never"}</td>
                 <td style={tdNum}>{fmtCents(r.current_balance_cents)}</td>
                 <td style={{ ...td, color: r.is_active ? C.success : C.textMuted }}>{r.is_active ? "active" : "inactive"}</td>
@@ -336,7 +347,7 @@ function AutoPostRulesModal({ account, onClose, onSaved }: { account: BankAccoun
     } catch (e: unknown) { setRunResult(`Error: ${e instanceof Error ? e.message : String(e)}`); }
   }
   async function runNow() {
-    if (!confirm(`Run auto-post on ${account.name} now? This will POST journal entries for any matching unmatched transactions. Make sure to dry-run first.`)) return;
+    if (!(await confirmDialog(`Run auto-post on ${account.name} now? This will POST journal entries for any matching unmatched transactions. Make sure to dry-run first.`))) return;
     setRunResult("Running…");
     try {
       const r = await fetch(`/api/cron/bank-auto-post-fees?bank_account_id=${account.id}`, { method: "POST" });
@@ -454,6 +465,7 @@ function TransactionsTab() {
   const [filterStatus, setFilterStatus] = useState<BankTxn["status"] | "all">("unmatched");
   const [matchModal, setMatchModal] = useState<BankTxn | null>(null);
   const [createJeModal, setCreateJeModal] = useState<BankTxn | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TXN_TABLE_KEY, TXN_COLUMNS);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -484,20 +496,20 @@ function TransactionsTab() {
       });
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        alert(`Match failed: ${e.error || `HTTP ${r.status}`}`);
+        notify(`Match failed: ${e.error || `HTTP ${r.status}`}`, "error");
         return;
       }
       setMatchModal(null);
       await load();
-    } catch (e: unknown) { alert(`Match failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Match failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
   async function unmatch(txn: BankTxn) {
-    if (!confirm("Unmatch this transaction? The JE stays posted; only the bank ↔ JE link is severed.")) return;
+    if (!(await confirmDialog("Unmatch this transaction? The JE stays posted; only the bank ↔ JE link is severed."))) return;
     try {
       const r = await fetch(`/api/internal/bank-transactions/${txn.id}/unmatch`, { method: "POST" });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Unmatch failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Unmatch failed: ${e.error}`, "error"); return; }
       await load();
-    } catch (e: unknown) { alert(`Unmatch failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Unmatch failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
   async function ignore(txn: BankTxn) {
     const reason = prompt("Reason for ignoring (e.g. duplicate Plaid pull, test transaction):");
@@ -508,9 +520,9 @@ function TransactionsTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Ignore failed: ${e.error}`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); notify(`Ignore failed: ${e.error}`, "error"); return; }
       await load();
-    } catch (e: unknown) { alert(`Ignore failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } catch (e: unknown) { notify(`Ignore failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
   }
 
   const counts = useMemo(() => {
@@ -565,6 +577,14 @@ function TransactionsTab() {
             { key: "notes",               header: "Notes" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TXN_TABLE_KEY}
+          columns={TXN_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
         <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted }}>{rows.length} row{rows.length === 1 ? "" : "s"}</span>
       </div>
 
@@ -580,26 +600,26 @@ function TransactionsTab() {
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
-              <th style={th}>Date</th>
-              <th style={th}>Account</th>
-              <th style={th}>Description</th>
-              <th style={{ ...th, textAlign: "right" }}>Amount</th>
-              <th style={th}>Status</th>
+              <th style={th} hidden={!visibleColumns.has("date")}>Date</th>
+              <th style={th} hidden={!visibleColumns.has("account")}>Account</th>
+              <th style={th} hidden={!visibleColumns.has("description")}>Description</th>
+              <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("amount")}>Amount</th>
+              <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
               <th style={{ ...th, width: 280 }}>Actions</th>
             </tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} style={r.pending ? { opacity: 0.5 } : {}}>
-                  <td style={td}>{r.posted_date}</td>
-                  <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
-                    {r.bank_accounts?.name || r.bank_account_id.slice(0, 8)}
+                  <td style={td} hidden={!visibleColumns.has("date")}>{r.posted_date}</td>
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("account")}>
+                    {r.bank_accounts?.name || "—"}
                     {r.bank_accounts?.mask ? ` ••${r.bank_accounts.mask}` : ""}
                   </td>
-                  <td style={td}>{r.merchant_name || r.description || "—"}</td>
-                  <td style={{ ...tdNum, color: r.amount_cents >= 0 ? C.success : C.danger, fontWeight: 600 }}>
+                  <td style={td} hidden={!visibleColumns.has("description")}>{r.merchant_name || r.description || "—"}</td>
+                  <td style={{ ...tdNum, color: r.amount_cents >= 0 ? C.success : C.danger, fontWeight: 600 }} hidden={!visibleColumns.has("amount")}>
                     {fmtCents(r.amount_cents)}
                   </td>
-                  <td style={{ ...td, color: STATUS_COLOR[r.status], fontWeight: 600 }}>
+                  <td style={{ ...td, color: STATUS_COLOR[r.status], fontWeight: 600 }} hidden={!visibleColumns.has("status")}>
                     {r.status}{r.match_confidence != null ? ` (${r.match_confidence}%)` : ""}
                   </td>
                   <td style={td}>
