@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { notify } from "../shared/ui/warn";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
@@ -113,7 +113,9 @@ export default function InternalOnboarding() {
 
       <OutstandingInvites refreshKey={inviteRefresh} onResent={() => setInviteRefresh((n) => n + 1)} />
 
-      {selected && <ReviewModal vendorId={selected} onClose={() => setSelected(null)} onAction={() => { setSelected(null); void load(); }} />}
+      <ActiveVendorAccess />
+
+      {selected &&<ReviewModal vendorId={selected} onClose={() => setSelected(null)} onAction={() => { setSelected(null); void load(); }} />}
       {showInvite && <InviteVendorModal onClose={() => setShowInvite(false)} onSent={() => { setShowInvite(false); setInviteRefresh((n) => n + 1); void load(); }} />}
     </div>
   );
@@ -189,6 +191,133 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
       </div>
     </div>
   );
+}
+
+type AccessRow = {
+  id: string;
+  auth_id: string | null;
+  vendor_id: string;
+  vendor_name: string | null;
+  email: string | null;
+  role: string | null;
+  last_login: string | null;
+  status: "active" | "disabled" | "removed" | string;
+};
+
+function ActiveVendorAccess() {
+  const [rows, setRows] = useState<AccessRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-access");
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Failed to load vendor access (${r.status})`);
+      setRows((Array.isArray(body) ? body : []) as AccessRow[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function mutate(row: AccessRow, action: "disable" | "enable" | "remove") {
+    const who = row.vendor_name || row.email || "this vendor";
+    let confirmMsg: string;
+    let confirmOpts: { danger?: boolean; confirmText?: string; title?: string } = {};
+    if (action === "disable") {
+      confirmMsg = `Disable portal access for ${who}? They will be signed out and blocked from the portal immediately. You can re-enable later.`;
+      confirmOpts = { confirmText: "Disable access" };
+    } else if (action === "enable") {
+      confirmMsg = `Re-enable portal access for ${who}? They will be able to sign in again.`;
+      confirmOpts = { danger: false, confirmText: "Enable access", title: "Confirm" };
+    } else {
+      confirmMsg =
+        `Permanently REMOVE portal access for ${who}?\n\n` +
+        `This deletes their login for good and cannot be undone. ` +
+        `Financial and historical records (invoices, shipments, documents) are kept, ` +
+        `but this person will no longer be able to sign in and a new invite would be required to restore access.`;
+      confirmOpts = { confirmText: "Remove permanently" };
+    }
+    const ok = await confirmDialog(confirmMsg, confirmOpts);
+    if (!ok) return;
+
+    setBusy(row.id); setErr(null);
+    try {
+      const r = await fetch("/api/internal/vendor-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendor_user_id: row.id, action }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `Action failed (${r.status})`);
+      const verb = action === "disable" ? "disabled" : action === "enable" ? "enabled" : "removed";
+      notify(body?.warning ? body.warning : `Portal access ${verb} for ${who}.`, body?.warning ? "info" : "success");
+      await load();
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally { setBusy(null); }
+  }
+
+  const activeCount = rows.filter((r) => r.status === "active").length;
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Active vendor access</h3>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>{activeCount} with portal access</span>
+      </div>
+      {err && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 100px 150px 110px 200px", padding: "10px 14px", background: "#0F172A", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+          <div>Vendor</div><div>Email</div><div>Role</div><div>Last login</div><div>Status</div><div></div>
+        </div>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No vendor portal users yet.</div>
+        ) : rows.map((row) => {
+          const isBusy = busy === row.id;
+          const badge = accessBadge(row.status);
+          return (
+            <div key={row.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1.4fr 100px 150px 110px 200px", padding: "12px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
+              <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
+              <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email || "—"}</div>
+              <div style={{ color: C.textSub, textTransform: "capitalize" }}>{row.role || "—"}</div>
+              <div style={{ color: C.textSub }}>{row.last_login ? new Date(row.last_login).toLocaleDateString() : "Never"}</div>
+              <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.fg }}>{badge.label}</span></div>
+              <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                {row.status === "removed" ? (
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Access removed</span>
+                ) : (
+                  <>
+                    {row.status === "disabled" ? (
+                      <button onClick={() => void mutate(row, "enable")} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.success, borderColor: C.success }}>Enable</button>
+                    ) : (
+                      <button onClick={() => void mutate(row, "disable")} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: C.warn, borderColor: C.warn }}>Disable</button>
+                    )}
+                    <button onClick={() => void mutate(row, "remove")} disabled={isBusy} style={{ ...btnSecondary, opacity: isBusy ? 0.6 : 1, color: "#fff", background: C.danger, borderColor: C.danger }}>Remove</button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 8 }}>
+        Disable is reversible (vendor is signed out and blocked, can be re-enabled). Remove permanently deletes the login; financial history is preserved.
+      </div>
+    </div>
+  );
+}
+
+function accessBadge(status: string): { label: string; bg: string; fg: string } {
+  if (status === "active") return { label: "Active", bg: "#064E3B", fg: "#6EE7B7" };
+  if (status === "disabled") return { label: "Disabled", bg: "#78350F", fg: "#FCD34D" };
+  if (status === "removed") return { label: "Removed", bg: "#7F1D1D", fg: "#FCA5A5" };
+  return { label: status, bg: "#334155", fg: "#CBD5E1" };
 }
 
 type VendorOpt = { id: string; name: string };
