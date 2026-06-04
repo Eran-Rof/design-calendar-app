@@ -42,9 +42,7 @@ These modules are **built and shipped** but produce nothing / stay inert until y
 
 ## 🔵 Decisions the operator must make
 
-| Decision | Detail |
-|---|---|
-| **`ip_item_master` dup-SKU cleanup** | ~7,047 duplicate rows (~36%). **Tier 1 (safe):** delete the 6,101 zero-reference junk SKUs. **Tier 2 (deferred, hard):** planning-aware reconciliation of the 2,809 SKUs entangled with ~120K planning rows. Plus a permanent guard (unify resolver + `UNIQUE(entity,style_id,color,size,inseam)`). The view already collapses dups, so there's **no user-facing urgency** — but pick a path before scaling. |
+_(none open — the `ip_item_master` dup-SKU cleanup that was here is now built; see ✅ Done.)_
 
 ### 🟠 Brand-scope enforcement — go-live checklist (`BRAND_SCOPE_MODE=enforce`)
 
@@ -59,6 +57,7 @@ Everything below is **built and inert today**; flipping the flag turns it on. Do
 
 ## ✅ Done
 
+- **`ip_item_master` dup-SKU cleanup** (#867 / #872 / #874 / #866) — the ~7,047 duplicate rows are merged + a logical `UNIQUE` backstop + dup-proof SKU resolver are in place. Prod now: 12,691 rows, only **14 residual dup rows in 4 groups** (down from ~7k). No operator decision needed.
 - **CEO planning `admin` role** granted (#875) → the buy-plan → Tangerine-PO buttons are usable; `run_writeback` / `manage_integrations` available.
 - **`VENDOR_DATA_ENCRYPTION_KEY`** set on Vercel **prod + dev** (Preview still pending — see 🔴 above).
 - **`TANGERINE_JWT_SECRET`** set on Vercel (`design-calendar-app` project) → JWT identity bridge live.

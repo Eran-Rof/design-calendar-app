@@ -1,8 +1,8 @@
 # Tangerine ERP — Live Build Progress
 
-> **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7).
+> **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-04
 
 ## Summary
 
@@ -19,6 +19,13 @@
 > 2. **Code ≠ Xoro off.** Retirement (P23) is gated by **calendar-floor parallel runs** — Tangerine must reconcile against Xoro within tolerance for ~2 consecutive months *per area* before each cutover. Actual retirement is paced by parallel-run verification, not just shipping code.
 
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
+
+> **Recent cross-cutting landings (2026-06-03/04)** — not tied to a single phase row:
+> - **ip_item_master dedup ✅ complete** (#867 Tier-1 zero-ref cleanup · #872 collision-aware merge + logical `UNIQUE` backstop · #874/#866 SKU-resolver dup prevention) — the long-standing ~7k duplicate-SKU problem is now resolved + guarded. (Was an operator *decision* item; now built.)
+> - **Vendor onboarding / portal-access** (#864/#868/#879/#884/#886/#889, h609) — invite vendors, edit/resend invites, outstanding-invites list, view + cancel portal access (PO WIP → Onboarding).
+> - **Nightly Xoro AP sync cron** (#882) — vendor-bill paid-status mirror (02:30 UTC).
+> - **Costing per-line status** (#890/#877/#873/#885) — Draft/On-RFQ/Awarded/Closed per line + auto-advance + layout rework.
+> - **ATS By-Size Matrix export** (#887) — color×size ATS-available pivot (see [`docs/apps/ats-overview.md`](../apps/ats-overview.md)).
 
 ---
 
