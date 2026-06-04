@@ -54,6 +54,25 @@ export default function PlanningShell({ title, children }: Props) {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, color: PAL.text }}>
           <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
+          <a
+            href="/planning/wholesale"
+            title="Back to Inventory Planning"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "5px 10px",
+              borderRadius: 6,
+              border: `1px solid ${PAL.border}`,
+              color: PAL.text,
+              background: "transparent",
+              textDecoration: "none",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            ← Planning
+          </a>
           <span style={{ fontWeight: 700, fontSize: 14, color: PAL.text }}>{title}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
