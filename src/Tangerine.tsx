@@ -367,7 +367,7 @@ const MODULES: ModuleDef[] = [
   { key: "procurement_recon",   label: "Procurement Recon", emoji: "🧮", group: "Procurement" },
   { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
   // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
-  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
+  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Master Data" },
   { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
@@ -404,7 +404,7 @@ const MODULES: ModuleDef[] = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Apps launcher — links to the other modules within the design-calendar-app
-// suite. Each navigates the browser to the existing URL (same tab).
+// suite. Each opens the app in its own browser tab (target="_blank").
 // ─────────────────────────────────────────────────────────────────────────────
 type AppLink = { href: string; label: string; emoji: string; description: string };
 
@@ -415,6 +415,7 @@ const APPS: AppLink[] = [
   { href: "/techpack",  label: "Tech Packs",      emoji: "📐", description: "Style spec sheets" },
   { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
   { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
+  { href: "/costing",   label: "Costing",         emoji: "💰", description: "Costing projects, quotes, margins" },
   { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
 ];
 
@@ -492,6 +493,16 @@ export default function Tangerine() {
     return () => window.removeEventListener("popstate", onPopState);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Browser tab title = the active module's menu header, so every tab opened
+  // via the menu (or a ?m= deep link) is identifiable at a glance. Falls back
+  // to the app name on the home landing.
+  useEffect(() => {
+    const label = activeModule
+      ? (MODULES as { key: string; label: string }[]).find((m) => m.key === activeModule)?.label
+      : null;
+    document.title = label ? `${label} · Tangerine` : "Tangerine ERP";
+  }, [activeModule]);
 
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
@@ -1324,6 +1335,8 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1475,6 +1488,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",

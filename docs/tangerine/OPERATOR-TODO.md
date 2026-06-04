@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-04 (COA loaded)
+**Last updated:** 2026-06-04 (Tangerine front-door switch added)
 
 ---
 
@@ -24,6 +24,7 @@
 | `RBAC_MODE` = `log` → `enforce` (Vercel) | Turns on per-user permission enforcement | First configure roles in 🔐 User Access; run `log` a few days to watch telemetry, then `enforce`. The per-user JWT prerequisite is now live (`TANGERINE_JWT_SECRET` set), so `enforce` is technically unblocked. |
 | `BRAND_SCOPE_MODE` = `log` → `enforce` (Vercel) | Activates ALL brand behavior, currently inert: brand/channel report filtering (C3), **M50 GL allocation auto-splitting** of postings into brand sub-accounts, and **P15 inventory pool separation** (FIFO draws from the brand pool). | **Sizable go-live — do the prereqs first (see the dedicated checklist below).** Run `log` first to watch telemetry, then `enforce`. Verify a brand-filtered report sums back to "All". |
 | Xoro cutover gates (P9) | Retire Xoro per area | 2 consecutive months reconciling within tolerance; first gate (Cash) ~2026-07-28. |
+| `VITE_TANGERINE_AS_HOME` = `true` (Vercel) | **Makes Tangerine the front door + retires the PLM launcher.** Root `/` then redirects to the standalone Tangerine login (`/login`, Microsoft-365 sign-in); from there users launch every other app via the 🧩 Apps menu. OFF today: `/` still shows the PLM launcher and `/login` is reachable directly for preview. | Build is done — flip when you're ready to retire the PLM launcher. Verify `/login` signs in and the 🧩 Apps menu reaches all apps first. Note: the other apps still use the username/password `plm_user` session for their own gating, so keep those credentials working (or migrate them) before fully dropping PLM. |
 
 ## 🟠 Module go-lives — config / data the operator must enter (the build is done)
 

@@ -55,12 +55,14 @@ export default async function handler(req, res) {
     req.query = { ...(req.query || {}), ...params };
 
     // P14 RBAC. Default (RBAC_MODE unset) = no-op. `log` = observe + warn on a
-    // would-deny (chunk 2). `enforce` = reject with 403 when an authenticated
-    // caller lacks the permission (chunk 3); fail-open + never blocks the
-    // anon-key/unauthenticated surface. All paths are internally wrapped.
+    // would-deny. `enforce` = reject with 403 when an authenticated caller lacks
+    // the permission; fail-open on legacy anon-key callers. `strict` = same as
+    // enforce PLUS reject unauthenticated callers with 401 on mapped routes —
+    // flip to strict only after every operator is on MS-OAuth. All paths are
+    // internally wrapped.
     const _rbacMode = rbacMode();
-    if (_rbacMode === "enforce") {
-      if (await rbacEnforce(req, res, pathname, req.method)) return; // 403 already sent
+    if (_rbacMode === "enforce" || _rbacMode === "strict") {
+      if (await rbacEnforce(req, res, pathname, req.method)) return; // 401/403 already sent
     } else if (_rbacMode === "log") {
       await rbacObserve(req, pathname, req.method).catch(() => {});
     }
