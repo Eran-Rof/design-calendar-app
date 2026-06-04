@@ -787,8 +787,10 @@ import h526 from "./internal/sales-reps/[id]/assignments.js";
 
 // Costing — operator-only freeform color/vendor masters with auto-prune
 // against canonical ip_item_master / ip_vendor_master / vendors sources.
-//   h527 = GET/POST/PUT/DELETE /api/internal/costing/masters/freeform
-import h527 from "./internal/costing/masters/freeform.js";
+//   h629 = GET/POST/PUT/DELETE /api/internal/costing/masters/freeform
+//   (renumbered h527 → h629: h527 collided with the CRM tasks-due cron
+//   import after parallel merges of #637 and #922 crashed the dispatcher)
+import h629 from "./internal/costing/masters/freeform.js";
 
 // P11-5 — Shopify per-line COGS posting (FIFO consume + DR 5000 / CR 1300).
 //   h446 = POST /api/internal/shopify/post-cogs/:id (manual COGS retry for one order)
@@ -1460,7 +1462,7 @@ export const ROUTES = [
   // Costing Module — PO-history popover on the costing grid (this PR).
   { pattern: "/api/internal/costing/lines/:line_id/po-history",            handler: h507 },
   // Costing Module — operator-only freeform color/vendor masters (auto-prune).
-  { pattern: "/api/internal/costing/masters/freeform",                     handler: h527 },
+  { pattern: "/api/internal/costing/masters/freeform",                     handler: h629 },
   // Cross-cutter T4-7 — Personalization drawer-collapsed persistence
   // (favorites drawer redesign — operator asks #2 + #3). Listed AFTER the
   // existing /preferences/favorites + /preferences/home-route + bare
