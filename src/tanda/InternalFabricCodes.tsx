@@ -12,6 +12,8 @@ import SearchableSelect, { type SearchableSelectOption } from "./components/Sear
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const FABRIC_CODES_TABLE_KEY = "tangerine:fabriccodes:columns";
 const FABRIC_CODE_COLUMNS: ColumnDef[] = [
@@ -100,6 +102,12 @@ export default function InternalFabricCodes() {
     FABRIC_CODE_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:fabriccodes:sort",
+    // The COO column key differs from its underlying scalar field name.
+    accessors: { country_of_origin: (r) => r.country_of_origin_iso2 },
+  });
 
   const { getRowProps } = useRowClickEdit<FabricCode>({
     onRowClick: (r) => setEditing(r),
@@ -233,18 +241,18 @@ export default function InternalFabricCodes() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("composition_text")}>Composition</th>
-                <th style={th} hidden={!isVisible("fabric_weight_gsm")}>GSM</th>
-                <th style={th} hidden={!isVisible("country_of_origin")}>COO</th>
-                <th style={th} hidden={!isVisible("hts_code")}>HTS</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Composition" sortKey="composition_text" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("composition_text")} />
+                <SortableTh label="GSM" sortKey="fabric_weight_gsm" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("fabric_weight_gsm")} />
+                <SortableTh label="COO" sortKey="country_of_origin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("country_of_origin")} />
+                <SortableTh label="HTS" sortKey="hts_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("hts_code")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}

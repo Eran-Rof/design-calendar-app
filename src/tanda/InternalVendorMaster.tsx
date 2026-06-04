@@ -31,6 +31,8 @@ import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
 // Wave 5 universal primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -187,6 +189,11 @@ export default function InternalVendorMaster() {
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
 
+  // payment_terms renders a resolved lookup, so it stays non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:vendormaster:sort",
+  });
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -297,17 +304,17 @@ export default function InternalVendorMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("country")}>Country</th>
-                <th style={th} hidden={!isVisible("status")}>Status</th>
-                <th style={th} hidden={!isVisible("is_1099_vendor")}>1099</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Country" sortKey="country" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("country")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+                <SortableTh label="1099" sortKey="is_1099_vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_1099_vendor")} />
                 <th style={th} hidden={!isVisible("payment_terms")}>Payment terms</th>
                 <th style={{ ...th, width: 200 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}

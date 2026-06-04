@@ -17,6 +17,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const PAYMENT_TERMS_TABLE_KEY = "tangerine:paymentterms:columns";
 const PAYMENT_TERM_COLUMNS: ColumnDef[] = [
@@ -110,6 +112,12 @@ export default function InternalPaymentTerms() {
     PAYMENT_TERM_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:paymentterms:sort",
+    // discount_pct may arrive as a numeric string — coerce so it sorts numerically.
+    accessors: { discount_pct: (r) => (typeof r.discount_pct === "number" ? r.discount_pct : parseFloat(r.discount_pct as string)) },
+  });
 
   const { getRowProps } = useRowClickEdit<PaymentTerm>({
     onRowClick: (r) => setEditing(r),
@@ -223,17 +231,17 @@ export default function InternalPaymentTerms() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("due_days")}>Due days</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_pct")}>Disc. %</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_days")}>Disc. days</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Due days" sortKey="due_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("due_days")} />
+                <SortableTh label="Disc. %" sortKey="discount_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("discount_pct")} />
+                <SortableTh label="Disc. days" sortKey="discount_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("discount_days")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((pt) => (
+              {sorted.map((pt) => (
                 <ScrollHighlightRow
                   key={pt.id}
                   rowId={pt.id}

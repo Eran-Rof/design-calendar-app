@@ -16,6 +16,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const FACTORS_TABLE_KEY = "tangerine:factors:columns";
 const FACTOR_COLUMNS: ColumnDef[] = [
@@ -101,6 +103,10 @@ export default function InternalFactors() {
     FACTOR_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:factors:sort",
+  });
 
   const { getRowProps } = useRowClickEdit<Factor>({
     onRowClick: (r) => setEditing(r),
@@ -202,18 +208,18 @@ export default function InternalFactors() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("contact_name")}>Contact</th>
-                <th style={th} hidden={!isVisible("phone")}>Phone</th>
-                <th style={th} hidden={!isVisible("email")}>Email</th>
-                <th style={th} hidden={!isVisible("api_enabled")}>API</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Contact" sortKey="contact_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("contact_name")} />
+                <SortableTh label="Phone" sortKey="phone" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("phone")} />
+                <SortableTh label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("email")} />
+                <SortableTh label="API" sortKey="api_enabled" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("api_enabled")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((f) => (
+              {sorted.map((f) => (
                 <ScrollHighlightRow
                   key={f.id}
                   rowId={f.id}

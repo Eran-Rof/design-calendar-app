@@ -12,6 +12,8 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_TASKS_TABLE_KEY = "tangerine:crmtasks:columns";
@@ -162,6 +164,13 @@ export default function InternalCrmTasks() {
     CRM_TASK_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  // Only the direct scalar columns are sortable. assignee/customer/opportunity
+  // render resolved lookups (not the row's raw id), so they stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:crmtasks:sort",
+    accessors: { due: (t) => t.due_date },
+  });
 
   async function load() {
     setLoading(true);
@@ -372,10 +381,10 @@ export default function InternalCrmTasks() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("title")}>Title</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
-              <th style={th} hidden={!isVisible("priority")}>Priority</th>
-              <th style={th} hidden={!isVisible("due")}>Due</th>
+              <SortableTh label="Title" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("title")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+              <SortableTh label="Priority" sortKey="priority" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("priority")} />
+              <SortableTh label="Due" sortKey="due" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("due")} />
               <th style={th} hidden={!isVisible("assignee")}>Assignee</th>
               <th style={th} hidden={!isVisible("customer")}>Customer</th>
               <th style={th} hidden={!isVisible("opportunity")}>Opp</th>
@@ -387,7 +396,7 @@ export default function InternalCrmTasks() {
             {!loading && rows.length === 0 && (
               <tr><td style={td} colSpan={8}>No tasks match.</td></tr>
             )}
-            {!loading && rows.map((t) => {
+            {!loading && sorted.map((t) => {
               const next = nextStatus(t.status);
               return (
                 <tr

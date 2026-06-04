@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SCANNER_SESSIONS_TABLE_KEY = "tangerine:scannersessions:columns";
@@ -105,6 +107,16 @@ export default function InternalScannerSessions() {
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
+  // target (composite) and device (truncated id) stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:scannersessions:sort",
+    accessors: {
+      created: (s) => s.created_at,
+      last_scan: (s) => s.scanned_at,
+      submitted: (s) => s.submitted_at,
+    },
+  });
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -193,13 +205,13 @@ export default function InternalScannerSessions() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("created")}>Created</th>
-              <th style={th} hidden={!isVisible("mode")}>Mode</th>
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("created")} />
+              <SortableTh label="Mode" sortKey="mode" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("mode")} />
               <th style={th} hidden={!isVisible("target")}>Target</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
               <th style={th} hidden={!isVisible("device")}>Device</th>
-              <th style={th} hidden={!isVisible("last_scan")}>Last Scan</th>
-              <th style={th} hidden={!isVisible("submitted")}>Submitted</th>
+              <SortableTh label="Last Scan" sortKey="last_scan" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("last_scan")} />
+              <SortableTh label="Submitted" sortKey="submitted" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("submitted")} />
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -210,7 +222,7 @@ export default function InternalScannerSessions() {
                 <span style={{ color: C.textMuted }}>No sessions match the current filter.</span>
               </td></tr>
             )}
-            {rows.map((s) => (
+            {sorted.map((s) => (
               <tr key={s.id} style={s.status === "cancelled" ? { opacity: 0.6 } : {}}>
                 <td style={{ ...td, color: C.textMuted, fontFamily: "monospace" }} hidden={!isVisible("created")}>
                   {new Date(s.created_at).toLocaleString()}

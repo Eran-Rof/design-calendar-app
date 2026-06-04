@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const INV_XFER_TABLE_KEY = "tangerine:inventorytransfers:columns";
@@ -81,6 +83,16 @@ export default function InternalInventoryTransfers() {
     INV_XFER_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:inventorytransfers:sort",
+    accessors: {
+      style: (t) => t.item_id,
+      from: (t) => t.from_location,
+      to: (t) => t.to_location,
+      date: (t) => t.transfer_date,
+    },
+  });
 
   async function load() {
     setLoading(true);
@@ -181,12 +193,12 @@ export default function InternalInventoryTransfers() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("style")}>Style</th>
-              <th style={th} hidden={!isVisible("qty")}>Qty</th>
-              <th style={th} hidden={!isVisible("from")}>From</th>
-              <th style={th} hidden={!isVisible("to")}>To</th>
-              <th style={th} hidden={!isVisible("date")}>Date</th>
-              <th style={th} hidden={!isVisible("notes")}>Notes</th>
+              <SortableTh label="Style" sortKey="style" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("style")} />
+              <SortableTh label="Qty" sortKey="qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("qty")} />
+              <SortableTh label="From" sortKey="from" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("from")} />
+              <SortableTh label="To" sortKey="to" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("to")} />
+              <SortableTh label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("date")} />
+              <SortableTh label="Notes" sortKey="notes" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("notes")} />
             </tr>
           </thead>
           <tbody>
@@ -200,7 +212,7 @@ export default function InternalInventoryTransfers() {
                 </span>
               </td></tr>
             )}
-            {rows.map((t) => (
+            {sorted.map((t) => (
               <tr key={t.id}>
                 <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{t.item_id}</td>
                 <td style={td} hidden={!isVisible("qty")}>{t.qty}</td>
