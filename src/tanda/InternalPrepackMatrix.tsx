@@ -35,6 +35,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
 
 const TABLE_KEY = "tangerine:prepackmatrix:columns";
 const COLUMNS: ColumnDef[] = [
@@ -838,6 +839,10 @@ function packQtyFromToken(token: string | null | undefined): number | null {
 // One editable composition row in the matrix grid (strings while typing).
 type EditRow = { size: string; inner: string; box: string };
 
+// A size scale from the Size Scale Master — its ordered `sizes` prefill the
+// composition columns so the operator doesn't hand-type each size.
+type SizeScale = { id: string; code: string; name: string; sizes: string[] };
+
 // Size sort so added sizes slot into the right position on BOTH grids. Class 0 =
 // number-bearing (numeric / 2T / 0-3M / combined "L/12" → by the number); class
 // 1 = known alpha (S<M<L…, 2XL after XL); class 2 = unknown. Mirrors the
@@ -915,6 +920,36 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
   const [newSize, setNewSize] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Size scales from the master — pick one to prefill the composition columns
+  // (the operator chooses a scale instead of hand-typing every size). Loaded
+  // lazily when the modal opens.
+  const [scales, setScales] = useState<SizeScale[]>([]);
+  const [scaleId, setScaleId] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/internal/size-scales");
+        if (!r.ok) return;
+        const data = (await r.json()) as SizeScale[];
+        if (alive) setScales(Array.isArray(data) ? data : []);
+      } catch { /* picker just stays empty — manual + Add size still works */ }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Apply a scale: lay its ordered sizes out as composition columns, preserving
+  // any inner/box already typed for a size that the scale also contains.
+  function applyScale(id: string) {
+    setScaleId(id);
+    const sc = scales.find((s) => s.id === id);
+    if (!sc) return;
+    setRows((rs) => sortRows(sc.sizes.map((sz) => {
+      const existing = rs.find((r) => r.size.toLowerCase() === sz.toLowerCase());
+      return existing ? { ...existing, size: sz } : { size: sz, inner: "", box: "" };
+    })));
+  }
 
   // Editing Inner Packs auto-fills Box Qty (= inner × Units/Inner Pack) when a
   // unit count is set; Box Qty stays directly editable as an override.
@@ -1016,6 +1051,25 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
             <strong style={{ fontSize: 13 }}>Composition</strong>
             <span style={{ fontSize: 11, color: C.textMuted }}>Enter the number of inner packs per size; Box Qty = inner packs × Units/Inner Pack (editable). Carton must total the pack qty.</span>
+          </div>
+
+          {/* Size scale picker — choose a scale from the master to lay out its
+              sizes as the composition columns (search by code / name / sizes). */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Size scale</span>
+            <div style={{ width: 320, maxWidth: "100%" }}>
+              <SearchableSelect
+                value={scaleId || null}
+                onChange={applyScale}
+                options={scales.map((s) => ({
+                  value: s.id,
+                  label: `${s.code} · ${s.name}` + (s.sizes?.length ? ` (${s.sizes.join(", ")})` : ""),
+                  searchHaystack: `${s.code} ${s.name} ${(s.sizes || []).join(" ")}`,
+                }))}
+                placeholder={scales.length ? "Pick a size scale to prefill sizes…" : "Loading scales…"}
+              />
+            </div>
+            <span style={{ fontSize: 11, color: C.textMuted }}>optional — or add sizes by hand below</span>
           </div>
 
           {rows.length === 0 ? (
