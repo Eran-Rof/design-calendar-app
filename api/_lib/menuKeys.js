@@ -114,6 +114,7 @@ const KEYS = [
   "tanda/sales/sales-orders",
   "tanda/sales/allocations",
   "tanda/sales/returns-rma",
+  "tanda/sales/drop-ship",
   "tanda/accounting/ar-aging",
   "tanda/accounting/ar-backfill",
   "tanda/accounting/trial-balance",
