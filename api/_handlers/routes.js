@@ -595,6 +595,10 @@ import h577 from "./internal/allocations/preview.js";
 import h602 from "./internal/allocations/rules.js";
 // h603 = POST /api/internal/ats-by-size (size-grain available-to-ship for the SO ATS mode)
 import h603 from "./internal/ats-by-size.js";
+// h607 = POST /api/vendor/accept-invite (custom 72h invite — set password from token)
+import h607 from "./vendor/accept-invite.js";
+// h608 = GET /api/internal/vendor-invites (outstanding/expired/accepted invitations)
+import h608 from "./internal/vendor-invites/index.js";
 // M43 — Pricing Engine: resolve a suggested unit price for (customer, style, qty).
 //   h578 = GET /api/internal/pricing/resolve
 import h578 from "./internal/pricing/resolve.js";
@@ -1156,6 +1160,8 @@ export const ROUTES = [
   { pattern: "/api/vendor/disputes", handler: h220 },
   { pattern: "/api/vendor/entities", handler: h221 },
   { pattern: "/api/vendor/invoices", handler: h222 },
+  { pattern: "/api/vendor/accept-invite", handler: h607 },
+  { pattern: "/api/internal/vendor-invites", handler: h608 },
   { pattern: "/api/vendor/payments", handler: h223 },
   { pattern: "/api/shopify/orders", handler: h224 },
   { pattern: "/api/vendor/banking", handler: h225 },
