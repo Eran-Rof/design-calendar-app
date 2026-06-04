@@ -49,6 +49,9 @@ export interface CostingProject {
    *  matches /DDP/i against this to hide cost-component cols + rename Tgt Cost. */
   payment_terms_name: string | null;
   grid_state: Record<string, unknown>;
+  /** Per-line status breakdown from the projects-list GET (status is per line
+   *  now). Drives the list's status column + tab counts. */
+  _status_counts?: { draft: number; on_rfq: number; awarded: number; closed: number; total: number };
   user_id: string | null;
   created_at: string;
   updated_at: string;
