@@ -37,6 +37,7 @@ export default function VendorGridCell({ lineId }: Props) {
   const loadQuotes = useCostingStore((s) => s.loadVendorQuotes);
   const loadVendorsForPicker = useCostingStore((s) => s.loadVendorsForPicker);
   const setNotice = useCostingStore((s) => s.setNotice);
+  const addExtraVendor = useCostingStore((s) => s.addExtraVendor);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -162,6 +163,10 @@ export default function VendorGridCell({ lineId }: Props) {
     setBusy(true);
     try {
       const created = await addVendor(name);
+      // Mirror to the operator-only freeform vendor master so the entry is
+      // editable/deletable from Settings (and auto-pruned when ip_vendor_master
+      // gets the same name via the Xoro nightly sync).
+      addExtraVendor(name).catch(() => { /* non-blocking */ });
       // Reload the vendor list so the popover knows about the new vendor
       // (also picks it up for any sibling grid cells the operator opens next).
       await loadVendorsForPicker();
