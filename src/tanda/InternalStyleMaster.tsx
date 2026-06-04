@@ -140,6 +140,8 @@ type Brand = { id: string; code: string; name: string; is_default?: boolean };
 
 type SizeScaleLite = { id: string; code: string; name: string };
 
+type SeasonLite = { id: string; code: string; name: string };
+
 // gender_master row (Chunk J item 13) — replaces the hardcoded GENDER_OPTIONS.
 type GenderMaster = { id: string; code: string; label: string; sort_order: number };
 
@@ -662,6 +664,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   });
   const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
   const [sizeScales, setSizeScales] = useState<SizeScaleLite[]>([]);
+  const [seasons, setSeasons] = useState<SeasonLite[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -692,6 +695,64 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       } catch { /* non-fatal */ }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Load active seasons for the SearchableSelect picker. Non-fatal on error.
+  // style_master.season stays free TEXT storing the chosen season NAME — this
+  // picklist is purely additive (no FK).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/seasons`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled && Array.isArray(data)) setSeasons(data as SeasonLite[]);
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Season picker options — value === label === the season NAME (free text).
+  // The style's existing season is surfaced even if it isn't in the master list.
+  const seasonOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(select)" },
+      ...seasons.map((s) => ({
+        value: s.name,
+        label: s.name,
+        searchHaystack: `${s.code} ${s.name}`,
+      })),
+    ];
+    if (form.season && !seasons.some((s) => s.name === form.season)) {
+      opts.push({ value: form.season, label: form.season });
+    }
+    return opts;
+  }, [seasons, form.season]);
+
+  // Admin "+ Add new…" grows the season_master (POST). Set the value immediately
+  // for snappy UX; a 409 (already exists) is treated as success since the name
+  // is what we wanted on the row anyway.
+  const addSeason = useCallback((qRaw: string) => {
+    const name = qRaw.trim();
+    if (!name) return;
+    setForm((f) => ({ ...f, season: name }));
+    setSeasons((prev) => prev.some((s) => s.name === name) ? prev : [...prev, { id: name, code: "", name }]);
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/seasons`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (!r.ok && r.status !== 409) {
+          const msg = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
+          notify(`Could not save new season to master: ${msg}`, "error");
+        }
+      } catch (e: unknown) {
+        notify(`Could not save new season to master: ${e instanceof Error ? e.message : String(e)}`, "error");
+      }
+    })();
   }, []);
 
   const sizeScaleOptions: SearchableSelectOption[] = useMemo(() => {
@@ -937,7 +998,17 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           </Field>
 
           <Field label="Season">
-            <input type="text" value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} style={inputStyle} placeholder="e.g. FW26" />
+            <SearchableSelect
+              value={form.season || null}
+              onChange={(v) => setForm({ ...form, season: v })}
+              options={seasonOptions}
+              placeholder="e.g. FW26"
+              onAddNew={isAdmin ? addSeason : undefined}
+              addNewLabel={(q) => {
+                const trimmed = q.trim();
+                return trimmed ? `+ Add new season "${trimmed}"` : "+ Add new season…";
+              }}
+            />
           </Field>
           <Field label="Design year">
             <input type="number" value={form.design_year} onChange={(e) => setForm({ ...form, design_year: e.target.value })} style={inputStyle} placeholder="2026" />

@@ -172,6 +172,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/style-classifications", label: "Group/Category/Sub", app: "tanda", route: "/tangerine?m=style_classifications", group: "Master Data", icon: "🗂️" },
   { key: "tanda/master/factors",       label: "Factors/Insurance",  app: "tanda", route: "/tangerine?m=factors",          group: "Master Data", icon: "🏦" },
   { key: "tanda/master/size-scales",   label: "Size Scales",        app: "tanda", route: "/tangerine?m=size_scales",      group: "Master Data", icon: "📏" },
+  { key: "tanda/master/seasons",       label: "Seasons",            app: "tanda", route: "/tangerine?m=season_master",    group: "Master Data", icon: "🍂" },
   // P18-F — internal B2B admin (buyers + wholesale price list).
   { key: "tanda/b2b/accounts",         label: "B2B Buyers",         app: "tanda", route: "/tangerine?m=b2b_accounts",     group: "Customers", icon: "🛍️" },
   { key: "tanda/b2b/price-list",       label: "Price Lists",        app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Pricing", icon: "🏷️" },
