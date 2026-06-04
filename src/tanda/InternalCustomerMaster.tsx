@@ -34,6 +34,8 @@ import AddressFields, { type Address } from "./components/AddressFields";
 import CustomerLocations from "./components/CustomerLocations";
 // Wave 5 primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
@@ -234,6 +236,13 @@ export default function InternalCustomerMaster() {
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
 
+  // payment_terms renders a resolved lookup (not a row scalar), so it stays
+  // non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:customermaster:sort",
+    accessors: { code: (r) => r.code || r.customer_code },
+  });
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -355,18 +364,18 @@ export default function InternalCustomerMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("customer_type")}>Type</th>
-                <th style={th} hidden={!isVisible("country")}>Country</th>
-                <th style={th} hidden={!isVisible("status")}>Status</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("credit_limit")}>Credit Limit</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Type" sortKey="customer_type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("customer_type")} />
+                <SortableTh label="Country" sortKey="country" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("country")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+                <SortableTh label="Credit Limit" sortKey="credit_limit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("credit_limit")} />
                 <th style={th} hidden={!isVisible("payment_terms")}>Payment Terms</th>
                 <th style={{ ...th, width: 180 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}

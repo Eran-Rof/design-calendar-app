@@ -9,6 +9,8 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const APPROVAL_REQ_TABLE_KEY = "tangerine:approvalrequests:columns";
@@ -107,6 +109,15 @@ export default function InternalApprovalRequests() {
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
+  // context (composite id) and current_step (computed) stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:approvalrequests:sort",
+    accessors: {
+      amount: (r) => r.requested_amount_cents,
+      created: (r) => r.created_at,
+    },
+  });
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -203,12 +214,12 @@ export default function InternalApprovalRequests() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("kind")}>Kind</th>
+              <SortableTh label="Kind" sortKey="kind" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("kind")} />
               <th style={th} hidden={!isVisible("context")}>Context</th>
-              <th style={th} hidden={!isVisible("amount")}>Amount</th>
+              <SortableTh label="Amount" sortKey="amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("amount")} />
               <th style={th} hidden={!isVisible("current_step")}>Current step</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
-              <th style={th} hidden={!isVisible("created")}>Created</th>
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("created")} />
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -219,7 +230,7 @@ export default function InternalApprovalRequests() {
                 <span style={{ color: C.textMuted }}>No requests in this state.</span>
               </td></tr>
             )}
-            {rows.map((r) => {
+            {sorted.map((r) => {
               const cur = currentStep(r);
               return (
                 <tr key={r.id}>

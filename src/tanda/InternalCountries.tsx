@@ -15,6 +15,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const COUNTRIES_TABLE_KEY = "tangerine:countries:columns";
 const COUNTRY_COLUMNS: ColumnDef[] = [
@@ -78,6 +80,10 @@ export default function InternalCountries() {
     COUNTRY_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:countries:sort",
+  });
 
   const { getRowProps } = useRowClickEdit<Country>({
     onRowClick: (r) => setEditing(r),
@@ -171,15 +177,15 @@ export default function InternalCountries() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("iso2")}>ISO2</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="ISO2" sortKey="iso2" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("iso2")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Sort" sortKey="sort_order" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sort_order")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {sorted.map((c) => (
                 <ScrollHighlightRow
                   key={c.id}
                   rowId={c.id}

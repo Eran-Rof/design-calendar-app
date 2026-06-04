@@ -24,6 +24,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import RowHistory from "./components/RowHistory";
 // Wave 5 universal primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -188,6 +190,16 @@ export default function InternalEmployees() {
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
 
+  // title/department render resolved lookups (titleOf/deptOf), so they stay
+  // non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:employees:sort",
+    accessors: {
+      name: (e) => e.display_name,
+      active: (e) => e.is_active,
+    },
+  });
+
   // P16 — the modal writes the title_id / department_id FK pointers (via the
   // SearchableSelect pickers), but the list reads the legacy title / department
   // *text* columns. Rows edited through the new pickers therefore had blank
@@ -302,12 +314,12 @@ export default function InternalEmployees() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("code")}>Code</th>
-              <th style={th} hidden={!isVisible("name")}>Name</th>
-              <th style={th} hidden={!isVisible("email")}>Email</th>
+              <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+              <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+              <SortableTh label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("email")} />
               <th style={th} hidden={!isVisible("title")}>Title</th>
               <th style={th} hidden={!isVisible("department")}>Department</th>
-              <th style={th} hidden={!isVisible("active")}>Active</th>
+              <SortableTh label="Active" sortKey="active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("active")} />
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -318,7 +330,7 @@ export default function InternalEmployees() {
                 <span style={{ color: C.textMuted }}>No employees yet. Click <strong>+ Add</strong> to create one.</span>
               </td></tr>
             )}
-            {rows.map((e) => (
+            {sorted.map((e) => (
               <ScrollHighlightRow
                 key={e.id}
                 rowId={e.id}

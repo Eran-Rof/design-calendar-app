@@ -20,6 +20,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CYCLE_COUNTS_TABLE_KEY = "tangerine:cyclecounts:columns";
@@ -143,6 +145,11 @@ export default function InternalCycleCounts() {
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:cyclecounts:sort",
+    accessors: { created: (cc) => cc.created_at },
+  });
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -242,11 +249,11 @@ export default function InternalCycleCounts() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("count_date")}>Count date</th>
-              <th style={th} hidden={!isVisible("location")}>Location</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
-              <th style={th} hidden={!isVisible("created")}>Created</th>
-              <th style={th} hidden={!isVisible("id")}>ID</th>
+              <SortableTh label="Count date" sortKey="count_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("count_date")} />
+              <SortableTh label="Location" sortKey="location" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("location")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("created")} />
+              <SortableTh label="ID" sortKey="id" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("id")} />
             </tr>
           </thead>
           <tbody>
@@ -258,7 +265,7 @@ export default function InternalCycleCounts() {
                 <span style={{ color: C.textMuted }}>No cycle counts yet. Start one above.</span>
               </td></tr>
             )}
-            {rows.map((cc) => (
+            {sorted.map((cc) => (
               <tr
                 key={cc.id}
                 style={{ cursor: "pointer" }}

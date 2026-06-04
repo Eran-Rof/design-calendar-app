@@ -35,8 +35,31 @@ Per the per-chunk memory rule, every new Tangerine panel ships with an export bu
 - Object-valued columns get JSON-stringified — rare; usually flattened upstream by the panel.
 - 60-character per-column width cap to keep wide sheets readable.
 
+## Click-to-sort columns
+
+> **2026-06-04:** Tangerine table columns are now **click-sortable**.
+
+Click a column header to sort the table by that column. Each click cycles through three states:
+
+1. **First click** — ascending (▲ appears next to the header).
+2. **Second click** — descending (▼).
+3. **Third click** — sort cleared; the table returns to its natural order.
+
+Notes:
+
+- Only **one** column sorts at a time — clicking a new header replaces the previous sort.
+- Numbers sort numerically, text sorts alphabetically (case-insensitive, so `Item 2` comes before `Item 10`), and **blank cells always sink to the bottom** in both directions.
+- Your sort choice is **remembered per panel** across page reloads (stored locally in your browser).
+- Sorting is layered on top of the Columns show/hide and Export buttons — it only reorders what's already on screen, and the **Export respects the current sort order**.
+- Some columns are intentionally **not sortable** (they show no ▲/▼ on hover) — these are computed, lookup, or multi-value cells where a row-by-row sort wouldn't be meaningful.
+
+This is rolling out panel-by-panel. The master-data and operations panels (Genders, Countries, Payment Terms, Fabric Codes, Factors, Style Classifications, Employees, Employee Titles/Departments, Customer/Vendor Master, CRM Tasks/Activities, Inventory Transfers, Cycle Counts, Scanner Sessions, and Approval Requests) have it now; the rest follow in later waves.
+
 ## Code map
 
 - `src/tanda/exports/ExportButton.tsx` — the drop-in button + dropdown.
 - `src/tanda/exports/useTableExport.ts` — pure helpers (`buildAoA`, `formatCell`, `toCsv`, `inferColumns`, `todayStamp`) + the imperative `useTableExport({rows, columns, filename, format})` hook.
 - `src/tanda/exports/__tests__/useTableExport.test.ts` — 13 unit tests covering cell coercion, CSV quoting, header inference.
+- `src/tanda/hooks/useSort.ts` — the click-to-sort primitive (tri-state, null-safe, localStorage-persisted) + pure `sortRows`/`baseCompare` helpers.
+- `src/tanda/components/SortableTh.tsx` — the sortable header cell that renders the ▲/▼ indicator and coexists with the column show/hide `hidden` pattern.
+- `src/tanda/hooks/__tests__/useSort.test.ts` — unit tests for the comparator + stable, null-last sort.

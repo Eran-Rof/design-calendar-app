@@ -12,6 +12,8 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_ACTIVITIES_TABLE_KEY = "tangerine:crmactivities:columns";
@@ -148,6 +150,16 @@ export default function InternalCrmActivities() {
     CRM_ACTIVITY_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  // Sortable scalar columns only. subject (JSX), customer/opportunity (lookups)
+  // and duration (formatted) stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:crmactivities:sort",
+    accessors: {
+      type: (r) => r.activity_type,
+      occurred: (r) => r.occurred_at,
+    },
+  });
 
   async function load() {
     setLoading(true);
@@ -363,11 +375,11 @@ export default function InternalCrmActivities() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("type")}>Type</th>
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("type")} />
               <th style={th} hidden={!isVisible("subject")}>Subject / Body</th>
               <th style={th} hidden={!isVisible("customer")}>Customer</th>
               <th style={th} hidden={!isVisible("opportunity")}>Opportunity</th>
-              <th style={th} hidden={!isVisible("occurred")}>Occurred</th>
+              <SortableTh label="Occurred" sortKey="occurred" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("occurred")} />
               <th style={th} hidden={!isVisible("duration")}>Dur</th>
               <th style={th}>Actions</th>
             </tr>
@@ -379,7 +391,7 @@ export default function InternalCrmActivities() {
             {!loading && rows.length === 0 && (
               <tr><td style={td} colSpan={7}>No activities match.</td></tr>
             )}
-            {!loading && rows.map((r) => {
+            {!loading && sorted.map((r) => {
               const palette = TYPE_COLOR[r.activity_type] || TYPE_COLOR.system;
               return (
                 <tr key={r.id} style={{ opacity: r.is_hidden ? 0.55 : 1 }}>

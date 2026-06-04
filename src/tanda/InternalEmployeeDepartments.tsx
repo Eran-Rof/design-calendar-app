@@ -14,6 +14,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const EMPLOYEE_DEPTS_TABLE_KEY = "tangerine:employeedepartments:columns";
 const EMPLOYEE_DEPT_COLUMNS: ColumnDef[] = [
@@ -73,6 +75,10 @@ export default function InternalEmployeeDepartments() {
     EMPLOYEE_DEPT_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:employeedepartments:sort",
+  });
 
   const { getRowProps } = useRowClickEdit<EmployeeDepartment>({
     onRowClick: (r) => setEditing(r),
@@ -163,13 +169,13 @@ export default function InternalEmployeeDepartments() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("name")}>Department</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
+                <SortableTh label="Department" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Sort" sortKey="sort_order" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sort_order")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((d) => (
+              {sorted.map((d) => (
                 <ScrollHighlightRow
                   key={d.id}
                   rowId={d.id}
