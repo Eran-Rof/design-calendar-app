@@ -39,7 +39,9 @@ export default async function handler(req, res) {
 
   // 2. Page through the candidate view.
   const PAGE = 1000;
+  const wantSkipped = String(req.query?.skipped || "") === "1"; // include the full skipped list (for download)
   const proposals = [];
+  const skipped_styles = [];
   const by_scale = {};
   const skip_reasons = {};
   let considered = 0, from = 0;
@@ -60,6 +62,14 @@ export default async function handler(req, res) {
         by_scale[r.code] = (by_scale[r.code] || 0) + 1;
       } else {
         skip_reasons[r.reason] = (skip_reasons[r.reason] || 0) + 1;
+        if (wantSkipped) {
+          skipped_styles.push({
+            style_code: row.style_code,
+            sizes: Array.isArray(row.variants) ? row.variants.join(", ") : "",
+            gender: row.gender_code || "",
+            reason: r.reason,
+          });
+        }
       }
     }
     if (data.length < PAGE) break;
@@ -80,6 +90,7 @@ export default async function handler(req, res) {
     skip_reasons,
     overwrite,
     sample,
+    ...(wantSkipped ? { skipped_styles } : {}),
   };
 
   if (!apply) return res.status(200).json({ ...base, applied: false });
