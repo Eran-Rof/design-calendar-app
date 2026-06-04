@@ -5,6 +5,10 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  # Required so the `test` status check is produced for GitHub merge-queue
+  # groups. Without this trigger an enabled merge queue would wait forever
+  # for a check that never runs on the temporary gh-readonly-queue branch.
+  merge_group:
 
 jobs:
   test:
@@ -23,6 +27,11 @@ jobs:
           node-version: 22
           cache: "npm"
       - run: npm ci
+      # api/ smoke-check: tsc covers only TypeScript and vitest never loads
+      # the dispatcher, so a SyntaxError / bad import in the plain-JS api/
+      # layer would otherwise reach prod and 500 every route at once
+      # (FUNCTION_INVOCATION_FAILED). Static parse + import-resolution gate.
+      - run: npm run check:api
       # Type-check gate (the repo's vite/esbuild build only transpiles, so
       # type errors used to slip through to runtime). Must stay green.
       - run: npm run typecheck
