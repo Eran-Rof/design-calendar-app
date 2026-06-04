@@ -24,6 +24,14 @@ describe("canBatchTransition", () => {
   it("archived is terminal", () => {
     expect(canBatchTransition("archived", "ready")).toBe(false);
   });
+  it("exported can be reopened (→ ready/draft) — xlsx export is not a commit", () => {
+    expect(canBatchTransition("exported", "ready")).toBe(true);
+    expect(canBatchTransition("exported", "draft")).toBe(true);
+    expect(canBatchTransition("exported", "submitted")).toBe(true);
+  });
+  it("submitted cannot jump back to ready (writeback may have happened)", () => {
+    expect(canBatchTransition("submitted", "ready")).toBe(false);
+  });
   it("submitted → executed/partially_executed/failed", () => {
     expect(canBatchTransition("submitted", "executed")).toBe(true);
     expect(canBatchTransition("submitted", "partially_executed")).toBe(true);

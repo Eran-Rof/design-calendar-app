@@ -11,6 +11,7 @@ import type {
   WritebackResult,
 } from "../types/execution";
 import {
+  canBatchTransition,
   exportExecutionBatch,
   isBatchLocked,
   markActionStatus,
@@ -301,7 +302,7 @@ export default function ExecutionBatchDetail({
                 Approve batch · role required
               </span>
             )}
-            {locked && batch.status !== "archived" && batch.status !== "executed" && (
+            {locked && canBatchTransition(batch.status, "ready") && (
               <button style={S.btnSecondary} disabled={busy} onClick={markReady}>Reopen to ready</button>
             )}
             {batch.status !== "archived" && (

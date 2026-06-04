@@ -78,6 +78,13 @@ scenario is read-only/approved):
 ("approving will produce an empty execution batch") and requires an explicit
 override, so an un-computed plan can't be approved silently.
 
+**Fixing an empty batch:** a batch is built from recommendations *at create time* —
+reopening it won't add actions. So if a batch came out empty, generate the
+recommendations (above), then **+ New batch** (or 🗑 Delete the empty one and
+rebuild). An **exported** batch can be reopened to *ready* to revise/re-export
+(xlsx export isn't a commit); a *submitted* batch cannot (writeback may have run).
+On the Scenarios screen, the approved→in_review action is labelled **Reopen**.
+
 ## Connects to
 
 - **← ATS** (on-hand snapshot) and **← PO WIP / Tanda** (open POs + DDP timing).
