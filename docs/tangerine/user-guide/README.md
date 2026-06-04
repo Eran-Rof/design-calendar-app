@@ -49,6 +49,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 32. [Procurement — Receiving & Bookkeeper Approval (P13)](32-procurement-receiving.md) — the 💲 Procurement nav group: receiving against a native PO, QC inspections + dispositions, customs entries + broker invoices, 3-way match, reconciliation inbox, and the deferred procurement GL postings (GRNI / GR-IR clear / landed-cost reval / QC write-off).
 33. [Inventory Planning ⇄ Tangerine (M31 / P17)](33-inventory-planning-to-tangerine-po.md) — both directions: **(A)** approved buy plan → draft native Tangerine POs (Preview/dry-run, cost fallback, coded skips, one-click vendor linking, persistent action→PO deep-link); **(B)** a per-run **supply-source choice** — reconcile against the Xoro/ATS mirror (default) or native Tangerine on-hand + open POs (`🍊 Sync Tangerine supply`).
 34. [Customer Returns & RMA (P19 / M23)](34-returns-rma.md) — the reverse sales flow: raise an RMA, disposition each line (restock → back to FIFO + COGS reversal; scrap → credit only), then issue a credit memo (revenue → Sales Returns & Allowances 4100, reduces AR). Lifecycle requested→approved→received→credited.
+35. [Inventory Planning — Reports (P17)](35-planning-reports.md) — the **📊 Reports** hub at `/planning/reports`: four analytical reports (Sales Performance with YoY + ABC, Inventory Health with weeks-of-supply + stockout/excess, Forecast Accuracy MAPE/bias, Buy Plan & Supply), each viewable on screen and one-click **Excel** export.
 
 ## 30-second quickstart
 

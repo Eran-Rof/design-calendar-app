@@ -225,6 +225,10 @@ async function mount() {
       const { default: AdminWorkbench } = await import("./inventory-planning/admin/panels/AdminWorkbench");
       root.render(<StrictMode><ErrorBoundary appName="Admin"><PlanningShell title="Planning Admin"><AdminWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
 
+    } else if (path.startsWith("/planning/reports")) {
+      const { default: ReportsWorkbench } = await import("./inventory-planning/reports/panels/ReportsWorkbench");
+      root.render(<StrictMode><ErrorBoundary appName="Planning Reports"><PlanningShell title="Planning Reports"><ReportsWorkbench /></PlanningShell></ErrorBoundary></StrictMode>);
+
     } else {
       // /planning or /planning/wholesale
       const { default: WholesalePlanningWorkbench } = await import("./inventory-planning/panels/WholesalePlanningWorkbench");
