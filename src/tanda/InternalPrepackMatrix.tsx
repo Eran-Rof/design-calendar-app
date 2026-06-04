@@ -563,7 +563,13 @@ export default function InternalPrepackMatrix() {
   }, [needed, rows, q]);
 
   function createFromNeeded(x: NeededRow) {
-    setAddPrefill({ ppk_style_code: x.ppk_style_code, name: x.style_name || "", pack_token: x.pack_token || "" } as Partial<PrepackMatrix>);
+    setAddPrefill({
+      ppk_style_code: x.ppk_style_code,
+      name: x.style_name || "",
+      pack_token: x.pack_token || "",
+      // Pre-load the size columns (empty inner/box) so the grid is ready to fill.
+      sizes: (Array.isArray(x.sizes) ? x.sizes : []).map((sz) => ({ size: sz, qty_per_pack: 0, inner_pack_qty: 0 })),
+    } as Partial<PrepackMatrix>);
     setAddOpen(true);
   }
 
@@ -822,61 +828,91 @@ interface ModalProps {
   onSaved: () => void;
 }
 
-// Sizes editor text shape: "<size>:<innerPacks>:<qtyPerBox>" triples,
-// comma-separated, e.g. "30:1:3, 32:2:6". A 2-part "<size>:<qtyPerBox>" (no
-// inner) is still accepted (inner packs = 0).
-function sizesToText(sizes: SizeRow[]): string {
-  return (sizes || []).map((s) => (s.inner_pack_qty ? `${s.size}:${s.inner_pack_qty}:${s.qty_per_pack}` : `${s.size}:${s.qty_per_pack}`)).join(", ");
-}
-function parseSizesText(raw: string): { sizes: SizeRow[]; error: string | null } {
-  const out: SizeRow[] = [];
-  for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
-    const m3 = part.match(/^(.+?)\s*[:×x]\s*(\d+)\s*[:×x]\s*(\d+)$/i);
-    const m2 = part.match(/^(.+?)\s*[:×x]\s*(\d+)$/i);
-    if (m3) {
-      const size = m3[1].trim();
-      if (!size) return { sizes: [], error: `Empty size in "${part}"` };
-      const inner = parseInt(m3[2], 10); const box = parseInt(m3[3], 10);
-      if (box > 0) out.push({ size, qty_per_pack: box, inner_pack_qty: inner });
-    } else if (m2) {
-      const size = m2[1].trim();
-      if (!size) return { sizes: [], error: `Empty size in "${part}"` };
-      const box = parseInt(m2[2], 10);
-      if (box > 0) out.push({ size, qty_per_pack: box, inner_pack_qty: 0 });
-    } else {
-      return { sizes: [], error: `Could not parse "${part}". Use size:innerPacks:qtyPerBox (e.g. 32:2:6) or size:qtyPerBox (e.g. 32:6)` };
-    }
-  }
-  return { sizes: out, error: null };
+// Carton size from a pack token like "PPK24" → 24 — the qty that the per-size
+// box quantities must sum to (the composition is validated against it).
+function packQtyFromToken(token: string | null | undefined): number | null {
+  const m = String(token || "").match(/(\d+)/);
+  return m ? Number(m[1]) : null;
 }
 
+// One editable composition row in the matrix grid (strings while typing).
+type EditRow = { size: string; inner: string; box: string };
+
 function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
-  const [form, setForm] = useState({
-    name:           matrix?.name ?? "",
-    ppk_style_code: matrix?.ppk_style_code ?? "",
-    pack_token:     matrix?.pack_token ?? "",
-    notes:          matrix?.notes ?? "",
-    is_active:      matrix?.is_active ?? true,
-    sizesText:      matrix?.sizes ? sizesToText(matrix.sizes) : "",
-  });
+  const [name, setName] = useState(matrix?.name ?? "");
+  const [ppk, setPpk] = useState(matrix?.ppk_style_code ?? "");
+  const [packToken, setPackToken] = useState(matrix?.pack_token ?? "");
+  const [notes, setNotes] = useState(matrix?.notes ?? "");
+  const [isActive, setIsActive] = useState(matrix?.is_active ?? true);
+
+  // Units / Inner Pack — derived from any existing size that has both inner +
+  // box (box ÷ inner). Drives auto-fill of Box Qty from Inner Packs.
+  const derivedUpp = (() => {
+    for (const s of matrix?.sizes || []) {
+      if (s.inner_pack_qty && s.qty_per_pack && s.inner_pack_qty > 0) return String(Math.round(s.qty_per_pack / s.inner_pack_qty));
+    }
+    return "";
+  })();
+  const [upp, setUpp] = useState(derivedUpp);
+  const [rows, setRows] = useState<EditRow[]>(
+    (matrix?.sizes || []).map((s) => ({
+      size: s.size,
+      inner: s.inner_pack_qty ? String(s.inner_pack_qty) : "",
+      box: s.qty_per_pack ? String(s.qty_per_pack) : "",
+    })),
+  );
+  const [newSize, setNewSize] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const parsed = parseSizesText(form.sizesText);
+  // Editing Inner Packs auto-fills Box Qty (= inner × Units/Inner Pack) when a
+  // unit count is set; Box Qty stays directly editable as an override.
+  function setInner(i: number, v: string) {
+    const u = parseInt(upp, 10);
+    setRows((rs) => rs.map((r, idx) => {
+      if (idx !== i) return r;
+      const innerN = parseInt(v, 10);
+      const box = Number.isFinite(u) && u > 0 && Number.isFinite(innerN) ? String(innerN * u) : r.box;
+      return { ...r, inner: v, box };
+    }));
+  }
+  function setBox(i: number, v: string) { setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, box: v } : r))); }
+  function changeUpp(v: string) {
+    setUpp(v);
+    const u = parseInt(v, 10);
+    if (Number.isFinite(u) && u > 0) {
+      setRows((rs) => rs.map((r) => { const n = parseInt(r.inner, 10); return Number.isFinite(n) ? { ...r, box: String(n * u) } : r; }));
+    }
+  }
+  function addSize() {
+    const s = newSize.trim();
+    if (!s) return;
+    if (!rows.some((r) => r.size.toLowerCase() === s.toLowerCase())) setRows((rs) => [...rs, { size: s, inner: "", box: "" }]);
+    setNewSize("");
+  }
+  function removeSize(i: number) { setRows((rs) => rs.filter((_, idx) => idx !== i)); }
+
+  const totalInner = rows.reduce((a, r) => a + (parseInt(r.inner, 10) || 0), 0);
+  const totalBox = rows.reduce((a, r) => a + (parseInt(r.box, 10) || 0), 0);
+  const packQty = packQtyFromToken(packToken);
+  const mismatch = packQty != null && totalBox !== packQty;
+  const sizeInput: React.CSSProperties = { ...inputStyle, width: 80, textAlign: "center" };
 
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
-      if (parsed.error) throw new Error(parsed.error);
-      if (parsed.sizes.length === 0) throw new Error("Add at least one size (size:innerPacks:qtyPerBox)");
+      const sizes: SizeRow[] = rows
+        .map((r) => ({ size: r.size.trim(), qty_per_pack: parseInt(r.box, 10) || 0, inner_pack_qty: parseInt(r.inner, 10) || 0 }))
+        .filter((s) => s.size && s.qty_per_pack > 0);
+      if (sizes.length === 0) throw new Error("Enter a Box Qty for at least one size.");
       const body: Record<string, unknown> = {
-        name: form.name.trim(),
-        ppk_style_code: form.ppk_style_code.trim() || null,
-        pack_token: form.pack_token.trim() || null,
-        notes: form.notes.trim() || null,
-        is_active: form.is_active,
-        sizes: parsed.sizes,
+        name: name.trim(),
+        ppk_style_code: ppk.trim() || null,
+        pack_token: packToken.trim() || null,
+        notes: notes.trim() || null,
+        is_active: isActive,
+        sizes,
       };
       const url = mode === "add" ? "/api/internal/prepack-matrices" : `/api/internal/prepack-matrices/${matrix!.id}`;
       const method = mode === "add" ? "POST" : "PATCH";
@@ -892,7 +928,7 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 560, maxWidth: 700, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 580, maxWidth: 760, maxHeight: "92vh", overflowY: "auto", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{mode === "add" ? "Add prepack matrix" : `Edit ${matrix!.code}`}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -904,41 +940,78 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
             </div>
           </Field>
           <Field label="Name">
-            <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} placeholder="(blank → pulled from style master)" />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="(blank → pulled from style master)" />
           </Field>
           <Field label="PPK Style Code">
-            <input type="text" value={form.ppk_style_code} onChange={(e) => setForm({ ...form, ppk_style_code: e.target.value })} style={inputStyle} placeholder="e.g. RYB059430PPK" />
+            <input type="text" value={ppk} onChange={(e) => setPpk(e.target.value)} style={inputStyle} placeholder="e.g. RYB059430PPK" />
           </Field>
           <Field label="Pack Token">
-            <input type="text" value={form.pack_token} onChange={(e) => setForm({ ...form, pack_token: e.target.value })} style={inputStyle} placeholder="e.g. PPK24" />
+            <input type="text" value={packToken} onChange={(e) => setPackToken(e.target.value)} style={inputStyle} placeholder="e.g. PPK24" />
           </Field>
           <Field label="Active">
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
-              <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
               is_active
             </label>
           </Field>
           <Field label="Notes">
-            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={inputStyle} placeholder="optional" />
+            <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle} placeholder="optional" />
           </Field>
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          <Field label="Composition (size:innerPacks:qtyPerBox, comma-separated) *">
-            <input type="text" value={form.sizesText} onChange={(e) => setForm({ ...form, sizesText: e.target.value })} style={inputStyle} placeholder="30:1:3, 31:1:3, 32:2:6, 33:1:3, 34:2:6, 36:1:3" />
-          </Field>
-        </div>
-
-        <div style={{ marginTop: 14, padding: "10px 12px", background: "#0b1220", border: `1px dashed ${C.cardBdr}`, borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
-          <div style={{ marginBottom: 6 }}>
-            Preview ({parsed.sizes.length} size{parsed.sizes.length === 1 ? "" : "s"}):
+        {/* Composition grid — per size: Inner Packs + Box Qty. Box auto-fills from
+            Inner Packs × Units/Inner Pack (still editable). Carton total checks
+            against the pack token's qty. */}
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+            <strong style={{ fontSize: 13 }}>Composition</strong>
+            <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
+              Units / Inner Pack
+              <input type="number" min={0} value={upp} onChange={(e) => changeUpp(e.target.value)} style={{ ...inputStyle, width: 70, textAlign: "center" }} placeholder="e.g. 8" />
+            </label>
+            <span style={{ fontSize: 11, color: C.textMuted }}>Box Qty auto-fills = Inner Packs × Units/Inner Pack (you can still override it).</span>
           </div>
-          {parsed.error ? (
-            <span style={{ color: C.danger }}>{parsed.error}</span>
-          ) : parsed.sizes.length === 0 ? (
-            <span style={{ fontStyle: "italic" }}>Type size:innerPacks:qtyPerBox above (e.g. 32:2:6) to preview the carton composition.</span>
-          ) : (
-            <PairedCompositionCells sizes={parsed.sizes} />
+
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              <th style={th}>Size</th>
+              <th style={{ ...th, textAlign: "center" }}>Inner Packs</th>
+              <th style={{ ...th, textAlign: "center" }}>Box Qty</th>
+              <th style={{ ...th, width: 40 }}></th>
+            </tr></thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={4} style={{ ...td, color: C.textMuted, fontStyle: "italic" }}>Add a size below to start the composition.</td></tr>
+              )}
+              {rows.map((r, i) => (
+                <tr key={`${r.size}-${i}`}>
+                  <td style={{ ...td, fontWeight: 600 }}>{r.size}</td>
+                  <td style={{ ...td, textAlign: "center" }}><input type="number" min={0} value={r.inner} onChange={(e) => setInner(i, e.target.value)} style={sizeInput} /></td>
+                  <td style={{ ...td, textAlign: "center" }}><input type="number" min={0} value={r.box} onChange={(e) => setBox(i, e.target.value)} style={sizeInput} /></td>
+                  <td style={{ ...td, textAlign: "center" }}><button onClick={() => removeSize(i)} title="Remove size" style={{ ...btnSecondary, color: C.danger, padding: "2px 8px" }}>×</button></td>
+                </tr>
+              ))}
+              <tr>
+                <td style={td}>
+                  <input type="text" value={newSize} onChange={(e) => setNewSize(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSize(); } }} style={{ ...inputStyle, width: 90 }} placeholder="+ size" />
+                </td>
+                <td style={td} colSpan={3}><button onClick={addSize} style={btnSecondary}>+ Add size</button></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
+                <td style={{ ...td, fontWeight: 700 }}>Totals</td>
+                <td style={{ ...td, textAlign: "center", fontWeight: 700 }}>{totalInner} inner pack{totalInner === 1 ? "" : "s"}</td>
+                <td style={{ ...td, textAlign: "center", fontWeight: 700, color: mismatch ? C.danger : (packQty != null ? C.success : C.text) }}>{totalBox}{packQty != null ? ` / ${packQty}` : ""}</td>
+                <td style={td}></td>
+              </tr>
+            </tfoot>
+          </table>
+
+          {mismatch && (
+            <div style={{ marginTop: 8, padding: "8px 12px", background: "#7f1d1d", color: "white", borderRadius: 6, fontSize: 12 }}>
+              ⚠ Carton total <strong>{totalBox}</strong> doesn't match the pack token <strong>{packToken}</strong> (<strong>{packQty}</strong>). Adjust the box quantities so they sum to {packQty}.
+            </div>
           )}
         </div>
 
