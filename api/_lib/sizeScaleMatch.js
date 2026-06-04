@@ -62,7 +62,8 @@ function genderClass(gender) {
 }
 
 const MIN_COVERAGE = 0.6;   // scale must cover ≥60% of the style's variants
-const MIN_MATCHED = 2;      // …and ≥2 distinct variants (1 size is too weak)
+const MIN_MATCHED = 3;      // …and ≥3 distinct sizes — a real size run, not a
+                            // single or a weak 2-size pair ("full scale, not single").
 
 // scales: [{ id, code, name, sizes: string[] }]
 // Returns { size_scale_id, code, name, score, matched, total, reason } or

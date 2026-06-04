@@ -20,15 +20,23 @@ function client() {
 }
 
 const ALPHA = ["XXS","XS","XSM","S","SM","SML","SMALL","M","MED","MEDIUM","L","LG","LRG","LARGE","XL","XLG","XLARGE","XXL","2XL","XXXL","3XL","XXXXL","4XL","OS","ONE SIZE"];
-const isNum = (s) => /^\d+(\.\d+)?$/.test(String(s).trim());
 const arank = (s) => { const i = ALPHA.indexOf(String(s).toUpperCase().trim()); return i < 0 ? 999 : i; };
+// Sort key: [class, value, raw]. Class 0 = number-bearing (pure numeric, numeric-
+// leading like 2T/12M, OR combined like "L/12" — sort by the NUMBER, e.g. S/8 <
+// M/10 < L/12 < XL/14, never by the letter); class 1 = known alpha size (S<M<L…,
+// so 2XL stays after XL rather than reading as "2"); class 2 = unknown.
+function sizeKey(s) {
+  const t = String(s).toUpperCase().trim();
+  if (t.includes("/")) { const m = t.match(/\d+(\.\d+)?/); return [0, m ? Number(m[0]) : 999, t]; }
+  const ar = arank(t);
+  if (ar !== 999) return [1, ar, t];
+  const m = t.match(/\d+(\.\d+)?/);
+  if (m) return [0, Number(m[0]), t];
+  return [2, 999, t];
+}
 function cmpSize(a, b) {
-  const an = isNum(a), bn = isNum(b);
-  if (an && bn) return Number(a) - Number(b);
-  if (an && !bn) return -1;
-  if (!an && bn) return 1;
-  const ar = arank(a), br = arank(b);
-  return ar !== br ? ar - br : String(a).localeCompare(String(b));
+  const ka = sizeKey(a), kb = sizeKey(b);
+  return ka[0] - kb[0] || ka[1] - kb[1] || ka[2].localeCompare(kb[2]);
 }
 const cartonOf = (tok) => { const m = String(tok || "").match(/(\d+)/); return m ? Number(m[1]) : null; };
 
