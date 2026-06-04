@@ -14,7 +14,11 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 60 };
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 4096;
+// Each SKU prediction is a verbose object (rationale + key_signals +
+// market_factors). At 40 SKUs the array easily exceeds 4k output tokens —
+// the old 4096 ceiling truncated the JSON mid-object and the parse failed
+// ("Claude returned unparseable JSON"). Sonnet 4.6 supports far more.
+const MAX_TOKENS = 16000;
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -217,18 +221,32 @@ export default async function handler(req, res) {
     message = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "user", content: prompt },
+        // Prefill the assistant turn with the opening bracket so the model
+        // emits the JSON array directly — no prose preamble, no ```json
+        // fences to strip, no chance of a chatty intro breaking the parse.
+        { role: "assistant", content: "[" },
+      ],
     });
   } catch (err) {
     return res.status(502).json({ error: "Claude API error: " + err.message });
   }
 
   // ── 8. Parse response ─────────────────────────────────────────────────
+  // The prefill means the model's text is the array body *after* the leading
+  // "[", so we put it back. If the model still ran out of room, say so plainly
+  // instead of the opaque "unparseable JSON".
+  if (message.stop_reason === "max_tokens") {
+    return res.status(502).json({
+      error: `AI response was truncated at ${MAX_TOKENS} tokens — try a smaller SKU count (top_n_skus).`,
+    });
+  }
+
   const rawText = message.content[0]?.text || "";
   let predictions;
   try {
-    const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) || rawText.match(/(\[[\s\S]*\])/);
-    predictions = JSON.parse(jsonMatch ? jsonMatch[1] : rawText);
+    predictions = parsePredictions(rawText);
   } catch {
     return res.status(502).json({ error: "Claude returned unparseable JSON", raw: rawText.slice(0, 500) });
   }
@@ -246,6 +264,31 @@ export default async function handler(req, res) {
     },
     generated_at: new Date().toISOString(),
   });
+}
+
+// ── Response parsing ─────────────────────────────────────────────────────────
+// Because we prefill the assistant turn with "[", the returned text is the
+// array body and we prepend the bracket back. We still defend against a model
+// that ignores the prefill (returns a full array, or wraps it in ```json) so
+// the parser is robust either way.
+function parsePredictions(rawText) {
+  let text = rawText.trim();
+
+  // Strip a ```json … ``` fence if the model wrapped the body in one.
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenced) text = fenced[1].trim();
+
+  // Reattach the prefilled "[" unless the model already emitted it.
+  let candidate = text.startsWith("[") ? text : "[" + text;
+
+  // Clip to the outer array: first "[" .. last "]" — drops any trailing prose
+  // the model appended after the array. Inner key_signals/[…] arrays are safe
+  // because we anchor on the OUTER brackets, not the first inner one.
+  const first = candidate.indexOf("[");
+  const last = candidate.lastIndexOf("]");
+  if (first !== -1 && last > first) candidate = candidate.slice(first, last + 1);
+
+  return JSON.parse(candidate);
 }
 
 // ── Prompt builder ─────────────────────────────────────────────────────────
