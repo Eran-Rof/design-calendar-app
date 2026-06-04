@@ -39,7 +39,7 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const { data, error } = await admin.from("v_prepack_ppk_needed").select("ppk_style_code, base_code, pack_token, style_name, sizes");
+  const { data, error } = await admin.from("v_prepack_ppk_needed").select("ppk_style_code, base_code, pack_token, style_name, sizes, size_scale_id, scale_code, scale_name, scale_sizes");
   if (error) return res.status(500).json({ error: error.message });
 
   const rows = (data || []).map((r) => ({
@@ -48,6 +48,12 @@ export default async function handler(req, res) {
     pack_token: r.pack_token || null,
     carton_total: cartonOf(r.pack_token),
     sizes: Array.isArray(r.sizes) ? [...new Set(r.sizes.filter(Boolean))].sort(cmpSize) : [],
+    // Assigned size scale (base style). scale_sizes preserves the operator-defined
+    // ORDER from the size_scales master — do NOT re-sort it.
+    size_scale_id: r.size_scale_id || null,
+    scale_code: r.scale_code || null,
+    scale_name: r.scale_name || null,
+    scale_sizes: Array.isArray(r.scale_sizes) ? r.scale_sizes.filter(Boolean) : [],
   })).sort((a, b) => a.ppk_style_code.localeCompare(b.ppk_style_code));
 
   return res.status(200).json(rows);
