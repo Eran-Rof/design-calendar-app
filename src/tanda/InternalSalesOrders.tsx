@@ -347,6 +347,14 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
   // M18 — allocate available on-hand stock to this SO's lines (confirmed/allocated).
   const canAllocate = !isNew && so != null && ["confirmed", "allocated"].includes(so.status);
+  // PART 40 — once a SO has allocation, jump straight to the Allocations
+  // Workbench focused on this order (mirrors the scorecard drill: ?m=…&so=<#>).
+  // Seeded by SO number so the workbench's search lands pre-filtered to it.
+  function openAllocations() {
+    if (!so) return;
+    const key = so.so_number || so.id; // number when assigned, else id fallback
+    window.location.href = `?m=sales_allocations&so=${encodeURIComponent(key)}`;
+  }
   async function allocate() {
     if (!so) return;
     setErr(null); setSubmitting(true);
@@ -356,6 +364,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       notify(j.message || "Allocation run complete.", j.fully_allocated ? "success" : "info");
       onSaved();
+      // Auto-open the Allocations window focused on this SO so the user can
+      // view/edit the resulting allocation immediately.
+      openAllocations();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setSubmitting(false); }
   }
@@ -547,7 +558,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>
-            {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines">{submitting ? "…" : "📦 Allocate stock"}</button>}
+            {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "📦 Allocate stock"}</button>}
+            {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">📊 View allocation</button>}
             {canShip && <button onClick={() => setShipOpen(true)} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
           </div>
