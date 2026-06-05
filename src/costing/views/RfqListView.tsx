@@ -245,6 +245,7 @@ export default function RfqListView() {
                   style={{ cursor: "pointer", accentColor: "#60A5FA" }}
                 />
               </Th>
+              <Th>Code</Th>
               <Th>Title</Th>
               <Th>Vendor</Th>
               <Th>Customer</Th>
@@ -261,7 +262,7 @@ export default function RfqListView() {
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={13} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+              <tr><td colSpan={14} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
                 {q || status ? "No RFQs match the filter." : "No RFQs yet — generate one from a Costing project."}
               </td></tr>
             )}
@@ -286,6 +287,7 @@ export default function RfqListView() {
                       style={{ cursor: "pointer", accentColor: "#60A5FA" }}
                     />
                   </Td>
+                  <Td><span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap" }}>{r.code || "—"}</span></Td>
                   <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.title || "(untitled)"}</span></Td>
                   <Td>{r.vendor_name || "—"}</Td>
                   <Td>{r.customer_name || "—"}</Td>
