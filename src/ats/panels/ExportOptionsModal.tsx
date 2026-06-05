@@ -242,7 +242,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
       <div
         style={{
           background: "#1E293B", border: "1px solid #334155", borderRadius: 12,
-          minWidth: 460, maxWidth: 520, color: "#F1F5F9",
+          width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto",
+          boxSizing: "border-box", color: "#F1F5F9",
           fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
         }}
         onClick={e => e.stopPropagation()}
@@ -469,7 +470,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             <div
               style={{
                 background: "#1E293B", border: "1px solid #F59E0B", borderRadius: 12,
-                minWidth: 360, maxWidth: 420, color: "#F1F5F9",
+                width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto",
+                boxSizing: "border-box", color: "#F1F5F9",
                 fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
               }}
               onClick={e => e.stopPropagation()}
@@ -508,7 +510,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             <div
               style={{
                 background: "#1E293B", border: "1px solid #F59E0B", borderRadius: 12,
-                minWidth: 360, maxWidth: 420, color: "#F1F5F9",
+                width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto",
+                boxSizing: "border-box", color: "#F1F5F9",
                 fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
               }}
               onClick={e => e.stopPropagation()}

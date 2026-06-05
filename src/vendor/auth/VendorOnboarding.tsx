@@ -474,6 +474,9 @@ function ConfirmSkipModal({
           padding: "22px 24px",
           maxWidth: 480,
           width: "100%",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          boxSizing: "border-box",
           color: TH.text,
           boxShadow: `0 8px 32px ${TH.shadow}`,
         }}

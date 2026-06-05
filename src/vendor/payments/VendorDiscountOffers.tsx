@@ -101,7 +101,7 @@ export default function VendorDiscountOffers() {
           {rows.map((o) => (
             <div key={o.id} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderLeft: `4px solid ${o.status === "offered" ? C.primary : o.status === "accepted" || o.status === "paid" ? C.success : C.textMuted}`, borderRadius: 8, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>Invoice {o.invoice?.invoice_number || o.invoice_id.slice(0, 8)}</div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>Invoice {o.invoice?.invoice_number || "—"}</div>
                 <StatusChip status={o.status} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 12 }}>

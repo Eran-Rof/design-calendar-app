@@ -420,8 +420,8 @@ export function customerDisplayName(c: CustomerHit | null | undefined): string {
   const billing = c.billing_address;
   const name = typeof billing?.name === "string" ? billing.name : undefined;
   const company = typeof billing?.company === "string" ? billing.company : undefined;
-  const raw = name || company || c.code || c.id;
-  return typeof raw === "string" ? stripExcelPrefix(raw) : raw;
+  const raw = name || company || c.code;
+  return typeof raw === "string" ? stripExcelPrefix(raw) : "—";
 }
 
 export async function searchCustomers(q: string, signal?: AbortSignal): Promise<CustomerHit[]> {

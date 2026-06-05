@@ -576,4 +576,5 @@ const modalBackdrop: React.CSSProperties = {
 const modal: React.CSSProperties = {
   background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10,
   padding: 24, width: 520, maxWidth: "92vw",
+  maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };

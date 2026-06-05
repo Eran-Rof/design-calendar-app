@@ -1269,7 +1269,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
 
           {ddpWarn && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: 16 }}>
-              <div style={{ background: "#FFFFFF", border: `1px solid ${TH.accentBdr}`, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", boxShadow: "0 40px 100px rgba(0,0,0,0.4)" }}>
+              <div style={{ background: "#FFFFFF", border: `1px solid ${TH.accentBdr}`, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 40px 100px rgba(0,0,0,0.4)" }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 12 }}>⚠️ DDP Date Will Change</div>
                 <div style={{ fontSize: 13, color: TH.textMuted, lineHeight: 1.65, marginBottom: 20 }}>
                   {ddpWarn.cascade ? (

@@ -236,7 +236,7 @@ export default function B2BOrders({
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id}>
-                  <td style={td}>{o.so_number || `Draft ${o.id.slice(0, 8)}`}</td>
+                  <td style={td}>{o.so_number || "Draft"}</td>
                   <td style={td}>{(o.order_date || o.created_at || "").slice(0, 10)}</td>
                   <td style={td}><StatusBadge status={o.status} /></td>
                   <td style={tdR}>{formatMoney(o.total_cents, o.currency)}</td>

@@ -909,6 +909,9 @@ function TaskEditModal({
               padding: 32,
               maxWidth: 500,
               width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxSizing: "border-box",
               boxShadow: "0 40px 100px rgba(0,0,0,0.4)",
             }}
           >

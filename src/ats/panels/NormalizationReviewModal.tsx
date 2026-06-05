@@ -27,7 +27,7 @@ export const NormalizationReviewModal: React.FC<NormalizationReviewModalProps> =
       }}
     >
       <div
-        style={{ background: "#1E293B", borderRadius: 14, width: 700, maxHeight: "80vh", display: "flex", flexDirection: "column", border: "1px solid #3B82F6" }}
+        style={{ background: "#1E293B", borderRadius: 14, width: "min(700px, 95vw)", maxHeight: "90vh", boxSizing: "border-box", display: "flex", flexDirection: "column", border: "1px solid #3B82F6" }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 10 }}>

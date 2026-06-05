@@ -28,7 +28,7 @@ export const MergeConfirmModal: React.FC<MergeConfirmModalProps> = ({
       onClick={() => setPendingMerge(null)}
     >
       <div
-        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, maxWidth: 480, width: "90%", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
+        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, maxWidth: 480, width: "90%", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ fontSize: 20, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>
