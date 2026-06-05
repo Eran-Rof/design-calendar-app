@@ -39,6 +39,7 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
 import { useItemResolver } from "./hooks/useItemResolver";
 import LineViewToggle from "./components/LineViewToggle";
+import { readDrillParam } from "./scorecardDrill";
 
 type GlStatus = "draft" | "unposted" | "pending_approval" | "posted" | "paid" | "void" | "reversed";
 
@@ -183,7 +184,8 @@ export default function InternalAPInvoices() {
   const [err, setErr] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
-  const [vendorFilter, setVendorFilter] = useState("");
+  // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount.
+  const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
   const [sourceFilter, setSourceFilter] = useState<string>("");
   // Wave 5 — DynamicSearchInput-controlled debounced search (200ms).
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } =

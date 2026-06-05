@@ -19,6 +19,8 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import { readDrillParam } from "./scorecardDrill";
 
 const TABLE_KEY = "tanda.journal_entry";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -157,6 +159,11 @@ export default function InternalJournalEntry() {
   const [basisFilter, setBasisFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [includeDrafts, setIncludeDrafts] = useState(false);
+  // Scorecard drill-through: ?q=<vendor/customer code> seeds a client-side text
+  // filter over description + source ref. JE has no party column, so the
+  // scorecard passes the party code/name and we match it against the JE text.
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } =
+    useDebouncedSearch(readDrillParam("q"), 200);
   const [postOpen, setPostOpen] = useState(false);
   const [detail, setDetail] = useState<JE | null>(null);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
@@ -190,6 +197,18 @@ export default function InternalJournalEntry() {
   }
 
   useEffect(() => { void load(); }, [basisFilter, sourceFilter, includeDrafts]);
+
+  // Client-side free-text filter (drill-through `?q=` seed). Matches the party
+  // code/name against the JE description and source reference.
+  const filteredRows = useMemo(() => {
+    const needle = searchDebounced.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((je) =>
+      `${je.description || ""} ${je.source_table || ""} ${je.source_id || ""}`
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [rows, searchDebounced]);
 
   async function reverse(je: JE) {
     if (je.status !== "posted") {
@@ -237,6 +256,12 @@ export default function InternalJournalEntry() {
           <option value="">All sources</option>
           {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search description / source…"
+          style={{ ...inputStyle, width: 220 }}
+        />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeDrafts} onChange={(e) => setIncludeDrafts(e.target.checked)} />
           Include drafts
@@ -281,8 +306,10 @@ export default function InternalJournalEntry() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No journal entries yet.</div>
+        ) : filteredRows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
+            {searchDebounced.trim() ? "No journal entries match the filter." : "No journal entries yet."}
+          </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -297,7 +324,7 @@ export default function InternalJournalEntry() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((je) => (
+              {filteredRows.map((je) => (
                 <ScrollHighlightRow
                   key={je.id}
                   rowId={je.id}

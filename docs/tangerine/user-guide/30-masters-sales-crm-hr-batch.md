@@ -88,6 +88,21 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 > **Note:** the **Vendor Scorecard** here (P16, `m=vendor_scorecard`) is the financial/360° drill-through. It is *separate* from the older procurement **Vendor Scorecards** performance grid in the PO-WIP app (`/tanda?view=scorecards`, handler `api/_handlers/internal/scorecards/`), which scores on-time delivery / invoice accuracy / acknowledgment.
 
+### Drill-through to the underlying transactions
+
+Both scorecards are **click-through**. A **"Drill to:"** bar sits above the metric tiles, the open-balance / PO tiles are themselves clickable (cursor + blue hover border + an "Open … ↗" caption), and each tab toolbar carries an **"Open in … ↗"** button. Clicking one swaps the active Tangerine module to the matching list, pre-filtered to that party:
+
+| Scorecard | Drill target (`?m=`) | Filter seeded |
+|---|---|---|
+| **Vendor** | Purchase Orders (`purchase_orders`) | `?vendor=<vendor_id>` → seeds the panel's **vendor filter** (exact `vendor_id`). |
+| **Vendor** | AP Invoices (`ap_invoices`) | `?vendor=<vendor_id>` → seeds the **vendor filter**. |
+| **Vendor** | Journal Entries (`journal_entries`) | `?q=<vendor code/name>` → seeds the new JE **text filter** (JE has no party column). |
+| **Customer** | Sales Orders (`sales_orders`) | `?customer=<customer_id>` → seeds the panel's **customer filter** (exact `customer_id`). |
+| **Customer** | AR Invoices (`ar_invoices`) | `?customer=<customer_id>` → seeds the **customer filter**. |
+| **Customer** | Journal Entries (`journal_entries`) | `?q=<customer code/name>` → seeds the JE **text filter**. |
+
+Mechanically, the drill rewrites the URL (`?m=<target>&vendor|customer|q=…`) and fires a `popstate` so Tangerine re-reads `?m=` and mounts the target panel; the panel reads its own filter param on mount (mirrors how ATS reads `?style=`). The Sales-Orders panel gained a **Customer** filter dropdown and the Journal-Entries panel gained a **description/source search box** to host these seeds. Because Journal Entries have no vendor/customer column, the JE drill is a best-effort text match on the description/source reference rather than an exact party filter.
+
 ---
 
 ## 30.5 Employees, titles/departments & commissions

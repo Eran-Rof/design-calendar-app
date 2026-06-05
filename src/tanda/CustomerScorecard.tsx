@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
+import { drillToModule } from "./scorecardDrill";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -95,13 +96,36 @@ const th: React.CSSProperties = {
 const td: React.CSSProperties = { padding: "6px 8px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 12 };
 const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" };
 
-function Metric({ label, value, caption }: { label: string; value: string; caption?: string }) {
+function Metric({ label, value, caption, onClick, drillLabel }: { label: string; value: string; caption?: string; onClick?: () => void; drillLabel?: string }) {
+  const clickable = !!onClick;
   return (
-    <div style={card}>
+    <div
+      style={{ ...card, ...(clickable ? { cursor: "pointer", transition: "border-color 120ms, background 120ms" } : {}) }}
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick!(); } } : undefined}
+      onMouseEnter={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.primary; } : undefined}
+      onMouseLeave={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.cardBdr; } : undefined}
+      title={clickable ? drillLabel : undefined}
+    >
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{value}</div>
       {caption && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{caption}</div>}
+      {clickable && <div style={{ fontSize: 10, color: C.primary, marginTop: 6, fontWeight: 600 }}>{drillLabel || "Open ↗"}</div>}
     </div>
+  );
+}
+
+// Small inline drill link used in tab toolbars / drill bar.
+function DrillLink({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ background: "transparent", color: C.primary, border: `1px solid ${C.primary}`, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -221,9 +245,23 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted }}>No data.</div>
         ) : (
           <>
+            {/* Drill bar */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <span style={{ fontSize: 11, color: C.textMuted, alignSelf: "center", textTransform: "uppercase", letterSpacing: 0.5 }}>Drill to:</span>
+              <DrillLink label="Sales Orders ↗" onClick={() => drillToModule("sales_orders", { customer: data.header.customer_id })} />
+              <DrillLink label="AR Invoices ↗" onClick={() => drillToModule("ar_invoices", { customer: data.header.customer_id })} />
+              <DrillLink label="Journal Entries ↗" onClick={() => drillToModule("journal_entries", { q: data.header.customer_code || data.header.customer_name })} />
+            </div>
+
             {/* Top metric tiles */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
-              <Metric label="Customer Balance (open AR)" value={fmtCents(data.metrics.balance_cents)} caption={data.notes.balance} />
+              <Metric
+                label="Customer Balance (open AR)"
+                value={fmtCents(data.metrics.balance_cents)}
+                caption={data.notes.balance}
+                onClick={() => drillToModule("ar_invoices", { customer: data.header.customer_id })}
+                drillLabel="Open AR Invoices ↗"
+              />
               <Metric label="Avg Days to Pay" value={data.metrics.avg_days_to_pay == null ? "—" : `${data.metrics.avg_days_to_pay} d`} caption={data.notes.avg_days_to_pay} />
               <Metric label="Commission % / $" value={`${data.metrics.commission_pct}% / ${fmtCents(data.metrics.commission_cents)}`} caption={data.notes.commission} />
               <Metric label="Net Profitability (YTD)" value={fmtCents(data.metrics.net_profit_cents)} caption={data.metrics.net_profit_basis} />
@@ -329,7 +367,8 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
 
             {tab === "invoices" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                  <DrillLink label="Open in AR Invoices ↗" onClick={() => drillToModule("ar_invoices", { customer: data.header.customer_id })} />
                   <ExportButton rows={filteredInvoices as unknown as Array<Record<string, unknown>>} filename={`customer-${data.header.customer_code || data.header.customer_id}-invoices`} sheetName="Invoices" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -360,7 +399,8 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
 
             {tab === "sales_orders" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                  <DrillLink label="Open in Sales Orders ↗" onClick={() => drillToModule("sales_orders", { customer: data.header.customer_id })} />
                   <ExportButton rows={(data.sales_orders || []) as unknown as Array<Record<string, unknown>>} filename={`customer-${data.header.customer_code || data.header.customer_id}-sales-orders`} sheetName="SalesOrders" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -388,7 +428,8 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
 
             {tab === "je" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                  <DrillLink label="Open in Journal Entries ↗" onClick={() => drillToModule("journal_entries", { q: data.header.customer_code || data.header.customer_name })} />
                   <ExportButton rows={(data.journal_entries || []) as unknown as Array<Record<string, unknown>>} filename={`customer-${data.header.customer_code || data.header.customer_id}-je`} sheetName="JournalEntries" />
                 </div>
                 <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 8 }}>Journal entries sourced from this customer's AR invoices (source_table=ar_invoices).</div>

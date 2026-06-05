@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
+import { readDrillParam } from "./scorecardDrill";
 import SalesOrderMatrixBody, { type SalesOrderMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./SalesOrderMatrixBody";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
@@ -76,6 +77,9 @@ export default function InternalSalesOrders() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  // Scorecard drill-through: ?customer=<id> seeds the customer filter on mount
+  // so a click from the Customer Scorecard lands here pre-filtered.
+  const [customerFilter, setCustomerFilter] = useState(() => readDrillParam("customer"));
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch("", 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
@@ -95,6 +99,7 @@ export default function InternalSalesOrders() {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
+      if (customerFilter) params.set("customer_id", customerFilter);
       if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -102,7 +107,7 @@ export default function InternalSalesOrders() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, searchDebounced]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, customerFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
@@ -120,6 +125,11 @@ export default function InternalSalesOrders() {
           <option value="">All statuses</option>
           {["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        <div style={{ width: 240 }}>
+          <SearchableSelect value={customerFilter || null} onChange={(v) => setCustomerFilter(v)}
+            options={[{ value: "", label: "All customers" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
+            placeholder="All customers" inputStyle={inputStyle} />
+        </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO #…" style={{ ...inputStyle, width: 200 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
