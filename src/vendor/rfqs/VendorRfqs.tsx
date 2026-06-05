@@ -69,7 +69,8 @@ export default function VendorRfqs() {
 
   return (
     <div>
-      <h2 style={{ color: "#FFFFFF", fontSize: 20, marginTop: 0, marginBottom: 16 }}>Request for quote invitations</h2>
+      <h2 style={{ color: "#FFFFFF", fontSize: 20, marginTop: 0, marginBottom: 4 }}>RFQs</h2>
+      <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, marginBottom: 16 }}>Request for quote invitations</div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         {[["all", "All"], ["open", "Open"], ["quoted", "Quoted"], ["won", "Won"]].map(([k, l]) => (

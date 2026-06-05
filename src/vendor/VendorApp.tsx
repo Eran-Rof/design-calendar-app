@@ -122,6 +122,66 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+// Canonical per-view names — single source of truth for the browser tab title.
+// The nav TabLink / MORE_GROUPS labels are the canonical names; detail routes
+// map to a sensible singular of their parent. Resolution is longest-prefix
+// match (see vendorViewTitle), so list more specific routes before their parents.
+const VENDOR_VIEW_TITLES: { prefix: string; name: string }[] = [
+  // Detail / nested routes first (longest / most specific)
+  { prefix: "/vendor/pos", name: "Purchase Order" },
+  { prefix: "/vendor/rfqs", name: "RFQs" },
+  { prefix: "/vendor/shipments/new", name: "Submit Shipment" },
+  { prefix: "/vendor/shipments", name: "Shipments" },
+  { prefix: "/vendor/invoices/new", name: "Submit Invoice" },
+  { prefix: "/vendor/invoices", name: "Invoices" },
+  { prefix: "/vendor/payment-preferences", name: "Payment prefs" },
+  { prefix: "/vendor/payments", name: "Payments" },
+  { prefix: "/vendor/messages", name: "Messages" },
+  { prefix: "/vendor/compliance", name: "Compliance" },
+  { prefix: "/vendor/reports", name: "Dashboard" },
+  { prefix: "/vendor/notifications", name: "Notifications" },
+  { prefix: "/vendor/phases", name: "Phases" },
+  { prefix: "/vendor/onboarding", name: "Onboarding" },
+  { prefix: "/vendor/setup", name: "Setup" },
+  { prefix: "/vendor/login", name: "Sign in" },
+  { prefix: "/vendor/entity-switcher", name: "Switch Entity" },
+  { prefix: "/vendor/mobile/feed", name: "Feed" },
+  // More menu
+  { prefix: "/vendor/contracts", name: "Contracts" },
+  { prefix: "/vendor/catalog", name: "Catalog" },
+  { prefix: "/vendor/discount-offers", name: "Early pay" },
+  { prefix: "/vendor/financing", name: "Financing" },
+  { prefix: "/vendor/scf", name: "Financing" },
+  { prefix: "/vendor/virtual-cards", name: "Virtual cards" },
+  { prefix: "/vendor/withholding", name: "Tax" },
+  { prefix: "/vendor/tax", name: "Tax" },
+  { prefix: "/vendor/sustainability", name: "Sustainability" },
+  { prefix: "/vendor/esg", name: "ESG" },
+  { prefix: "/vendor/diversity", name: "Diversity" },
+  { prefix: "/vendor/workspaces", name: "Workspaces" },
+  { prefix: "/vendor/disputes", name: "Disputes" },
+  { prefix: "/vendor/marketplace", name: "Marketplace" },
+  { prefix: "/vendor/scorecard", name: "Scorecard" },
+  { prefix: "/vendor/performance", name: "Scorecard" },
+  { prefix: "/vendor/bulk", name: "Bulk" },
+  { prefix: "/vendor/settings", name: "Settings" },
+  { prefix: "/vendor/erp", name: "ERP" },
+  { prefix: "/vendor/edi", name: "EDI" },
+  { prefix: "/vendor/health", name: "Health" },
+  // Bare /vendor (Purchase Orders) — keep last so it never shadows the above
+  { prefix: "/vendor", name: "Purchase Orders" },
+];
+
+function vendorViewTitle(pathname: string): string | null {
+  let best: { prefix: string; name: string } | null = null;
+  for (const e of VENDOR_VIEW_TITLES) {
+    if (pathname === e.prefix || pathname.startsWith(e.prefix + "/")) {
+      if (!best || e.prefix.length > best.prefix.length) best = e;
+    }
+  }
+  return best ? best.name : null;
+}
+
 const MORE_GROUPS: { group: string; items: { to: string; label: string; match: (p: string) => boolean }[] }[] = [
   { group: "Orders", items: [
     { to: "/vendor/contracts", label: "Contracts", match: (p) => p.startsWith("/vendor/contracts") },
@@ -366,6 +426,12 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
   const { session } = useVendorSession();
   const nav = useNavigate();
   const loc = useLocation();
+  // Central browser-tab title: "<View> · Vendor Portal", longest-prefix match.
+  // Falls back to "Ring of Fire Vendor Portal" for unmatched routes.
+  useEffect(() => {
+    const name = vendorViewTitle(loc.pathname);
+    document.title = name ? `${name} · Vendor Portal` : "Ring of Fire Vendor Portal";
+  }, [loc.pathname]);
   return (
     <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif", color: TH.text, colorScheme: "dark" }}>
       <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadowMd}` }}>
