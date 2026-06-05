@@ -13,6 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { fireWorkflowEvent } from "../../../../../_lib/workflow.js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
 import { resolveProductionManager } from "../../../../../_lib/internal-recipients.js";
+import { markLinesAwardedAndSiblingsLost } from "../../../../../_lib/costingLineStatus.js";
 
 export const config = { maxDuration: 30 };
 
@@ -108,6 +109,9 @@ export default async function handler(req, res) {
   //     or no winning quote) skip this block silently. All failures are caught
   //     + surfaced in costing_write_errors; they never break the award flow.
   const costingWriteback = { written: 0, skipped_reason: null, errors: [] };
+  // Lines successfully stamped awarded here — fed into the status lifecycle
+  // (awarded + siblings-lost) after the write-back loop.
+  const awardedLineMeta = [];
   try {
     if (!rfq.source_costing_project_id) {
       costingWriteback.skipped_reason = "rfq_not_from_costing";
@@ -140,10 +144,11 @@ export default async function handler(req, res) {
         // bypasses the current_entity_id() default → supply it explicitly).
         const { data: clRows, error: clErr } = await admin
           .from("costing_lines")
-          .select("id, entity_id")
+          .select("id, entity_id, project_id, style_code")
           .in("id", costingLineIds);
         if (clErr) throw new Error(`costing_lines lookup failed: ${clErr.message}`);
         const entityByLine = Object.fromEntries((clRows || []).map((r) => [r.id, r.entity_id]));
+        const metaByLine = Object.fromEntries((clRows || []).map((r) => [r.id, r]));
         // Only act on costing lines that still exist.
         const liveLineIds = new Set((clRows || []).map((r) => r.id));
 
@@ -214,6 +219,8 @@ export default async function handler(req, res) {
             .eq("id", lineId);
           if (stampErr) { costingWriteback.errors.push({ costing_line_id: lineId, error: stampErr.message }); continue; }
 
+          const meta = metaByLine[lineId];
+          awardedLineMeta.push({ id: lineId, project_id: meta?.project_id || null, style_code: meta?.style_code || null });
           costingWriteback.written += 1;
         }
       }
@@ -229,6 +236,22 @@ export default async function handler(req, res) {
     }
     // eslint-disable-next-line no-console
     console.warn(`[rfq-award] costing write-back issue rfq=${rfq_id} vendor=${vendor_id}: ${msg}`);
+  }
+
+  // 3c. Costing line lifecycle: mark each awarded line 'awarded', then mark its
+  //     SIBLINGS (same project + same style_code, not already awarded/closed)
+  //     'lost'. Each writes a status_history row; no terminal state is ever
+  //     downgraded. Best-effort + idempotent — never breaks the award.
+  const lineLifecycle = { awarded: 0, lost: 0 };
+  try {
+    if (awardedLineMeta.length > 0) {
+      const r = await markLinesAwardedAndSiblingsLost(admin, awardedLineMeta, { note: "rfq_awarded" });
+      lineLifecycle.awarded = r.awarded.length;
+      lineLifecycle.lost = r.lost.length;
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[rfq-award] line lifecycle (awarded/lost) issue rfq=${rfq_id}: ${e && e.message ? e.message : String(e)}`);
   }
 
   // 4. Winner notification
@@ -367,5 +390,6 @@ export default async function handler(req, res) {
     losers_notified: losingVendors.length,
     pm_notify: pmNotify,
     costing_writeback: costingWriteback,
+    line_lifecycle: lineLifecycle,
   });
 }

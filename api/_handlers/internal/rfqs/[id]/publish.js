@@ -7,6 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { markLinesSent } from "../../../../_lib/costingLineStatus.js";
 
 export const config = { maxDuration: 30 };
 
@@ -67,6 +68,18 @@ export default async function handler(req, res) {
   const origin = `https://${req.headers.host}`;
   const lineCount = (lineItems || []).length;
 
+  // Costing line lifecycle: now that an invitation exists (the vendor can see
+  // the RFQ), promote every linked costing line draft|revised -> sent. Terminal
+  // states (awarded/lost/closed) are never downgraded. Best-effort; never breaks
+  // publish. Legacy / non-costing RFQs resolve to zero lines and no-op.
+  let lineStatus = { moved: [], skipped: [] };
+  try {
+    lineStatus = await markLinesSent(admin, id, { note: "rfq_published" });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[rfq-publish] line status -> sent issue rfq=${id}: ${e && e.message ? e.message : String(e)}`);
+  }
+
   for (const inv of invitations || []) {
     try {
       await fetch(`${origin}/api/send-notification`, {
@@ -86,5 +99,5 @@ export default async function handler(req, res) {
     } catch { /* swallow */ }
   }
 
-  return res.status(200).json({ ok: true, id, status: "published", notified: (invitations || []).length });
+  return res.status(200).json({ ok: true, id, status: "published", notified: (invitations || []).length, lines_sent: lineStatus.moved.length });
 }
