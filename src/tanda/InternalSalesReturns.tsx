@@ -6,11 +6,12 @@
 // revenue routes to 4100 Sales Returns & Allowances). Lifecycle:
 // requested → approved → received → credited.
 
-import { Fragment, useEffect, useMemo, useState } from "react";
-import SearchableSelect from "./components/SearchableSelect";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -40,20 +41,26 @@ type Rma = {
   sales_return_lines: RmaLine[];
 };
 type Customer = { id: string; name: string; customer_code?: string };
-type NewLine = { sku_code: string; description: string; qty: string; unit_price: string };
+type RmaReason = { id: string; code: string; name: string };
+type NewLine = { sku_code: string; description: string; qty: string; unit_price: string; reason: string };
 
 export default function InternalSalesReturns() {
   const [rmas, setRmas] = useState<Rma[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [reasons, setReasons] = useState<RmaReason[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Admin gate for the "+ Add new reason…" path — same signal Style Master
+  // uses: a cached MS auth user uuid (present only after MS sign-in).
+  const isAdmin = !!getCachedAuthUserId();
+
   // create form
   const [custId, setCustId] = useState("");
   const [reason, setReason] = useState("");
-  const [newLines, setNewLines] = useState<NewLine[]>([{ sku_code: "", description: "", qty: "", unit_price: "" }]);
+  const [newLines, setNewLines] = useState<NewLine[]>([{ sku_code: "", description: "", qty: "", unit_price: "", reason: "" }]);
 
   async function load() {
     setLoading(true);
@@ -68,14 +75,58 @@ export default function InternalSalesReturns() {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
   }, []);
+  useEffect(() => {
+    fetch("/api/internal/rma-reasons").then((r) => r.json())
+      .then((a) => { if (Array.isArray(a)) setReasons(a as RmaReason[]); }).catch(() => {});
+  }, []);
 
   const custName = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+
+  // Reason picklist comes from rma_reason_master. The stored value is the
+  // reason NAME (free text on sales_returns.reason) — fully backward-compatible
+  // with existing free-text reasons. `current` keeps any value that isn't in
+  // the master visible/selectable so legacy reasons don't vanish.
+  const reasonOptions = useCallback((current: string): SearchableSelectOption[] => {
+    const opts: SearchableSelectOption[] = [
+      { value: "", label: "(none)" },
+      ...reasons.map((r) => ({ value: r.name, label: r.name, searchHaystack: `${r.code} ${r.name}` })),
+    ];
+    if (current && !reasons.some((r) => r.name === current)) {
+      opts.push({ value: current, label: current });
+    }
+    return opts;
+  }, [reasons]);
+
+  // Admin "+ Add new reason…" grows rma_reason_master (POST). Optimistically add
+  // it to the local list; a 409 (already exists) is fine — the name is what we
+  // wanted on the row anyway.
+  const addReason = useCallback((qRaw: string, apply: (name: string) => void) => {
+    const name = qRaw.trim();
+    if (!name) return;
+    apply(name);
+    setReasons((prev) => prev.some((r) => r.name === name) ? prev : [...prev, { id: name, code: "", name }]);
+    void (async () => {
+      try {
+        const r = await fetch("/api/internal/rma-reasons", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (r.ok) {
+          const created = await r.json().catch(() => null);
+          if (created && created.id) {
+            setReasons((prev) => prev.map((x) => x.name === name ? { id: created.id, code: created.code || "", name } : x));
+          }
+        }
+      } catch { /* keep optimistic entry; reason name is already applied */ }
+    })();
+  }, []);
 
   async function createRma() {
     if (!custId) { notify("Pick a customer", "error"); return; }
     const lines = newLines
       .filter((l) => Number(l.qty) > 0)
-      .map((l) => ({ sku_code: l.sku_code.trim() || undefined, description: l.description.trim() || undefined, qty_returned: Number(l.qty), unit_price_cents: Math.round((Number(l.unit_price) || 0) * 100) }));
+      .map((l) => ({ sku_code: l.sku_code.trim() || undefined, description: l.description.trim() || undefined, qty_returned: Number(l.qty), unit_price_cents: Math.round((Number(l.unit_price) || 0) * 100), reason: l.reason.trim() || undefined }));
     if (lines.length === 0) { notify("Add at least one line with qty > 0", "error"); return; }
     setBusy(true);
     try {
@@ -83,7 +134,7 @@ export default function InternalSalesReturns() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "create failed");
       notify("RMA created", "success");
-      setCreating(false); setCustId(""); setReason(""); setNewLines([{ sku_code: "", description: "", qty: "", unit_price: "" }]);
+      setCreating(false); setCustId(""); setReason(""); setNewLines([{ sku_code: "", description: "", qty: "", unit_price: "", reason: "" }]);
       await load(); setExpanded(j.id);
     } catch (e) { notify("Create failed — " + (e instanceof Error ? e.message : String(e)), "error"); }
     finally { setBusy(false); }
@@ -155,10 +206,19 @@ export default function InternalSalesReturns() {
                 options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
                 value={custId} onChange={setCustId} placeholder="Pick customer…" />
             </div>
-            <input style={{ ...input, minWidth: 240 }} placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <div style={{ minWidth: 240 }}>
+              <SearchableSelect
+                options={reasonOptions(reason)}
+                value={reason}
+                onChange={setReason}
+                placeholder="Reason (optional)…"
+                onAddNew={isAdmin ? (q) => addReason(q, setReason) : undefined}
+                addNewLabel={(q) => { const t = q.trim(); return t ? `+ Add new reason "${t}"` : "+ Add new reason…"; }}
+              />
+            </div>
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>SKU</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit $ (orig)</th><th style={th}></th></tr></thead>
+            <thead><tr><th style={th}>SKU</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit $ (orig)</th><th style={th}>Reason</th><th style={th}></th></tr></thead>
             <tbody>
               {newLines.map((l, i) => (
                 <tr key={i}>
@@ -166,13 +226,23 @@ export default function InternalSalesReturns() {
                   <td style={td}><input style={{ ...input, width: "100%" }} value={l.description} onChange={(e) => setNewLines((p) => p.map((x, j) => j === i ? { ...x, description: e.target.value } : x))} /></td>
                   <td style={td}><input style={{ ...input, width: "7ch", textAlign: "right" }} value={l.qty} onChange={(e) => setNewLines((p) => p.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))} /></td>
                   <td style={td}><input style={{ ...input, width: "8ch", textAlign: "right" }} value={l.unit_price} onChange={(e) => setNewLines((p) => p.map((x, j) => j === i ? { ...x, unit_price: e.target.value } : x))} /></td>
+                  <td style={{ ...td, minWidth: 200 }}>
+                    <SearchableSelect
+                      options={reasonOptions(l.reason)}
+                      value={l.reason}
+                      onChange={(v) => setNewLines((p) => p.map((x, j) => j === i ? { ...x, reason: v } : x))}
+                      placeholder="Reason…"
+                      onAddNew={isAdmin ? (q) => addReason(q, (name) => setNewLines((p) => p.map((x, j) => j === i ? { ...x, reason: name } : x))) : undefined}
+                      addNewLabel={(q) => { const t = q.trim(); return t ? `+ Add new reason "${t}"` : "+ Add new reason…"; }}
+                    />
+                  </td>
                   <td style={td}>{newLines.length > 1 && <button style={{ ...btnS, color: C.danger, padding: "4px 8px" }} onClick={() => setNewLines((p) => p.filter((_, j) => j !== i))}>×</button>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button style={btnS} onClick={() => setNewLines((p) => [...p, { sku_code: "", description: "", qty: "", unit_price: "" }])}>+ line</button>
+            <button style={btnS} onClick={() => setNewLines((p) => [...p, { sku_code: "", description: "", qty: "", unit_price: "", reason: "" }])}>+ line</button>
             <button style={btnP} disabled={busy} onClick={createRma}>Create RMA</button>
             <span style={{ color: C.textMuted, fontSize: 12, alignSelf: "center" }}>Tip: enter the SKU so a restock can go back to inventory.</span>
           </div>
