@@ -5,6 +5,7 @@
 // SearchableSelect, supporting docs). SO number is system-assigned on Confirm.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import SalesOrderMatrixBody, { type SalesOrderMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./SalesOrderMatrixBody";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
@@ -75,7 +76,7 @@ export default function InternalSalesOrders() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
-  const [search, setSearch] = useState("");
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch("", 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
 
@@ -94,14 +95,14 @@ export default function InternalSalesOrders() {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
-      if (search.trim()) params.set("q", search.trim());
+      if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as SO[]);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
@@ -119,7 +120,7 @@ export default function InternalSalesOrders() {
           <option value="">All statuses</option>
           {["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void load(); }} placeholder="Search SO #…" style={{ ...inputStyle, width: 200 }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO #…" style={{ ...inputStyle, width: 200 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SO_TABLE_KEY}

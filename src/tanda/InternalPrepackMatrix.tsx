@@ -661,7 +661,6 @@ export default function InternalPrepackMatrix() {
           placeholder="Search code, name or PPK style…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 300 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

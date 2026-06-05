@@ -10,6 +10,7 @@
 // this master simply curates the picklist; there is no FK.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -76,7 +77,7 @@ export default function InternalSeasonMaster() {
   const [rows, setRows] = useState<Season[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Season | null>(null);
@@ -99,7 +100,7 @@ export default function InternalSeasonMaster() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/seasons?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -111,7 +112,7 @@ export default function InternalSeasonMaster() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   async function del(s: Season) {
     if (!(await confirmDialog(`Delete season ${s.code} (${s.name})?\nWill fail if any style still references it — toggle is_active=false in that case.`))) return;
@@ -144,7 +145,6 @@ export default function InternalSeasonMaster() {
           placeholder="Search code or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

@@ -5,6 +5,7 @@
 // 409-on-reference guard. Wraps /api/internal/fabric-codes and /:id.
 
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -90,8 +91,8 @@ export default function InternalFabricCodes() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [country, setCountry] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
+  const { value: country, debouncedValue: countryDebounced, setValue: setCountry } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<FabricCode | null>(null);
@@ -120,8 +121,8 @@ export default function InternalFabricCodes() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
-      if (country.trim()) params.set("country", country.trim().toUpperCase());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
+      if (countryDebounced.trim()) params.set("country", countryDebounced.trim().toUpperCase());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/fabric-codes?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -151,7 +152,7 @@ export default function InternalFabricCodes() {
     } catch { /* non-fatal */ }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, countryDebounced, includeInactive]);
   useEffect(() => { void loadVendors(); }, []);
   useEffect(() => { void loadCountries(); }, []);
 
@@ -179,7 +180,6 @@ export default function InternalFabricCodes() {
           placeholder="Search code / name / composition…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 320 }}
         />
         <input
@@ -187,7 +187,6 @@ export default function InternalFabricCodes() {
           placeholder="Country (ISO-2)"
           value={country}
           onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 130 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

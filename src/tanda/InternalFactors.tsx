@@ -10,6 +10,7 @@
 // field inside the address uses SearchableSelect against country_master.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -92,7 +93,7 @@ export default function InternalFactors() {
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Factor | null>(null);
@@ -119,7 +120,7 @@ export default function InternalFactors() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const [fRes, cRes] = await Promise.all([
         fetch(`/api/internal/factors?${params.toString()}`),
@@ -135,7 +136,7 @@ export default function InternalFactors() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   async function del(f: Factor) {
     if (!(await confirmDialog(`Delete factor ${f.code} (${f.name})?`))) return;
@@ -161,7 +162,6 @@ export default function InternalFactors() {
           placeholder="Search code, name, or contact…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 320 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

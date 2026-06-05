@@ -9,6 +9,7 @@
 // vendor / customer / factor address forms.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -69,7 +70,7 @@ export default function InternalCountries() {
   const [rows, setRows] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Country | null>(null);
@@ -96,7 +97,7 @@ export default function InternalCountries() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/countries?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -108,7 +109,7 @@ export default function InternalCountries() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   async function del(c: Country) {
     if (!(await confirmDialog(`Delete country ${c.iso2} (${c.name})?`))) return;
@@ -134,7 +135,6 @@ export default function InternalCountries() {
           placeholder="Search iso2 or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

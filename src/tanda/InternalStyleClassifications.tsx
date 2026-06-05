@@ -9,6 +9,7 @@
 // sub_category values; operators curate the controlled vocabulary here.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -88,7 +89,7 @@ export default function InternalStyleClassifications() {
   const [rows, setRows] = useState<Classification[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Classification | null>(null);
@@ -118,7 +119,7 @@ export default function InternalStyleClassifications() {
     try {
       const params = new URLSearchParams();
       params.set("kind", kind);
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/style-classifications?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -131,7 +132,7 @@ export default function InternalStyleClassifications() {
   }
 
   // Reload on kind / include-inactive change. Search is on Enter / button.
-  useEffect(() => { void load(); }, [kind, includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, kind, includeInactive]);
 
   async function del(row: Classification) {
     if (!(await confirmDialog(`Delete ${row.kind} "${row.name}"?`))) return;
@@ -165,7 +166,6 @@ export default function InternalStyleClassifications() {
           placeholder={`Search ${kindLabel.toLowerCase()} name…`}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

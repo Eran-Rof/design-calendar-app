@@ -11,6 +11,7 @@
 // 2_10_NET30) — operators add edge-case terms here (NET75, special discounts).
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -101,7 +102,7 @@ export default function InternalPaymentTerms() {
   const [rows, setRows] = useState<PaymentTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentTerm | null>(null);
@@ -130,7 +131,7 @@ export default function InternalPaymentTerms() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/payment-terms?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -142,7 +143,7 @@ export default function InternalPaymentTerms() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   async function del(pt: PaymentTerm) {
     if (!(await confirmDialog(`Delete payment term ${pt.code} (${pt.name})?\nWill fail if any vendor / customer / invoice still references it — toggle is_active=false in that case.`))) return;
@@ -176,7 +177,6 @@ export default function InternalPaymentTerms() {
           placeholder="Search code or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>

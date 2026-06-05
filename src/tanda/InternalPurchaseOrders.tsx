@@ -7,6 +7,7 @@
 // PO number is system-assigned on Issue.
 
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
@@ -71,7 +72,7 @@ export default function InternalPurchaseOrders() {
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [vendorFilter, setVendorFilter] = useState("");
-  const [search, setSearch] = useState("");
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch("", 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
 
@@ -91,14 +92,14 @@ export default function InternalPurchaseOrders() {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
       if (vendorFilter) params.set("vendor_id", vendorFilter);
-      if (search.trim()) params.set("q", search.trim());
+      if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
       const r = await fetch(`/api/internal/purchase-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as PO[]);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, vendorFilter]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, vendorFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {});
@@ -141,7 +142,7 @@ export default function InternalPurchaseOrders() {
             options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))]}
             placeholder="All vendors" inputStyle={inputStyle} />
         </div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void load(); }} placeholder="Search PO #…" style={{ ...inputStyle, width: 200 }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO #…" style={{ ...inputStyle, width: 200 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}
