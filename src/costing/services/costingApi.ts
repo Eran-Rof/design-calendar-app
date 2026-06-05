@@ -97,6 +97,17 @@ export async function deleteLine(lineId: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/lines/${lineId}`, { method: "DELETE" }));
 }
 
+// Stage B fork: mark a Sent/Quoted line 'revised' (locked) server-side + close
+// its superseded vendor RFQ. The new Draft copy is created by the caller via
+// upsertLines. 409 if the line isn't Sent/Quoted.
+export async function reviseLine(lineId: string): Promise<{ ok: boolean; revised_line_id: string }> {
+  return json(await fetch(`/api/internal/costing/lines/${lineId}/revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  }));
+}
+
 // ── Vendor quotes ───────────────────────────────────────────────────────────
 
 export async function listQuotes(lineId: string): Promise<CostingLineVendor[]> {

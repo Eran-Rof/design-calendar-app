@@ -261,6 +261,13 @@ export default function VendorRfqDetail() {
               <StatusBadge label={invitation.status[0].toUpperCase() + invitation.status.slice(1)} tone="info" />
               {quote && <StatusBadge label={`Quote ${quote.status}`} tone={quote.status === "awarded" ? "ok" : quote.status === "rejected" ? "danger" : "info"} />}
             </div>
+            {(rfq.status === "closed" || rfq.status === "awarded") && (
+              <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: TH.textSub, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6, padding: "8px 12px" }}>
+                {rfq.status === "awarded"
+                  ? "This RFQ has been awarded — it is now read-only."
+                  : "This RFQ has been closed or superseded by a revised request — it is now read-only."}
+              </div>
+            )}
           </div>
           {/* Operator request: ~25% larger so the key dates/budget read clearly. */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>

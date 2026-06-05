@@ -122,6 +122,20 @@ async function markLinesQuoted(admin, rfqId, opts = {}) {
 }
 
 /**
+ * Stage B fork -> mark a single SOURCE line 'revised' (only from sent|quoted).
+ * 'revised' is NOT terminal: it freezes the old row (its RFQ is now superseded)
+ * while a freshly-forked Draft copy carries the work forward. Best-effort +
+ * idempotent — a line already past sent/quoted (awarded/lost/closed/draft/
+ * already-revised) is skipped by the from-state guard, so re-running is a no-op.
+ *
+ * @returns {Promise<{ moved: string[], skipped: string[] }>}
+ */
+async function markLineRevised(admin, lineId, opts = {}) {
+  if (!lineId) return { moved: [], skipped: [] };
+  return transitionLines(admin, [lineId], "revised", ["sent", "quoted"], { note: "edit_forked", ...opts });
+}
+
+/**
  * award -> mark the awarded lines 'awarded' (from any non-terminal state), then
  * mark their SIBLINGS lost: every OTHER costing line in the SAME project with
  * the SAME style_code that is not already awarded/closed.
@@ -186,12 +200,136 @@ async function markLinesAwardedAndSiblingsLost(admin, awardedLines, opts = {}) {
   return out;
 }
 
+// Terminal-for-the-VENDOR statuses. A vendor's RFQ should lock (read-only) once
+// the costing lines it quotes on can no longer be won by them: awarded (to
+// anyone), lost (a sibling won), or revised (the RFQ was superseded by a forked
+// Draft). 'closed' is the operator's manual terminal close. These differ from
+// the forward-transition TERMINAL set only in that 'revised' is included — for
+// the vendor a revised line is dead even though internally it can still move.
+const VENDOR_LOCK_STATUSES = new Set(["awarded", "lost", "revised", "closed"]);
+
+/**
+ * Propagate costing-line terminal state to the VENDOR-facing RFQs.
+ *
+ * Cardinality (verified): each RFQ is per-vendor — generate-rfqs groups the
+ * selected costing lines by vendor and emits ONE rfq per vendor, with one
+ * rfq_line_items row per costing line (carrying costing_line_id). So an RFQ maps
+ * 1 vendor : N costing lines.
+ *
+ * Rule (per-RFQ, safe): for every RFQ touched by `lineIds`, look at ALL of that
+ * RFQ's rfq_line_items. If EVERY one maps to a costing line in a vendor-lock
+ * state (awarded/lost/revised/closed), the vendor can no longer act on anything
+ * in that RFQ, so we close it (rfqs.status='closed') — which flips the vendor's
+ * canEdit to false and surfaces the read-only banner. RFQs that still have at
+ * least one live (non-terminal) line are LEFT OPEN so the vendor can keep
+ * quoting the lines that remain in play.
+ *
+ * Already-awarded RFQs are left untouched (the award handler owns that status).
+ * Best-effort: logs + swallows; never breaks the caller's flow.
+ *
+ * LIMITATION: locking is per-RFQ, not per-line-within-a-mixed-RFQ. A vendor RFQ
+ * that mixes terminal + live lines stays fully editable (including the dead
+ * lines) until ALL its lines are terminal. In practice generate-rfqs tends to
+ * emit one line per RFQ for costing-driven flows, so mixed RFQs are rare; the
+ * conservative choice avoids ever locking a vendor out of a line they still
+ * legitimately need to quote.
+ *
+ * @returns {Promise<{ closed: string[] }>} rfq ids newly closed.
+ */
+async function lockSupersededVendorRfqs(admin, lineIds, opts = {}) {
+  const out = { closed: [] };
+  const ids = (lineIds || []).filter(Boolean);
+  if (ids.length === 0) return out;
+  try {
+    // 1. RFQs that reference any of these costing lines.
+    const { data: hitItems, error: hitErr } = await admin
+      .from("rfq_line_items")
+      .select("rfq_id, costing_line_id")
+      .in("costing_line_id", ids);
+    if (hitErr) {
+      // Pre-migration DB (no costing_line_id column) → nothing to lock.
+      return out;
+    }
+    const rfqIds = [...new Set((hitItems || []).map((r) => r.rfq_id).filter(Boolean))];
+    if (rfqIds.length === 0) return out;
+
+    // 2. Only consider RFQs that are still live (draft/published). Awarded RFQs
+    //    are owned by the award handler; already-closed RFQs are done.
+    const { data: rfqRows, error: rfqErr } = await admin
+      .from("rfqs")
+      .select("id, status")
+      .in("id", rfqIds);
+    if (rfqErr) return out;
+    const liveRfqIds = (rfqRows || [])
+      .filter((r) => r.status === "draft" || r.status === "published")
+      .map((r) => r.id);
+    if (liveRfqIds.length === 0) return out;
+
+    // 3. ALL line items for those live RFQs (not just the ones we changed) so we
+    //    can test whether the whole RFQ is now terminal.
+    const { data: allItems, error: allErr } = await admin
+      .from("rfq_line_items")
+      .select("rfq_id, costing_line_id")
+      .in("rfq_id", liveRfqIds);
+    if (allErr) return out;
+
+    const allCostingLineIds = [...new Set((allItems || []).map((r) => r.costing_line_id).filter(Boolean))];
+    if (allCostingLineIds.length === 0) return out;
+
+    // 4. Current status of every costing line referenced by those RFQs.
+    const { data: clRows, error: clErr } = await admin
+      .from("costing_lines")
+      .select("id, status")
+      .in("id", allCostingLineIds);
+    if (clErr) return out;
+    const statusByLine = Object.fromEntries((clRows || []).map((r) => [r.id, r.status]));
+
+    // 5. Per RFQ: is EVERY mapped costing line in a vendor-lock state?
+    const itemsByRfq = new Map();
+    for (const it of allItems || []) {
+      if (!it.rfq_id) continue;
+      if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
+      itemsByRfq.get(it.rfq_id).push(it.costing_line_id);
+    }
+    const toClose = [];
+    for (const [rfqId, lineIdsForRfq] of itemsByRfq.entries()) {
+      // Only the costing-line-backed items count; if an RFQ has NO costing-line
+      // items at all we can't reason about it, so skip (leave open).
+      const backed = lineIdsForRfq.filter(Boolean);
+      if (backed.length === 0) continue;
+      const allTerminal = backed.every((lid) => VENDOR_LOCK_STATUSES.has(statusByLine[lid]));
+      if (allTerminal) toClose.push(rfqId);
+    }
+    if (toClose.length === 0) return out;
+
+    const nowIso = new Date().toISOString();
+    const { error: updErr } = await admin
+      .from("rfqs")
+      .update({ status: "closed", updated_at: nowIso })
+      .in("id", toClose)
+      .in("status", ["draft", "published"]); // concurrency guard: never reopen/clobber awarded
+    if (updErr) {
+      // eslint-disable-next-line no-console
+      console.warn(`[costing-status] vendor-rfq close failed: ${updErr.message}`);
+      return out;
+    }
+    out.closed = toClose;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[costing-status] lockSupersededVendorRfqs issue: ${e && e.message ? e.message : String(e)}`);
+  }
+  return out;
+}
+
 export {
   TERMINAL,
+  VENDOR_LOCK_STATUSES,
   recordHistory,
   transitionLines,
   costingLineIdsForRfq,
   markLinesSent,
   markLinesQuoted,
+  markLineRevised,
   markLinesAwardedAndSiblingsLost,
+  lockSupersededVendorRfqs,
 };
