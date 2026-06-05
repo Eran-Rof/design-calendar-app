@@ -108,6 +108,24 @@ export function validateQuery(params) {
   return { data: out };
 }
 
+// Attach account_id (UUID) to each balance-sheet row so the UI can drill into
+// that account's GL detail. The balance_sheet_as_of RPC returns only code/name;
+// we resolve code -> id from gl_accounts for the same entity. Non-fatal: on any
+// error rows pass through unchanged (drill-down simply won't be offered).
+export async function enrichWithAccountIds(admin, entityId, rows) {
+  try {
+    const { data: accts } = await admin
+      .from("gl_accounts")
+      .select("id, code")
+      .eq("entity_id", entityId);
+    if (!accts || accts.length === 0) return rows;
+    const idByCode = new Map(accts.map((a) => [a.code, a.id]));
+    return rows.map((r) => ({ ...r, account_id: idByCode.get(r.code) || null }));
+  } catch {
+    return rows;
+  }
+}
+
 function sortRows(rows) {
   return [...rows].sort((a, b) => {
     const ta = ACCOUNT_TYPE_ORDER[a.account_type] ?? 99;
@@ -148,7 +166,8 @@ export default async function handler(req, res) {
     });
     if (error) return res.status(500).json({ error: error.message });
 
-    const rows = sortRows(data || []);
+    const withIds = await enrichWithAccountIds(admin, entityId, data || []);
+    const rows = sortRows(withIds);
 
     return res.status(200).json({
       basis: v.data.basis,

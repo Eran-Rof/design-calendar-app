@@ -305,6 +305,8 @@ Once `status='posted'`, the JE is immutable by design. PATCH and DELETE on `/api
 
 The Income Statement (P&L) report aggregates posted journal entries from revenue and expense accounts into the three standard sections operators expect on a financial statement. It supports both the **ACCRUAL** and **CASH** books — toggle at the top — and any date range. Default range is current FY (Jan 1) through today.
 
+> **Drill into any account:** click an account row (look for the **↗**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
+
 ### The three sections
 
 1. **Revenue** — every account with `account_type IN ('revenue','contra_revenue')`. Contra-revenue accounts (returns, discounts) display alongside revenue rows but reduce the section total. The footer of this section shows **Net Revenue** = gross revenue minus contra revenue.
@@ -492,6 +494,8 @@ One row per account that has been touched by a posted JE in the window:
 
 Rows are grouped by account type with a per-group subtotal row and one grand-total footer row.
 
+> **Drill into any account:** click an account row (look for the **↗**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
+
 ### Operator workflow
 
 1. Pick **Basis** — `ACCRUAL` for the audited book (recommended default), `CASH` to see only cash-basis posting impact.
@@ -520,9 +524,49 @@ Response: `{ basis, from, to, rows: [...] }` sorted by account code ASC.
 
 ---
 
+## GL account drill-down (click an account on any financial report)
+
+Every financial report that lists GL accounts — **Income Statement**, **Trial Balance**, and **Balance Sheet** — lets you click an account row to open that account's **GL detail** (its underlying posted journal-entry lines) **pre-filtered to exactly the date range and basis the report is showing**. This is the fastest way to answer "what makes up this number?" without leaving the report.
+
+### How to use it
+
+- Account rows that can be drilled show a small **↗** next to the account name and turn into a pointer on hover (a tooltip reads *"Open GL detail for this account"*).
+- **Click** (or **double-click**) the account row. A **GL Detail** modal opens on top of the report.
+- The modal header shows the account **code · name · type**, the **basis** (ACCRUAL / CASH), and the **date range** it is scoped to.
+- The table lists each posted line in the window: **Date, Description, Source, Debit, Credit, Running Balance**, with a totals footer. JE numbers and memos are resolved for you — no raw database IDs appear.
+- Use the **Export** button to download the lines to Excel, or close with **✕** / **Esc** / clicking outside the modal.
+
+### Which date range each report passes through
+
+| Report | Range passed to the GL detail |
+|---|---|
+| **Income Statement** | The report's **From → To** (and the selected basis) |
+| **Trial Balance** | The report's **From → To** (and the selected basis) |
+| **Balance Sheet** | The **year-to-date window** ending at the **as-of** date — i.e. `Jan 1 of the as-of year → as-of date` (and the selected basis). This is the activity that builds up to the balance shown. |
+
+So on the Income Statement, clicking an expense account opens its ledger scoped to the same From/To you were looking at; on the Balance Sheet, clicking an asset opens the year-to-date lines that roll up to that balance.
+
+> Synthetic rows that aren't a single GL account (subtotals, the Balance Sheet's *Current Year Earnings* line) are not clickable — there's no single ledger behind them.
+
+### API surface
+
+`GET /api/internal/gl-account-detail` — served by `GET /api/internal/gl-detail?account_id=<uuid>&from=YYYY-MM-DD&to=YYYY-MM-DD&basis=ACCRUAL|CASH`.
+
+- `account_id` (required) — the account's UUID (resolved by the report; never typed by hand).
+- `from` / `to` (required) — the date window.
+- `basis` (optional, default `ACCRUAL`) — when `CASH` is requested the handler uses the basis-aware `gl_detail_b(account_id, from, to, basis)` RPC; `ACCRUAL` keeps the original `gl_detail` RPC.
+
+Response: `{ account_id, from, to, basis, rows: [{ posting_date, je_id, description, debit_cents, credit_cents, running_balance_cents, source_module, source_id }] }`.
+
+The same ledger is also reachable as a standalone panel from **Accounting → Reports → GL Detail**, where you pick the account and dates manually.
+
+---
+
 ## 📋 Balance Sheet (P5-4)
 
 The Balance Sheet panel renders **assets**, **liabilities**, and **equity** as of a chosen date, in a three-column layout. Available at `Accounting → 📋 Balance Sheet`.
+
+> **Drill into any account:** click an account row (look for the **↗**) to open its GL detail. Because the Balance Sheet is an *as-of* report, the drill-down is scoped to the **year-to-date through the as-of date** (Jan 1 → as-of) on the selected basis — the activity that builds up to the balance shown. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
 ### Controls
 
