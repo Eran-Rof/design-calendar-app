@@ -181,3 +181,17 @@ export const DEFAULT_PRESETS: Preset[] = [
     compute: () => ({ from: "", to: "" }),
   },
 ];
+
+/**
+ * Resolve a preset key to its { from, to } range (YYYY-MM-DD). Looks the key up
+ * in DEFAULT_PRESETS; unknown/aliased keys (e.g. "last30days" → "last_30d")
+ * fall back to a trailing 30-day window so callers always get a usable range.
+ *
+ * (InternalReconciliationDashboard imports this; it was missing, which broke the
+ * production rollup build once #983 pulled that panel into the build graph.)
+ */
+export function computePreset(key: string, today: Date = new Date()): { from: string; to: string } {
+  const p = DEFAULT_PRESETS.find((x) => x.key === key);
+  if (p && p.key !== "custom") return p.compute(today);
+  return { from: iso(addDays(today, -29)), to: iso(today) };
+}
