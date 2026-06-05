@@ -544,6 +544,13 @@ function AdjustmentModal({
           body.unit_cost_cents = null;
         }
       } else {
+        // An adjustment TYPE (or reason) is REQUIRED — block + warn via the
+        // factored warn UI before any POST (#985).
+        if (!adjustmentType.trim()) {
+          notify("Pick an Adjustment Type before saving (add types in the Adjustment Types master).", "error");
+          setSaving(false);
+          return;
+        }
         if (!itemId) throw new Error("Pick an item first");
         if (!glAccountId) throw new Error("Pick a counter GL account");
         if (!reason.trim()) throw new Error("Reason required");
@@ -902,6 +909,9 @@ function MatrixAdjustmentModal({
 
   async function createAll() {
     setErr(null);
+    // An adjustment TYPE (or reason) is REQUIRED — block + warn via the
+    // factored warn UI before any POST (#985).
+    if (!adjustmentType.trim()) { notify("Pick an Adjustment Type before creating adjustments (add types in the Adjustment Types master).", "error"); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
     if (!glAccountId) { setErr("Pick a counter GL account"); return; }
     if (!reason.trim()) { setErr("Reason required"); return; }

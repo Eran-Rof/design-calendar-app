@@ -419,6 +419,8 @@ import r_internal_tax_rules_index from "./internal/tax/rules/index.js";
 import r_internal_tpl_providers_index from "./internal/tpl-providers/index.js";
 import r_internal_tpl_shipments_id from "./internal/tpl-shipments/[id].js";
 import r_internal_tpl_shipments_index from "./internal/tpl-shipments/index.js";
+import r_internal_transfer_reasons_id from "./internal/transfer-reasons/[id].js";
+import r_internal_transfer_reasons_index from "./internal/transfer-reasons/index.js";
 import r_internal_trial_balance_index from "./internal/trial-balance/index.js";
 import r_internal_upc_items_index from "./internal/upc-items/index.js";
 import r_internal_users_access_index from "./internal/users-access/index.js";
@@ -913,6 +915,7 @@ export const ROUTES = [
   { pattern: "/api/internal/prepack-matrices/:id", handler: r_internal_prepack_matrices_id },
   { pattern: "/api/internal/price-list-items/:id", handler: r_internal_price_list_items_id },
   { pattern: "/api/internal/price-promotions/:id", handler: r_internal_price_promotions_id },
+  { pattern: "/api/internal/transfer-reasons/:id", handler: r_internal_transfer_reasons_id },
   { pattern: "/api/internal/bank-recon-runs/:id", handler: r_internal_bank_recon_runs_id },
   { pattern: "/api/internal/customer-master/:id", handler: r_internal_customer_master_id },
   { pattern: "/api/internal/employee-titles/:id", handler: r_internal_employee_titles_id },
@@ -1010,6 +1013,7 @@ export const ROUTES = [
   { pattern: "/api/internal/prepack-matrices", handler: r_internal_prepack_matrices_index },
   { pattern: "/api/internal/price-list-items", handler: r_internal_price_list_items_index },
   { pattern: "/api/internal/price-promotions", handler: r_internal_price_promotions_index },
+  { pattern: "/api/internal/transfer-reasons", handler: r_internal_transfer_reasons_index },
   { pattern: "/api/internal/vendor-scorecard", handler: r_internal_vendor_scorecard_index },
   { pattern: "/api/vendor/ai-extract-invoice", handler: r_vendor_ai_extract_invoice },
   { pattern: "/api/vendor/payment-preference", handler: r_vendor_payment_preference_index },

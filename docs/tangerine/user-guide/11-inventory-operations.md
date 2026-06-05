@@ -18,7 +18,9 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 **Where:** Tangerine top nav → **🔁 Inventory Transfers** (Inventory group).
 
-**Purpose:** records location-to-location movements of inventory. The panel supports two entry paths — a **matrix transfer** (a whole style's color × size grid at once, like the Sales-Order and Adjustment matrix entry) and a **single-variant** transfer — plus the filterable list.
+**Purpose:** records location-to-location movements of inventory. There is one entry point — **+ Add** — which opens a chooser offering two paths: a **Matrix** transfer (a whole style's color × size grid at once, like the Sales-Order and Adjustment matrix entry) or a **Single variant** transfer. The filterable list sits below.
+
+> **Required reason:** every transfer must carry a **Transfer Reason** (single and matrix alike). The reason picker is a searchable dropdown sourced from the **Transfer Reasons master** (Master Data → 🔁 Transfer Reasons), with an inline **"Add new"** option. If you try to save without one, the save is **blocked** and a warning appears — pick or add a reason to continue. The chosen reason name is written into the transfer's notes.
 
 ### What you'll see
 
@@ -41,25 +43,25 @@ Three filter inputs above the table:
 
 Any combination of filters narrows the list. Clear an input to drop that filter.
 
-### ▦ Matrix transfer (recommended)
+### + Add → Matrix (recommended)
 
-Click **▦ Matrix transfer** to open the size-grid entry modal:
+Click **+ Add**, then choose the **Matrix** tile to open the size-grid entry modal:
 
 1. **Pick a FROM location and a TO location** (free-form text — they must differ). The From/To boxes default to whatever you typed in the panel's filter inputs, so set those first to pre-fill.
-2. *(Optional)* type a **Notes** line — it is applied to every transfer row created in this batch.
+2. **Pick a Transfer Reason** (required) — searchable dropdown over the Transfer Reasons master, with inline "Add new". *(Optional)* type a **Notes** line — both apply to every transfer row created in this batch.
 3. **Pick a style** with the searchable dropdown. The panel loads that style's **color × size** grid (× inseam when the style spans multiple inseams). The faint number above each cell is the current on-hand.
 4. **Type a transfer qty into each cell** you want to move. The header counts the cells filled and the total units.
-5. Click **Create N transfer(s)**. Each non-zero cell is resolved to its SKU / `inventory_item_id` (find-or-create, exactly like the Matrix Adjustment) and **one `inventory_transfers` row is created per cell** — same `from_location` / `to_location` / `notes` across the batch.
+5. Click **Create N transfer(s)**. Each non-zero cell is resolved to its SKU / `inventory_item_id` (find-or-create, exactly like the Matrix Adjustment) and **one `inventory_transfers` row is created per cell** — same `from_location` / `to_location` / reason / `notes` across the batch.
 
 This mirrors the **Matrix Adjustment** and **Matrix Sales-Order** entry exactly — one style, one grid, one row per filled cell.
 
-### + Add (single variant)
+### + Add → Single variant
 
-Click **+ Add** for a one-SKU transfer: paste an item UUID, a qty, the From/To locations, and optional notes. This is the secondary path when you only need to move a single variant.
+Click **+ Add**, then choose the **Single variant** tile for a one-SKU transfer: paste an item UUID, a qty, the From/To locations, a **Transfer Reason** (required), and optional notes. This is the secondary path when you only need to move a single variant.
 
 ### Empty state
 
-> *"No transfers logged yet. Use "▦ Matrix transfer" or "+ Add"."*
+> *"No transfers logged yet. Use "+ Add" to log a single-variant or matrix transfer."*
 
 This is the expected state until the first transfer is created.
 
@@ -121,6 +123,8 @@ Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (te
 **+ Add is the single entry point.** Click **+ Add** and a small chooser asks how you want to enter the adjustment — **Single variant** or **Matrix**. (There is no separate top-level Matrix button anymore; matrix entry now lives inside the Add flow.)
 
 In both modes the **Adjustment Type** picker is a searchable dropdown sourced from the configurable **Adjustment Type master** (Master Data → ⚙️ Adjustment Types). The type is a **category / reason for grouping only — it does NOT decide increase vs decrease.** That is governed purely by the sign of the quantity (and the unit cost for increases).
+
+> **Required type:** an adjustment cannot be saved without an Adjustment Type. If the type is empty (e.g. the master has no active types yet), the save is **blocked** and a warning appears — add a type in the Adjustment Types master and pick it to continue. (This does not change the FIFO increase/decrease accounting, which still keys off the quantity sign and unit cost.)
 
 - **Single variant** — the classic one-row modal. Search for one SKU, pick the adjustment type, type a signed `qty_delta`, supply the counter GL account + reason (and a unit cost for positive deltas), and save one draft.
 - **Matrix (recommended for whole styles)** — works exactly like **Sales Order matrix entry** (chapter 27). You pick the adjustment type, counter GL account, and reason **once** for the whole batch, choose a **style** from the searchable picker, and the panel renders that style's **color × size (× inseam)** grid using the same `EditableSizeMatrix` primitive the SO and PO screens use. Type a signed quantity into any cell (negative = decrease / FIFO-consume, positive = increase / new FIFO layer); the faint number above each cell is the current on-hand. For positive cells, fill the per-row **Unit cost (¢)** column (the column header has a "set all" field to stamp one cost across every row).
