@@ -53,6 +53,12 @@ export default function CostingNavBar() {
           RFQs
         </button>
         <button
+          onClick={() => navigate("messages")}
+          style={navBtn(view === "messages")}
+        >
+          Messages
+        </button>
+        <button
           onClick={() => navigate("settings")}
           style={navBtn(view === "settings")}
         >
