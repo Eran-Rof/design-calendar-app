@@ -118,10 +118,13 @@ export async function enrichWithBrandMeta(admin, entityId, rows) {
 
     const enriched = rows.map((r) => {
       const a = byCode.get(r.code);
-      if (!a) return { ...r, brand_id: null, brand_code: null, brand_name: null, parent_code: null, brand_rollup: false, is_brand_child: false };
+      // account_id powers the report's GL-account drill-down (gl-detail RPC
+      // takes a UUID; the RPC rows only carry code/name).
+      if (!a) return { ...r, account_id: null, brand_id: null, brand_code: null, brand_name: null, parent_code: null, brand_rollup: false, is_brand_child: false };
       const brand = a.brand_id ? brandById.get(a.brand_id) : null;
       return {
         ...r,
+        account_id: a.id,
         brand_id: a.brand_id || null,
         brand_code: brand?.code || null,
         brand_name: brand?.name || null,

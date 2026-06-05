@@ -27,11 +27,13 @@ import { Fragment, useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
 
 type ISRow = {
   entity_id: string;
   basis: string;
   account_type: "revenue" | "contra_revenue" | "expense" | string;
+  account_id?: string | null;
   code: string;
   name: string;
   amount_cents: number | string;
@@ -174,9 +176,10 @@ type SectionProps = {
   totalLabel?: string;
   totalColor?: string;
   hideAccountNum: boolean;
+  onDrill: (row: ISRow) => void;
 };
 
-function Section({ title, items, total, open, onToggle, totalLabel, totalColor, hideAccountNum }: SectionProps) {
+function Section({ title, items, total, open, onToggle, totalLabel, totalColor, hideAccountNum, onDrill }: SectionProps) {
   const accountCount = countAccounts(items);
   const codeCell = (code: string, indent = false) =>
     hideAccountNum ? null : (
@@ -217,10 +220,22 @@ function Section({ title, items, total, open, onToggle, totalLabel, totalColor, 
             {items.map((it) => {
               if (it.kind === "row") {
                 const amt = rowAmount(it.row);
+                const drillable = !!it.row.account_id;
                 return (
-                  <tr key={`r-${it.row.account_type}-${it.row.code}`}>
+                  <tr
+                    key={`r-${it.row.account_type}-${it.row.code}`}
+                    onClick={() => onDrill(it.row)}
+                    onDoubleClick={() => onDrill(it.row)}
+                    title={drillable ? "Open GL detail for this account" : undefined}
+                    style={drillable ? { cursor: "pointer" } : undefined}
+                    onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+                  >
                     {codeCell(it.row.code)}
-                    <td style={td}>{it.row.name}</td>
+                    <td style={td}>
+                      {it.row.name}
+                      {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
+                    </td>
                     <td style={{ ...tdNum, color: amt < 0 ? C.danger : C.text }}>{fmtCents(amt)}</td>
                   </tr>
                 );
@@ -237,11 +252,21 @@ function Section({ title, items, total, open, onToggle, totalLabel, totalColor, 
                   </tr>
                   {it.children.map((c) => {
                     const amt = rowAmount(c);
+                    const drillable = !!c.account_id;
                     return (
-                      <tr key={`c-${c.code}`}>
+                      <tr
+                        key={`c-${c.code}`}
+                        onClick={() => onDrill(c)}
+                        onDoubleClick={() => onDrill(c)}
+                        title={drillable ? "Open GL detail for this account" : undefined}
+                        style={drillable ? { cursor: "pointer" } : undefined}
+                        onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+                      >
                         {codeCell(c.code, true)}
                         <td style={{ ...td, paddingLeft: hideAccountNum ? 28 : 10, color: C.textSub }}>
                           {c.brand_name || c.name}
+                          {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
                         </td>
                         <td style={{ ...tdNum, color: amt < 0 ? C.danger : C.text }}>{fmtCents(amt)}</td>
                       </tr>
@@ -286,6 +311,21 @@ export default function InternalIncomeStatement() {
   const [openReturns, setOpenReturns] = useState(true);
   const [openCogs, setOpenCogs] = useState(true);
   const [openOpex, setOpenOpex] = useState(true);
+  const [drill, setDrill] = useState<GLDetailTarget | null>(null);
+
+  // Open the GL-account drill-down scoped to the report's current from/to/basis.
+  function openDrill(r: ISRow) {
+    if (!r.account_id) return;
+    setDrill({
+      accountId: r.account_id,
+      code: r.code,
+      name: r.name,
+      accountType: r.account_type,
+      from,
+      to,
+      basis,
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -457,6 +497,10 @@ export default function InternalIncomeStatement() {
         />
       </div>
 
+      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+        Tip: click any account row to open its GL detail (↗) for the selected range and basis.
+      </div>
+
       {err && (
         <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
           Error: {err}
@@ -475,6 +519,7 @@ export default function InternalIncomeStatement() {
             open={openRev}
             onToggle={() => setOpenRev((v) => !v)}
             hideAccountNum={hideAccountNum}
+            onDrill={openDrill}
           />
           {dilutionRows.length > 0 && (
             <Section
@@ -486,6 +531,8 @@ export default function InternalIncomeStatement() {
               open={openDilution}
               onToggle={() => setOpenDilution((v) => !v)}
               hideAccountNum={hideAccountNum}
+              onDrill={openDrill}
+            onDrill={openDrill}
             />
           )}
           {contraRows.length > 0 && (
@@ -498,6 +545,8 @@ export default function InternalIncomeStatement() {
               open={openReturns}
               onToggle={() => setOpenReturns((v) => !v)}
               hideAccountNum={hideAccountNum}
+              onDrill={openDrill}
+            onDrill={openDrill}
             />
           )}
           {/* Net Revenue bar = Revenue − Dilution − Returns. */}
@@ -513,6 +562,7 @@ export default function InternalIncomeStatement() {
             open={openCogs}
             onToggle={() => setOpenCogs((v) => !v)}
             hideAccountNum={hideAccountNum}
+            onDrill={openDrill}
           />
           <Section
             title="Operating Expenses"
@@ -522,6 +572,7 @@ export default function InternalIncomeStatement() {
             open={openOpex}
             onToggle={() => setOpenOpex((v) => !v)}
             hideAccountNum={hideAccountNum}
+            onDrill={openDrill}
           />
 
           {/* Footer subtotals — Gross Margin, Operating Income, Net Income. */}
@@ -607,6 +658,8 @@ export default function InternalIncomeStatement() {
           </div>
         </>
       )}
+
+      {drill && <GLDetailModal target={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }
