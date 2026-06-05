@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
+import { RfqQuotesPanel, RfqMessageThread, type RfqTheme } from "../../tanda/rfq/RfqQuotesAndMessages";
 import { getRfq, updateRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
 import { appConfirm } from "../../utils/theme";
@@ -22,6 +23,15 @@ import { useCostingStore } from "../store/costingStore";
 import type { RfqDetail, RfqListRow, RfqPatch, RfqStatus, RfqLineItem, RfqInvitation } from "../types";
 
 const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "closed", "awarded"];
+
+// Costing-module palette for the shared RFQ quotes + messages components.
+// Matches the dark tokens used throughout RfqEditView (page #0F172A, panels
+// #1E293B, borders #334155) with the costing module's blue accent (#60A5FA).
+const COSTING_RFQ_THEME: RfqTheme = {
+  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  text: "#E2E8F0", textMuted: "#94A3B8", textSub: "#CBD5E1",
+  primary: "#60A5FA", success: "#10B981", warn: "#F59E0B", danger: "#F87171",
+};
 
 const UNDO_LIMIT = 4;
 
@@ -457,6 +467,27 @@ export default function RfqEditView() {
             <div style={{ marginTop: 6, color: "#64748B", fontSize: 11, fontStyle: "italic" }}>
               Line items are read-only here — edit them back in the source costing project and regenerate the RFQ.
             </div>
+          </div>
+
+          {/* Vendor quote comparison — submitted quotes with vendor notes
+              (quote-level + per-line, via the 📝 expander). Display-only here;
+              awarding is driven by the Award button in the header above. */}
+          <div style={{ marginTop: 24 }}>
+            <RfqQuotesPanel
+              rfqId={detail.rfq.id}
+              theme={COSTING_RFQ_THEME}
+              lineLabel={(lineItemId) => {
+                const li = items.find((x) => x.id === lineItemId);
+                return li ? `#${li.line_index} ${li.description}` : "Line";
+              }}
+            />
+          </div>
+
+          {/* Internal RFQ message thread — read vendor messages and reply as
+              "Ring of Fire". Same /api/internal/rfqs/:id/messages feed as the
+              Tanda RFQ detail. */}
+          <div style={{ maxWidth: 1080 }}>
+            <RfqMessageThread rfqId={detail.rfq.id} theme={COSTING_RFQ_THEME} />
           </div>
         </>
       )}
