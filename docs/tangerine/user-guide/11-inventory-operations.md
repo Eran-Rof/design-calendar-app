@@ -106,6 +106,16 @@ Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (te
 **Where:** Tangerine top nav → **📐 Inventory Adjustments** (Inventory group).
 
 **Purpose:** records ad-hoc inventory deltas (damage, shrinkage, found, correction, write-off, return-to-vendor) and posts them to the GL plus the FIFO ledger.
+
+### Entry modes
+
+There are two ways to create adjustment drafts:
+
+- **+ Add (single variant)** — the classic one-row modal. Search for one SKU, pick the adjustment type, type a signed `qty_delta`, supply the counter GL account + reason (and a unit cost for positive deltas), and save one draft.
+- **▦ Matrix adjustment (recommended for whole styles)** — works exactly like **Sales Order matrix entry** (chapter 27). You pick the adjustment type, counter GL account, and reason **once** for the whole batch, choose a **style** from the searchable picker, and the panel renders that style's **color × size (× inseam)** grid using the same `EditableSizeMatrix` primitive the SO and PO screens use. Type a signed quantity into any cell (negative = decrease / FIFO-consume, positive = increase / new FIFO layer); the faint number above each cell is the current on-hand. For positive cells, fill the per-row **Unit cost (¢)** column (the column header has a "set all" field to stamp one cost across every row).
+
+  On **Create adjustments**, each non-zero cell is resolved to its SKU — reusing the existing `ip_item_master` row when the cell already maps to one, otherwise find-or-create via `POST /api/internal/style-matrix/resolve-sku` (the same resolver Sales Order entry uses) — and one draft is POSTed to the standard `POST /api/internal/inventory-adjustments` endpoint per cell. The batch-level type / counter account / reason (and brand pool for increases) apply to every created draft. Drafts are then reviewed and posted individually like any other adjustment.
+
 ## 11.4 Cycle Counts
 
 **Where:** Tangerine top nav → **📋 Cycle Counts** (Inventory group).
