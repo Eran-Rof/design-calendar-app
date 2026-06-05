@@ -24,6 +24,7 @@ import {
   linkPlanningVendor,
 } from "../services";
 import type { TangerinePoResult, TangerineVendorSuggestion } from "../services/tangerinePoService";
+import type { ExecutionExportNameMaps } from "../services";
 
 // Deep-link target for the Tangerine native PO panel (Procurement → Purchase
 // Orders). Planning runs at /planning, so created POs open in a new tab.
@@ -75,12 +76,14 @@ export interface ExecutionBatchDetailProps {
   run: IpPlanningRun | null;
   items: IpItem[];
   categories: IpCategory[];
+  // id → name maps so the xlsx export shows vendor/customer/channel names, not UUIDs.
+  nameMaps?: ExecutionExportNameMaps;
   onChange: () => Promise<void> | void;
   onToast: (t: ToastMessage) => void;
 }
 
 export default function ExecutionBatchDetail({
-  batch, actions, writebackConfig, run, items, categories, onChange, onToast,
+  batch, actions, writebackConfig, run, items, categories, nameMaps, onChange, onToast,
 }: ExecutionBatchDetailProps) {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<WritebackResult[]>([]);
@@ -147,7 +150,7 @@ export default function ExecutionBatchDetail({
     if (!run) { onToast({ text: "Run not found", kind: "error" }); return; }
     setBusy(true);
     try {
-      await exportExecutionBatch({ batch, actions, run, items, categories });
+      await exportExecutionBatch({ batch, actions, run, items, categories, names: nameMaps });
       // Move to exported status if we were approved.
       if (batch.status === "approved") {
         await transitionBatch({ batch, to: "exported", message: "xlsx exported" });
