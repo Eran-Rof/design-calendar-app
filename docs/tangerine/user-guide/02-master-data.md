@@ -133,6 +133,29 @@ The master simply **curates the picklist** used by the **Inventory Adjustments**
 
 Deleting an adjustment type is a hard delete, but it is **rejected (409)** if any inventory adjustment is still tagged with that type name — reassign those adjustments first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## 🔁 Transfer Reasons
+
+Find it under **Master Data → Transfer Reasons** (`/tangerine?m=transfer_reason_master`). A transfer reason is a **category / reason** an inventory transfer (location-to-location move) can be tagged with — e.g. `Replenishment`, `Rebalance`, `Damage Move`, `Return to Warehouse`, `Cycle-Count Correction`. The Inventory Transfers panel sources its reason picker from here, and a reason is **required** on every transfer.
+
+### What a transfer reason row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | Server-generated, read-only `XFRR-NNNNN`. Allocated on save; you never type it. |
+| **Name** | The label that appears in the Inventory Transfers reason picker, e.g. `Replenishment`. Required. |
+| **Sort order** | Optional integer that orders the picker (low to high), then code as a tie-breaker. |
+| **Active** | Inactive reasons drop out of the transfer picker but stay in the table (toggle **Show inactive** to see them). |
+
+### How it relates to Inventory Transfers — and what it does NOT do
+
+The master simply **curates the picklist** used by the **Inventory Transfers** panel (Inventory → Transfers). The chosen reason **name** is captured in the transfer's free-text `notes` — there is no foreign key, so the change is backward-compatible. The reason is **informational only — a category for grouping and reporting.** It does **not** drive any accounting.
+
+You can also **add a new reason inline** from either transfer entry modal: type a name into the reason picker and choose **"Add new"** — it is created in this master immediately and selected.
+
+### Delete protection
+
+Deleting a transfer reason is a hard delete, but it is **rejected (409)** if any inventory transfer still references that reason name — reassign those transfers first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏬 Warehouse Master
 
 Find it under **Master Data → Warehouses** (`/tangerine?m=warehouse_master`). A warehouse is an operator-owned stock location — e.g. `Main Warehouse`. This panel curates those locations so inventory transfers, adjustments, and FIFO layers all point at a consistent list.

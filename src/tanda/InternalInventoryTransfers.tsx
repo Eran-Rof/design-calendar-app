@@ -24,6 +24,73 @@ import type { EditableMatrixRow } from "../shared/matrix";
 import { notify } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
+// ─────────────────────────────────────────────────────────────────────────
+// Transfer Reason picker (transfer_reason_master, #985). A SearchableSelect
+// over /api/internal/transfer-reasons with inline add-new. Shared by both the
+// single-variant and matrix entry modals: a transfer reason is REQUIRED on
+// every transfer (the chosen reason NAME flows into the transfer's notes), so
+// the save is blocked + warned when none is picked.
+// ─────────────────────────────────────────────────────────────────────────
+type TransferReason = { id: string; code: string; name: string; is_active: boolean };
+
+function useTransferReasons() {
+  const [reasons, setReasons] = useState<TransferReason[]>([]);
+  async function reload() {
+    try {
+      const r = await fetch(`/api/internal/transfer-reasons`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (Array.isArray(data)) setReasons(data as TransferReason[]);
+    } catch { /* non-fatal */ }
+  }
+  useEffect(() => { void reload(); }, []);
+  // Create a new reason from a typed query; returns the created NAME (or null).
+  async function addReason(query: string): Promise<string | null> {
+    const name = query.trim();
+    if (!name) return null;
+    try {
+      const r = await fetch(`/api/internal/transfer-reasons`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(`Could not add reason: ${out.error || r.status}`, "error"); return null; }
+      await reload();
+      return (out.name as string) || name;
+    } catch (e) {
+      notify(`Could not add reason: ${(e as Error).message}`, "error");
+      return null;
+    }
+  }
+  return { reasons, addReason };
+}
+
+function TransferReasonPicker({
+  reasons, value, onChange, onAddNew,
+}: {
+  reasons: TransferReason[];
+  value: string;
+  onChange: (v: string) => void;
+  onAddNew: (query: string) => void;
+}) {
+  return (
+    <SearchableSelect
+      value={value || null}
+      onChange={(v) => onChange(v || "")}
+      options={reasons.map((t) => ({
+        value: t.name,
+        label: t.name,
+        searchHaystack: `${t.code} ${t.name}`,
+      }))}
+      placeholder="Search transfer reason…"
+      emptyText="No transfer reasons — type one and choose Add new"
+      onAddNew={onAddNew}
+      addNewLabel={(q) => `+ Add "${q}" as a new transfer reason`}
+    />
+  );
+}
+
 // Universal column-visibility registry for this panel (operator ask #1).
 const INV_XFER_TABLE_KEY = "tangerine:inventorytransfers:columns";
 const INV_XFER_COLUMNS: ColumnDef[] = [
@@ -94,7 +161,9 @@ export default function InternalInventoryTransfers() {
   const [fromLoc, setFromLoc] = useState("");
   const [toLoc, setToLoc] = useState("");
 
-  // Entry modals.
+  // Entry modals. "+ Add" opens a chooser that routes to single / matrix
+  // (mirrors the #974 Adjustments AddModeChooser).
+  const [addChooserOpen, setAddChooserOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
 
@@ -146,19 +215,12 @@ export default function InternalInventoryTransfers() {
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Inventory Transfers</h1>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
-          Location-to-location moves. Use the size grid (Matrix transfer) or a single variant.
+          Location-to-location moves. Use "+ Add" to pick a single variant or a size-grid (matrix) transfer.
         </span>
         <button
           type="button"
-          style={{ ...btnSecondary, marginLeft: "auto" }}
-          onClick={() => setMatrixOpen(true)}
-        >
-          ▦ Matrix transfer
-        </button>
-        <button
-          type="button"
-          style={btnPrimary}
-          onClick={() => setAddOpen(true)}
+          style={{ ...btnPrimary, marginLeft: "auto" }}
+          onClick={() => setAddChooserOpen(true)}
         >
           + Add
         </button>
@@ -234,7 +296,7 @@ export default function InternalInventoryTransfers() {
             {!loading && rows.length === 0 && (
               <tr><td style={td} colSpan={6}>
                 <span style={{ color: C.textMuted }}>
-                  No transfers logged yet. Use "▦ Matrix transfer" or "+ Add".
+                  No transfers logged yet. Use "+ Add" to log a single-variant or matrix transfer.
                 </span>
               </td></tr>
             )}
@@ -251,6 +313,17 @@ export default function InternalInventoryTransfers() {
           </tbody>
         </table>
       </div>
+
+      {addChooserOpen && (
+        <AddModeChooser
+          onPick={(mode) => {
+            setAddChooserOpen(false);
+            if (mode === "single") setAddOpen(true);
+            else setMatrixOpen(true);
+          }}
+          onClose={() => setAddChooserOpen(false)}
+        />
+      )}
 
       {addOpen && (
         <SingleTransferModal
@@ -274,6 +347,48 @@ export default function InternalInventoryTransfers() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Add-mode chooser — the single "+ Add" entry point. The operator picks
+// whether to add a Single variant transfer or a Matrix (color × size) batch.
+// Mirrors the #974 Adjustments AddModeChooser exactly.
+// ─────────────────────────────────────────────────────────────────────────
+function AddModeChooser({
+  onPick, onClose,
+}: {
+  onPick: (mode: "single" | "matrix") => void;
+  onClose: () => void;
+}) {
+  const tile: React.CSSProperties = {
+    flex: 1, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+    padding: 20, cursor: "pointer", textAlign: "center", color: C.text,
+  };
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, width: "min(480px, 95vw)", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>New Inventory Transfer</h2>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Choose how to enter this transfer.
+        </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <button type="button" style={tile} onClick={() => onPick("single")}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>＋</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Single variant</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>One SKU, one qty.</div>
+          </button>
+          <button type="button" style={tile} onClick={() => onPick("matrix")}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>▦</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Matrix</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>Color × size grid; one transfer per non-zero cell.</div>
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button type="button" style={btnSecondary} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Single-variant transfer — one SKU, one qty. Secondary entry path.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -289,13 +404,17 @@ function SingleTransferModal({
   const [qty, setQty] = useState<string>("1");
   const [fromLoc, setFromLoc] = useState(defaultFrom);
   const [toLoc, setToLoc] = useState(defaultTo);
+  const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const { reasons, addReason } = useTransferReasons();
 
   async function save() {
     setErr(null);
     const qtyNum = Number(qty);
+    // A transfer reason is REQUIRED — block + warn via the factored warn UI.
+    if (!reason.trim()) { notify("Pick a Transfer Reason before saving (or add a new one).", "error"); return; }
     if (!itemId.trim()) { setErr("Item UUID is required"); return; }
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) { setErr("Qty must be a positive number"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
@@ -303,13 +422,16 @@ function SingleTransferModal({
     if (fromLoc.trim() === toLoc.trim()) { setErr("To location must differ from From location"); return; }
     setSaving(true);
     try {
+      // Persist the chosen reason into notes (the reason flows into the
+      // transfer's free-text notes; any extra notes are appended).
+      const combinedNotes = [reason.trim(), notes.trim()].filter(Boolean).join(" — ");
       const body: Record<string, unknown> = {
         item_id: itemId.trim(),
         qty: qtyNum,
         from_location: fromLoc.trim(),
         to_location: toLoc.trim(),
       };
-      if (notes.trim()) body.notes = notes.trim();
+      if (combinedNotes) body.notes = combinedNotes;
       const actorUid = getCachedAuthUserId();
       if (actorUid) body.created_by_user_id = actorUid;
       const r = await fetch(`/api/internal/inventory-transfers`, {
@@ -367,6 +489,19 @@ function SingleTransferModal({
           <div style={{ flex: 1 }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
             <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+          </div>
+        </div>
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Transfer Reason *</label>
+        <div style={{ marginBottom: 12 }}>
+          <TransferReasonPicker
+            reasons={reasons}
+            value={reason}
+            onChange={setReason}
+            onAddNew={(q) => { void addReason(q).then((name) => { if (name) setReason(name); }); }}
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Required. Curate the list in the Transfer Reasons master, or type one and choose "Add new".
           </div>
         </div>
 
@@ -437,7 +572,9 @@ function MatrixTransferModal({
   // Batch-level fields (applied to every created transfer).
   const [fromLoc, setFromLoc] = useState(defaultFrom);
   const [toLoc, setToLoc] = useState(defaultTo);
+  const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
+  const { reasons, addReason } = useTransferReasons();
 
   // Style picker.
   const [styleOpts, setStyleOpts] = useState<StyleOption[]>([]);
@@ -548,6 +685,8 @@ function MatrixTransferModal({
 
   async function createAll() {
     setErr(null);
+    // A transfer reason is REQUIRED — block + warn via the factored warn UI.
+    if (!reason.trim()) { notify("Pick a Transfer Reason before creating transfers (or add a new one).", "error"); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
     if (!toLoc.trim()) { setErr("To location is required"); return; }
@@ -584,13 +723,14 @@ function MatrixTransferModal({
           itemId = out.id as string;
         }
         // Create one transfer row via the create endpoint.
+        const combinedNotes = [reason.trim(), notes.trim()].filter(Boolean).join(" — ");
         const body: Record<string, unknown> = {
           item_id: itemId,
           qty,
           from_location: fromLoc.trim(),
           to_location: toLoc.trim(),
         };
-        if (notes.trim()) body.notes = notes.trim();
+        if (combinedNotes) body.notes = combinedNotes;
         if (actorUid) body.created_by_user_id = actorUid;
         const rc = await fetch(`/api/internal/inventory-transfers`, {
           method: "POST",
@@ -659,6 +799,19 @@ function MatrixTransferModal({
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Applies to every transfer in this batch"
             />
+          </div>
+        </div>
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Transfer Reason *</label>
+        <div style={{ marginBottom: 12 }}>
+          <TransferReasonPicker
+            reasons={reasons}
+            value={reason}
+            onChange={setReason}
+            onAddNew={(q) => { void addReason(q).then((name) => { if (name) setReason(name); }); }}
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Required — applies to every transfer in this batch. Curate the list in the Transfer Reasons master, or type one and choose "Add new".
           </div>
         </div>
 
