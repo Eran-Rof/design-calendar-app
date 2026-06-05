@@ -22,6 +22,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../../shared/documents/DocumentAttachmentList";
 import RowHistory from "./RowHistory";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 
 // Minimal seed the modal needs before its own fetch resolves. Both the JE list
 // (full JE row) and the GL-detail line (je_id + description) can satisfy this.
@@ -346,15 +347,15 @@ export default function JEDetailModal({
                     <div>
                       <span style={{ color: jeStatusColor(a.status === "approved" ? "posted" : a.status === "rejected" ? "reversed" : "draft"), fontWeight: 600 }}>● {a.status}</span>
                       <span style={{ color: C.textMuted, marginLeft: 8 }}>
-                        {a.kind} · created {new Date(a.created_at).toLocaleDateString()}
-                        {a.final_decided_at ? ` · decided ${new Date(a.final_decided_at).toLocaleDateString()}` : ""}
+                        {a.kind} · created {fmtDateDisplay(a.created_at)}
+                        {a.final_decided_at ? ` · decided ${fmtDateDisplay(a.final_decided_at)}` : ""}
                       </span>
                     </div>
                     {(a.steps || []).length > 0 && (
                       <div style={{ marginTop: 4, color: C.textSub, fontSize: 11 }}>
                         {a.steps.map((s) => (
                           <div key={s.id}>
-                            step {s.step_order} ({s.mode} / {s.role_required}) — {s.fulfilled_at ? `fulfilled ${new Date(s.fulfilled_at).toLocaleDateString()}` : "pending"}
+                            step {s.step_order} ({s.mode} / {s.role_required}) — {s.fulfilled_at ? `fulfilled ${fmtDateDisplay(s.fulfilled_at)}` : "pending"}
                             {s.notes ? ` — ${s.notes}` : ""}
                           </div>
                         ))}

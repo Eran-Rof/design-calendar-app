@@ -16,6 +16,7 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
 // Universal column-visibility registry for this panel (operator ask #1).
@@ -102,12 +103,7 @@ const modalCard: React.CSSProperties = {
   padding: 24, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toISOString().slice(0, 10);
-}
+const fmtDate = fmtDateDisplay;
 
 function fmtMoneyCents(cents: number | null): string {
   if (cents == null) return "-";

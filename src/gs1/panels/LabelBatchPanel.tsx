@@ -11,6 +11,7 @@ import {
   DEFAULT_GTIN_TEMPLATE, DEFAULT_SSCC_TEMPLATE,
 } from "../services/labelGeneratorService";
 import type { LabelMode, LabelTemplate } from "../types";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -271,7 +272,7 @@ export default function LabelBatchPanel() {
                   }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{b.batch_name}</div>
                   <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 2 }}>
-                    {new Date(b.generated_at).toLocaleDateString()} &nbsp;·&nbsp;
+                    {fmtDateDisplay(b.generated_at)} &nbsp;·&nbsp;
                     <span style={{ color: b.status === "printed" ? "#276749" : TH.textMuted }}>{b.status}</span>
                   </div>
                 </div>
