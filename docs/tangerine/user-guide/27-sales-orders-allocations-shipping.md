@@ -166,6 +166,8 @@ Style · Color   (on-hand · reserved · avail · demand)
        └─ competing SO lines  (customer · priority · ordered · allocated · open)
 ```
 
+The demand rows are grouped under a **per-SO sub-header** showing **SO # · Customer · Start Ship · Cancel**. The **SO #** is a link (dotted underline + ↗): clicking it jumps to **🛒 Sales Orders** focused on that order — `?m=sales_orders&so=<SO#>` seeds the SO search box, so you land pre-filtered to it. This is the reverse of the SO modal's **📊 Allocations** drill, which brings you here focused on that same order.
+
 **Priority tiers** (the auto-allocate order, mirrored in the row badges):
 
 | Tier | Badge | Rule |
@@ -205,7 +207,9 @@ After applying, a **summary popup** reports how many lines were allocated, the u
 2. a non-empty `factor_reference`, and
 3. the resulting SO allocated dollars (`Σ qty_allocated × unit_price_cents` across live lines) **≤ `factor_approved_cents`**.
 
-Anything that fails is returned in `skipped[]` with a reason (e.g. `factor approved $X < allocated $Y`). The RPC also caps every increase by the running per-item available pool (so a batch can't over-commit one SKU), clamps each target to `[qty_shipped, qty_ordered]`, and recomputes each touched line + SO header status (`allocated` ⇔ every live line full).
+Anything that fails is returned in `skipped[]` with a reason (e.g. `factor approved $X < allocated $Y`). The RPC also caps every increase by the running per-item available pool (so a batch can't over-commit one SKU), clamps each target to `[qty_shipped, qty_ordered]`, and recomputes each touched line + SO header status.
+
+> **SO header flips to `allocated` on ANY allocation (PR #1005).** Through the Workbench (`apply_allocations`), as soon as a `confirmed` SO carries **any** allocated quantity (even a partial fill of a single line) its header moves to **`allocated`** — partial allocation is still "allocated / in progress". Releasing **all** allocation back to zero across the SO's live lines reverts it to `confirmed`. Orders already at `fulfilling` / `shipped` / `invoiced` / `closed` are never downgraded. (The per-SO **📦 Allocate stock** button — Surface A, a different RPC — still only flips to `allocated` on a *full* fill of every line; partial fills there leave it `confirmed`.) The `allocated` status shows as a violet badge in the Sales Orders list and is selectable in its status filter.
 
 ---
 
