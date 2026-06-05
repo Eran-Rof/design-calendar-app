@@ -229,7 +229,11 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/procurement/broker-invoices", label: "Broker Invoices", app: "tanda", route: "/tangerine?m=broker_invoices", group: "Procurement", icon: "🚢" },
   { key: "tanda/procurement/three-way-match", label: "3-Way Match", app: "tanda", route: "/tangerine?m=three_way_match", group: "Procurement", icon: "⚖️" },
   { key: "tanda/procurement/recon", label: "Procurement Recon", app: "tanda", route: "/tangerine?m=procurement_recon", group: "Procurement", icon: "🧮" },
-  { key: "tanda/procurement/edi",        label: "EDI",               app: "tanda", route: "/tangerine?m=edi",               group: "Procurement", icon: "🔌" },
+  // EDI restructured into a Master-Data sub-menu: Vendors / Customers / Settings.
+  // The existing vendor X12 panel keeps route m=edi, relabelled "Vendors".
+  { key: "tanda/edi/vendors",   label: "EDI Vendors",   app: "tanda", route: "/tangerine?m=edi",           group: "EDI", icon: "🏭" },
+  { key: "tanda/edi/customers", label: "EDI Customers", app: "tanda", route: "/tangerine?m=edi_customers", group: "EDI", icon: "🤝" },
+  { key: "tanda/edi/settings",  label: "EDI Settings",  app: "tanda", route: "/tangerine?m=edi_settings",  group: "EDI", icon: "⚙️" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
   { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Master Data", icon: "📦" },
   { key: "tanda/inventory/3pl",          label: "3PL",               app: "tanda", route: "/tangerine?m=three_pl",          group: "Inventory", icon: "🚚" },
@@ -350,4 +354,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 17;
+export const MENU_KEYS_VERSION = 18;

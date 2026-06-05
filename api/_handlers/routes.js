@@ -217,6 +217,9 @@ import r_internal_edi_messages_index from "./internal/edi-messages/index.js";
 import r_internal_edi_partners_index from "./internal/edi-partners/index.js";
 import r_internal_edi_vendor_id_messages from "./internal/edi/[vendor_id]/messages.js";
 import r_internal_edi_vendor_id_send from "./internal/edi/[vendor_id]/send.js";
+import r_internal_edi_customer_partners_id from "./internal/edi/customer-partners/[id].js";
+import r_internal_edi_customer_partners_index from "./internal/edi/customer-partners/index.js";
+import r_internal_edi_settings_index from "./internal/edi/settings/index.js";
 import r_internal_employee_departments_id from "./internal/employee-departments/[id].js";
 import r_internal_employee_departments_index from "./internal/employee-departments/index.js";
 import r_internal_employee_titles_id from "./internal/employee-titles/[id].js";
@@ -696,6 +699,7 @@ export const ROUTES = [
   { pattern: "/api/internal/notifications/:id/mark-read", handler: r_internal_notifications_mark_read },
   { pattern: "/api/internal/sales-reps/:id/assignments", handler: r_internal_sales_reps_id_assignments },
   { pattern: "/api/internal/shopify/process-refund/:id", handler: r_internal_shopify_process_refund_id },
+  { pattern: "/api/internal/edi/customer-partners/:id", handler: r_internal_edi_customer_partners_id },
   { pattern: "/api/internal/sales-orders/:id/allocate", handler: r_internal_sales_orders_allocate },
   { pattern: "/api/internal/sustainability/:id/review", handler: r_internal_sustainability_id_review },
   { pattern: "/api/vendor/onboarding/steps/:step_name", handler: r_vendor_onboarding_steps_step_name },
@@ -797,6 +801,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/mobile/deregister-device", handler: r_vendor_mobile_deregister_device },
   { pattern: "/api/internal/bank-feeds/csv-upload", handler: r_internal_bank_feeds_csv_upload },
   { pattern: "/api/internal/bank-feeds/link-token", handler: r_internal_bank_feeds_link_token },
+  { pattern: "/api/internal/edi/customer-partners", handler: r_internal_edi_customer_partners_index },
   { pattern: "/api/internal/marketplace/benchmark", handler: r_internal_marketplace_benchmark },
   { pattern: "/api/internal/marketplace/inquiries", handler: r_internal_marketplace_inquiries },
   { pattern: "/api/internal/messages/unread-count", handler: r_internal_messages_unread_count },
@@ -891,6 +896,7 @@ export const ROUTES = [
   { pattern: "/api/internal/analytics/fx", handler: r_internal_analytics_fx },
   { pattern: "/api/internal/bulk/process", handler: r_internal_bulk_process },
   { pattern: "/api/internal/costing/rfqs", handler: r_internal_costing_rfqs_index },
+  { pattern: "/api/internal/edi/settings", handler: r_internal_edi_settings_index },
   { pattern: "/api/internal/recon/run-ap", handler: r_internal_recon_run_ap },
   { pattern: "/api/internal/recon/run-ar", handler: r_internal_recon_run_ar },
   { pattern: "/api/internal/recon/run-gl", handler: r_internal_recon_run_gl },
