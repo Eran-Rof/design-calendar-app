@@ -138,6 +138,38 @@ export default function RfqListView() {
     );
   };
 
+  // Bulk "Send to Vendor" — publish all selected RFQs at once (publish + notify
+  // their invited vendors). Idempotent server-side, so re-sending an already-
+  // published RFQ is fine.
+  const onBulkSend = () => {
+    const ids = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+    if (ids.length === 0) return;
+    appConfirm(
+      `Send ${ids.length} RFQ${ids.length === 1 ? "" : "s"} to their invited vendors? This publishes each and notifies the vendor(s).`,
+      `Send ${ids.length}`,
+      async () => {
+        setSending((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; });
+        const failed: string[] = [];
+        let notified = 0;
+        await Promise.all(
+          ids.map(async (id) => {
+            try { const r = await publishRfq(id); notified += r.notified || 0; }
+            catch { failed.push(id); }
+          }),
+        );
+        const sent = new Set(ids.filter((id) => !failed.includes(id)));
+        setRows((prev) => prev.map((x) => (sent.has(x.id) ? { ...x, status: "published" } : x)));
+        setSending((prev) => { const next = new Set(prev); ids.forEach((id) => next.delete(id)); return next; });
+        setSelected(new Set());
+        if (failed.length === 0) {
+          setNotice(`Sent ${ids.length} RFQ${ids.length === 1 ? "" : "s"} — ${notified} vendor notification${notified === 1 ? "" : "s"} sent.`, "info");
+        } else {
+          setNotice(`Sent ${sent.size} of ${ids.length}; ${failed.length} failed.`, "error");
+        }
+      },
+    );
+  };
+
   // "Send to Vendor" — publish + notify the invited vendor(s). Idempotent on
   // the server, so the same action re-sends on an already-published RFQ.
   const onSend = (r: RfqListRow) => {
@@ -225,17 +257,29 @@ export default function RfqListView() {
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         {selected.size > 0 && (
-          <button
-            onClick={onBulkDelete}
-            title="Delete all selected RFQs (with confirmation)"
-            style={{
-              marginLeft: "auto",
-              background: "#7F1D1D", color: "#FEE2E2",
-              border: "1px solid #B91C1C", borderRadius: 4,
-              padding: "6px 12px", fontSize: 12, fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >Delete {selected.size} selected</button>
+          <>
+            <button
+              onClick={onBulkSend}
+              title="Send all selected RFQs to their invited vendors (publish + notify)"
+              style={{
+                marginLeft: "auto",
+                background: "#1E3A8A", color: "#DBEAFE",
+                border: "1px solid #3B82F6", borderRadius: 4,
+                padding: "6px 12px", fontSize: 12, fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >Send {selected.size} selected</button>
+            <button
+              onClick={onBulkDelete}
+              title="Delete all selected RFQs (with confirmation)"
+              style={{
+                background: "#7F1D1D", color: "#FEE2E2",
+                border: "1px solid #B91C1C", borderRadius: 4,
+                padding: "6px 12px", fontSize: 12, fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >Delete {selected.size} selected</button>
+          </>
         )}
         <span style={{ marginLeft: selected.size > 0 ? 0 : "auto", fontSize: 11, color: "#94A3B8" }}>
           {loading ? "Searching…" : `${rows.length} RFQ${rows.length === 1 ? "" : "s"}`}
