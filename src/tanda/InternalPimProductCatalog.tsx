@@ -30,11 +30,17 @@ const PIM_CATALOG_COLUMNS: ColumnDef[] = [
   { key: "image",          label: "Image" },
   { key: "style_number",   label: "Style Number" },
   { key: "style_name",     label: "Style Name" },
+  { key: "color",          label: "Color" },
   { key: "category",       label: "Category" },
   { key: "brand",          label: "Brand" },
   { key: "publish_status", label: "Publish Status" },
   { key: "last_updated",   label: "Last Updated" },
 ];
+
+// One distinct (style_code, color) pair from ip_item_master (color-grain
+// SKU master). Fetched in bulk from /api/internal/pim/style-colors so we can
+// expand each style into one catalog row per color without N+1 matrix calls.
+type StyleColor = { style_code: string; color: string };
 
 type Category = {
   id: string;
@@ -96,6 +102,11 @@ type PimComposite = {
 type Brand = { id: string; code: string; name: string; is_default?: boolean };
 
 type RowVM = Style & {
+  // Unique per (style, color) so React keys + row highlighting work when one
+  // style expands into several color rows. `id` stays the style id so the
+  // row-click handler keeps opening the per-style PIM detail editor.
+  row_key: string;
+  color: string; // "" when the style has no colors on file
   category_label: string;
   brand_label: string;
   primary_thumb: string | null;
@@ -199,6 +210,8 @@ export default function InternalPimProductCatalog() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [composites, setComposites] = useState<Map<string, PimComposite>>(new Map());
+  // style_code (lowercased) -> sorted distinct colors from ip_item_master.
+  const [colorsByStyle, setColorsByStyle] = useState<Map<string, string[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -217,9 +230,13 @@ export default function InternalPimProductCatalog() {
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const { getRowProps } = useRowClickEdit<RowVM>({
+    // Open the per-style PIM detail even when the click lands on a color row.
     onRowClick: (r) => setOpenStyleId(r.id),
+    // Highlight is keyed per (style, color) so one clicked color row doesn't
+    // light up every color of the same style.
+    getRowId: (r) => r.row_key,
     onBeforeRowClick: (id) => setHighlightedId(id),
-    ariaLabel: (r) => `Open product ${r.style_code}`,
+    ariaLabel: (r) => `Open product ${r.style_code}${r.color ? ` (${r.color})` : ""}`,
   });
 
   async function loadCategories() {
@@ -242,6 +259,30 @@ export default function InternalPimProductCatalog() {
     } catch (e: unknown) {
       // Non-fatal: catalog still renders without the brand column/filter.
       console.warn("[PIM] brands load failed:", e);
+    }
+  }
+
+  // Bulk style→colors map from ip_item_master (color-grain SKU master).
+  // One fetch for the whole catalog — the per-style expansion happens in JS.
+  async function loadStyleColors() {
+    try {
+      const r = await fetch(`/api/internal/pim/style-colors`);
+      if (!r.ok) return;
+      const data = await r.json() as StyleColor[];
+      const m = new Map<string, string[]>();
+      for (const sc of data) {
+        const key = (sc.style_code || "").trim().toLowerCase();
+        const color = (sc.color || "").trim();
+        if (!key || !color) continue;
+        const list = m.get(key) || [];
+        list.push(color);
+        m.set(key, list);
+      }
+      for (const list of m.values()) list.sort((a, b) => a.localeCompare(b));
+      setColorsByStyle(m);
+    } catch (e: unknown) {
+      // Non-fatal: catalog still renders one row per style with blank color.
+      console.warn("[PIM] style-colors load failed:", e);
     }
   }
 
@@ -308,6 +349,7 @@ export default function InternalPimProductCatalog() {
   useEffect(() => {
     void loadCategories();
     void loadBrands();
+    void loadStyleColors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -352,9 +394,13 @@ export default function InternalPimProductCatalog() {
     return out;
   }, [categoryFilter, categories]);
 
-  // Build the row view-model: join styles with composite + category labels.
+  // Build the row view-model: join styles with composite + category labels,
+  // then EXPAND each style into one row per distinct color (from
+  // ip_item_master via /style-colors). Styles with no colors on file still
+  // show once with a blank ("—") color. All other columns repeat per color.
   const rows: RowVM[] = useMemo(() => {
-    return styles.map((s) => {
+    const out: RowVM[] = [];
+    for (const s of styles) {
       const comp = composites.get(s.id);
       const loaded = comp != null;
       const publish_label = loaded ? derivePublishLabel(comp!.descriptions) : "—";
@@ -365,7 +411,7 @@ export default function InternalPimProductCatalog() {
             return d.updated_at > max ? d.updated_at : max;
           }, null)
         : null;
-      return {
+      const base = {
         ...s,
         category_label: s.category_id ? (catPaths.get(s.category_id) || "(unmapped)") : "(unmapped)",
         brand_label: s.brand_id ? (brandNameById.get(s.brand_id) || "(unmapped)") : "—",
@@ -374,11 +420,24 @@ export default function InternalPimProductCatalog() {
         pim_updated,
         loaded,
       };
-    });
-  }, [styles, composites, catPaths, brandNameById]);
+      const colors = colorsByStyle.get((s.style_code || "").trim().toLowerCase()) || [];
+      if (colors.length === 0) {
+        out.push({ ...base, color: "", row_key: s.id });
+      } else {
+        for (const color of colors) {
+          out.push({ ...base, color, row_key: `${s.id}::${color}` });
+        }
+      }
+    }
+    return out;
+  }, [styles, composites, catPaths, brandNameById, colorsByStyle]);
 
-  // Apply client-side filters (category tree + publish state).
+  // Apply client-side filters (category tree + publish state + color search).
+  // The search box already filters styles server-side by code/name; here we
+  // additionally narrow to color rows that match the query so an operator can
+  // type a color name (e.g. "CHARCOAL") and see only those rows.
   const filteredRows: RowVM[] = useMemo(() => {
+    const needle = qDebounced.trim().toLowerCase();
     return rows.filter((r) => {
       if (descendantOf && (!r.category_id || !descendantOf.has(r.category_id))) {
         return false;
@@ -390,9 +449,20 @@ export default function InternalPimProductCatalog() {
         if (publishFilter === "unset" && r.publish_label !== "—") return false;
         if (publishFilter !== "unset" && r.publish_label !== publishFilter) return false;
       }
+      // Color-aware search: keep the row if the query matches the style code,
+      // style name, OR this row's color. Style matches already passed the
+      // server filter, so we only need to RESCUE color-only matches here
+      // without hiding legitimate style matches.
+      if (needle) {
+        const hayStyle =
+          `${r.style_code || ""} ${r.style_name || ""} ${r.description || ""}`.toLowerCase();
+        const styleMatch = hayStyle.includes(needle);
+        const colorMatch = (r.color || "").toLowerCase().includes(needle);
+        if (!styleMatch && !colorMatch) return false;
+      }
       return true;
     });
-  }, [rows, descendantOf, brandFilter, publishFilter]);
+  }, [rows, descendantOf, brandFilter, publishFilter, qDebounced]);
 
   // If a row is opened, render the detail editor full-pane instead of the list.
   if (openStyleId) {
@@ -433,7 +503,7 @@ export default function InternalPimProductCatalog() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
         <input
           type="text"
-          placeholder="Search style code or name…"
+          placeholder="Search style code, name, or color…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           style={{ ...inputStyle, maxWidth: 280 }}
@@ -481,6 +551,7 @@ export default function InternalPimProductCatalog() {
           columns={[
             { key: "style_code",     header: "Style Number" },
             { key: "style_name",     header: "Style Name" },
+            { key: "color",          header: "Color" },
             { key: "category_label", header: "Category" },
             { key: "brand_label",    header: "Brand" },
             { key: "publish_label",  header: "Publish Status" },
@@ -522,6 +593,7 @@ export default function InternalPimProductCatalog() {
                 <th style={{ ...th, width: 110 }} hidden={!isVisible("image")}>Image</th>
                 <th style={th} hidden={!isVisible("style_number")}>Style Number</th>
                 <th style={th} hidden={!isVisible("style_name")}>Style Name</th>
+                <th style={th} hidden={!isVisible("color")}>Color</th>
                 <th style={th} hidden={!isVisible("category")}>Category</th>
                 <th style={th} hidden={!isVisible("brand")}>Brand</th>
                 <th style={th} hidden={!isVisible("publish_status")}>Publish Status</th>
@@ -531,8 +603,8 @@ export default function InternalPimProductCatalog() {
             <tbody>
               {filteredRows.map((r) => (
                 <ScrollHighlightRow
-                  key={r.id}
-                  rowId={r.id}
+                  key={r.row_key}
+                  rowId={r.row_key}
                   highlightedRowId={highlightedId}
                   {...getRowProps(r)}
                 >
@@ -564,6 +636,7 @@ export default function InternalPimProductCatalog() {
                     {r.style_code}
                   </td>
                   <td style={td} hidden={!isVisible("style_name")}>{r.style_name || r.description || "—"}</td>
+                  <td style={td} hidden={!isVisible("color")}>{r.color || "—"}</td>
                   <td style={td} hidden={!isVisible("category")}>{r.category_label}</td>
                   <td style={td} hidden={!isVisible("brand")}>{r.brand_label}</td>
                   <td style={td} hidden={!isVisible("publish_status")}>
