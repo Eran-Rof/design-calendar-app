@@ -60,16 +60,30 @@ function download(wb: XLSXStyle.WorkBook, fileName: string): void {
   URL.revokeObjectURL(url);
 }
 
+// id → name lookups for the vendor / customer / channel export columns. The
+// caller (ExecutionBatchManager) already loads these; pass them in. Falls back
+// to fetching from the repo so the export is never left showing raw UUIDs.
+export interface ExecutionExportNameMaps {
+  vendor: Map<string, string>;
+  customer: Map<string, string>;
+  channel: Map<string, string>;
+}
+
 export async function exportExecutionBatch(args: {
   batch: IpExecutionBatch;
   actions: IpExecutionAction[];
   run: IpPlanningRun;
   items: IpItem[];
   categories: IpCategory[];
+  names?: ExecutionExportNameMaps;
   actor?: string | null;
 }): Promise<{ file_name: string; row_count: number }> {
   const { batch, actions, run, items } = args;
   const itemById = new Map(items.map((i) => [i.id, i]));
+  const names = args.names ?? (await executionRepo.listNameMaps());
+  // Resolve an id through a name map, never surfacing a raw UUID. Empty/missing → "—".
+  const nameOf = (map: Map<string, string>, id: string | null): string =>
+    (id ? map.get(id) : "") || "—";
   const rows = actions.map((a) => {
     const item = itemById.get(a.sku_id);
     const payload = mapActionToXoroPayload(a);
@@ -77,6 +91,9 @@ export async function exportExecutionBatch(args: {
       action_type: a.action_type,
       sku_code: item?.sku_code ?? "—",
       description: item?.description ?? "",
+      vendor: nameOf(names.vendor, a.vendor_id),
+      customer: nameOf(names.customer, a.customer_id),
+      channel: nameOf(names.channel, a.channel_id),
       po_number: a.po_number ?? "",
       period: a.period_start ?? "",
       suggested_qty: a.suggested_qty,

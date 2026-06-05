@@ -112,6 +112,23 @@ export const executionRepo = {
   async listTemplates(): Promise<IpActionTemplate[]> {
     return sbGet<IpActionTemplate>("ip_action_templates?select=*&active=eq.true&limit=500");
   },
+
+  // id → name maps for export columns (vendor / customer / channel). Kept lean
+  // (id,name only) so the export can render human-readable names, never UUIDs.
+  async listNameMaps(): Promise<{
+    vendor: Map<string, string>;
+    customer: Map<string, string>;
+    channel: Map<string, string>;
+  }> {
+    const toMap = (rows: Array<{ id: string; name: string | null }>): Map<string, string> =>
+      new Map(rows.filter((r) => r.id).map((r) => [r.id, r.name ?? ""]));
+    const [vendors, customers, channels] = await Promise.all([
+      sbGet<{ id: string; name: string | null }>("ip_vendor_master?select=id,name&limit=5000"),
+      sbGet<{ id: string; name: string | null }>("ip_customer_master?select=id,name&limit=5000"),
+      sbGet<{ id: string; name: string | null }>("ip_channel_master?select=id,name&limit=5000"),
+    ]);
+    return { vendor: toMap(vendors), customer: toMap(customers), channel: toMap(channels) };
+  },
 };
 
 export type ExecutionRepo = typeof executionRepo;

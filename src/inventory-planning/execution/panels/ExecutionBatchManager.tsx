@@ -14,6 +14,7 @@ import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import {
   buildExecutionBatchFromRecommendations,
   executionRepo,
+  type ExecutionExportNameMaps,
 } from "../services";
 import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
 import type { IpScenario } from "../../scenarios/types/scenarios";
@@ -58,6 +59,7 @@ export default function ExecutionBatchManager() {
   const [items, setItems] = useState<IpItem[]>([]);
   const [categories, setCategories] = useState<IpCategory[]>([]);
   const [writebackConfig, setWritebackConfig] = useState<IpErpWritebackConfig[]>([]);
+  const [nameMaps, setNameMaps] = useState<ExecutionExportNameMaps | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actions, setActions] = useState<IpExecutionAction[]>([]);
   const [audit, setAudit] = useState<IpExecutionAuditEntry[]>([]);
@@ -74,12 +76,13 @@ export default function ExecutionBatchManager() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [bs, rs, cfg, its, cats] = await Promise.all([
+      const [bs, rs, cfg, its, cats, nm] = await Promise.all([
         executionRepo.listBatches(),
         wholesaleRepo.listPlanningRuns("all"),
         executionRepo.listWritebackConfig("xoro"),
         wholesaleRepo.listItems(),
         wholesaleRepo.listCategories(),
+        executionRepo.listNameMaps(),
       ]);
       const ws = await wholesaleRepo.listPlanningRuns("wholesale");
       const ec = await wholesaleRepo.listPlanningRuns("ecom");
@@ -88,6 +91,7 @@ export default function ExecutionBatchManager() {
       setWritebackConfig(cfg);
       setItems(its);
       setCategories(cats);
+      setNameMaps(nm);
     } catch (e) {
       setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
@@ -244,6 +248,7 @@ export default function ExecutionBatchManager() {
             run={selectedRun}
             items={items}
             categories={categories}
+            nameMaps={nameMaps}
             onChange={async () => { await refresh(); await loadSelected(); }}
             onToast={(t) => setToast(t)}
           />
