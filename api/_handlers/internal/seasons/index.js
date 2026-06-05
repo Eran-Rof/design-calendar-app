@@ -130,12 +130,33 @@ export function validateInsert(body) {
     typeof body.is_active === "boolean" ? body.is_active :
       body.is_active === "true" || body.is_active === 1;
 
+  // Informational date range (reporting/AI only; drives no logic). Coerce ""→null;
+  // if present, must parse as a date.
+  const start = coerceDate(body.start_date);
+  if (start === INVALID_DATE) return { error: "start_date must be a valid date" };
+  const end = coerceDate(body.end_date);
+  if (end === INVALID_DATE) return { error: "end_date must be a valid date" };
+
   return {
     data: {
       // code is injected by the handler (server-generated); not taken from body.
       name:       String(body.name).trim(),
       sort_order: sortOrder,
       is_active:  isActive,
+      start_date: start,
+      end_date:   end,
     },
   };
+}
+
+// Sentinel distinguishing "supplied but unparseable" from a legitimate null.
+export const INVALID_DATE = Symbol("invalid_date");
+
+// "" / null / undefined → null; a parseable date string → trimmed string; else INVALID_DATE.
+export function coerceDate(v) {
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  if (s === "") return null;
+  if (Number.isNaN(new Date(s).getTime())) return INVALID_DATE;
+  return s;
 }

@@ -59,6 +59,7 @@ Find it under **Master Data → Seasons** (`/tangerine?m=season_master`). A seas
 |-------|-------|
 | **Code** | Server-generated, read-only (`SEASON-00001`, `SEASON-00002`, …). Allocated on save; you never type it. |
 | **Name** | The label that appears on styles and in the Season dropdown, e.g. `FW26`. Required. |
+| **From / To** | An optional date range for the season window. Purely **informational** — used for reporting and AI context only. It does **not** drive any filtering, sorting, or other logic; leaving either blank is fine. |
 | **Sort order** | Controls list ordering (ascending); ties break by code. |
 | **Active** | Inactive seasons drop out of the Style Master picker but stay in the table (toggle **Show inactive** to see them). |
 

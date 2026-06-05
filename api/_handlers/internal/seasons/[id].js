@@ -15,7 +15,7 @@ export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MUTABLE_FIELDS = new Set(["name", "sort_order", "is_active"]);
+const MUTABLE_FIELDS = new Set(["name", "sort_order", "is_active", "start_date", "end_date"]);
 const LOCKED_FIELDS = new Set(["code", "entity_id", "id"]);
 
 function corsHeaders(res) {
@@ -158,5 +158,26 @@ export function validatePatch(body) {
     }
   }
 
+  // Informational date range (reporting/AI only). Coerce ""→null; validate if present.
+  for (const f of ["start_date", "end_date"]) {
+    if (f in out) {
+      const d = coerceDate(out[f]);
+      if (d === INVALID_DATE) return { error: `${f} must be a valid date` };
+      out[f] = d;
+    }
+  }
+
   return { data: out };
+}
+
+// Sentinel distinguishing "supplied but unparseable" from a legitimate null.
+const INVALID_DATE = Symbol("invalid_date");
+
+// "" / null / undefined → null; a parseable date string → trimmed string; else INVALID_DATE.
+function coerceDate(v) {
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  if (s === "") return null;
+  if (Number.isNaN(new Date(s).getTime())) return INVALID_DATE;
+  return s;
 }
