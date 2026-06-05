@@ -13,11 +13,16 @@
 //   { project: { id, name },
 //     rfqs: [ {
 //       id, code, title, status,
-//       line_items: [ { id, line_index, description, quantity } ],
+//       line_items: [ { id, line_index, description, quantity, sell_price } ],
 //       quotes:     [ { vendor_id, vendor_name, status, total_price,
 //                       lead_time_days, valid_until, notes,
 //                       lines: [ { rfq_line_item_id, unit_price, quantity, notes } ] } ]
 //     } ] }
+//
+// `sell_price` per line is the reference SELL price from the source costing line
+// (rfq_line_items.costing_line_id → costing_lines.sell_price). It is NULL when the
+// RFQ line was not originated from costing (costing_line_id NULL) or the column /
+// row is missing. The frontend computes per-vendor margin = (sell − quoted) / sell.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
@@ -82,9 +87,13 @@ export default async function handler(req, res) {
   const rfqIds = rfqs.map((r) => r.id);
 
   // 3. Batched pulls: line items, quotes (+vendor), quote lines.
-  const [itemsRes, quotesRes] = await Promise.all([
+  // `costing_line_id` is the back-pointer to the source costing line (used to
+  // resolve the reference sell_price). Drop it gracefully on a pre-migration
+  // deploy (20260719000000_rfq_line_items_costing_line_id.sql) so the matrix
+  // still loads — sell_price / margin then degrade to unknown ("—").
+  let [itemsRes, quotesRes] = await Promise.all([
     admin.from("rfq_line_items")
-      .select("id, rfq_id, line_index, description, quantity")
+      .select("id, rfq_id, line_index, description, quantity, costing_line_id")
       .in("rfq_id", rfqIds)
       .order("line_index", { ascending: true }),
     admin.from("rfq_quotes")
@@ -92,8 +101,38 @@ export default async function handler(req, res) {
       .in("rfq_id", rfqIds)
       .in("status", SUBMITTED_STATUSES),
   ]);
+  if (
+    itemsRes.error &&
+    /column .* does not exist/i.test(itemsRes.error.message || "") &&
+    /costing_line_id/.test(itemsRes.error.message || "")
+  ) {
+    itemsRes = await admin.from("rfq_line_items")
+      .select("id, rfq_id, line_index, description, quantity")
+      .in("rfq_id", rfqIds)
+      .order("line_index", { ascending: true });
+    if (itemsRes.data) itemsRes.data = itemsRes.data.map((it) => ({ ...it, costing_line_id: null }));
+  }
   if (itemsRes.error) return res.status(500).json({ error: itemsRes.error.message });
   if (quotesRes.error) return res.status(500).json({ error: quotesRes.error.message });
+
+  // 3b. Resolve reference sell prices: rfq_line_items.costing_line_id →
+  // costing_lines.sell_price. Best-effort — if the costing_lines lookup fails
+  // (missing column/table), sell prices stay unknown and margin shows "—".
+  const sellByCostingLine = new Map();
+  const costingLineIds = [...new Set(
+    (itemsRes.data || []).map((it) => it.costing_line_id).filter(Boolean),
+  )];
+  if (costingLineIds.length > 0) {
+    const { data: clRows, error: clErr } = await admin
+      .from("costing_lines")
+      .select("id, sell_price")
+      .in("id", costingLineIds);
+    if (!clErr && clRows) {
+      for (const cl of clRows) {
+        sellByCostingLine.set(cl.id, typeof cl.sell_price === "number" ? cl.sell_price : null);
+      }
+    }
+  }
 
   const quotes = quotesRes.data || [];
   const quoteIds = quotes.map((q) => q.id);
@@ -112,11 +151,13 @@ export default async function handler(req, res) {
   const itemsByRfq = new Map();
   for (const it of itemsRes.data || []) {
     if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
+    const sell = it.costing_line_id ? (sellByCostingLine.get(it.costing_line_id) ?? null) : null;
     itemsByRfq.get(it.rfq_id).push({
       id: it.id,
       line_index: it.line_index,
       description: it.description,
       quantity: it.quantity,
+      sell_price: sell,
     });
   }
 
