@@ -336,6 +336,15 @@ export default [
   ["/api/internal/transfer-reasons"                          , "./internal/transfer-reasons/index.js"],
   ["/api/internal/warehouses/:id"                            , "./internal/warehouses/[id].js"],
   ["/api/internal/warehouses"                                , "./internal/warehouses/index.js"],
+  // M15 — External / Partner API key admin (Admin -> API Keys panel).
+  ["/api/internal/api-keys/:id"                              , "./internal/api-keys/[id].js"],
+  ["/api/internal/api-keys"                                  , "./internal/api-keys/index.js"],
+  // M15 — External / Partner API (read-only, API-key auth).
+  ["/api/external/v1/ping"                                   , "./external/v1/ping.js"],
+  ["/api/external/v1/styles"                                 , "./external/v1/styles.js"],
+  ["/api/external/v1/inventory"                              , "./external/v1/inventory.js"],
+  ["/api/external/v1/orders"                                 , "./external/v1/orders.js"],
+  ["/api/external/v1/invoices"                               , "./external/v1/invoices.js"],
   ["/api/internal/style-matrix/resolve-sku"                  , "./internal/style-matrix/resolve-sku.js"],
   ["/api/internal/style-matrix"                              , "./internal/style-matrix/index.js"],
   ["/api/internal/upc-items"                                 , "./internal/upc-items/index.js"],

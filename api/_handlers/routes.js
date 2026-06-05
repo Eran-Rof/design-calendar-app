@@ -58,6 +58,11 @@ import r_edi_inbound_vendor_id from "./edi/inbound/[vendor_id].js";
 import r_edi_inbound_index from "./edi/inbound/index.js";
 import r_edi_outbound_payment from "./edi/outbound/payment.js";
 import r_edi_outbound_po from "./edi/outbound/po.js";
+import r_external_v1_inventory from "./external/v1/inventory.js";
+import r_external_v1_invoices from "./external/v1/invoices.js";
+import r_external_v1_orders from "./external/v1/orders.js";
+import r_external_v1_ping from "./external/v1/ping.js";
+import r_external_v1_styles from "./external/v1/styles.js";
 import r_internal_adjustment_types_id from "./internal/adjustment-types/[id].js";
 import r_internal_adjustment_types_index from "./internal/adjustment-types/index.js";
 import r_internal_ai_documents from "./internal/ai/documents.js";
@@ -86,6 +91,8 @@ import r_internal_ap_invoices_pay from "./internal/ap-invoices/pay.js";
 import r_internal_ap_invoices_post from "./internal/ap-invoices/post.js";
 import r_internal_ap_invoices_void from "./internal/ap-invoices/void.js";
 import r_internal_ap_payments_index from "./internal/ap-payments/index.js";
+import r_internal_api_keys_id from "./internal/api-keys/[id].js";
+import r_internal_api_keys_index from "./internal/api-keys/index.js";
 import r_internal_approval_requests_id from "./internal/approval-requests/[id].js";
 import r_internal_approval_requests_cancel from "./internal/approval-requests/cancel.js";
 import r_internal_approval_requests_decide from "./internal/approval-requests/decide.js";
@@ -879,6 +886,7 @@ export const ROUTES = [
   { pattern: "/api/internal/reports/spend", handler: r_internal_reports_spend },
   { pattern: "/api/vendor/reports/summary", handler: r_vendor_reports_summary },
   { pattern: "/api/vendor/tax/withholding", handler: r_vendor_tax_withholding },
+  { pattern: "/api/external/v1/inventory", handler: r_external_v1_inventory },
   { pattern: "/api/internal/ai/documents", handler: r_internal_ai_documents },
   { pattern: "/api/internal/analytics/fx", handler: r_internal_analytics_fx },
   { pattern: "/api/internal/bulk/process", handler: r_internal_bulk_process },
@@ -888,9 +896,12 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/run-gl", handler: r_internal_recon_run_gl },
   { pattern: "/api/internal/scf/requests", handler: r_internal_scf_requests_index },
   { pattern: "/api/edi/outbound/payment", handler: r_edi_outbound_payment },
+  { pattern: "/api/external/v1/invoices", handler: r_external_v1_invoices },
   { pattern: "/api/internal/ai/insights", handler: r_internal_ai_insights },
   { pattern: "/api/internal/recon/runs", handler: r_internal_recon_runs },
   { pattern: "/api/vendor/scf/requests", handler: r_vendor_scf_requests },
+  { pattern: "/api/external/v1/orders", handler: r_external_v1_orders },
+  { pattern: "/api/external/v1/styles", handler: r_external_v1_styles },
   { pattern: "/api/internal/audit/log", handler: r_internal_audit_log },
   { pattern: "/api/internal/crm/tasks", handler: r_internal_crm_tasks_index },
   { pattern: "/api/internal/tax/rules", handler: r_internal_tax_rules_index },
@@ -900,6 +911,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/scf/request", handler: r_vendor_scf_request },
   { pattern: "/api/internal/fx/rates", handler: r_internal_fx_rates },
   { pattern: "/api/vendor/edi/status", handler: r_vendor_edi_status },
+  { pattern: "/api/external/v1/ping", handler: r_external_v1_ping },
   { pattern: "/api/edi/outbound/po", handler: r_edi_outbound_po },
   { pattern: "/api/internal/ar-receipt-applications/:id", handler: r_internal_ar_receipt_applications_id },
   { pattern: "/api/internal/inventory-cycle-counts/:id", handler: r_internal_inventory_cycle_counts_id },
@@ -954,6 +966,7 @@ export const ROUTES = [
   { pattern: "/api/internal/drop-ship/:id", handler: r_internal_drop_ship_id },
   { pattern: "/api/internal/employees/:id", handler: r_internal_employees_id },
   { pattern: "/api/vendor/attachments/:id", handler: r_vendor_attachments_id },
+  { pattern: "/api/internal/api-keys/:id", handler: r_internal_api_keys_id },
   { pattern: "/api/internal/disputes/:id", handler: r_internal_disputes_id_index },
   { pattern: "/api/internal/insights/:id", handler: r_internal_insights_id },
   { pattern: "/api/internal/payments/:id", handler: r_internal_payments_id_index },
@@ -1120,6 +1133,7 @@ export const ROUTES = [
   { pattern: "/api/cron/fx-rate-sync", handler: r_cron_fx_rate_sync },
   { pattern: "/api/cron/ip-normalize", handler: r_cron_ip_normalize },
   { pattern: "/api/internal/ap-aging", handler: r_internal_ap_aging_index },
+  { pattern: "/api/internal/api-keys", handler: r_internal_api_keys_index },
   { pattern: "/api/internal/ar-aging", handler: r_internal_ar_aging_index },
   { pattern: "/api/internal/channels", handler: r_internal_channels_index },
   { pattern: "/api/internal/disputes", handler: r_internal_disputes_index },
