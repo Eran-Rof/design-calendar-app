@@ -270,8 +270,14 @@ export default function PLMApp() {
 
   function openApp(path: string) {
     // Apps in the suite open in their own browser tab so the launcher stays put
-    // (operator preference). Same-origin, so per-app localStorage/session is shared.
-    window.open(path, "_blank", "noopener");
+    // (operator preference). NOTE: do NOT pass "noopener" here — a noopener tab is a
+    // disconnected browsing context, so the browser does NOT copy the opener's
+    // sessionStorage into it. The sub-apps read their login session exclusively from
+    // sessionStorage.plm_user (e.g. store/index.ts hydrates currentUser from it), and
+    // App.tsx bounces straight back to "/" when that's missing — which looked like
+    // "Design Calendar won't log in after clicking the card". Opening same-origin
+    // WITHOUT noopener clones sessionStorage into the new tab, carrying the session over.
+    window.open(path, "_blank");
   }
 
   // ── LOGIN SCREEN ────────────────────────────────────────────────────────────
