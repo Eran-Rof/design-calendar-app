@@ -87,6 +87,10 @@ type State = {
 
   // Line actions
   addLine: (seed?: Partial<CostingLine>) => Promise<CostingLine | null>;
+  // Duplicate a line into a NEW row directly below the source. Copies all
+  // fields EXCEPT id/created_at/updated_at and the vendor selection
+  // (selected_vendor_quote_id is reset to null so the operator picks anew).
+  duplicateLine: (sourceId: string) => Promise<CostingLine | null>;
   updateLine: (id: string, patch: Partial<CostingLine>) => Promise<void>;
   deleteLine: (id: string) => Promise<void>;
   reorderLines: (idOrder: string[]) => Promise<void>;
@@ -278,6 +282,66 @@ export const useCostingStore = create<State>((set, get) => ({
         return newLine;
       }
       return null;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
+  },
+
+  async duplicateLine(sourceId) {
+    const project = get().project;
+    if (!project) return null;
+    const lines = get().lines;
+    const srcIdx = lines.findIndex((l) => l.id === sourceId);
+    if (srcIdx < 0) return null;
+    const source = lines[srcIdx];
+
+    // Copy ALL fields except the ones that must not carry over:
+    //  - id          → omitted so the server INSERTs a fresh row
+    //  - created_at/updated_at → server-managed timestamps
+    //  - selected_vendor_quote_id → VENDOR reset; the duplicate starts with
+    //    no awarded vendor so the operator must pick a new one.
+    const {
+      id: _omitId,
+      created_at: _omitCreated,
+      updated_at: _omitUpdated,
+      selected_vendor_quote_id: _omitVendor,
+      ...rest
+    } = source as CostingLine & { created_at?: unknown; updated_at?: unknown };
+
+    // Position the copy immediately after the source. Use a fractional
+    // sort_order between the source and the next row so the GET (ordered by
+    // sort_order) renders it directly below; we re-normalize to clean
+    // integers afterwards.
+    const next = lines[srcIdx + 1];
+    const newSortOrder = next
+      ? (source.sort_order + next.sort_order) / 2
+      : source.sort_order + 1;
+
+    const copy = {
+      ...rest,
+      selected_vendor_quote_id: null,
+      sort_order: newSortOrder,
+    } as Partial<CostingLine>;
+
+    try {
+      const created = await api.upsertLines(project.id, [copy]);
+      const newLine = created[0];
+      if (!newLine) return null;
+      // Insert directly after the source in the local array (don't trust the
+      // fractional sort_order to re-sort — splice in at the right index).
+      set((s) => {
+        const i = s.lines.findIndex((l) => l.id === sourceId);
+        const arr = [...s.lines];
+        arr.splice(i < 0 ? arr.length : i + 1, 0, newLine);
+        return { lines: arr, selectedLineId: newLine.id };
+      });
+      // Re-normalize sort_order to clean sequential integers and persist the
+      // reindex (same path the reorder flow uses) so values don't drift
+      // toward fractions over repeated duplications.
+      const idOrder = get().lines.map((l) => l.id);
+      void get().reorderLines(idOrder);
+      return newLine;
     } catch (e) {
       set({ error: (e as Error).message });
       return null;

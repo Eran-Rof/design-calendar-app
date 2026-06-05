@@ -9,7 +9,7 @@
 // Live margin is recomputed via the techpack/calc.ts adapter — that file has
 // 21 unit tests pinning the rounding + tier thresholds; we don't fork.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
 import { usePlanFlow, effectiveLineStatus } from "../hooks/usePlanFlow";
@@ -115,6 +115,7 @@ export default function CostingGrid() {
   const selectedLineId = useCostingStore((s) => s.selectedLineId);
   const stageFilter = useCostingStore((s) => s.stageFilter);
   const addLine = useCostingStore((s) => s.addLine);
+  const duplicateLine = useCostingStore((s) => s.duplicateLine);
   const updateLine = useCostingStore((s) => s.updateLine);
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
@@ -280,6 +281,40 @@ export default function CostingGrid() {
     : lines;
 
   const [dragId, setDragId] = useState<string | null>(null);
+
+  // Right-click context menu — opened per row at the cursor. Holds the target
+  // line id + screen coords. Null = closed. Closes on outside-click / Escape /
+  // scroll so it never strands over a moved row.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; lineId: string } | null>(null);
+  const openContextMenu = (e: React.MouseEvent, lineId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, lineId });
+  };
+  const closeContextMenu = () => setCtxMenu(null);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeContextMenu(); };
+    // Capture-phase outside-click + scroll close. The menu's own onMouseDown
+    // stops propagation so clicking an item doesn't self-close before firing.
+    const onDown = () => closeContextMenu();
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onDown, true);
+    };
+  }, [ctxMenu]);
+
+  const onDuplicateRow = async (lineId: string) => {
+    closeContextMenu();
+    const created = await duplicateLine(lineId);
+    if (created) {
+      setNotice("Row duplicated below — pick a vendor for the new line.", "info");
+    }
+  };
 
   const onAdd = async () => {
     await addLine({});
@@ -529,6 +564,7 @@ export default function CostingGrid() {
               // Row click only highlights — does NOT open the vendor panel.
               // The "$ Qts" button in actions column is the explicit panel trigger.
               onClick={() => setSelectedLine(line.id)}
+              onContextMenu={(e) => openContextMenu(e, line.id)}
               onDragOver={onDragOver}
               onDrop={onDrop(line.id)}
               // Hover background — visible against the row's #0F172A page bg.
@@ -933,6 +969,43 @@ export default function CostingGrid() {
           </div>
         )}
       </div>
+
+      {/* Right-click context menu — anchored at the cursor. Dark costing
+          theme. onMouseDown stops propagation so the window-level outside-
+          click listener doesn't close it before the item's onClick fires. */}
+      {ctxMenu && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+            zIndex: 1000,
+            background: "#0F172A",
+            border: "1px solid #334155",
+            borderRadius: 6,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            padding: 4,
+            minWidth: 220,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onDuplicateRow(ctxMenu.lineId)}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", color: "#E2E8F0",
+              border: "none", borderRadius: 4,
+              padding: "8px 12px", fontSize: 12, fontWeight: 500,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            Duplicate row (pick new vendor)
+          </button>
+        </div>
+      )}
     </div>
   );
 }
