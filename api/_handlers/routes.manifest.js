@@ -573,6 +573,7 @@ export default [
   ["/api/internal/costing/rfq-compare"                       , "./internal/costing/rfq-compare/index.js"],
   ["/api/internal/costing/rfqs/:id"                          , "./internal/costing/rfqs/[id]/index.js"],
   ["/api/internal/costing/lines/:line_id/po-history"         , "./internal/costing/lines/[line_id]/po-history.js"],
+  ["/api/internal/costing/lines/:line_id/revise"             , "./internal/costing/lines/[line_id]/revise.js"],
   ["/api/internal/costing/masters/freeform"                  , "./internal/costing/masters/freeform.js"],
   ["/api/internal/users/me/preferences/drawer-collapsed"     , "./internal/users/me/preferences/drawer-collapsed.js"],
   ["/api/internal/recon/run-ar"                              , "./internal/recon/run-ar.js"],

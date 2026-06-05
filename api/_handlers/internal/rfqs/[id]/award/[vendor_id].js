@@ -13,7 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { fireWorkflowEvent } from "../../../../../_lib/workflow.js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
 import { resolveProductionManager } from "../../../../../_lib/internal-recipients.js";
-import { markLinesAwardedAndSiblingsLost } from "../../../../../_lib/costingLineStatus.js";
+import { markLinesAwardedAndSiblingsLost, lockSupersededVendorRfqs } from "../../../../../_lib/costingLineStatus.js";
 
 export const config = { maxDuration: 30 };
 
@@ -248,6 +248,11 @@ export default async function handler(req, res) {
       const r = await markLinesAwardedAndSiblingsLost(admin, awardedLineMeta, { note: "rfq_awarded" });
       lineLifecycle.awarded = r.awarded.length;
       lineLifecycle.lost = r.lost.length;
+      // Lock the losing vendors' RFQs (those whose lines just went 'lost') so
+      // they go read-only on the vendor side. Best-effort.
+      if (r.lost.length > 0) {
+        await lockSupersededVendorRfqs(admin, r.lost, { note: "sibling_lost" }).catch(() => {});
+      }
     }
   } catch (e) {
     // eslint-disable-next-line no-console
