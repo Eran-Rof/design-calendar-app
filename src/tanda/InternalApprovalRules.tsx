@@ -291,7 +291,7 @@ function RuleModal({ mode, rule, onCancel, onSaved }: {
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 720, maxHeight: "90vh", overflow: "auto",
+        padding: 24, width: "min(720px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
       }}>
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18, color: C.text }}>
           {mode === "add" ? "Add rule" : "Edit rule"}

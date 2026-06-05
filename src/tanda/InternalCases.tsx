@@ -756,8 +756,8 @@ function Modal({ title, children, onClose }: {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 10, width: "100%", maxWidth: 760, maxHeight: "90vh",
-          overflow: "auto", padding: 18,
+          borderRadius: 10, width: "min(760px, 95vw)", maxHeight: "90vh",
+          overflowY: "auto", boxSizing: "border-box", padding: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>

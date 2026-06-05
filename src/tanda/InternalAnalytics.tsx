@@ -222,7 +222,7 @@ function Phase9Analytics() {
             <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Overall</div>
             {esg.slice(0, 10).map((s) => (
               <div key={s.id} style={{ display: "contents" }}>
-                <div>{s.vendor?.name || s.vendor_id}</div>
+                <div>{s.vendor?.name || "—"}</div>
                 <div style={{ color: C.success }}>{Number(s.environmental_score).toFixed(0)}</div>
                 <div style={{ color: C.primary }}>{Number(s.social_score).toFixed(0)}</div>
                 <div style={{ color: C.warn }}>{Number(s.governance_score).toFixed(0)}</div>

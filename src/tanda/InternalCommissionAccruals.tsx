@@ -443,7 +443,7 @@ export default function InternalCommissionAccruals() {
                     </a>
                   ) : "—"}
                 </td>
-                <td style={td} hidden={!visibleColumns.has("sales_rep")}>{r.sales_reps?.display_name || r.sales_rep_id}</td>
+                <td style={td} hidden={!visibleColumns.has("sales_rep")}>{r.sales_reps?.display_name || "—"}</td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("accrual_date")}>
                   {fmtDate(r.created_at)}
                 </td>
@@ -457,8 +457,8 @@ export default function InternalCommissionAccruals() {
                   {fmtCurrencyFromCents(r.commission_cents)}
                 </td>
                 <td style={td} hidden={!visibleColumns.has("status")}>{statusPill(r.status)}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("accrual_je")}>
-                  {r.accrual_je_id ? r.accrual_je_id.slice(0, 8) : "—"}
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("accrual_je")}>
+                  {r.accrual_je_id ? "Posted" : "—"}
                 </td>
                 <td style={td}>
                   {r.status === "accrued" && (
@@ -677,8 +677,8 @@ function Modal({ title, children, onClose }: {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 10, width: "100%", maxWidth: 620, maxHeight: "90vh",
-          overflow: "auto", padding: 18,
+          borderRadius: 10, width: "min(620px, 95vw)", maxHeight: "90vh",
+          overflowY: "auto", boxSizing: "border-box", padding: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>

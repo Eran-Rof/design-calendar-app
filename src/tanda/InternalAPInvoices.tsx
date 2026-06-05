@@ -812,7 +812,7 @@ function APInvoiceModal({
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-        padding: 20, width: 1000, maxWidth: "95vw", color: C.text,
+        padding: 20, width: "min(1000px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text,
       }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {isNew ? "New AP invoice" : `Edit AP invoice ${invoice?.invoice_number || ""}`}
@@ -1160,7 +1160,7 @@ function APPaymentModal({
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-        padding: 20, width: 600, maxWidth: "95vw", color: C.text,
+        padding: 20, width: "min(600px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text,
       }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>
           Record payment — invoice {invoice.invoice_number}

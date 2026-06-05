@@ -86,13 +86,13 @@ function fmtPrice(cents: number, currency: string): string {
 }
 function styleLabel(s: EmbeddedStyle | Style | null): string {
   if (!s) return "—";
-  const code = s.style_code || s.id.slice(0, 8);
+  const code = s.style_code || "—";
   return s.style_name ? `${code} — ${s.style_name}` : code;
 }
 function customerLabel(row: PriceRow): string {
   if (!row.customer_id) return "Default (all customers)";
   if (row.customer) return row.customer.customer_code ? `${row.customer.name} (${row.customer.customer_code})` : row.customer.name;
-  return row.customer_id.slice(0, 8);
+  return "—";
 }
 
 export default function InternalB2BPriceList() {
@@ -361,7 +361,7 @@ function PriceFormModal({ mode, row, customers, styles, onClose, onSaved }: Moda
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 540, maxWidth: 680, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add price" : "Edit price"}

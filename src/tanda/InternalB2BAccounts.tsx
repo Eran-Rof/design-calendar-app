@@ -162,7 +162,7 @@ export default function InternalB2BAccounts() {
 
   function customerName(id: string): string {
     const c = customerMap[id];
-    if (!c) return id.slice(0, 8);
+    if (!c) return "—";
     const name = stripExcel(c.name);
     const code = stripExcel(c.customer_code);
     return code ? `${name} (${code})` : name;
@@ -348,7 +348,7 @@ function B2BAccountFormModal({ mode, account, customers, onClose, onSaved }: Mod
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Authorize buyer" : `Edit ${account!.email}`}

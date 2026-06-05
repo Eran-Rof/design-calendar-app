@@ -456,7 +456,7 @@ export default function InternalAllocations() {
 
       {previewOpen && (
         <div onClick={() => !previewBusy && setPreviewOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 760, maxWidth: 980, maxHeight: "86vh", overflowY: "auto", color: C.text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(980px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 18 }}>⚡ Auto-allocate — {previewScopeLabel}</h3>
 
             {/* Strategy chosen at run time. Priority tiering (factor-approved →
@@ -526,7 +526,7 @@ export default function InternalAllocations() {
           The auto-allocate engine reads these server-side. */}
       {rulesOpen && (
         <div onClick={() => !rulesSaving && setRulesOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
             <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>⚙ Allocation priority rules</h3>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>Auto-allocate fills competing orders in this order (top = first). A factored order with no approval is never allocated, whatever the order.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
@@ -562,7 +562,7 @@ export default function InternalAllocations() {
           Waits for the user; "Show results" reveals the per-line grants. */}
       {summary && (
         <div onClick={() => setSummary(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 460, maxWidth: 720, maxHeight: "82vh", overflowY: "auto", color: C.text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(720px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 18 }}>✅ Allocation complete</h3>
             <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
               <div><div style={{ fontSize: 22, fontWeight: 700, color: C.success, fontVariantNumeric: "tabular-nums" }}>{summary.count}</div><div style={{ fontSize: 11, color: C.textMuted }}>lines allocated</div></div>

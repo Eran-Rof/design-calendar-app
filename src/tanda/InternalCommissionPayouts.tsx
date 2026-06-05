@@ -244,7 +244,7 @@ export default function InternalCommissionPayouts() {
             {!loading && rows.map((r) => (
               <tr key={r.id}>
                 <td style={td}>{fmtDate(r.paid_at)}</td>
-                <td style={td}>{r.sales_reps?.display_name || r.sales_rep_id}</td>
+                <td style={td}>{r.sales_reps?.display_name || "—"}</td>
                 <td style={td}>
                   {r.gl_periods
                     ? `FY${r.gl_periods.fiscal_year} P${String(r.gl_periods.period_number).padStart(2, "0")}`
@@ -261,13 +261,13 @@ export default function InternalCommissionPayouts() {
                     textTransform: "uppercase", letterSpacing: 0.5,
                   }}>{r.payment_method}</span>
                 </td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>
+                <td style={{ ...td, fontSize: 11 }}>
                   {r.payout_je_id ? (
                     <a
                       href={`/tanda/journal-entries/${r.payout_je_id}`}
                       style={{ color: C.primary, textDecoration: "none" }}
                     >
-                      {r.payout_je_id.slice(0, 8)}…
+                      View JE
                     </a>
                   ) : "—"}
                 </td>

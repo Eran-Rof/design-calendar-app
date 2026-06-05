@@ -145,7 +145,7 @@ const modalBackdrop: React.CSSProperties = {
 };
 const modalContent: React.CSSProperties = {
   background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-  padding: 24, width: "100%", maxWidth: 880,
+  padding: 24, width: "min(880px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
 function fmtCents(c: string | number | bigint | null | undefined): string {
@@ -978,8 +978,8 @@ function DetailReceiptModal({
                 <tbody>
                   {receipt.applications.map((a) => (
                     <tr key={a.id}>
-                      <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
-                        {a.ar_invoices?.invoice_number || a.ar_invoice_id.slice(0, 8) + "…"}
+                      <td style={td}>
+                        {a.ar_invoices?.invoice_number || "—"}
                       </td>
                       <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
                         {fmtCents(a.amount_applied_cents)}
@@ -1008,8 +1008,8 @@ function DetailReceiptModal({
           <div style={{ marginBottom: 12, padding: "8px 12px", background: "#1d2747", border: `1px solid ${C.cardBdr}`, borderRadius: 6, fontSize: 12, color: C.textSub }}>
             {isPosted && (
               <>
-                Accrual JE: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.success }}>{receipt.accrual_je_id?.slice(0, 8)}…</span>
-                &nbsp;·&nbsp;Cash JE: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.success }}>{receipt.cash_je_id?.slice(0, 8)}…</span>
+                Accrual JE: <span style={{ color: C.success }}>{receipt.accrual_je_id ? "posted" : "—"}</span>
+                &nbsp;·&nbsp;Cash JE: <span style={{ color: C.success }}>{receipt.cash_je_id ? "posted" : "—"}</span>
               </>
             )}
           </div>

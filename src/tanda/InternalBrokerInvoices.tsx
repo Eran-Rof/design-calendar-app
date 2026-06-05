@@ -204,7 +204,7 @@ function PostLandedCostModal({ invoice, onClose, onPosted }: { invoice: BrokerIn
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Post landed cost — {invoice.broker_invoice_number}</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
           Allocates <b>{fmtCents(invoice.total_cents)}</b> across the chosen posted receipt&apos;s accepted units (by value):
@@ -214,7 +214,7 @@ function PostLandedCostModal({ invoice, onClose, onPosted }: { invoice: BrokerIn
           <select value={receiptId} onChange={(e) => setReceiptId(e.target.value)} style={inputStyle}>
             <option value="">— pick a posted receipt —</option>
             {receipts.map((rc) => (
-              <option key={rc.id} value={rc.id}>{rc.receipt_date} · {rc.id.slice(0, 8)} · landed {fmtCents(rc.landed_cost_cents)}</option>
+              <option key={rc.id} value={rc.id}>{rc.receipt_date} · landed {fmtCents(rc.landed_cost_cents)}</option>
             ))}
           </select>
         </Field>
@@ -316,7 +316,7 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 820, maxWidth: 980, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(980px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New broker invoice" : `Broker invoice — ${invoice?.broker_invoice_number}`}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>

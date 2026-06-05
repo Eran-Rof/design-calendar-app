@@ -565,7 +565,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     return [
       { value: "", label: "(not linked)" },
       ...plmUsers.map((u) => {
-        const label = u.name ? `${u.name} (${u.username || u.id})` : (u.username || u.id);
+        const label = u.name ? (u.username ? `${u.name} (${u.username})` : u.name) : (u.username || "—");
         return { value: u.id, label, searchHaystack: `${u.name ?? ""} ${u.username ?? ""} ${u.id}` };
       }),
     ];
@@ -578,7 +578,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 640, maxHeight: "90vh", overflow: "auto",
+        padding: 24, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
       }}>
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>
           {mode === "add" ? "Add employee" : "Edit employee"}

@@ -870,7 +870,7 @@ function ARInvoiceModal({
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-        padding: 20, width: 1100, maxWidth: "95vw", color: C.text,
+        padding: 20, width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text,
       }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {isNew ? "New AR invoice" : `Edit AR invoice ${invoice?.invoice_number || ""}`}

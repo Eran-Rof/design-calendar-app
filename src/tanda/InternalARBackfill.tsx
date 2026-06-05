@@ -105,6 +105,8 @@ export default function InternalARBackfill() {
   const [unmatched, setUnmatched] = useState<UnmatchedRow[]>([]);
   const [skipped, setSkipped] = useState<SkippedRow[]>([]);
   const [recon, setRecon] = useState<ReconRow[]>([]);
+  // Resolve skipped-line sku_id → human sku_code (no raw UUIDs in the table).
+  const [skuById, setSkuById] = useState<Record<string, string>>({});
 
   async function loadStatus() {
     try {
@@ -121,6 +123,28 @@ export default function InternalARBackfill() {
   }
 
   useEffect(() => { void loadStatus(); }, []);
+
+  // Resolve the sku ids present in the skipped-COGS log to sku_code labels.
+  useEffect(() => {
+    const ids = Array.from(new Set(skipped.map((r) => r.sku_id).filter((v): v is string => !!v)))
+      .filter((id) => !(id in skuById));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/items?ids=${encodeURIComponent(ids.join(","))}`);
+        if (!r.ok) return;
+        const data = (await r.json()) as Array<{ id: string; sku_code: string | null }>;
+        if (cancelled) return;
+        setSkuById((prev) => {
+          const next = { ...prev };
+          for (const it of data) next[it.id] = it.sku_code || "—";
+          return next;
+        });
+      } catch { /* leave as "—" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [skipped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run() {
     if (!dryRun) {
@@ -233,7 +257,7 @@ export default function InternalARBackfill() {
           <tbody>
             {checkpoints.map((r) => (
               <tr key={r.id}>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 10 }}>{r.backfill_run_id.slice(0, 8)}</td>
+                <td style={{ ...td, fontSize: 10 }}>{"—"}</td>
                 <td style={td}>{r.year}</td>
                 <td style={td}>{String(r.month).padStart(2, "0")}</td>
                 <td style={{ ...td, textAlign: "right" }}>{r.invoices_created}</td>
@@ -355,7 +379,7 @@ export default function InternalARBackfill() {
               <tr key={r.id}>
                 <td style={td}>{r.invoice_number || "—"}</td>
                 <td style={{ ...td, fontFamily: "monospace", fontSize: 10 }}>{r.source_line_key || "—"}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 10 }}>{r.sku_id?.slice(0, 8) || "—"}</td>
+                <td style={{ ...td, fontSize: 11 }}>{r.sku_id ? (skuById[r.sku_id] || "—") : "—"}</td>
                 <td style={{ ...td, color: C.warn }}>{r.reason}</td>
               </tr>
             ))}
