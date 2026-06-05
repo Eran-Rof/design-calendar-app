@@ -1,13 +1,13 @@
 // HistoricalCostCell — read-only popover showing tanda_pos history that
-// matches the costing line's style + selected vendor (including archived
+// matches the costing line's style ACROSS ALL VENDORS (including archived
 // POs). Renders as a trigger button in the grid; click → popover lists
-// every matching PO line with: po_number, received_date (or planned_ddp
-// if not yet received), and unit_price.
+// ONE row per matching PO with: po_number, vendor_name, qty totals,
+// quantity-weighted unit_price, and date (received or planned).
 //
 // Data: GET /api/internal/costing/lines/:line_id/po-history
 //
 // Empty / error states are surfaced inline in the popover so the operator
-// understands WHY there's no data (no style, no vendor, no matching POs).
+// understands WHY there's no data (no style, no matching POs).
 
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -21,8 +21,7 @@ interface Props {
 interface HistoryRow {
   po_number: string | null;
   po_id: string;
-  item_number: string | null;
-  description: string | null;
+  vendor_name: string | null;
   qty_ordered: number | null;
   qty_received: number | null;
   unit_price: number | null;
@@ -34,7 +33,7 @@ interface HistoryRow {
 
 interface HistoryResp {
   rows: HistoryRow[];
-  reason?: "no_style_code" | "no_selected_vendor" | "no_pos_for_vendor";
+  reason?: "no_style_code" | "no_pos_for_style";
 }
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -101,7 +100,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
         type="button"
         ref={anchorRef}
         onClick={() => setOpen((v) => !v)}
-        title="View tanda_pos history for this style + vendor"
+        title="View tanda_pos history for this style across all vendors"
         style={{
           width: "100%", textAlign: "center",
           background: "transparent", color: "#94A3B8",
@@ -125,7 +124,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
             position: "sticky", top: 0, background: "#1E293B",
             fontSize: 11, color: "#94A3B8", letterSpacing: ".04em", textTransform: "uppercase",
           }}>
-            PO history · same style + vendor (incl. archived)
+            PO history · same style · all vendors (incl. archived)
           </div>
           {loading && <div style={{ padding: 12, fontSize: 12, color: "#94A3B8" }}>Loading…</div>}
           {error && (
@@ -136,9 +135,8 @@ export default function HistoricalCostCell({ lineId }: Props) {
           {!loading && !error && rows.length === 0 && (
             <div style={{ padding: 12, fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>
               {reason === "no_style_code" && "Pick a style on this line first."}
-              {reason === "no_selected_vendor" && "Pick a vendor on this line first."}
-              {reason === "no_pos_for_vendor" && "No POs on file for this vendor yet."}
-              {!reason && "No POs match this style + vendor."}
+              {reason === "no_pos_for_style" && "No POs on file for this style yet."}
+              {!reason && "No POs match this style."}
             </div>
           )}
           {rows.length > 0 && (
@@ -146,7 +144,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
               <thead style={{ background: "#0F172A" }}>
                 <tr>
                   <Th>PO#</Th>
-                  <Th>Item</Th>
+                  <Th>Vendor</Th>
                   <Th align="right">Qty</Th>
                   <Th align="right">Recv</Th>
                   <Th align="right">Unit $</Th>
@@ -164,7 +162,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
                   return (
                     <tr key={`${r.po_id}_${i}`} style={{ borderTop: "1px solid #334155", opacity: r.archived ? 0.6 : 1 }}>
                       <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.po_number || "—"}</span></Td>
-                      <Td>{r.item_number || "—"}</Td>
+                      <Td>{r.vendor_name || "—"}</Td>
                       <Td align="right">{r.qty_ordered != null ? fmtQty.format(r.qty_ordered) : "—"}</Td>
                       <Td align="right">{r.qty_received != null ? fmtQty.format(r.qty_received) : "—"}</Td>
                       <Td align="right">{r.unit_price != null ? `$${fmtMoney.format(r.unit_price)}` : "—"}</Td>
