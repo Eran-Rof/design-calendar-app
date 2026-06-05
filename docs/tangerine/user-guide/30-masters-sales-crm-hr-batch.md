@@ -78,7 +78,7 @@ Chunk E (#708) added two drill-through scorecards reachable from a labeled **"�
 | Scorecard | Route | Returns |
 |---|---|---|
 | **Customer Scorecard** | `/tangerine?m=customer_scorecard` | Header (customer + up to two sales reps with their commission %s), metrics (open AR balance, avg days-to-pay, by-brand, by-gender, period blocks for This-Year / This-Month / Last-Month / LY-same, commission, dilution, margin, net profit), plus Invoices / Sales-Orders / Journal-Entries tabs. |
-| **Vendor Scorecard** | `/tangerine?m=vendor_scorecard` | Header (vendor + country), purchase/delivery metrics (avg lead-time days, % on-time vs promised, AP balance), plus AP-invoice and PO tabs. |
+| **Vendor Scorecard** | `/tangerine?m=vendor_scorecard` | Header (vendor + country), a **Vendor Health** tile (overall score /100 + A–F grade, pulled from the same source as the **Vendors → Vendor Health** panel), purchase/delivery metrics (avg lead-time days, % on-time vs promised, AP balance), plus AP-invoice and PO tabs. |
 
 Data-source honesty is baked in — each metric is computed from a documented source, and metrics with no honest source return `null` with a "needs X" caption rather than a fabricated number. For example:
 
@@ -90,18 +90,22 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 ### Drill-through to the underlying transactions
 
-Both scorecards are **click-through**. A **"Drill to:"** bar sits above the metric tiles, the open-balance / PO tiles are themselves clickable (cursor + blue hover border + an "Open … ↗" caption), and each tab toolbar carries an **"Open in … ↗"** button. Clicking one swaps the active Tangerine module to the matching list, pre-filtered to that party:
+**Vendor Scorecard — per-line drill opens in a new tab (2026-06-05).** The vendor scorecard's "Drill to:" bar, clickable metric tiles, and per-tab "Open in … ↗" buttons have been **removed**. Instead, **each transaction line in the AP-Invoices and POs tabs is now clickable** (cursor pointer + row hover highlight + a small ↗ next to the doc number). Click (or double-click) a line to **open that exact record in a new browser tab**:
+
+| Tab line | Opens (new tab) | Deep-link |
+|---|---|---|
+| AP invoice row | AP Invoices panel | `/tangerine?m=ap_invoices&q=<invoice_number>` |
+| PO row | Purchase Orders panel | `/tangerine?m=purchase_orders&q=<po_number>` |
+
+The target panel reads `?q=` on mount and seeds its search box, filtering to the single matching record (`invoice_number` / `po_number` `ilike`) so the clicked transaction is the only row shown. Draft POs (no PO number) are not clickable. The vendor's name/code is always shown — never a raw UUID.
+
+**Customer Scorecard** still uses the original in-place drill: a **"Drill to:"** bar above the metric tiles, clickable tiles, and per-tab "Open in … ↗" buttons that swap the active Tangerine module (via `?m=<target>&customer|q=…` + `popstate`) to the matching list, pre-filtered to that customer:
 
 | Scorecard | Drill target (`?m=`) | Filter seeded |
 |---|---|---|
-| **Vendor** | Purchase Orders (`purchase_orders`) | `?vendor=<vendor_id>` → seeds the panel's **vendor filter** (exact `vendor_id`). |
-| **Vendor** | AP Invoices (`ap_invoices`) | `?vendor=<vendor_id>` → seeds the **vendor filter**. |
-| **Vendor** | Journal Entries (`journal_entries`) | `?q=<vendor code/name>` → seeds the new JE **text filter** (JE has no party column). |
 | **Customer** | Sales Orders (`sales_orders`) | `?customer=<customer_id>` → seeds the panel's **customer filter** (exact `customer_id`). |
 | **Customer** | AR Invoices (`ar_invoices`) | `?customer=<customer_id>` → seeds the **customer filter**. |
-| **Customer** | Journal Entries (`journal_entries`) | `?q=<customer code/name>` → seeds the JE **text filter**. |
-
-Mechanically, the drill rewrites the URL (`?m=<target>&vendor|customer|q=…`) and fires a `popstate` so Tangerine re-reads `?m=` and mounts the target panel; the panel reads its own filter param on mount (mirrors how ATS reads `?style=`). The Sales-Orders panel gained a **Customer** filter dropdown and the Journal-Entries panel gained a **description/source search box** to host these seeds. Because Journal Entries have no vendor/customer column, the JE drill is a best-effort text match on the description/source reference rather than an exact party filter.
+| **Customer** | Journal Entries (`journal_entries`) | `?q=<customer code/name>` → seeds the JE **text filter** (JE has no party column). |
 
 ---
 
@@ -164,7 +168,7 @@ A run of nav PRs (#736, #738, #739, #748, #770) reshaped the Tangerine top nav. 
 
 - **Sales vs Customers split.** Sales-side panels (Sales Orders, Allocations, **Sales by Rep**) live under **Sales**; customer-side reporting (**Sales by Customer**, **Customer Scorecard**) under **Customers**.
 - **AR grouped under "Customers – Accts Rec"** (#748): AR Invoices, AR Receipts, AR Aging, AR Backfill all moved here from generic Accounting.
-- **Vendors is a top-level section** (#739) — previously nested inside Accounting. Vendor Master + **Vendor Scorecard** sit under it.
+- **Vendors is a top-level section** (#739) — previously nested inside Accounting. Vendor Master, **Vendor Scorecard**, and **❤️ Vendor Health** (relocated from Reports → Health Scores, 2026-06-05) sit under it.
 - **"Operations" → "Inventory"** (#738/#736): the old Operations section folded into **Inventory** (Purchase Orders, Inventory Matrix, Prepack Matrices, Transfers, Adjustments, Cycle Counts).
 - **Scorecards/Reports regrouped** (#770): scorecards became nav-reachable under Vendors / Customers; the standalone Sales-Reps master entry and the On-Hand-by-Pool report were dropped from the menu.
 - **HR** now lists Employees + Employee Titles + Employee Departments.

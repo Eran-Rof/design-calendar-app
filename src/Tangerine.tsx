@@ -523,7 +523,7 @@ const MODULES: ModuleDef[] = [
   { key: "insights",            label: "Insights",           emoji: "💡", group: "Reports" },
   { key: "anomalies",           label: "Anomalies",          emoji: "🚨", group: "Reports" },
   { key: "benchmark",           label: "Benchmark",          emoji: "📈", group: "Reports" },
-  { key: "health_scores",       label: "Health Scores",      emoji: "❤️", group: "Reports" },
+  { key: "health_scores",       label: "Vendor Health",      emoji: "❤️", group: "Vendors" },
   { key: "preferred",           label: "Preferred Vendors",  emoji: "⭐", group: "Reports" },
   // #983 — ESG & Compliance group.
   { key: "sustainability",      label: "Sustainability",     emoji: "🌿", group: "ESG & Compliance" },

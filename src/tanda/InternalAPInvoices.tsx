@@ -188,8 +188,10 @@ export default function InternalAPInvoices() {
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
   const [sourceFilter, setSourceFilter] = useState<string>("");
   // Wave 5 — DynamicSearchInput-controlled debounced search (200ms).
+  // Scorecard per-line drill: ?q=<invoice_number> seeds the search on mount so a
+  // new-tab deep-link lands here filtered to that single invoice (q ilike).
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } =
-    useDebouncedSearch("", 200);
+    useDebouncedSearch(readDrillParam("q"), 200);
   const [includeVoid, setIncludeVoid] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
