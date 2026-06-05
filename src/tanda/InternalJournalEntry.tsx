@@ -6,14 +6,13 @@
 // selector (ACCRUAL | CASH | BOTH), and inline subledger entry per line.
 
 import React, { useEffect, useMemo, useState } from "react";
-import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
-// Cross-cutter T11-3 — audit-trail drop-in for the JE detail modal.
-import RowHistory from "./components/RowHistory";
+// Shared JE detail modal (extracted so GL-detail drill-down can reuse it).
+import JEDetailModal from "./components/JEDetailModal";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
@@ -50,44 +49,8 @@ type JELine = {
   subledger_id: string;
 };
 
-// Row shape returned by GET /api/internal/journal-entries/:id (lines table).
-// Numeric columns arrive as strings from PostgREST for `numeric` types.
-type JELineRow = {
-  id: string;
-  journal_entry_id: string;
-  line_number: number;
-  account_id: string;
-  debit: string;
-  credit: string;
-  memo: string | null;
-  memo_line_2: string | null;
-  subledger_type: string | null;
-  subledger_id: string | null;
-};
-
-type JEWithLines = JE & { lines: JELineRow[] };
-
-type ApprovalStep = {
-  id: string;
-  step_order: number;
-  mode: "any" | "all";
-  role_required: string;
-  fulfilled_at: string | null;
-  fulfilled_by_user_id: string | null;
-  notes: string | null;
-};
-
-type ApprovalRequest = {
-  id: string;
-  entity_id: string;
-  kind: string;
-  context_table: string;
-  context_id: string;
-  status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
-  final_decided_at: string | null;
-  created_at: string;
-  steps: ApprovalStep[];
-};
+// (JE line / approval / full-JE shapes now live in the shared
+// components/JEDetailModal.tsx, which self-fetches the full entry by id.)
 
 type JE = {
   id: string;
@@ -373,7 +336,7 @@ export default function InternalJournalEntry() {
           je={detail}
           onClose={() => setDetail(null)}
           onReversed={() => { setDetail(null); void load(); }}
-          onReverseClick={(j) => void reverse(j)}
+          onReverseClick={() => { if (detail) void reverse(detail); }}
         />
       )}
     </div>
@@ -941,272 +904,3 @@ function AccountSearchInput({
   );
 }
 
-// JE detail view modal — opens on row click. Read-only header + line table.
-// Embeds DocumentAttachmentList for supporting docs (the only writable area).
-// Reverse button delegates back to the parent so the existing reverse flow
-// (prompt for posting_date + POST /reverse + reload) is reused unchanged.
-function JEDetailModal({
-  je, onClose, onReversed: _onReversed, onReverseClick,
-}: {
-  je: JE;
-  onClose: () => void;
-  onReversed: () => void;
-  onReverseClick: (je: JE) => void;
-}) {
-  const [data, setData] = useState<JEWithLines | null>(null);
-  const [accounts, setAccounts] = useState<Record<string, Account>>({});
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const r = await fetch(`/api/internal/journal-entries/${je.id}`);
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-        const full = await r.json() as JEWithLines;
-        if (cancelled) return;
-        setData(full);
-
-        // Look up account codes/names for the lines.
-        // Single fetch with a generous limit — COA is small.
-        try {
-          const ar = await fetch("/api/internal/gl-accounts?limit=1000");
-          if (ar.ok) {
-            const list = await ar.json() as Account[];
-            if (!cancelled) {
-              const idx: Record<string, Account> = {};
-              for (const a of list) idx[a.id] = a;
-              setAccounts(idx);
-            }
-          }
-        } catch { /* non-fatal — lines will fall back to raw account_id */ }
-
-        // Best-effort approval history lookup. If the approval-requests
-        // endpoint errors, swallow it and render a "no approval history" line.
-        try {
-          const params = new URLSearchParams();
-          params.set("context_table", "journal_entries");
-          params.set("context_id", je.id);
-          const pr = await fetch(`/api/internal/approval-requests?${params.toString()}`);
-          if (pr.ok) {
-            const list = await pr.json() as ApprovalRequest[];
-            if (!cancelled) setApprovals(Array.isArray(list) ? list : []);
-          }
-        } catch { /* non-fatal */ }
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [je.id]);
-
-  const totals = useMemo(() => {
-    let d = 0, c = 0;
-    for (const l of data?.lines || []) {
-      const dn = parseFloat(l.debit || "0"); if (Number.isFinite(dn)) d += dn;
-      const cn = parseFloat(l.credit || "0"); if (Number.isFinite(cn)) c += cn;
-    }
-    return { d, c };
-  }, [data]);
-
-  const canReverse = data?.status === "posted" && !data?.reversed_by_je_id;
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 100, paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(720px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 18 }}>
-            Journal entry detail
-            <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>
-              {je.description || "—"}
-            </span>
-          </h3>
-          <span style={{ color: statusColor(data?.status || je.status), fontWeight: 600, fontSize: 13 }}>
-            ● {data?.status || je.status}
-          </span>
-        </div>
-
-        {loading && <div style={{ color: C.textMuted, fontSize: 13, padding: "12px 0" }}>Loading…</div>}
-
-        {err && (
-          <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
-            {err}
-          </div>
-        )}
-
-        {data && (
-          <>
-            {/* Header section */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, fontSize: 13 }}>
-              <DetailRow label="Posting date" value={data.posting_date} />
-              <DetailRow label="Journal type" value={data.journal_type} />
-              <DetailRow label="Basis" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.basis}</span>} />
-              <DetailRow label="Source module" value={data.source_module || "—"} />
-              <DetailRow
-                label="Source ref"
-                value={data.source_table
-                  ? <span style={{ fontSize: 12 }}>{data.source_table}</span>
-                  : "—"}
-              />
-              <DetailRow
-                label="Posted at"
-                value={data.posted_at
-                  ? `${new Date(data.posted_at).toLocaleString()}${data.posted_by_name ? ` by ${data.posted_by_name}` : ""}`
-                  : "—"}
-              />
-              <DetailRow
-                label="Created"
-                value={`${new Date(data.created_at).toLocaleString()}${data.created_by_name ? ` by ${data.created_by_name}` : ""}`}
-              />
-              <DetailRow
-                label="Sibling JE"
-                value={data.sibling_je_id ? "Yes" : "—"}
-              />
-              <DetailRow
-                label="Reverses / reversed by"
-                value={data.reverses_je_id
-                  ? "Reverses another entry"
-                  : data.reversed_by_je_id
-                    ? "Reversed by another entry"
-                    : "—"}
-              />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Description</div>
-              <div style={{ fontSize: 13 }}>{data.description || "—"}</div>
-            </div>
-
-            {/* Lines section */}
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-            <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...th, width: 40 }}>#</th>
-                    <th style={th}>Account</th>
-                    <th style={{ ...th, width: 110, textAlign: "right" }}>Debit</th>
-                    <th style={{ ...th, width: 110, textAlign: "right" }}>Credit</th>
-                    <th style={th}>Memo</th>
-                    <th style={{ ...th, width: 140 }}>Subledger</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.lines || []).map((l) => {
-                    const acct = accounts[l.account_id];
-                    return (
-                      <tr key={l.id}>
-                        <td style={td}>{l.line_number}</td>
-                        <td style={{ ...td, fontSize: 12 }}>
-                          {acct
-                            ? <><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{acct.code}</span> — {acct.name}</>
-                            : <span style={{ color: C.textMuted }}>—</span>}
-                        </td>
-                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
-                          {parseFloat(l.debit || "0") > 0 ? parseFloat(l.debit).toFixed(2) : ""}
-                        </td>
-                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
-                          {parseFloat(l.credit || "0") > 0 ? parseFloat(l.credit).toFixed(2) : ""}
-                        </td>
-                        <td style={{ ...td, fontSize: 12, color: C.textSub }}>
-                          {l.memo || ""}
-                          {l.memo_line_2 && l.memo_line_2 !== l.memo ? (
-                            <div style={{ color: C.textMuted, fontSize: 11 }}>{l.memo_line_2}</div>
-                          ) : null}
-                        </td>
-                        <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
-                          {l.subledger_type || ""}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: "#0b1220" }}>
-                    <td style={td} colSpan={2}>
-                      <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Totals</span>
-                    </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.d.toFixed(2)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.c.toFixed(2)}</td>
-                    <td style={td} colSpan={2}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Approval history (optional, best-effort) */}
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Approval history</div>
-            <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, marginBottom: 16, fontSize: 12 }}>
-              {approvals.length === 0 ? (
-                <div style={{ color: C.textMuted }}>No approval history.</div>
-              ) : (
-                approvals.map((a) => (
-                  <div key={a.id} style={{ paddingBottom: 6, marginBottom: 6, borderBottom: `1px solid ${C.cardBdr}` }}>
-                    <div>
-                      <span style={{ color: statusColor(a.status === "approved" ? "posted" : a.status === "rejected" ? "reversed" : "draft"), fontWeight: 600 }}>● {a.status}</span>
-                      <span style={{ color: C.textMuted, marginLeft: 8 }}>
-                        {a.kind} · created {new Date(a.created_at).toLocaleDateString()}
-                        {a.final_decided_at ? ` · decided ${new Date(a.final_decided_at).toLocaleDateString()}` : ""}
-                      </span>
-                    </div>
-                    {(a.steps || []).length > 0 && (
-                      <div style={{ marginTop: 4, color: C.textSub, fontSize: 11 }}>
-                        {a.steps.map((s) => (
-                          <div key={s.id}>
-                            step {s.step_order} ({s.mode} / {s.role_required}) — {s.fulfilled_at ? `fulfilled ${new Date(s.fulfilled_at).toLocaleDateString()}` : "pending"}
-                            {s.notes ? ` — ${s.notes}` : ""}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Documents — only writable area in this modal */}
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Supporting documents</div>
-            <div style={{ marginBottom: 16 }}>
-              <DocumentAttachmentList
-                contextTable="journal_entries"
-                contextId={je.id}
-                kinds={["supporting_doc", "approval_correspondence", "receipt", "other"]}
-              />
-            </div>
-
-            {/* Cross-cutter T11-3 — audit trail timeline */}
-            <RowHistory source_table="journal_entries" source_id={je.id} />
-          </>
-        )}
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          {canReverse && data && (
-            <button onClick={() => onReverseClick(data)} style={btnDanger}>Reverse</button>
-          )}
-          <button onClick={onClose} style={btnSecondary}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div>{value}</div>
-    </div>
-  );
-}

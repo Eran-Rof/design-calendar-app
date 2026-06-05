@@ -536,6 +536,15 @@ Every financial report that lists GL accounts — **Income Statement**, **Trial 
 - The table lists each posted line in the window: **Date, Description, Source, Debit, Credit, Running Balance**, with a totals footer. JE numbers and memos are resolved for you — no raw database IDs appear.
 - Use the **Export** button to download the lines to Excel, or close with **✕** / **Esc** / clicking outside the modal.
 
+### Drill from a ledger line to its full journal entry
+
+A single GL-detail line shows only *this account's* side of a posting. To see the **whole journal entry** — every line, both sides, with header and memos:
+
+- **Double-click** any line in the GL Detail table, or click the small **↗** button in the rightmost **JE** column of that line.
+- The **Journal entry detail** modal opens on top, showing the complete entry: header (posting date, journal type, basis, source, posted-at), **all** of its lines (account code · name, debit, credit, memo, subledger) with balanced totals, the approval history, supporting documents, and the change/audit trail.
+- **Editing a posted entry is by reversal, not in-place edits** (this keeps the books audit-safe). If the entry is **posted** and not already reversed, a **Reverse** button appears: it creates the offsetting reversal (you may supply a posting date, or leave blank for today), and the GL detail behind it refreshes automatically. Draft entries surface their draft status. This is the same JE detail/reverse view used in the **Journal Entries** module — opening it here just pre-loads the entry behind the line you clicked.
+- Close the JE modal with **Close** / **Esc** / clicking outside to return to the GL Detail list.
+
 ### Which date range each report passes through
 
 | Report | Range passed to the GL detail |

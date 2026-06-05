@@ -13,8 +13,10 @@
 //
 // JE numbers / memos are resolved by the gl-detail RPC — no raw UUIDs surface.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ExportButton from "../exports/ExportButton";
+import JEDetailModal, { type JEDetailSeed } from "./JEDetailModal";
+import { notify } from "../../shared/ui/warn";
 
 export type GLDetailTarget = {
   accountId: string;
@@ -87,31 +89,56 @@ export default function GLDetailModal({
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Double-click (or ↗) a ledger line -> open that line's full Journal Entry in
+  // the shared JE detail/reverse modal. Seeded with the JE id + description from
+  // the line; the JE modal self-fetches the rest. No raw UUID is shown.
+  const [jeSeed, setJeSeed] = useState<JEDetailSeed | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setErr(null);
-      try {
-        const params = new URLSearchParams();
-        params.set("account_id", target.accountId);
-        params.set("from", target.from);
-        params.set("to", target.to);
-        params.set("basis", target.basis);
-        const r = await fetch(`/api/internal/gl-detail?${params.toString()}`);
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-        const data = await r.json();
-        if (!cancelled) setRows((data.rows || []) as Row[]);
-      } catch (e: unknown) {
-        if (!cancelled) { setErr(e instanceof Error ? e.message : String(e)); setRows([]); }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("account_id", target.accountId);
+      params.set("from", target.from);
+      params.set("to", target.to);
+      params.set("basis", target.basis);
+      const r = await fetch(`/api/internal/gl-detail?${params.toString()}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const data = await r.json();
+      setRows((data.rows || []) as Row[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e)); setRows([]);
+    } finally {
+      setLoading(false);
     }
-    void load();
-    return () => { cancelled = true; };
   }, [target.accountId, target.from, target.to, target.basis]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // Reverse a posted JE from the GL-detail drill (same flow as the JE module:
+  // optional posting_date prompt -> POST /reverse -> reload the ledger).
+  const reverseJE = useCallback(async (jeId: string) => {
+    const answer = prompt(
+      "Reverse this journal entry? Optionally enter a posting_date (YYYY-MM-DD), or leave blank for today:",
+      "",
+    );
+    if (answer === null) return;
+    try {
+      const body: Record<string, unknown> = {};
+      if (answer.trim() && /^\d{4}-\d{2}-\d{2}$/.test(answer.trim())) body.posting_date = answer.trim();
+      const r = await fetch(`/api/internal/journal-entries/${jeId}/reverse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setJeSeed(null);
+      await load();
+    } catch (e: unknown) {
+      notify(`Reverse failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  }, [load]);
 
   // Close on Escape.
   useEffect(() => {
@@ -131,6 +158,7 @@ export default function GLDetailModal({
   const netCents = totals.debit - totals.credit;
 
   return (
+    <>
     <div
       onClick={onClose}
       style={{
@@ -212,17 +240,37 @@ export default function GLDetailModal({
                   <th style={{ ...th, textAlign: "right" }}>Debit</th>
                   <th style={{ ...th, textAlign: "right" }}>Credit</th>
                   <th style={{ ...th, textAlign: "right" }}>Running Balance</th>
+                  <th style={{ ...th, width: 36, textAlign: "center" }} title="Open the full journal entry">JE</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={`${r.je_id}-${r.posting_date}`}>
+                  <tr
+                    key={`${r.je_id}-${r.posting_date}`}
+                    onDoubleClick={() => setJeSeed({ id: r.je_id, description: r.description })}
+                    style={{ cursor: "pointer" }}
+                    title="Double-click to open the full journal entry"
+                  >
                     <td style={td}>{r.posting_date}</td>
                     <td style={td}>{r.description || "—"}</td>
                     <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.source_module || "—"}</td>
                     <td style={tdNum}>{fmtCents(r.debit_cents)}</td>
                     <td style={tdNum}>{fmtCents(r.credit_cents)}</td>
                     <td style={{ ...tdNum, fontWeight: 600 }}>{fmtBalanceCents(r.running_balance_cents)}</td>
+                    <td style={{ ...td, textAlign: "center", padding: "4px 6px" }}>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setJeSeed({ id: r.je_id, description: r.description }); }}
+                        title="Open the full journal entry"
+                        aria-label="Open the full journal entry"
+                        style={{
+                          background: "transparent", color: C.primary, border: `1px solid ${C.cardBdr}`,
+                          borderRadius: 6, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 6px",
+                        }}
+                      >
+                        ↗
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -232,6 +280,7 @@ export default function GLDetailModal({
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.debit)}</td>
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.credit)}</td>
                   <td style={{ ...tdNum, fontWeight: 700, color: netCents !== 0 ? C.text : C.textMuted }}>{fmtBalanceCents(netCents)}</td>
+                  <td style={td}></td>
                 </tr>
               </tfoot>
             </table>
@@ -239,5 +288,15 @@ export default function GLDetailModal({
         </div>
       </div>
     </div>
+
+    {jeSeed && (
+      <JEDetailModal
+        je={jeSeed}
+        onClose={() => setJeSeed(null)}
+        onReversed={() => { setJeSeed(null); void load(); }}
+        onReverseClick={(full) => void reverseJE(full.id)}
+      />
+    )}
+    </>
   );
 }
