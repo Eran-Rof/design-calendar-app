@@ -488,11 +488,11 @@ export async function applyAcceptedSuggestion(
           const newFinal = Math.max(0, targetQty + target.buyer_request_qty + target.override_qty);
           await wholesaleRepo.patchForecastSystemOverride(target.id, Math.round(targetQty), newFinal, acceptedBy);
           applied = true;
-          reason = `Applied system override = ${Math.round(targetQty)} on forecast row ${target.id.slice(0, 8)}; final recomputed to ${newFinal}.`;
+          reason = `Applied system override = ${Math.round(targetQty)} on the matched forecast row; final recomputed to ${newFinal}.`;
         } else if (writesBuy) {
           await wholesaleRepo.patchForecastBuyQty(target.id, Math.max(0, Math.round(targetQty)));
           applied = true;
-          reason = `Applied planned buy = ${Math.max(0, Math.round(targetQty))} on forecast row ${target.id.slice(0, 8)}.`;
+          reason = `Applied planned buy = ${Math.max(0, Math.round(targetQty))} on the matched forecast row.`;
         }
       }
     }

@@ -168,8 +168,7 @@ function IssueRow({ issue, visibleColumns }: { issue: IpDataQualityIssue; visibl
       <td hidden={!visibleColumns.has("category")} style={{ padding: 8 }}>{issue.category}</td>
       <td hidden={!visibleColumns.has("message")} style={{ padding: 8 }}>{issue.message}</td>
       <td hidden={!visibleColumns.has("entity")} style={{ padding: 8, color: "#4a5568" }}>
-        {issue.entity_type ?? "-"}
-        {issue.entity_id ? ` / ${issue.entity_id.slice(0, 8)}` : ""}
+        {issue.entity_type ?? "—"}
       </td>
     </tr>
   );

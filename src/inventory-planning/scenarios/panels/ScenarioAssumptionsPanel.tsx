@@ -246,10 +246,10 @@ function scopeLabel(
   channelById: Map<string, string>,
 ): string {
   const parts: string[] = [];
-  if (a.applies_to_sku_id) parts.push(`SKU ${itemById.get(a.applies_to_sku_id) ?? a.applies_to_sku_id.slice(0, 8)}`);
-  if (a.applies_to_category_id) parts.push(`cat ${categoryById.get(a.applies_to_category_id) ?? "?"}`);
-  if (a.applies_to_customer_id) parts.push(`cust ${customerById.get(a.applies_to_customer_id) ?? "?"}`);
-  if (a.applies_to_channel_id) parts.push(`chan ${channelById.get(a.applies_to_channel_id) ?? "?"}`);
+  if (a.applies_to_sku_id) parts.push(`SKU ${itemById.get(a.applies_to_sku_id) ?? "—"}`);
+  if (a.applies_to_category_id) parts.push(`cat ${categoryById.get(a.applies_to_category_id) ?? "—"}`);
+  if (a.applies_to_customer_id) parts.push(`cust ${customerById.get(a.applies_to_customer_id) ?? "—"}`);
+  if (a.applies_to_channel_id) parts.push(`chan ${channelById.get(a.applies_to_channel_id) ?? "—"}`);
   if (a.period_start) parts.push(`period ${a.period_start}`);
   return parts.length ? parts.join(" · ") : "(all)";
 }

@@ -129,7 +129,7 @@ export async function exportWholesaleBuyPlan(ctx: ExportContext): Promise<IpExpo
   const rows = recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -152,7 +152,7 @@ export async function exportEcomBuyPlan(ctx: ExportContext): Promise<IpExportJob
   const rows = recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite" || r.recommendation_type === "protect_inventory")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -175,7 +175,7 @@ export async function exportShortageReport(ctx: ExportContext): Promise<IpExport
     .filter((p: IpProjectedInventory) => p.shortage_qty > 0)
     .sort((a, b) => b.shortage_qty - a.shortage_qty)
     .map((p: IpProjectedInventory) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
@@ -197,7 +197,7 @@ export async function exportExcessReport(ctx: ExportContext): Promise<IpExportJo
     .filter((p: IpProjectedInventory) => p.excess_qty > 0)
     .sort((a, b) => b.excess_qty - a.excess_qty)
     .map((p: IpProjectedInventory) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
@@ -215,7 +215,7 @@ export async function exportRecommendationsReport(ctx: ExportContext): Promise<I
   const recs = await supplyRepo.listRecommendations(ctx.run.id);
   const itemById = new Map(ctx.items.map((i) => [i.id, i]));
   const rows = recs.map((r: IpInventoryRecommendation) => ({
-    sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+    sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
     period: r.period_code,
     action: r.recommendation_type,
     qty: r.recommendation_qty ?? 0,
@@ -291,7 +291,7 @@ function buildWholesaleBuyPlanRows(recs: IpInventoryRecommendation[], items: IpI
   return recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -307,7 +307,7 @@ function buildEcomBuyPlanRows(recs: IpInventoryRecommendation[], items: IpItem[]
   return recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite" || r.recommendation_type === "protect_inventory")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -323,7 +323,7 @@ function buildShortageRows(projected: IpProjectedInventory[], items: IpItem[]): 
     .filter((p) => p.shortage_qty > 0)
     .sort((a, b) => b.shortage_qty - a.shortage_qty)
     .map((p) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
@@ -338,7 +338,7 @@ function buildExcessRows(projected: IpProjectedInventory[], items: IpItem[]): Re
     .filter((p) => p.excess_qty > 0)
     .sort((a, b) => b.excess_qty - a.excess_qty)
     .map((p) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
@@ -349,7 +349,7 @@ function buildExcessRows(projected: IpProjectedInventory[], items: IpItem[]): Re
 function buildRecommendationRows(recs: IpInventoryRecommendation[], items: IpItem[]): Record<string, unknown>[] {
   const itemById = new Map(items.map((i) => [i.id, i]));
   return recs.map((r) => ({
-    sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+    sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
     period: r.period_code,
     action: r.recommendation_type,
     qty: r.recommendation_qty ?? 0,

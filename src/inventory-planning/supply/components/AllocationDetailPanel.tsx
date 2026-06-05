@@ -119,7 +119,7 @@ export default function AllocationDetailPanel({
           <div style={S.infoLabel}>Wholesale by customer</div>
           {demand.wholesale_by_customer.map((c) => (
             <div key={c.customer_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: PAL.textDim, fontFamily: "monospace" }}>{c.customer_id.slice(0, 8)}</span>
+              <span style={{ color: PAL.textDim, fontFamily: "monospace" }}>{"—"}</span>
               <span style={{ fontFamily: "monospace" }}>{formatQty(c.qty)}</span>
             </div>
           ))}
@@ -130,7 +130,7 @@ export default function AllocationDetailPanel({
           <div style={S.infoLabel}>Ecom by channel</div>
           {demand.ecom_by_channel.map((c) => (
             <div key={c.channel_id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: PAL.textDim, fontFamily: "monospace" }}>{c.channel_id.slice(0, 8)}</span>
+              <span style={{ color: PAL.textDim, fontFamily: "monospace" }}>{"—"}</span>
               <span style={{ fontFamily: "monospace" }}>
                 {formatQty(c.qty)} · <span style={{ color: PAL.green }}>protected {formatQty(c.protected)}</span>
               </span>

@@ -431,7 +431,7 @@ export default function PlanningRunControls({
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget && !saveBuildBusy) setShowSaveModal(false); }}
         >
-          <div style={{ background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10, padding: 18, minWidth: 440, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div style={{ background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10, padding: 18, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <strong style={{ color: PAL.text, fontSize: 14 }}>{selectedSavedBuild ? "Fork & save snapshot" : "Save this build as a snapshot"}</strong>
             </div>
@@ -498,7 +498,7 @@ export default function PlanningRunControls({
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget && !deleteSucceeded) setPendingDeleteSaved(null); }}
         >
-          <div style={{ background: PAL.panel, border: `1px solid ${deleteSucceeded ? PAL.green : PAL.red}`, borderRadius: 10, padding: 18, minWidth: 420, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div style={{ background: PAL.panel, border: `1px solid ${deleteSucceeded ? PAL.green : PAL.red}`, borderRadius: 10, padding: 18, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
             {deleteSucceeded ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -545,7 +545,7 @@ export default function PlanningRunControls({
         >
           <div style={{
             background: PAL.panel, border: `1px solid ${wipeStage === "confirm" ? PAL.red : PAL.border}`, borderRadius: 10,
-            padding: 18, minWidth: 440, maxWidth: 540, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            padding: 18, width: "min(540px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}>
             {wipeStage === "choice" && (<>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>

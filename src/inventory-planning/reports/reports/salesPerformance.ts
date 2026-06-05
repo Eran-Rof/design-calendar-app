@@ -47,7 +47,7 @@ export function buildSalesPerformance(
       case "channel": { const id = s.channel_id ?? ""; return { key: id, label: ctx.channelName.get(id) || "(no channel)" }; }
       case "sku": {
         const it = ctx.itemById.get(s.sku_id);
-        return { key: s.sku_id, label: it?.sku_code || s.sku_id.slice(0, 8) };
+        return { key: s.sku_id, label: it?.sku_code || "—" };
       }
     }
   };

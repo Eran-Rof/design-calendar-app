@@ -60,7 +60,7 @@ export function buildInventoryHealth(inventory: RepInv[], ctx: LookupCtx, params
       const id = it?.category_id ?? "";
       return { key: id, label: ctx.categoryName.get(id) || "(uncategorized)" };
     }
-    return { key: s.sku_id, label: it?.sku_code || s.sku_id.slice(0, 8) };
+    return { key: s.sku_id, label: it?.sku_code || "—" };
   };
 
   for (const s of latest.values()) {

@@ -148,7 +148,7 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
             <div style={S.drawerHeader}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 15 }}>{selected.job_type}</h3>
-                <div style={{ fontSize: 12, color: PAL.textMuted }}>{selected.id.slice(0, 8)} · {selected.status}</div>
+                <div style={{ fontSize: 12, color: PAL.textMuted }}>{selected.status}</div>
               </div>
               <button style={S.btnGhost} onClick={() => setSelected(null)}>✕</button>
             </div>

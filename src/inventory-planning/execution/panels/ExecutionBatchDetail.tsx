@@ -93,6 +93,9 @@ export default function ExecutionBatchDetail({
   const issues = useMemo(() => validateActions(actions), [actions]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const cfgByType = useMemo(() => new Map(writebackConfig.map((c) => [c.action_type, c])), [writebackConfig]);
+  const actionById = useMemo(() => new Map(actions.map((a) => [a.id, a])), [actions]);
+  // Resolve an action id to its SKU code for human-readable log/validation lines (never show a raw UUID).
+  const actionLabel = (id: string): string => itemById.get(actionById.get(id)?.sku_id ?? "")?.sku_code ?? "—";
 
   const totals = useMemo(() => {
     const t = { total: 0, approvedQty: 0, suggestedQty: 0, exported: 0, submitted: 0, succeeded: 0, failed: 0 };
@@ -384,7 +387,7 @@ export default function ExecutionBatchDetail({
 
             {poResult.created.map((c, i) => (
               <div key={(c.po_id || "preview") + i} style={{ background: PAL.green + "22", color: PAL.green, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 8 }}>
-                <span>{c.preview ? "[preview] " : "✓ "}{c.vendor_name || c.vendor_id} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO ${c.po_id.slice(0, 8)} (draft)` : ""}</span>
+                <span>{c.preview ? "[preview] " : "✓ "}{c.vendor_name || "—"} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO (draft)` : ""}</span>
                 {c.po_id && (
                   <a href={PO_PANEL_URL} target="_blank" rel="noreferrer" style={{ color: PAL.accent, textDecoration: "underline" }}>open in Procurement →</a>
                 )}
@@ -411,12 +414,12 @@ export default function ExecutionBatchDetail({
 
             {poResult.warnings.map((w) => (
               <div key={"w" + w.action_id} style={{ background: PAL.yellow + "22", color: PAL.yellow, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                ⚠ {w.action_id.slice(0, 8)} · {w.message}
+                ⚠ {actionLabel(w.action_id)} · {w.message}
               </div>
             ))}
             {poResult.skipped.filter((s) => s.code !== "vendor_unlinked").map((s) => (
               <div key={"s" + s.action_id} style={{ background: PAL.textMuted + "22", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                skipped {s.action_id.slice(0, 8)} · {s.reason}
+                skipped {actionLabel(s.action_id)} · {s.reason}
               </div>
             ))}
           </div>
@@ -433,7 +436,7 @@ export default function ExecutionBatchDetail({
                 fontSize: 12,
                 fontFamily: "monospace",
               }}>
-                [{r.dry_run ? "dry" : "live"}] {r.action_id.slice(0, 8)} · {r.status} · {r.message}
+                [{r.dry_run ? "dry" : "live"}] {actionLabel(r.action_id)} · {r.status} · {r.message}
               </div>
             ))}
           </div>
@@ -469,7 +472,7 @@ export default function ExecutionBatchDetail({
                   <tr key={a.id} style={{ background: a.execution_status === "failed" ? "#3f1d1d22" : undefined }}>
                     <td style={S.td}>{a.action_type.replace(/_/g, " ")}</td>
                     <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
-                      {item?.sku_code ?? a.sku_id.slice(0, 8)}
+                      {item?.sku_code ?? "—"}
                     </td>
                     <td style={S.td}>{a.period_start ?? "–"}</td>
                     <td style={S.td}>{a.po_number ?? "–"}</td>
@@ -480,7 +483,7 @@ export default function ExecutionBatchDetail({
                           <a href={PO_PANEL_URL} target="_blank" rel="noreferrer"
                              style={{ ...S.chip, background: PAL.green + "22", color: PAL.green, textDecoration: "none" }}
                              title={`Draft Tangerine PO ${tpo} — open Procurement`}>
-                            draft {tpo.slice(0, 8)} ↗
+                            draft PO ↗
                           </a>
                         ) : <span style={{ color: PAL.textMuted }}>–</span>;
                       })()}
@@ -533,7 +536,7 @@ export default function ExecutionBatchDetail({
             <div style={{ fontSize: 12, color: PAL.textDim, marginBottom: 6 }}>Validation</div>
             {issues.map((i, idx) => (
               <div key={idx} style={{ fontSize: 12, color: i.severity === "error" ? PAL.red : PAL.yellow, padding: "2px 0" }}>
-                {i.severity === "error" ? "✕" : "!"} {i.action_id.slice(0, 8)} · {i.field ?? ""} — {i.message}
+                {i.severity === "error" ? "✕" : "!"} {actionLabel(i.action_id)} · {i.field ?? ""} — {i.message}
               </div>
             ))}
           </div>

@@ -29,7 +29,7 @@ export default function ConfirmModal({
       onClick={onCancel}
     >
       <div
-        style={{ background: PAL.panel, borderRadius: 16, width: 420, border: `1px solid ${confirmColor}55`, boxShadow: "0 24px 64px rgba(0,0,0,0.18)", overflow: "hidden" }}
+        style={{ background: PAL.panel, borderRadius: 16, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", border: `1px solid ${confirmColor}55`, boxShadow: "0 24px 64px rgba(0,0,0,0.18)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ background: `${confirmColor}10`, padding: "20px 24px", borderBottom: `1px solid ${PAL.border}`, display: "flex", alignItems: "center", gap: 12 }}>

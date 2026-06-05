@@ -74,14 +74,10 @@ export async function exportExecutionBatch(args: {
     const item = itemById.get(a.sku_id);
     const payload = mapActionToXoroPayload(a);
     return {
-      action_id: a.id.slice(0, 8),
       action_type: a.action_type,
-      sku_code: item?.sku_code ?? "",
+      sku_code: item?.sku_code ?? "—",
       description: item?.description ?? "",
       po_number: a.po_number ?? "",
-      vendor_id: a.vendor_id ?? "",
-      customer_id: a.customer_id ?? "",
-      channel_id: a.channel_id ?? "",
       period: a.period_start ?? "",
       suggested_qty: a.suggested_qty,
       approved_qty: a.approved_qty ?? "",
