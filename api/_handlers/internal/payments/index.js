@@ -48,8 +48,7 @@ export default async function handler(req, res) {
       .select(
         [
           "id","entity_id","invoice_id","vendor_id","amount","currency",
-          "method","status","initiated_at","sent_at","completed_at",
-          "discount_offer_id","scf_request_id","virtual_card_id",
+          "method","status","initiated_at","completed_at",
           "vendor:vendors(id, name)",
           "invoice:invoices(id, invoice_number, total)",
         ].join(","),

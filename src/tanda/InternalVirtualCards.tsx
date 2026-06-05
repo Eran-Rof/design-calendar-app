@@ -125,7 +125,7 @@ export default function InternalVirtualCards() {
           {rows.map((c) => (
             <div key={c.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 120px 100px 100px 100px 140px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{c.vendor?.name || c.vendor_id}</div>
+                <div style={{ fontWeight: 600 }}>{c.vendor?.name || "—"}</div>
                 <div style={{ fontSize: 11, color: C.textMuted }}>Inv {c.invoice?.invoice_number || "—"}</div>
               </div>
               <div style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>•••• {c.card_number_last4} · {String(c.expiry_month).padStart(2, "0")}/{c.expiry_year}</div>
