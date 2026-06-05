@@ -675,7 +675,7 @@ function MatchCandidateModal({ txn, onClose, onPick }: { txn: BankTxn; onClose: 
   }, [txn.id]);
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 640, maxWidth: 900, maxHeight: "85vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(900px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Pick a matching JE line</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           {txn.posted_date} · {fmtCents(txn.amount_cents)} · {txn.description || txn.merchant_name || "(no description)"}
@@ -765,7 +765,7 @@ function CreateJeModal({ txn, onClose, onDone }: { txn: BankTxn; onClose: () => 
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 640, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Create JE for standalone transaction</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           {txn.posted_date} · {fmtCents(txn.amount_cents)} · {txn.description || txn.merchant_name || "(no description)"}

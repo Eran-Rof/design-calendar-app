@@ -275,7 +275,7 @@ export default function InternalCycleCounts() {
                 <td style={td} hidden={!isVisible("location")}>{cc.location}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
                 <td style={td} hidden={!isVisible("created")}>{fmtDate(cc.created_at)}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("id")}>{cc.id.slice(0, 8)}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("id")}>{"—"}</td>
               </tr>
             ))}
           </tbody>
@@ -403,6 +403,8 @@ function DetailModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editingDrafts, setEditingDrafts] = useState<Record<string, string>>({});
+  // Resolve line item_id → human sku_code (no raw UUIDs in the lines table).
+  const [skuById, setSkuById] = useState<Record<string, string>>({});
 
   async function load() {
     setLoading(true);
@@ -418,6 +420,28 @@ function DetailModal({
     }
   }
   useEffect(() => { void load(); }, [cycleCountId]);
+
+  // Resolve the line item ids to sku_code labels via the shared items endpoint.
+  useEffect(() => {
+    const ids = Array.from(new Set((data?.lines || []).map((ln) => ln.item_id).filter(Boolean)))
+      .filter((id) => !(id in skuById));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/items?ids=${encodeURIComponent(ids.join(","))}`);
+        if (!r.ok) return;
+        const rows = (await r.json()) as Array<{ id: string; sku_code: string | null }>;
+        if (cancelled) return;
+        setSkuById((prev) => {
+          const next = { ...prev };
+          for (const it of rows) next[it.id] = it.sku_code || "—";
+          return next;
+        });
+      } catch { /* leave as "—" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveLine(lineId: string) {
     const raw = editingDrafts[lineId];
@@ -498,7 +522,7 @@ function DetailModal({
   }, [data]);
 
   return (
-    <ModalShell onClose={onClose} title={`Cycle count ${cycleCountId.slice(0, 8)}`} width={900}>
+    <ModalShell onClose={onClose} title={data ? `Cycle count · ${fmtDate(data.count_date)} · ${data.location}` : "Cycle count"} width={900}>
       {loading && <div style={{ color: C.textMuted }}>Loading…</div>}
       {err && (
         <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
@@ -522,7 +546,7 @@ function DetailModal({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={th}>Item (uuid)</th>
+                  <th style={th}>Item</th>
                   <th style={th}>System</th>
                   <th style={th}>Counted</th>
                   <th style={th}>Variance</th>
@@ -538,7 +562,7 @@ function DetailModal({
                   const canEdit = data.status === "in_progress";
                   return (
                     <tr key={ln.id}>
-                      <td style={{ ...td, fontFamily: "monospace", color: C.textSub, fontSize: 11 }}>{ln.item_id}</td>
+                      <td style={{ ...td, color: C.textSub, fontSize: 11 }}>{skuById[ln.item_id] || "—"}</td>
                       <td style={td}>{ln.system_qty}</td>
                       <td style={td}>
                         {canEdit ? (
@@ -557,8 +581,8 @@ function DetailModal({
                         )}
                       </td>
                       <td style={{ ...td, color: v.color, fontWeight: 600 }}>{v.text}</td>
-                      <td style={{ ...td, fontFamily: "monospace", color: C.textSub, fontSize: 11 }}>
-                        {ln.adjustment_id ? ln.adjustment_id.slice(0, 8) : "—"}
+                      <td style={{ ...td, color: C.textSub, fontSize: 11 }}>
+                        {ln.adjustment_id ? "Posted" : "—"}
                       </td>
                       <td style={td}>
                         {canEdit && isDirty && (
@@ -610,7 +634,7 @@ function ModalShell({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-          padding: 24, width, maxHeight: "90vh", overflow: "auto",
+          padding: 24, width: `min(${width}px, 95vw)`, maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
         }}
       >
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>{title}</h2>

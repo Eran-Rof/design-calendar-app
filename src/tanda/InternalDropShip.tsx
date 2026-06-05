@@ -73,6 +73,30 @@ export default function InternalDropShip() {
   const custName = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const vendName = useMemo(() => new Map(vendors.map((v) => [v.id, v.name])), [vendors]);
 
+  // Resolve line inventory_item_id → human sku_code (no raw UUIDs in the table).
+  const [skuById, setSkuById] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const ids = Array.from(new Set(
+      rows.flatMap((o) => o.drop_ship_lines.map((l) => l.inventory_item_id)).filter((v): v is string => !!v),
+    )).filter((id) => !(id in skuById));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/items?ids=${encodeURIComponent(ids.join(","))}`);
+        if (!r.ok) return;
+        const data = (await r.json()) as Array<{ id: string; sku_code: string | null }>;
+        if (cancelled) return;
+        setSkuById((prev) => {
+          const next = { ...prev };
+          for (const it of data) next[it.id] = it.sku_code || "—";
+          return next;
+        });
+      } catch { /* leave as "—" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function margin(o: Ds) { return o.drop_ship_lines.reduce((s, l) => s + Number(l.qty) * (l.customer_unit_price_cents - l.vendor_unit_cost_cents), 0); }
   function revenue(o: Ds) { return o.drop_ship_lines.reduce((s, l) => s + Number(l.qty) * l.customer_unit_price_cents, 0); }
 
@@ -199,7 +223,7 @@ export default function InternalDropShip() {
                           {o.drop_ship_lines.sort((a, b) => a.line_number - b.line_number).map((l) => (
                             <tr key={l.id}>
                               <td style={td}>{l.line_number}</td>
-                              <td style={{ ...td, fontFamily: "monospace", color: l.inventory_item_id ? C.text : C.textMuted }}>{l.inventory_item_id ? l.inventory_item_id.slice(0, 8) : "—"}</td>
+                              <td style={{ ...td, color: l.inventory_item_id ? C.text : C.textMuted }}>{l.inventory_item_id ? (skuById[l.inventory_item_id] || "—") : "—"}</td>
                               <td style={td}>{l.description || "—"}</td>
                               <td style={{ ...td, textAlign: "right" }}>{Number(l.qty)}</td>
                               <td style={{ ...td, textAlign: "right" }}>${(l.customer_unit_price_cents / 100).toFixed(2)}</td>

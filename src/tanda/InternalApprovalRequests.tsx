@@ -235,8 +235,8 @@ export default function InternalApprovalRequests() {
               return (
                 <tr key={r.id}>
                   <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("kind")}>{r.kind}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!isVisible("context")}>
-                    {r.context_table}#{r.context_id.slice(0, 8)}
+                  <td style={{ ...td, fontSize: 11, color: C.textSub }} hidden={!isVisible("context")}>
+                    {r.context_table || "—"}
                   </td>
                   <td style={td} hidden={!isVisible("amount")}>{formatCents(r.requested_amount_cents)}</td>
                   <td style={td} hidden={!isVisible("current_step")}>
@@ -317,7 +317,7 @@ function DecideModal({ request, onCancel, onSaved }: {
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 540,
+        padding: 24, width: "min(540px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
       }}>
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>Decide step</h2>
 

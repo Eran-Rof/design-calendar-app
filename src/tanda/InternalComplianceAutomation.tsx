@@ -139,7 +139,7 @@ export default function InternalComplianceAutomation() {
           </div>
           {rows.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 120px 100px 120px 100px 100px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600 }}>{r.document_type?.name || r.document_type_id}</div>
+              <div style={{ fontWeight: 600 }}>{r.document_type?.name || "—"}</div>
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "capitalize" }}>{r.trigger_type.replace(/_/g, " ")}</div>
               <div style={{ color: C.textMuted }}>{r.days_before_expiry ?? "—"}</div>
               <div>{r.auto_request ? <span style={{ color: C.success }}>✓</span> : <span style={{ color: C.textMuted }}>—</span>}</div>
@@ -200,7 +200,7 @@ function CreateRuleModal({ entityId, types, onClose, onCreated }: { entityId: st
 
   return (
     <div style={overlay} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 520 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: "min(520px, 95vw)" }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New automation rule</h3>
         <Row label="Document type">
           <select value={docTypeId} onChange={(e) => setDocTypeId(e.target.value)} style={inp}>
@@ -256,4 +256,4 @@ const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid $
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const modal = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto" as const, color: C.text };
+const modal = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, maxHeight: "90vh", overflowY: "auto" as const, boxSizing: "border-box" as const, color: C.text };
