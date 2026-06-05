@@ -347,6 +347,7 @@ import r_internal_reports_vendors from "./internal/reports/vendors.js";
 import r_internal_rfqs_id_award_vendor_id from "./internal/rfqs/[id]/award/[vendor_id].js";
 import r_internal_rfqs_id_close from "./internal/rfqs/[id]/close.js";
 import r_internal_rfqs_id_index from "./internal/rfqs/[id]/index.js";
+import r_internal_rfqs_id_messages_index from "./internal/rfqs/[id]/messages/index.js";
 import r_internal_rfqs_id_publish from "./internal/rfqs/[id]/publish.js";
 import r_internal_rfqs_id_quotes from "./internal/rfqs/[id]/quotes.js";
 import r_internal_rfqs_index from "./internal/rfqs/index.js";
@@ -538,6 +539,7 @@ import r_vendor_reports_pos from "./vendor/reports/pos.js";
 import r_vendor_reports_summary from "./vendor/reports/summary.js";
 import r_vendor_rfqs_id_decline from "./vendor/rfqs/[id]/decline.js";
 import r_vendor_rfqs_id_index from "./vendor/rfqs/[id]/index.js";
+import r_vendor_rfqs_id_messages_index from "./vendor/rfqs/[id]/messages/index.js";
 import r_vendor_rfqs_id_quotes_index from "./vendor/rfqs/[id]/quotes/index.js";
 import r_vendor_rfqs_id_quotes_submit from "./vendor/rfqs/[id]/quotes/submit.js";
 import r_vendor_rfqs_index from "./vendor/rfqs/index.js";
@@ -728,6 +730,7 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/categories/:id", handler: r_internal_pim_categories_id },
   { pattern: "/api/internal/procurement/qc/:id", handler: r_internal_procurement_qc_id },
   { pattern: "/api/vendor/workspaces/:id/tasks", handler: r_vendor_workspaces_id_tasks_index },
+  { pattern: "/api/internal/rfqs/:id/messages", handler: r_internal_rfqs_id_messages_index },
   { pattern: "/api/internal/vendors/:id/flags", handler: r_internal_vendors_id_flags_index },
   { pattern: "/api/internal/vendors/:id/notes", handler: r_internal_vendors_id_notes_index },
   { pattern: "/api/vendor/workspaces/:id/pins", handler: r_vendor_workspaces_id_pins_index },
@@ -737,6 +740,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/contracts/:id/sign", handler: r_vendor_contracts_id_sign },
   { pattern: "/api/internal/rfqs/:id/quotes", handler: r_internal_rfqs_id_quotes },
   { pattern: "/api/vendor/api-keys/:id/logs", handler: r_vendor_api_keys_id_logs },
+  { pattern: "/api/vendor/rfqs/:id/messages", handler: r_vendor_rfqs_id_messages_index },
   { pattern: "/api/internal/rfqs/:id/close", handler: r_internal_rfqs_id_close },
   { pattern: "/api/vendor/pos/:id/messages", handler: r_vendor_pos_id_messages },
   { pattern: "/api/vendor/rfqs/:id/decline", handler: r_vendor_rfqs_id_decline },

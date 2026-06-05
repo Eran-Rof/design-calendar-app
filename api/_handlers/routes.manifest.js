@@ -589,4 +589,6 @@ export default [
   ["/api/cron/ip-normalize"                                  , "./cron/ip-normalize.js"],
   ["/api/cron/ip-freshness-refresh"                          , "./cron/ip-freshness-refresh.js"],
   ["/api/cron/ip-integration-health"                         , "./cron/ip-integration-health.js"],
+  ["/api/internal/rfqs/:id/messages"                         , "./internal/rfqs/[id]/messages/index.js"],
+  ["/api/vendor/rfqs/:id/messages"                           , "./vendor/rfqs/[id]/messages/index.js"],
 ];
