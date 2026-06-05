@@ -2399,10 +2399,10 @@ export default function WholesalePlanningWorkbench() {
               border: `1px solid ${accent}`,
               borderRadius: 10,
               padding: 22,
-              minWidth: 480,
-              maxWidth: 640,
-              maxHeight: "80vh",
+              width: "min(640px, 95vw)",
+              maxHeight: "90vh",
               overflowY: "auto",
+              boxSizing: "border-box",
               color: PAL.text,
               boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
             }}>

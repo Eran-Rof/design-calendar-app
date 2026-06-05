@@ -260,8 +260,8 @@ export default function ReconciliationWorkbench() {
             <>
               <div style={{ color: PAL.textMuted, fontSize: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span>Snapshot {formatDate(selectedRun.source_snapshot_date)} ·
-                wholesale source {selectedRun.wholesale_source_run_id ? selectedRun.wholesale_source_run_id.slice(0, 8) : "—"} ·
-                ecom source {selectedRun.ecom_source_run_id ? selectedRun.ecom_source_run_id.slice(0, 8) : "—"}</span>
+                wholesale source {selectedRun.wholesale_source_run_id ? (wholesaleRuns.find((r) => r.id === selectedRun.wholesale_source_run_id)?.name ?? "—") : "—"} ·
+                ecom source {selectedRun.ecom_source_run_id ? (ecomRuns.find((r) => r.id === selectedRun.ecom_source_run_id)?.name ?? "—") : "—"}</span>
                 <span style={{ ...S.chip,
                   background: (selectedRun.supply_source === "tangerine" ? "#EA580C" : PAL.accent) + "22",
                   color: selectedRun.supply_source === "tangerine" ? "#EA580C" : PAL.accent }}>

@@ -256,7 +256,7 @@ export default function ScenarioManager() {
         baseRunId: selected.base_run_reference_id,
         scenarioName: `${selected.scenario_name} (copy)`,
         scenarioType: selected.scenario_type,
-        note: "Duplicated from " + selected.id.slice(0, 8),
+        note: "Duplicated from " + selected.scenario_name,
       });
       await refresh();
       setSelectedId(copy.id);
@@ -379,7 +379,7 @@ export default function ScenarioManager() {
           {selected && (
             <div style={{ color: PAL.textMuted, fontSize: 12, marginTop: 6 }}>
               {selected.note ?? ""}
-              {selected.base_run_reference_id ? ` · base ${selected.base_run_reference_id.slice(0, 8)}` : ""}
+              {selected.base_run_reference_id ? ` · base ${runs.find((r) => r.id === selected.base_run_reference_id)?.name ?? "—"}` : ""}
               {" · created "}{formatDateTime(selected.created_at)}
               {readOnly && <span style={{ color: PAL.green, marginLeft: 8 }}>· read-only (approved/archived)</span>}
             </div>
@@ -573,7 +573,7 @@ function ScenarioList({
                   }}>{s.status.replace(/_/g, " ")}</span>
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("base_run")}>
-                  {s.base_run_reference_id ? (runNameById.get(s.base_run_reference_id) ?? s.base_run_reference_id.slice(0, 8)) : "—"}
+                  {s.base_run_reference_id ? (runNameById.get(s.base_run_reference_id) ?? "—") : "—"}
                 </td>
                 <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("created")}>{formatDate(s.created_at.slice(0, 10))}</td>
                 <td style={{ ...S.td, color: PAL.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("note")}>{s.note ?? ""}</td>

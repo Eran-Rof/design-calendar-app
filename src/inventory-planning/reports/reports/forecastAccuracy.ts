@@ -44,7 +44,7 @@ export function buildForecastAccuracy(rows: RepAccuracy[], ctx: LookupCtx, group
       case "method": { const m = r.forecast_method ?? ""; return { key: m, label: METHOD_LABEL[m] || m || "(none)" }; }
       case "category": { const id = r.category_id ?? ""; return { key: id, label: ctx.categoryName.get(id) || "(uncategorized)" }; }
       case "period": { const p = r.period_code ?? ""; return { key: p, label: monthLabel(p) }; }
-      case "sku": { const id = r.sku_id ?? ""; const it = id ? ctx.itemById.get(id) : undefined; return { key: id, label: it?.sku_code || (id ? id.slice(0, 8) : "(none)") }; }
+      case "sku": { const id = r.sku_id ?? ""; const it = id ? ctx.itemById.get(id) : undefined; return { key: id, label: it?.sku_code || "—" }; }
     }
   };
 

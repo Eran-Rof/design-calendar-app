@@ -76,7 +76,7 @@ export async function cloneBaseIntoScenario(args: {
                               ?? (baseRun.planning_scope === "wholesale" ? baseRun.id : null),
     ecom_source_run_id: baseRun.ecom_source_run_id
                               ?? (baseRun.planning_scope === "ecom" ? baseRun.id : null),
-    note: `Cloned from ${baseRun.id.slice(0, 8)} at ${new Date().toISOString()}`,
+    note: `Cloned from ${baseRun.name} at ${new Date().toISOString()}`,
     created_by: createdBy ?? null,
   });
 
@@ -213,7 +213,7 @@ export async function cloneBaseIntoSavedBuild(args: {
     forecast_method_preference: baseRun.forecast_method_preference,
     wholesale_source_run_id: baseRun.wholesale_source_run_id ?? null,
     ecom_source_run_id: baseRun.ecom_source_run_id ?? null,
-    note: `Saved build of ${baseRun.name} (${baseRunId.slice(0, 8)}) at ${new Date().toISOString()}`,
+    note: `Saved build of ${baseRun.name} at ${new Date().toISOString()}`,
     created_by: createdBy ?? null,
   });
 

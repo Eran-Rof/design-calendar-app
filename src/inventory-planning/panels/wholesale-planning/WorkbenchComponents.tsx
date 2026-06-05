@@ -199,7 +199,7 @@ export function BootstrapStatusBar({ phase, onCancel }: { phase: "masters" | "ru
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: PAL.panel, borderRadius: 14, padding: "28px 32px", width: 380, maxWidth: "92vw", border: `1px solid ${PAL.border}`, boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
+      <div style={{ background: PAL.panel, borderRadius: 14, padding: "28px 32px", width: "min(380px, 95vw)", maxHeight: "90vh", overflowY: "auto", border: `1px solid ${PAL.border}`, boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
         <div style={{ fontWeight: 700, fontSize: 16, color: PAL.text, marginBottom: 8 }}>Loading…</div>
         <div style={{ fontSize: 13, color: PAL.textMuted, marginBottom: 20 }}>{PHASE_LABELS[phase]}</div>
         <div style={{ background: PAL.panelAlt, borderRadius: 8, height: 10, overflow: "hidden", marginBottom: 20, border: `1px solid ${PAL.borderFaint}` }}>

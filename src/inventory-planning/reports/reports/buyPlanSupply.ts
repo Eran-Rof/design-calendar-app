@@ -42,7 +42,7 @@ function demandView(recs: RepRec[], openPos: RepOpenPo[], ctx: LookupCtx, groupB
     if (groupBy === "priority") { const p = r.priority_level ?? ""; return { key: p, label: PRIORITY_LABEL[p] || p || "(none)" }; }
     if (groupBy === "category") { const id = r.category_id ?? ""; return { key: id, label: ctx.categoryName.get(id) || "(uncategorized)" }; }
     const it = ctx.itemById.get(r.sku_id);
-    return { key: r.sku_id, label: it?.sku_code || r.sku_id.slice(0, 8) };
+    return { key: r.sku_id, label: it?.sku_code || "—" };
   };
 
   for (const r of recs) {

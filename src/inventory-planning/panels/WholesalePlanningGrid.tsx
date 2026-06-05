@@ -1877,6 +1877,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               background: PAL.panel, color: PAL.text,
               border: `1px solid ${PAL.yellow}`, borderRadius: 12,
               padding: 20, width: "min(480px, 90vw)",
+              maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
               boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
             }}
           >
@@ -1916,6 +1917,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               background: PAL.panel, color: PAL.text,
               border: `1px solid ${PAL.red}`, borderRadius: 12,
               padding: 20, width: "min(480px, 90vw)",
+              maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
               boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
             }}
           >

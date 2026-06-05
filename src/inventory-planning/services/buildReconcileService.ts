@@ -85,7 +85,7 @@ export async function loadReconcile(scenarioIds: string[]): Promise<ReconcileBui
       const key = vid ?? "__unassigned__";
       let g = byVendor.get(key);
       if (!g) {
-        const vname = vid ? (vendorById.get(vid)?.name ?? `Vendor ${vid.slice(0, 8)}`) : "(unassigned)";
+        const vname = vid ? (vendorById.get(vid)?.name ?? "—") : "(unassigned)";
         g = { vendor_id: vid, vendor_name: vname, rows: [], total_qty: 0, total_cost: 0 };
         byVendor.set(key, g);
       }

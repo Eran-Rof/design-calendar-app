@@ -70,17 +70,17 @@ export function detectOrphanReferences(input: OrphanCheckInput): SafetyIssue[] {
   const issues: SafetyIssue[] = [];
   for (const s of input.skuIds) {
     if (!input.knownSkuIds.has(s)) {
-      issues.push({ severity: "warning", code: "orphan_sku", message: `SKU ${s.slice(0, 8)} referenced by plan but not in item_master.` });
+      issues.push({ severity: "warning", code: "orphan_sku", message: `A SKU referenced by the plan is not in item_master.` });
     }
   }
   for (const c of input.customerIds) {
     if (!input.knownCustomerIds.has(c)) {
-      issues.push({ severity: "warning", code: "orphan_customer", message: `Customer ${c.slice(0, 8)} referenced but not in customer_master.` });
+      issues.push({ severity: "warning", code: "orphan_customer", message: `A customer referenced by the plan is not in customer_master.` });
     }
   }
   for (const c of input.channelIds) {
     if (!input.knownChannelIds.has(c)) {
-      issues.push({ severity: "warning", code: "orphan_channel", message: `Channel ${c.slice(0, 8)} referenced but not in channel_master.` });
+      issues.push({ severity: "warning", code: "orphan_channel", message: `A channel referenced by the plan is not in channel_master.` });
     }
   }
   return issues;
