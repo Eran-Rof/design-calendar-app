@@ -3,11 +3,15 @@
 // RFQ-linked messaging, internal side. Lets the buyer reviewing an RFQ see
 // vendor messages and reply — the RFQ-stage analogue of Tanda → Messages.
 //
-// GET  — full thread for this RFQ (asc order).
+// Threads are PER-VENDOR (private 1:1): a (rfq_id, vendor_id) pair is one
+// conversation. The internal side must therefore name which vendor's thread it
+// is reading/writing — vendor_id is REQUIRED (query for GET, body for POST).
+//
+// GET  ?vendor_id=… — that vendor's thread for this RFQ (asc order).
 //        Side-effect: marks incoming (sender_type='vendor') as read_by_internal.
-// POST — create a new internal-originated message.
-//        body: { body, sender_name?, sender_internal_id? }
-//        Fires an rfq_message notification to the invited vendor(s)' primary user.
+// POST — create a new internal-originated message in that vendor's thread.
+//        body: { vendor_id, body, sender_name?, sender_internal_id? }
+//        Fires an rfq_message notification to ONLY that vendor's primary user.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
@@ -42,10 +46,16 @@ export default async function handler(req, res) {
   if (!rfq) return res.status(404).json({ error: "RFQ not found" });
 
   if (req.method === "GET") {
+    const vendorId = req.query?.vendor_id ? String(req.query.vendor_id) : null;
+    if (!vendorId) return res.status(400).json({ error: "vendor_id is required" });
+
+    // That vendor's private thread for this RFQ. Legacy rows with no vendor_id
+    // (pre per-vendor scoping) are folded in so nothing is lost.
     const { data: messages, error } = await admin
       .from("rfq_messages")
-      .select("id, rfq_id, sender_type, sender_name, body, read_by_vendor, read_by_internal, created_at")
+      .select("id, rfq_id, vendor_id, sender_type, sender_name, body, read_by_vendor, read_by_internal, created_at")
       .eq("rfq_id", rfqId)
+      .or(`vendor_id.eq.${vendorId},vendor_id.is.null`)
       .order("created_at", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
 
@@ -66,11 +76,25 @@ export default async function handler(req, res) {
     if (!messageBody || typeof messageBody !== "string" || !messageBody.trim()) {
       return res.status(400).json({ error: "body is required" });
     }
+    const vendorId = body?.vendor_id ? String(body.vendor_id) : null;
+    if (!vendorId) return res.status(400).json({ error: "vendor_id is required" });
+
+    // The vendor must actually be invited to this RFQ — you can only open a
+    // thread with a vendor you've sent the RFQ to.
+    const { data: invite } = await admin
+      .from("rfq_invitations")
+      .select("id")
+      .eq("rfq_id", rfqId)
+      .eq("vendor_id", vendorId)
+      .maybeSingle();
+    if (!invite) return res.status(400).json({ error: "Vendor is not invited to this RFQ" });
+
     const senderInternalId = (body?.sender_internal_id && String(body.sender_internal_id).trim()) || "rfq_thread";
     const senderName = (body?.sender_name && String(body.sender_name).trim()) || "Ring of Fire";
 
     const { data: msg, error: msgErr } = await admin.from("rfq_messages").insert({
       rfq_id: rfqId,
+      vendor_id: vendorId,
       sender_type: "internal",
       sender_internal_id: senderInternalId,
       sender_name: senderName,
@@ -80,33 +104,24 @@ export default async function handler(req, res) {
     }).select("*").single();
     if (msgErr) return res.status(500).json({ error: msgErr.message });
 
-    // Notify the invited vendor(s)' primary contact (send-notification resolves
-    // the vendor's primary vendor_user → email). Non-blocking.
+    // Notify ONLY the targeted vendor's primary contact (send-notification
+    // resolves the vendor's primary vendor_user → email). Non-blocking.
     try {
-      const { data: invites } = await admin
-        .from("rfq_invitations")
-        .select("vendor_id")
-        .eq("rfq_id", rfqId);
-      const vendorIds = [...new Set((invites || []).map((i) => i.vendor_id).filter(Boolean))];
-      if (vendorIds.length > 0) {
-        const origin = `https://${req.headers.host}`;
-        await Promise.all(vendorIds.map((vendorId) =>
-          fetch(`${origin}/api/send-notification`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              event_type: "rfq_message",
-              title: `New message on RFQ ${rfq.title || ""}`.trim(),
-              body: messageBody.trim().slice(0, 200),
-              link: "/vendor/rfqs",
-              metadata: { rfq_id: rfqId, vendor_id: vendorId, message_id: msg.id },
-              recipient: { vendor_id: vendorId },
-              dedupe_key: `rfq_message_${msg.id}_${vendorId}`,
-              email: true,
-            }),
-          }).catch(() => {})
-        ));
-      }
+      const origin = `https://${req.headers.host}`;
+      await fetch(`${origin}/api/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "rfq_message",
+          title: `New message on RFQ ${rfq.title || ""}`.trim(),
+          body: messageBody.trim().slice(0, 200),
+          link: "/vendor/rfqs",
+          metadata: { rfq_id: rfqId, vendor_id: vendorId, message_id: msg.id },
+          recipient: { vendor_id: vendorId },
+          dedupe_key: `rfq_message_${msg.id}_${vendorId}`,
+          email: true,
+        }),
+      }).catch(() => {});
     } catch { /* non-blocking */ }
 
     return res.status(201).json(msg);
