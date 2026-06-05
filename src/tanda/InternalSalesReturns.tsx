@@ -12,6 +12,9 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
+import { useItemResolver } from "./hooks/useItemResolver";
+import LineViewToggle, { type LineView } from "./components/LineViewToggle";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -272,37 +275,100 @@ export default function InternalSalesReturns() {
                 {expanded === r.id && (
                   <tr>
                     <td style={{ ...td, background: "#0b1220" }} colSpan={6}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead><tr><th style={th}>#</th><th style={th}>Item</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit $</th><th style={th}>Disposition</th></tr></thead>
-                        <tbody>
-                          {r.sales_return_lines.sort((a, b) => a.line_number - b.line_number).map((l) => {
-                            const editable = !["credited", "closed", "cancelled"].includes(r.status);
-                            return (
-                              <tr key={l.id}>
-                                <td style={td}>{l.line_number}</td>
-                                <td style={{ ...td, fontFamily: "monospace", color: l.inventory_item_id ? C.text : C.warn }}>{l.inventory_item_id ? l.inventory_item_id.slice(0, 8) : "no SKU"}</td>
-                                <td style={td}>{l.description || "—"}</td>
-                                <td style={{ ...td, textAlign: "right" }}>{Number(l.qty_returned)}</td>
-                                <td style={{ ...td, textAlign: "right" }}>${(l.unit_price_cents / 100).toFixed(2)}</td>
-                                <td style={td}>
-                                  {editable ? (
-                                    <select style={{ ...input, padding: "3px 6px" }} value={l.disposition} onChange={(e) => setDisposition(r, l, e.target.value as "restock" | "scrap" | "pending")} disabled={busy}>
-                                      <option value="pending">— pick —</option>
-                                      <option value="restock" disabled={!l.inventory_item_id}>Restock{l.inventory_item_id ? "" : " (needs SKU)"}</option>
-                                      <option value="scrap">Scrap</option>
-                                    </select>
-                                  ) : <span style={chip(l.disposition === "restock" ? C.success : C.textMuted)}>{l.disposition}</span>}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      <RmaLinesDetail rma={r} busy={busy} onSetDisposition={setDisposition} />
                       {r.credit_memo_id && <div style={{ color: C.success, fontSize: 12, marginTop: 8 }}>✓ Credit memo posted ({r.credit_memo_id.slice(0, 8)})</div>}
                     </td>
                   </tr>
                 )}
               </Fragment>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// Expanded RMA detail — lines as an editable list (disposition pickers) or a
+// read-only color × size matrix. Each line stores only inventory_item_id; the
+// matrix resolves those ids → {color,size} via /api/internal/items?ids=…. Lines
+// with no SKU (item id) or whose item lacks color/size fall back to a list.
+function RmaLinesDetail({
+  rma, busy, onSetDisposition,
+}: {
+  rma: Rma;
+  busy: boolean;
+  onSetDisposition: (rma: Rma, line: RmaLine, disposition: "restock" | "scrap" | "pending") => void;
+}) {
+  const [view, setView] = useState<LineView>("list");
+  const editable = !["credited", "closed", "cancelled"].includes(rma.status);
+
+  const itemIds = useMemo(
+    () => rma.sales_return_lines.map((l) => l.inventory_item_id).filter(Boolean) as string[],
+    [rma.sales_return_lines],
+  );
+  const { itemMap } = useItemResolver(itemIds, view === "matrix");
+
+  const matrixData = useMemo(() => {
+    const matrixEntries: MatrixEntry[] = [];
+    const fallback: { label: string; qty: number }[] = [];
+    for (const l of rma.sales_return_lines) {
+      const qty = Number(l.qty_returned) || 0;
+      const resolved = l.inventory_item_id ? itemMap.get(l.inventory_item_id) : undefined;
+      if (resolved && resolved.color && resolved.size) {
+        matrixEntries.push({ color: resolved.color, size: resolved.size, qty });
+      } else {
+        fallback.push({ label: resolved?.sku_code || l.description || "(no SKU)", qty });
+      }
+    }
+    return { matrixEntries, fallback };
+  }, [rma.sales_return_lines, itemMap]);
+
+  const sorted = [...rma.sales_return_lines].sort((a, b) => a.line_number - b.line_number);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <LineViewToggle value={view} onChange={setView} />
+      </div>
+      {view === "matrix" ? (
+        <div>
+          <LineColorSizeMatrix entries={matrixData.matrixEntries} />
+          {matrixData.fallback.length > 0 && (
+            <div style={{ marginTop: 10, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                Non-matrix lines (no SKU / no color&size)
+              </div>
+              {matrixData.fallback.map((f, i) => (
+                <div key={i} style={{ fontSize: 12, color: C.textSub, display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                  <span>{f.label}</span>
+                  {f.qty > 0 && <span style={{ fontFamily: "monospace", color: C.textMuted }}>qty {f.qty.toLocaleString()}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={th}>#</th><th style={th}>Item</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit $</th><th style={th}>Disposition</th></tr></thead>
+          <tbody>
+            {sorted.map((l) => (
+              <tr key={l.id}>
+                <td style={td}>{l.line_number}</td>
+                <td style={{ ...td, fontFamily: "monospace", color: l.inventory_item_id ? C.text : C.warn }}>{l.inventory_item_id ? l.inventory_item_id.slice(0, 8) : "no SKU"}</td>
+                <td style={td}>{l.description || "—"}</td>
+                <td style={{ ...td, textAlign: "right" }}>{Number(l.qty_returned)}</td>
+                <td style={{ ...td, textAlign: "right" }}>${(l.unit_price_cents / 100).toFixed(2)}</td>
+                <td style={td}>
+                  {editable ? (
+                    <select style={{ ...input, padding: "3px 6px" }} value={l.disposition} onChange={(e) => onSetDisposition(rma, l, e.target.value as "restock" | "scrap" | "pending")} disabled={busy}>
+                      <option value="pending">— pick —</option>
+                      <option value="restock" disabled={!l.inventory_item_id}>Restock{l.inventory_item_id ? "" : " (needs SKU)"}</option>
+                      <option value="scrap">Scrap</option>
+                    </select>
+                  ) : <span style={chip(l.disposition === "restock" ? C.success : C.textMuted)}>{l.disposition}</span>}
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>

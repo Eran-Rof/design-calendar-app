@@ -23,6 +23,9 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
+import { useItemResolver } from "./hooks/useItemResolver";
+import LineViewToggle from "./components/LineViewToggle";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const AR_INVOICES_TABLE_KEY = "tangerine:arinvoices:columns";
@@ -605,6 +608,36 @@ function ARInvoiceModal({
   const [stagedDocs, setStagedDocs] = useState<File[]>([]); // attached before save (new invoice)
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // ▦ Matrix / ☰ List toggle for the lines section.
+  const [lineView, setLineView] = useState<"list" | "matrix">("list");
+
+  // Resolve each line's inventory_item_id → {color,size} for the matrix view.
+  // Defer the fetch until the operator actually opens the matrix.
+  const lineItemIds = useMemo(
+    () => lines.map((l) => l.inventory_item_id).filter(Boolean) as string[],
+    [lines],
+  );
+  const { itemMap: resolvedItems } = useItemResolver(lineItemIds, lineView === "matrix");
+  // Merge the modal's loaded `items` list as a fallback resolver source.
+  const matrixData = useMemo(() => {
+    const itemLookup = new Map<string, ARItem>();
+    for (const it of items) itemLookup.set(it.id, it);
+    const matrixEntries: MatrixEntry[] = [];
+    const fallback: { label: string; qty: number }[] = [];
+    for (const l of lines) {
+      const qty = Number(l.quantity) || 0;
+      const resolved = l.inventory_item_id
+        ? (resolvedItems.get(l.inventory_item_id) || itemLookup.get(l.inventory_item_id))
+        : undefined;
+      if (resolved && resolved.color && resolved.size) {
+        matrixEntries.push({ color: resolved.color, size: resolved.size, qty });
+      } else {
+        const sku = resolved?.sku_code;
+        fallback.push({ label: sku || l.description || "(flat-amount line)", qty });
+      }
+    }
+    return { matrixEntries, fallback };
+  }, [lines, resolvedItems, items]);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=1000")
@@ -985,11 +1018,32 @@ function ARInvoiceModal({
 
             <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-              {editable && (
-                <button type="button" onClick={addLine} style={btnSecondary}>+ Add line</button>
-              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <LineViewToggle value={lineView} onChange={setLineView} />
+                {editable && lineView === "list" && (
+                  <button type="button" onClick={addLine} style={btnSecondary}>+ Add line</button>
+                )}
+              </div>
             </div>
 
+            {lineView === "matrix" ? (
+              <div style={{ marginBottom: 12 }}>
+                <LineColorSizeMatrix entries={matrixData.matrixEntries} />
+                {matrixData.fallback.length > 0 && (
+                  <div style={{ marginTop: 10, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                      Non-matrix lines (no color/size)
+                    </div>
+                    {matrixData.fallback.map((f, i) => (
+                      <div key={i} style={{ fontSize: 12, color: C.textSub, display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                        <span>{f.label}</span>
+                        {f.qty > 0 && <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>qty {f.qty.toLocaleString()}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
             <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -1079,6 +1133,7 @@ function ARInvoiceModal({
                 </tfoot>
               </table>
             </div>
+            )}
 
             {!isNew && invoice && (
               <div style={{ marginTop: 16, marginBottom: 16 }}>

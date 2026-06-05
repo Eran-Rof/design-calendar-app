@@ -41,6 +41,15 @@ Expand an RMA to set each line's disposition:
 - **Restock** — the units go **back into FIFO inventory** (a new layer at the item's latest cost) and the original **COGS is reversed**. Requires a resolved SKU.
 - **Scrap** — the customer is still credited, but the goods do **not** go back on the books (they were already expensed as COGS when sold). Use for damaged/unsellable returns.
 
+### ☰ List / ▦ Matrix view
+
+The expanded line area has a **☰ List / ▦ Matrix** toggle (top-right).
+
+- **List** is the default — one row per line with the disposition picker (this is where you set restock/scrap).
+- **Matrix** shows the returned quantities as a **color × size grid** (rows = color, columns = size, with row/column totals), so you can see the return's shape at a glance. It's read-only; switch back to **List** to change dispositions.
+
+Lines that have **no resolvable SKU** (or whose item is missing a color/size) can't be placed in the grid — they appear in a small **"Non-matrix lines"** list under the matrix so nothing is hidden.
+
 ## Issuing the credit memo
 
 **Issue credit memo** builds a `customer_credit_memo` and posts it:
