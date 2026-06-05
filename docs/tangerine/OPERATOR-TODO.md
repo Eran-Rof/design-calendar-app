@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-04 (SaaS-finalize decision + user-guide screenshot list added)
+**Last updated:** 2026-06-05 (nav-surfacing + new masters + opt-in UPC + external API session; EDI restructured; screenshot annotation guide added)
 
 ---
 
@@ -39,8 +39,9 @@ These modules are **built and shipped** but produce nothing / stay inert until y
 | **M31 / P17 Planning (direction B: Tangerine supply)** (#880) | Now available — on the `/planning` **Supply** screen click **🍊 Sync Tangerine supply**, then create a reconciliation run with **Supply source: Tangerine ERP** to reconcile against native Tangerine on-hand (~1.35M units synced). Native open-PO input stays empty until you issue POs in Procurement. No action required unless you want to use it. |
 | **P&L Dilution line** (#701–#710) | Tag the dilution GL accounts `account_type='contra_revenue'`, `account_subtype='dilution'` so the Income Statement Dilution line populates. |
 | **Sales-rep commissions** (#701–#717) | Set **Wholesale / Closeout %** on sales-role employees and assign reps + commission % on customers (Closeout = margin ≤ 14%). |
-| **EDI** (P22, vendor-side) | EDI is built + surfaced (Procurement → 🔌 EDI) but **inert** until: (1) set `EDI_INBOUND_SHARED_SECRET` on Vercel; (2) configure each EDI vendor (partner / ISA sender ID) in the EDI Partners tab; (3) stand up the **AS2/SFTP/VAN transport** (your EDI provider) — Tangerine prepares/stores X12 but does not yet transmit. Retailer-side EDI (850 from Macy's/Ross → SO, 810/856 out) is not built. |
+| **EDI** (P22) | EDI was **restructured 2026-06-05 (#988)** — it now lives under **Master Data → EDI** with three sub-items: **Vendors / Customers / Settings**. Customer/retailer trading-partner config (`edi_customer_partners`) **and** the per-entity **VAN Settings** panel (`edi_settings`) are now **BUILT**. Remaining operator work, all config (no build): (1) enter your **VAN credentials + our ISA/GS sender qualifiers/IDs** in **Master Data → EDI → Settings**; (2) add customer trading partners (ISA qualifier/ID + supported docs) in **EDI → Customers**, and EDI vendors (partner / ISA sender ID) in **EDI → Vendors**; (3) set `EDI_INBOUND_SHARED_SECRET` on Vercel; (4) stand up the live **AS2/SFTP/VAN transport** (your EDI provider) — still a follow-up: Tangerine prepares/stores X12 but does **not** transmit. Live retailer **850 → Sales Order** ingest and outbound **810/856** emission remain a **dev follow-up, not yet built** (the partner config exists; the live exchange does not). ⚠️ The VAN password field is plain-text today (encryption-at-rest is a follow-up) — don't enter real production credentials until that lands. |
 | **Internal notifications** (#829) | Per-employee notification **subscriptions** route internal alerts to staff emails. Verify `INTERNAL_ONBOARDING_EMAILS` (and any other `INTERNAL_*_EMAILS`) are set / employees subscribed — before #829 no internal alerts reached anyone. |
+| **External API keys** (2026-06-05) | A **read-only external partner API** shipped this session. To let a partner pull data, open Tangerine **Admin → 🔑 API Keys**, create a key (the **full key is shown once — copy it then**), and share it with the partner. Nothing else to configure; revoke from the same panel any time. |
 
 ## 🔵 Decisions the operator must make
 
@@ -62,6 +63,8 @@ Everything below is **built and inert today**; flipping the flag turns it on. Do
 ## 🖼️ User-guide screenshots to supply
 
 The Tangerine user guide (`docs/tangerine/user-guide/`) needs images. **You take each screenshot and drop the PNG at the given path** (create `docs/tangerine/user-guide/screenshots/` if it doesn't exist), then it renders in the guide. **14 are already referenced (the link is live but the file is missing → shows broken)** — those are priority. The rest are net-new suggestions for chapters that describe a screen but have no picture.
+
+> 📐 **Annotation guide:** for the *exact* screen/state to open, what each image illustrates in its chapter, and which UI elements to box/arrow so the annotations line up with the guide text, see **[user-guide/SCREENSHOT-ANNOTATION-GUIDE.md](user-guide/SCREENSHOT-ANNOTATION-GUIDE.md)** — it has a detailed per-image entry for all 14 priority shots plus every nice-to-have below.
 
 ### Priority — referenced in the guide but file is missing (14)
 
@@ -109,6 +112,12 @@ The Tangerine user guide (`docs/tangerine/user-guide/`) needs images. **You take
 
 ## ✅ Done
 
+- **Shipped 2026-06-05 (this session)** — a large surfacing + polish wave, no operator action required except the new 🟠 *External API keys* item above:
+  - **Nav: 2 hidden groups + 26 unreachable panels surfaced.** **Procurement** and **Pricing** were built-but-hidden — Procurement is now its own top-level dropdown (after Vendors); Pricing sits inside Sales. Plus **26 more built panels** are now in the menu: a new **💰 Treasury** section (Payments · Reconciliation · FX · Virtual Cards · Supply Chain Finance · Discount Offers · Tax), a new **🌱 ESG** section (Sustainability · ESG Scores · Diversity · Compliance Audit · Compliance Automation), a **Workflow** group folded into Admin (Workflow Rules · Approvals Queue · Workspaces), Reports gains Analytics/Insights/Anomalies/Benchmark/Health Scores/Preferred Vendors, Procurement gains **RFQs**, Sales/Marketplaces gains Marketplace + Inquiries, and Admin gains Entities + Onboarding. Every group dropdown now lists its panels **alphabetically**.
+  - **New masters** — **Season Master** (with from/to window dates), **RMA Reasons**, **Warehouse Master**, **Adjustment Types**, **Transfer Reasons** (reason now required on transfers). All standard CRUD with auto-codes + delete-protection.
+  - **Opt-in UPC minting on style-create** — the **Add Style** modal has a **Generate UPCs (GS1)** checkbox (off by default); when ticked it mints one unique UPC-A per color/size from the company **GS1 prefix (already configured)**. Minted barcodes show in the new **🔖 UPC Report** (Reports). Never touches existing UPCs.
+  - **External partner API (read-only) + 🔑 API Keys admin panel** — see the new 🟠 *External API keys* item above.
+  - **Matrix entry on Adjustments & Transfers + required reason**; **Allocations regrouped by SO**; app-wide **no-raw-UUID** (names everywhere) + **responsive-modal** pass.
 - **Chart of Accounts loaded** (#908, 2026-06-04) — the full COA from your QuickBooks export: **474 new accounts** (+ the 52 existing kept) grouped under **reporting headers** via `parent_account_id`, control accounts pinned (**AR 1200 · AP 2000 · Revenue 4000 · COGS 5000**), and the **entity default accounts wired** (AR/AP/Revenue/COGS/Inventory 1300/Bank 1000/Retained Earnings 3900). AR/AP/COGS posting + drop-ship document generation are now **unblocked**. ⚠️ **Review** `Downloads/COA_assigned_mapping_for_review.csv` and tell me any account that should be re-typed or re-grouped. A few legacy operational accounts (e.g. Inbound Freight 5100, Sales Commissions 6210, Inventory Write-off 6420) overlap conceptually with new ones — they coexist; say the word to merge.
 - **`ip_item_master` dup-SKU cleanup** (#867 / #872 / #874 / #866) — the ~7,047 duplicate rows are merged + a logical `UNIQUE` backstop + dup-proof SKU resolver are in place. Prod now: 12,691 rows, only **14 residual dup rows in 4 groups** (down from ~7k). No operator decision needed.
 - **CEO planning `admin` role** granted (#875) → the buy-plan → Tangerine-PO buttons are usable; `run_writeback` / `manage_integrations` available.
