@@ -70,9 +70,18 @@ Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. 
 
 ## The Tangerine nav layout
 
-Tangerine has its own **independent top nav** with **section dropdowns** across the top (Master Data · Accounting · Vendors · **Procurement** · Inventory · Sales · Customers · Admin) + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each section dropdown nests its module groups; clicking a module navigates and closes the dropdown. Within any dropdown, **modules are listed alphabetically by name** so destinations are easy to scan. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
+Tangerine has its own **independent top nav** with **section dropdowns** across the top (Master Data · Accounting · **Treasury** · Vendors · **Procurement** · Inventory · Sales · Customers · **ESG** · Admin) + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each section dropdown nests its module groups; clicking a module navigates and closes the dropdown. Within any dropdown, **modules are listed alphabetically by name** so destinations are easy to scan. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
 
 > **Procurement & Pricing now visible (2026-06-05):** the **🚚 Procurement** section (Purchase Orders · Receiving · QC Inspections · Customs Entries · Broker Invoices · 3-Way Match · Procurement Recon · Bookkeeper Approval · EDI) is its own top-level dropdown, placed right after **Vendors**. The **Pricing** group (Price Lists · Promotions) now appears inside the **🛒 Sales** dropdown. Both were built but previously hidden because their groups weren't mapped into any nav section.
+
+> **26 more panels surfaced (2026-06-05):** another wave of built-but-hidden Tangerine panels is now reachable from the nav:
+> - **💰 Treasury** (new top-level section): **Payments · Reconciliation · FX · Virtual Cards · Supply Chain Finance · Discount Offers · Tax**. "Reconciliation" is the parallel-run recon dashboard (AP/AR/Cash/GL/Inventory variance tracking).
+> - **🌱 ESG** (new top-level section) → **ESG & Compliance** group: **Sustainability · ESG Scores · Diversity · Compliance Audit · Compliance Automation**.
+> - **Workflow** group folded into the **🔧 Admin** dropdown: **Workflow Rules · Approvals Queue · Workspaces**.
+> - **📊 Reports** dropdown gains **Analytics · Insights · Anomalies · Benchmark · Health Scores · Preferred Vendors**.
+> - **🚚 Procurement** gains **RFQs** (the RFQ list; an individual RFQ's detail view still opens from a row).
+> - **🛒 Marketplaces** (inside Sales) gains **Marketplace** (vendor-sourcing listings) and **Marketplace Inquiries**.
+> - **🔧 Admin** gains **Entities** (entity registry; edit branding from a row) and **Onboarding**.
 
 Next to the group dropdowns is a **🔍 Find a panel** type-ahead box — start typing a panel name and the closest matches appear; <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>Enter</kbd> opens the top hit, <kbd>Esc</kbd> clears. It matches on **panel names** (so "master" shows Style/Vendor/Customer Master, not every panel that happens to live in the *Master Data* group); if nothing matches a panel name, it falls back to matching a **group name** so you can still jump by section.
 

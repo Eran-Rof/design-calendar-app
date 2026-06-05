@@ -122,6 +122,34 @@ import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
 // Nav-reachable scorecard entry points (wrap the existing drill-through modals).
 import InternalVendorScorecard         from "./tanda/InternalVendorScorecard";
 import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
+// #983 — surface 26 built-but-unmenued panels (Treasury, ESG & Compliance,
+// Workflow, Reports analytics, RFQs, Marketplaces, Admin entities/onboarding).
+import InternalPayments               from "./tanda/InternalPayments";
+import InternalReconciliationDashboard from "./tanda/InternalReconciliationDashboard";
+import InternalFx                     from "./tanda/InternalFx";
+import InternalVirtualCards           from "./tanda/InternalVirtualCards";
+import InternalScf                    from "./tanda/InternalScf";
+import InternalDiscountOffers         from "./tanda/InternalDiscountOffers";
+import InternalTax                    from "./tanda/InternalTax";
+import InternalRfqs                   from "./tanda/InternalRfqs";
+import InternalAnalytics              from "./tanda/InternalAnalytics";
+import InternalInsights               from "./tanda/InternalInsights";
+import InternalAnomalies              from "./tanda/InternalAnomalies";
+import InternalBenchmark              from "./tanda/InternalBenchmark";
+import InternalHealthScores           from "./tanda/InternalHealthScores";
+import InternalPreferred              from "./tanda/InternalPreferred";
+import InternalSustainability         from "./tanda/InternalSustainability";
+import InternalEsgScores              from "./tanda/InternalEsgScores";
+import InternalDiversity              from "./tanda/InternalDiversity";
+import InternalComplianceAudit        from "./tanda/InternalComplianceAudit";
+import InternalComplianceAutomation   from "./tanda/InternalComplianceAutomation";
+import InternalWorkflowRules          from "./tanda/InternalWorkflowRules";
+import InternalWorkflowExecutions     from "./tanda/InternalWorkflowExecutions";
+import InternalWorkspaces             from "./tanda/InternalWorkspaces";
+import InternalMarketplace            from "./tanda/InternalMarketplace";
+import InternalMarketplaceInquiries   from "./tanda/InternalMarketplaceInquiries";
+import InternalEntities               from "./tanda/InternalEntities";
+import InternalOnboarding             from "./tanda/InternalOnboarding";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -242,9 +270,42 @@ type ModuleKey =
   | "commission_accruals"
   | "commission_payouts"
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
-  | "user_access";
+  | "user_access"
+  // #983 — Treasury group.
+  | "payments"
+  | "recon_dashboard"
+  | "fx"
+  | "virtual_cards"
+  | "scf"
+  | "discount_offers"
+  | "tax"
+  // #983 — Procurement.
+  | "rfqs"
+  // #983 — Reports analytics.
+  | "analytics"
+  | "insights"
+  | "anomalies"
+  | "benchmark"
+  | "health_scores"
+  | "preferred"
+  // #983 — ESG & Compliance group.
+  | "sustainability"
+  | "esg_scores"
+  | "diversity"
+  | "compliance_audit"
+  | "compliance_automation"
+  // #983 — Workflow group.
+  | "workflow_rules"
+  | "workflow_executions"
+  | "workspaces"
+  // #983 — Marketplaces.
+  | "marketplace"
+  | "marketplace_inquiries"
+  // #983 — Admin.
+  | "entities"
+  | "onboarding";
 
-type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -264,6 +325,8 @@ type ModuleDef = {
 const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
+  // #983 — Treasury: cash/FX/cards/SCF/discounts/tax + parallel-run recon.
+  { section: "Treasury",    emoji: "💰", groups: ["Treasury"] },
   { section: "Vendors",     emoji: "🏭", groups: ["Vendors"] },
   // Procurement — dedicated top-level section so the PO → Receiving → QC →
   // Customs → Broker → 3-Way Match → Recon → Bookkeeper → EDI chain is visible.
@@ -276,12 +339,16 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   // Pricing (Price Lists + Promotions) folded under Sales.
   { section: "Sales",       emoji: "🛒", groups: ["Sales", "Pricing", "Shopify", "Marketplaces"] },
   { section: "Customers",   emoji: "🤝", groups: ["Customers", "Customers – Accts Rec", "CRM", "Customer Service"] },
-  { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
+  // #983 — ESG & Compliance: sustainability / ESG / diversity / audits / automation.
+  { section: "ESG",         emoji: "🌱", groups: ["ESG & Compliance"] },
+  // #983 — Workflow folded into Admin alongside Notifications / HR / Audit.
+  { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Workflow", "Audit", "Admin"] },
 ];
 
 const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
   "Accounting":       "💼",
+  "Treasury":         "💰",
   "Vendors":          "🏭",
   "Procurement":      "🚚",
   "Pricing":          "🏷️",
@@ -289,6 +356,8 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Customers":        "🤝",
   "Customers – Accts Rec": "📥",
   "Reports":          "📊",
+  "ESG & Compliance": "🌱",
+  "Workflow":         "⚙️",
   "Inventory":        "📦",
   "Customer Service": "🎧",
   "Shopify":          "🛍️",
@@ -424,6 +493,39 @@ const MODULES: ModuleDef[] = [
   // Nav-reachable scorecard entry points (also opened by the 📊 row buttons).
   { key: "vendor_scorecard",    label: "Vendor Scorecard",   emoji: "📊", group: "Vendors" },
   { key: "customer_scorecard",  label: "Customer Scorecard", emoji: "📊", group: "Customers" },
+  // #983 — Treasury group: cash management + parallel-run reconciliation.
+  { key: "payments",            label: "Payments",           emoji: "💸", group: "Treasury" },
+  { key: "recon_dashboard",     label: "Reconciliation",     emoji: "⚖️", group: "Treasury" },
+  { key: "fx",                  label: "FX",                 emoji: "🌐", group: "Treasury" },
+  { key: "virtual_cards",       label: "Virtual Cards",      emoji: "💳", group: "Treasury" },
+  { key: "scf",                 label: "Supply Chain Finance", emoji: "🏦", group: "Treasury" },
+  { key: "discount_offers",     label: "Discount Offers",    emoji: "⚡", group: "Treasury" },
+  { key: "tax",                 label: "Tax",                emoji: "🧾", group: "Treasury" },
+  // #983 — Procurement: RFQ list (detail view InternalRfqDetail stays props-driven).
+  { key: "rfqs",                label: "RFQs",               emoji: "📨", group: "Procurement" },
+  // #983 — Reports analytics suite.
+  { key: "analytics",           label: "Analytics",          emoji: "📊", group: "Reports" },
+  { key: "insights",            label: "Insights",           emoji: "💡", group: "Reports" },
+  { key: "anomalies",           label: "Anomalies",          emoji: "🚨", group: "Reports" },
+  { key: "benchmark",           label: "Benchmark",          emoji: "📈", group: "Reports" },
+  { key: "health_scores",       label: "Health Scores",      emoji: "❤️", group: "Reports" },
+  { key: "preferred",           label: "Preferred Vendors",  emoji: "⭐", group: "Reports" },
+  // #983 — ESG & Compliance group.
+  { key: "sustainability",      label: "Sustainability",     emoji: "🌿", group: "ESG & Compliance" },
+  { key: "esg_scores",          label: "ESG Scores",         emoji: "🌍", group: "ESG & Compliance" },
+  { key: "diversity",           label: "Diversity",          emoji: "🤲", group: "ESG & Compliance" },
+  { key: "compliance_audit",    label: "Compliance Audit",   emoji: "📜", group: "ESG & Compliance" },
+  { key: "compliance_automation", label: "Compliance Automation", emoji: "🤖", group: "ESG & Compliance" },
+  // #983 — Workflow group (folded under Admin section).
+  { key: "workflow_rules",      label: "Workflow Rules",     emoji: "🧩", group: "Workflow" },
+  { key: "workflow_executions", label: "Approvals Queue",    emoji: "🗳️", group: "Workflow" },
+  { key: "workspaces",          label: "Workspaces",         emoji: "🗂️", group: "Workflow" },
+  // #983 — Marketplaces (vendor sourcing marketplace + inquiries).
+  { key: "marketplace",         label: "Marketplace",        emoji: "🛍️", group: "Marketplaces" },
+  { key: "marketplace_inquiries", label: "Marketplace Inquiries", emoji: "📩", group: "Marketplaces" },
+  // #983 — Admin: entity registry + vendor onboarding.
+  { key: "entities",            label: "Entities",           emoji: "🏛️", group: "Admin" },
+  { key: "onboarding",          label: "Onboarding",         emoji: "🚀", group: "Admin" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -767,6 +869,39 @@ export default function Tangerine() {
         {activeModule === "customer_scorecard"    && <InternalCustomerScorecard />}
         {/* P14-3b — RBAC User Access admin panel */}
         {activeModule === "user_access"            && <InternalUserAccess />}
+        {/* #983 — Treasury */}
+        {activeModule === "payments"               && <InternalPayments />}
+        {activeModule === "recon_dashboard"        && <InternalReconciliationDashboard />}
+        {activeModule === "fx"                      && <InternalFx />}
+        {activeModule === "virtual_cards"          && <InternalVirtualCards />}
+        {activeModule === "scf"                     && <InternalScf />}
+        {activeModule === "discount_offers"        && <InternalDiscountOffers />}
+        {activeModule === "tax"                     && <InternalTax />}
+        {/* #983 — Procurement RFQs */}
+        {activeModule === "rfqs"                    && <InternalRfqs />}
+        {/* #983 — Reports analytics */}
+        {activeModule === "analytics"              && <InternalAnalytics />}
+        {activeModule === "insights"               && <InternalInsights />}
+        {activeModule === "anomalies"              && <InternalAnomalies />}
+        {activeModule === "benchmark"              && <InternalBenchmark />}
+        {activeModule === "health_scores"          && <InternalHealthScores />}
+        {activeModule === "preferred"              && <InternalPreferred />}
+        {/* #983 — ESG & Compliance */}
+        {activeModule === "sustainability"         && <InternalSustainability />}
+        {activeModule === "esg_scores"             && <InternalEsgScores />}
+        {activeModule === "diversity"              && <InternalDiversity />}
+        {activeModule === "compliance_audit"       && <InternalComplianceAudit />}
+        {activeModule === "compliance_automation"  && <InternalComplianceAutomation />}
+        {/* #983 — Workflow */}
+        {activeModule === "workflow_rules"         && <InternalWorkflowRules />}
+        {activeModule === "workflow_executions"    && <InternalWorkflowExecutions />}
+        {activeModule === "workspaces"             && <InternalWorkspaces />}
+        {/* #983 — Marketplaces */}
+        {activeModule === "marketplace"            && <InternalMarketplace />}
+        {activeModule === "marketplace_inquiries"  && <InternalMarketplaceInquiries />}
+        {/* #983 — Admin */}
+        {activeModule === "entities"               && <InternalEntities />}
+        {activeModule === "onboarding"             && <InternalOnboarding />}
       </main>
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />
