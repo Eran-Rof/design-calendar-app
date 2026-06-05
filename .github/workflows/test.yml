@@ -32,6 +32,9 @@ jobs:
       # layer would otherwise reach prod and 500 every route at once
       # (FUNCTION_INVOCATION_FAILED). Static parse + import-resolution gate.
       - run: npm run check:api
+      # routes.js is generated from routes.manifest.js — fail if a PR edited
+      # the manifest (or a handler path) without regenerating routes.js.
+      - run: npm run gen:routes -- --check
       # Type-check gate (the repo's vite/esbuild build only transpiles, so
       # type errors used to slip through to runtime). Must stay green.
       - run: npm run typecheck
