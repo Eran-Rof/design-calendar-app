@@ -244,7 +244,7 @@ type ModuleKey =
   // P14-3b — RBAC User Access admin panel (🔐 Admin).
   | "user_access";
 
-type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Sales" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -265,11 +265,16 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
   { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
   { section: "Vendors",     emoji: "🏭", groups: ["Vendors"] },
+  // Procurement — dedicated top-level section so the PO → Receiving → QC →
+  // Customs → Broker → 3-Way Match → Recon → Bookkeeper → EDI chain is visible.
+  // 🚚 is distinct from 📦 (Inventory) and every other section emoji.
+  { section: "Procurement", emoji: "🚚", groups: ["Procurement"] },
   { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
-  { section: "Sales",       emoji: "🛒", groups: ["Sales", "Shopify", "Marketplaces"] },
+  // Pricing (Price Lists + Promotions) folded under Sales.
+  { section: "Sales",       emoji: "🛒", groups: ["Sales", "Pricing", "Shopify", "Marketplaces"] },
   { section: "Customers",   emoji: "🤝", groups: ["Customers", "Customers – Accts Rec", "CRM", "Customer Service"] },
   { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
 ];
@@ -278,6 +283,8 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
   "Accounting":       "💼",
   "Vendors":          "🏭",
+  "Procurement":      "🚚",
+  "Pricing":          "🏷️",
   "CRM":              "🤝",
   "Customers":        "🤝",
   "Customers – Accts Rec": "📥",
@@ -528,6 +535,8 @@ export default function Tangerine() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   // Chunk I item 1 — display name shown in the top bar (falls back to email).
   const [userName, setUserName] = useState<string | null>(null);
+  // Optional MS Graph profile photo (object URL). Null → initials avatar.
+  const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
 
   // Auth gate: on mount, check for an MS token. If present + non-expired, fetch
   // the signed-in user's email from Graph (User.Read is already in MS_SCOPES).
@@ -564,6 +573,20 @@ export default function Tangerine() {
         setCachedAuthUserEmail(resolvedEmail);
         setCachedAuthUserName(resolvedName);
         setAuthState("signed_in");
+
+        // Best-effort MS Graph profile photo for the nav avatar. Failure
+        // (no photo set / 404) silently falls back to the initials avatar.
+        (async () => {
+          try {
+            const pr = await fetch("https://graph.microsoft.com/v1.0/me/photo/$value", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!pr.ok) return;
+            const blob = await pr.blob();
+            if (cancelled) return;
+            setUserPhotoUrl(URL.createObjectURL(blob));
+          } catch { /* initials fallback */ }
+        })();
 
         // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision
         // endpoint fails (network / server-side mis-config), surface a
@@ -647,6 +670,7 @@ export default function Tangerine() {
         onGoHome={() => goToModule(null)}
         userEmail={userEmail}
         userName={userName}
+        userPhotoUrl={userPhotoUrl}
         onSignOut={handleSignOut}
       />
 
@@ -1010,6 +1034,7 @@ interface TopNavProps {
   onGoHome: () => void;
   userEmail: string | null;
   userName: string | null;
+  userPhotoUrl?: string | null;
   onSignOut: () => void;
 }
 
@@ -1036,7 +1061,59 @@ function isModalOpen(): boolean {
   return false;
 }
 
-function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, userName, onSignOut }: TopNavProps) {
+// Derive 1–2 uppercase initials from a display name (preferred) or email.
+// "Eran Bitton" → "EB"; "eran@x.com" → "E". Empty string → "?".
+function deriveInitials(name?: string | null, email?: string | null): string {
+  const src = (name || "").trim();
+  if (src) {
+    const parts = src.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  const e = (email || "").trim();
+  if (e) return e[0].toUpperCase();
+  return "?";
+}
+
+// Deterministic background colour from the avatar seed so each user keeps a
+// stable swatch across reloads (no random flicker).
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const palette = ["#3B82F6", "#fb923c", "#10B981", "#8B5CF6", "#EC4899", "#F59E0B", "#06B6D4", "#EF4444"];
+  return palette[h % palette.length];
+}
+
+// Small circular user avatar: photo if supplied, else initials on a colour.
+function UserAvatar({ name, email, photoUrl }: { name?: string | null; email?: string | null; photoUrl?: string | null }) {
+  const size = 28;
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={name || email || "User"}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
+  const initials = deriveInitials(name, email);
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size, height: size, borderRadius: "50%", flexShrink: 0,
+        background: avatarColor(name || email || ""),
+        color: "#fff", fontSize: 11, fontWeight: 700,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        letterSpacing: 0.5, userSelect: "none",
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
+
+function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, userName, userPhotoUrl, onSignOut }: TopNavProps) {
   // Group-dropdown nav: hover the group → opens its menu; mouse leaves the
   // group container (button + dropdown) → closes immediately. openGroup is
   // also driven by click (keyboard / accessibility fallback) and Esc.
@@ -1162,7 +1239,12 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           const subGroups = sec.groups
             .map((g) => ({
               group: g,
-              modules: MODULES.filter((m) => m.group === g && can(rbacModuleForTangerine(m.key), "read")),
+              // Dropdown items are sorted ALPHABETICALLY by label (operator
+              // request — Master Data + every other group) so destinations are
+              // predictable to scan regardless of MODULES declaration order.
+              modules: MODULES.filter((m) => m.group === g && can(rbacModuleForTangerine(m.key), "read"))
+                .slice()
+                .sort((a, b) => a.label.localeCompare(b.label)),
             }))
             .filter((sg) => sg.modules.length > 0);
           if (subGroups.length === 0) return null;
@@ -1354,9 +1436,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
         {(userName || userEmail) && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, fontSize: 11 }}>
-            <span style={{ color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Signed in</span>
-            <span style={{ color: C.text, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={userEmail || userName || ""}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }} title={userEmail || userName || ""}>
+            <UserAvatar name={userName} email={userEmail} photoUrl={userPhotoUrl} />
+            <span style={{ color: C.text, fontWeight: 600, fontSize: 13, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {userName || userEmail}
             </span>
           </div>

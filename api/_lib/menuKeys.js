@@ -167,6 +167,14 @@ const KEYS = [
   "tanda/hr/employee-titles",
   "tanda/hr/employee-departments",
   "tanda/operations/scanner-sessions",
+  // Registry-gap backfill — see src/lib/menuKeys.ts.
+  "tanda/accounting/recon-report",
+  "tanda/accounting/commission-accruals",
+  "tanda/accounting/commission-payouts",
+  "tanda/shopify/refunds",
+  "tanda/marketplaces/status",
+  "tanda/audit/log",
+  "tanda/admin/user-access",
   // Tech Packs (T4-5 close-out)
   "techpack/dashboard",
   "techpack/list",
