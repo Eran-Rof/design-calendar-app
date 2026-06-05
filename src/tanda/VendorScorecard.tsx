@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import { drillToModule } from "./scorecardDrill";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -59,13 +60,36 @@ const th: React.CSSProperties = {
 const td: React.CSSProperties = { padding: "6px 8px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 12 };
 const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" };
 
-function Metric({ label, value, caption }: { label: string; value: string; caption?: string }) {
+function Metric({ label, value, caption, onClick, drillLabel }: { label: string; value: string; caption?: string; onClick?: () => void; drillLabel?: string }) {
+  const clickable = !!onClick;
   return (
-    <div style={card}>
+    <div
+      style={{ ...card, ...(clickable ? { cursor: "pointer", transition: "border-color 120ms, background 120ms" } : {}) }}
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick!(); } } : undefined}
+      onMouseEnter={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.primary; } : undefined}
+      onMouseLeave={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.cardBdr; } : undefined}
+      title={clickable ? drillLabel : undefined}
+    >
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{value}</div>
       {caption && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{caption}</div>}
+      {clickable && <div style={{ fontSize: 10, color: C.primary, marginTop: 6, fontWeight: 600 }}>{drillLabel || "Open ↗"}</div>}
     </div>
+  );
+}
+
+// Small inline drill link used in tab toolbars.
+function DrillLink({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ background: "transparent", color: C.primary, border: `1px solid ${C.primary}`, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -142,12 +166,30 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted }}>No data.</div>
         ) : (
           <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <span style={{ fontSize: 11, color: C.textMuted, alignSelf: "center", textTransform: "uppercase", letterSpacing: 0.5 }}>Drill to:</span>
+              <DrillLink label="Purchase Orders ↗" onClick={() => drillToModule("purchase_orders", { vendor: data.header.vendor_id })} />
+              <DrillLink label="AP Invoices ↗" onClick={() => drillToModule("ap_invoices", { vendor: data.header.vendor_id })} />
+              <DrillLink label="Journal Entries ↗" onClick={() => drillToModule("journal_entries", { q: data.header.vendor_code || data.header.vendor_name })} />
+            </div>
+
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
               <Metric label="Avg Lead Time" value={data.metrics.avg_lead_time_days == null ? "—" : `${data.metrics.avg_lead_time_days} d`} caption={data.notes.avg_lead_time_days} />
               <Metric label="% On-time (promised)" value={data.metrics.pct_ontime_promised == null ? "—" : `${data.metrics.pct_ontime_promised}%`} caption={data.notes.pct_ontime_promised} />
               <Metric label="% On-time (required)" value={data.metrics.pct_ontime_required == null ? "—" : `${data.metrics.pct_ontime_required}%`} caption={data.notes.pct_ontime_required} />
-              <Metric label="AP Balance (open)" value={fmtCents(data.metrics.ap_balance_cents)} caption={data.notes.ap_balance_cents} />
-              <Metric label="POs (received / total)" value={`${data.metrics.received_po_count} / ${data.metrics.po_count}`} />
+              <Metric
+                label="AP Balance (open)"
+                value={fmtCents(data.metrics.ap_balance_cents)}
+                caption={data.notes.ap_balance_cents}
+                onClick={() => drillToModule("ap_invoices", { vendor: data.header.vendor_id })}
+                drillLabel="Open AP Invoices ↗"
+              />
+              <Metric
+                label="POs (received / total)"
+                value={`${data.metrics.received_po_count} / ${data.metrics.po_count}`}
+                onClick={() => drillToModule("purchase_orders", { vendor: data.header.vendor_id })}
+                drillLabel="Open Purchase Orders ↗"
+              />
             </div>
 
             {/* Tabs */}
@@ -168,7 +210,8 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
 
             {tab === "invoices" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                  <DrillLink label="Open in AP Invoices ↗" onClick={() => drillToModule("ap_invoices", { vendor: data.header.vendor_id })} />
                   <ExportButton rows={(data.invoices || []) as unknown as Array<Record<string, unknown>>} filename={`vendor-${data.header.vendor_code || data.header.vendor_id}-ap-invoices`} sheetName="APInvoices" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -199,7 +242,8 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
 
             {tab === "pos" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                  <DrillLink label="Open in Purchase Orders ↗" onClick={() => drillToModule("purchase_orders", { vendor: data.header.vendor_id })} />
                   <ExportButton rows={filteredPOs as unknown as Array<Record<string, unknown>>} filename={`vendor-${data.header.vendor_code || data.header.vendor_id}-pos`} sheetName="PurchaseOrders" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>

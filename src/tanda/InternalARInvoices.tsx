@@ -26,6 +26,7 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
 import { useItemResolver } from "./hooks/useItemResolver";
 import LineViewToggle from "./components/LineViewToggle";
+import { readDrillParam } from "./scorecardDrill";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const AR_INVOICES_TABLE_KEY = "tangerine:arinvoices:columns";
@@ -196,7 +197,8 @@ export default function InternalARInvoices() {
   const [err, setErr] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
-  const [customerFilter, setCustomerFilter] = useState("");
+  // Scorecard drill-through: ?customer=<id> seeds the customer filter on mount.
+  const [customerFilter, setCustomerFilter] = useState(() => readDrillParam("customer"));
   const [sourceFilter, setSourceFilter] = useState<string>("");
   // Wave 5 dynamic search — 200ms debounce drives load(), input updates sync.
   const { value: search, debouncedValue: debouncedSearch, setValue: setSearch } =

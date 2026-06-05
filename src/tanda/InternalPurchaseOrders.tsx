@@ -15,6 +15,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { readDrillParam } from "./scorecardDrill";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
@@ -71,7 +72,9 @@ export default function InternalPurchaseOrders() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
-  const [vendorFilter, setVendorFilter] = useState("");
+  // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount so a
+  // click from the Vendor Scorecard lands here pre-filtered to that vendor.
+  const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch("", 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
