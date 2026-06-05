@@ -37,12 +37,12 @@ function fmtCents(c: number | string | null | undefined): string {
   return `$${Math.trunc(n / 100).toLocaleString()}.${String(Math.round(n % 100)).padStart(2, "0")}`;
 }
 function scopeLabel(l: PriceList): string {
-  if (l.customer_id) return `Customer: ${l.customer?.name || l.customer_id.slice(0, 8)}`;
+  if (l.customer_id) return `Customer: ${l.customer?.name || "—"}`;
   if (l.customer_tier) return `Tier: ${l.customer_tier}`;
   if (l.is_default) return "Default (fallback)";
   return "—";
 }
-const styleLabel = (s: EmbeddedStyle | Style | null) => !s ? "—" : (s.style_name ? `${s.style_code || s.id.slice(0, 8)} — ${s.style_name}` : (s.style_code || s.id.slice(0, 8)));
+const styleLabel = (s: EmbeddedStyle | Style | null) => !s ? "—" : (s.style_name ? `${s.style_code || "—"} — ${s.style_name}` : (s.style_code || "—"));
 
 export default function InternalPriceLists() {
   const [rows, setRows] = useState<PriceList[]>([]);
@@ -177,7 +177,7 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 720, maxWidth: 920, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(920px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New price list" : `Price list ${list?.code}`}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Code"><input value={code} onChange={(e) => setCode(e.target.value)} style={inputStyle} placeholder="DISTRIBUTOR" /></Field>
@@ -272,7 +272,7 @@ function ItemModal({ listId, item, styles, onClose, onSaved }: { listId: string;
 
   return (
     <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 460, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(460px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>{isNew ? "Add price / quantity break" : "Edit price"}</h3>
         <div style={{ marginBottom: 12 }}>
           <Field label="Style">

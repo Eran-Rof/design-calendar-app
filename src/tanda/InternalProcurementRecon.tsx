@@ -117,7 +117,7 @@ export default function InternalProcurementRecon() {
               <tbody>
                 {data.qc_fails.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={3}>None.</td></tr>}
                 {data.qc_fails.map((q) => (
-                  <tr key={q.id}><td style={td}>{q.inspection_date}</td><td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{String(q.receipt_id).slice(0, 8)}</td><td style={td}>{q.status}</td></tr>
+                  <tr key={q.id}><td style={td}>{q.inspection_date}</td><td style={td}>{"—"}</td><td style={td}>{q.status}</td></tr>
                 ))}
               </tbody>
             </table>

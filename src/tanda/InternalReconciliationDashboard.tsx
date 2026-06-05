@@ -705,8 +705,8 @@ export default function InternalReconciliationDashboard() {
                       {c.clean_window_start} → {c.clean_window_end}
                     </td>
                     <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("total_recons")}>{c.total_recons}</td>
-                    <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }} hidden={!cutoverVisible.has("signoff_emp")}>
-                      {c.signoff_employee_id ? c.signoff_employee_id.slice(0, 8) + "…" : "—"}
+                    <td style={td} hidden={!cutoverVisible.has("signoff_emp")}>
+                      {c.signoff_employee_id ? "✓ Signed off" : "—"}
                     </td>
                     <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("signoff_at")}>
                       {new Date(c.signoff_at).toLocaleString()}
@@ -844,7 +844,7 @@ function VarianceSidePanel({
               {variances.map((v) => (
                 <tr key={v.id} data-testid={`recon-variance-row-${v.id}`}>
                   <td style={td}>{v.source_table}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>{v.source_id}</td>
+                  <td style={td}>{"—"}</td>
                   <td style={td}>
                     {v.source_tag ? <SourceBadge source={v.source_tag} /> : <span style={{ color: C.textMuted }}>—</span>}
                   </td>
@@ -948,8 +948,8 @@ function ClearReasonModal({
           <div style={{ color: C.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
             Variance
           </div>
-          <div style={{ fontFamily: "monospace", fontSize: 11 }}>
-            {variance.source_table} · {variance.source_id}
+          <div style={{ fontSize: 11 }}>
+            {variance.source_table}
           </div>
           <div style={{ marginTop: 4 }}>
             T: {fmtCents(variance.tangerine_amount_cents)} · X: {fmtCents(variance.xoro_amount_cents)} · Δ: <strong style={{ color: C.danger }}>{fmtCents(variance.variance_amount_cents)}</strong>

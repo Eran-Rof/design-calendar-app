@@ -250,7 +250,7 @@ export default function InternalUserAccess() {
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {u.email || <span style={{ fontFamily: "monospace", color: C.textMuted }}>{u.user_id.slice(0, 8)}…</span>}
+                    {u.email || <span style={{ color: C.textMuted }}>(unknown user)</span>}
                   </div>
                   <div style={{ fontSize: 11, color: C.textMuted }}>
                     {u.role_name || <span style={{ color: C.warn }}>no role</span>}

@@ -276,7 +276,7 @@ export default function InternalSalesReturns() {
                   <tr>
                     <td style={{ ...td, background: "#0b1220" }} colSpan={6}>
                       <RmaLinesDetail rma={r} busy={busy} onSetDisposition={setDisposition} />
-                      {r.credit_memo_id && <div style={{ color: C.success, fontSize: 12, marginTop: 8 }}>✓ Credit memo posted ({r.credit_memo_id.slice(0, 8)})</div>}
+                      {r.credit_memo_id && <div style={{ color: C.success, fontSize: 12, marginTop: 8 }}>✓ Credit memo posted</div>}
                     </td>
                   </tr>
                 )}
@@ -307,7 +307,7 @@ function RmaLinesDetail({
     () => rma.sales_return_lines.map((l) => l.inventory_item_id).filter(Boolean) as string[],
     [rma.sales_return_lines],
   );
-  const { itemMap } = useItemResolver(itemIds, view === "matrix");
+  const { itemMap } = useItemResolver(itemIds, itemIds.length > 0);
 
   const matrixData = useMemo(() => {
     const matrixEntries: MatrixEntry[] = [];
@@ -355,7 +355,7 @@ function RmaLinesDetail({
             {sorted.map((l) => (
               <tr key={l.id}>
                 <td style={td}>{l.line_number}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: l.inventory_item_id ? C.text : C.warn }}>{l.inventory_item_id ? l.inventory_item_id.slice(0, 8) : "no SKU"}</td>
+                <td style={{ ...td, color: l.inventory_item_id ? C.text : C.warn }}>{(l.inventory_item_id && itemMap.get(l.inventory_item_id)?.sku_code) || (l.inventory_item_id ? "—" : "no SKU")}</td>
                 <td style={td}>{l.description || "—"}</td>
                 <td style={{ ...td, textAlign: "right" }}>{Number(l.qty_returned)}</td>
                 <td style={{ ...td, textAlign: "right" }}>${(l.unit_price_cents / 100).toFixed(2)}</td>

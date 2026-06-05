@@ -11,6 +11,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useItemResolver } from "./hooks/useItemResolver";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -52,6 +53,8 @@ export default function InternalThreePL() {
   }
   useEffect(() => { void load(); }, []);
   const provName = useMemo(() => new Map(providers.map((p) => [p.id, p.name])), [providers]);
+  const itemIds = useMemo(() => shipments.flatMap((s) => s.tpl_shipment_lines.map((l) => l.inventory_item_id).filter(Boolean) as string[]), [shipments]);
+  const { itemMap } = useItemResolver(itemIds, itemIds.length > 0);
 
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
@@ -235,7 +238,7 @@ function Shipments({ shipments, providers, provName, busy, setBusy, reload }: { 
                     <thead><tr><th style={th}>#</th><th style={th}>Item</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th></tr></thead>
                     <tbody>
                       {s.tpl_shipment_lines.sort((a, b) => a.line_number - b.line_number).map((l) => (
-                        <tr key={l.id}><td style={td}>{l.line_number}</td><td style={{ ...td, fontFamily: "monospace", color: l.inventory_item_id ? C.text : C.textMuted }}>{l.inventory_item_id ? l.inventory_item_id.slice(0, 8) : "—"}</td><td style={td}>{l.description || "—"}</td><td style={{ ...td, textAlign: "right" }}>{Number(l.qty)}</td></tr>
+                        <tr key={l.id}><td style={td}>{l.line_number}</td><td style={{ ...td, color: l.inventory_item_id ? C.text : C.textMuted }}>{(l.inventory_item_id && itemMap.get(l.inventory_item_id)?.sku_code) || "—"}</td><td style={td}>{l.description || "—"}</td><td style={{ ...td, textAlign: "right" }}>{Number(l.qty)}</td></tr>
                       ))}
                     </tbody>
                   </table>
