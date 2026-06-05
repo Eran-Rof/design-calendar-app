@@ -67,7 +67,8 @@ orders, shipments, invoices, compliance, payments, and RFQs end-to-end.
 api/
 ├─ dispatch.js                # the ONLY function Vercel sees
 ├─ _handlers/                 # underscored = skipped by Vercel's scanner
-│   ├─ routes.js              # generated route manifest (scripts/generate-api-routes.mjs)
+│   ├─ routes.manifest.js     # SOURCE OF TRUTH: [pattern, module] data — edit this
+│   ├─ routes.js              # GENERATED from the manifest (scripts/gen-routes.mjs)
 │   ├─ internal/              # internal (admin) endpoints
 │   ├─ vendor/                # vendor-scoped endpoints (JWT or API key)
 │   ├─ cron/                  # scheduled jobs
@@ -76,8 +77,15 @@ api/
 ```
 
 Do **not** add new top-level files to `api/` — Vercel will count them as
-separate functions. New handlers go under `api/_handlers/…`, and you re-run
-`node scripts/generate-api-routes.mjs` to refresh the manifest.
+separate functions. To add an endpoint: drop the handler under
+`api/_handlers/…`, add one `[pattern, modulePath]` line to
+`api/_handlers/routes.manifest.js`, then run `npm run gen:routes` to
+regenerate `routes.js` and commit both. Patterns are matched by
+specificity (literal segments before `:params` before `*catch-alls`), so
+the order of manifest lines doesn't matter. CI (`npm run gen:routes --
+--check`) fails if `routes.js` is stale vs the manifest. There are no
+hand-picked handler numbers, so two PRs adding different handlers can't
+collide on an identifier (the #945 outage class).
 
 ---
 
