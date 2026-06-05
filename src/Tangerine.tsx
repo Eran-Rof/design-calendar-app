@@ -24,6 +24,7 @@ import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalSizeScales         from "./tanda/InternalSizeScales";
 import InternalSeasonMaster       from "./tanda/InternalSeasonMaster";
+import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
 import InternalPriceLists         from "./tanda/InternalPriceLists";
 import InternalPromotions         from "./tanda/InternalPromotions";
@@ -159,6 +160,7 @@ type ModuleKey =
   | "factors"
   | "size_scales"
   | "season_master"
+  | "rma_reason_master"
   // P18-F — internal B2B admin (buyers + wholesale price list).
   | "b2b_accounts"
   | "b2b_price_list"
@@ -302,6 +304,7 @@ const MODULES: ModuleDef[] = [
   { key: "factors",              label: "Factors/Insurance",  emoji: "🏦", group: "Master Data" },
   { key: "size_scales",          label: "Size Scales",        emoji: "📏", group: "Master Data" },
   { key: "season_master",        label: "Seasons",            emoji: "🍂", group: "Master Data" },
+  { key: "rma_reason_master",    label: "RMA Reasons",        emoji: "↩️", group: "Master Data" },
   // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
   { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
   // M43 — Pricing Engine admin (price lists supersede the interim B2B price list).
@@ -652,6 +655,7 @@ export default function Tangerine() {
         {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "size_scales"          && <InternalSizeScales />}
         {activeModule === "season_master"        && <InternalSeasonMaster />}
+        {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
         {activeModule === "b2b_price_list"       && <InternalPriceLists />}
         {activeModule === "pricing_promotions"   && <InternalPromotions />}

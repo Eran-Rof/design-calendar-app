@@ -70,6 +70,27 @@ The master simply **curates the picklist**. `style_master.season` remains a free
 
 Deleting a season is a hard delete, but it is **rejected (409)** if any style is still tagged with that season name — reassign those styles first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## ↩️ RMA Reasons
+
+Find it under **Master Data → RMA Reasons** (`/tangerine?m=rma_reason_master`). An RMA reason is a standard customer-return cause — `Defective`, `Wrong Item`, `Damaged in Transit`, `Customer Remorse` — that a return (and each of its lines) can be tagged with.
+
+### What an RMA reason row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | Server-generated, read-only `RMAR-NNNNN`. Allocated on save; you never type it. |
+| **Name** | The label that appears in the Returns / RMA reason dropdowns, e.g. `Defective`. Required. |
+| **Sort order** | Optional integer that orders the picker (low to high), then code as a tie-breaker. |
+| **Active** | Inactive reasons drop out of the Returns picker but stay in the table (toggle **Show inactive** to see them). |
+
+### How it relates to Returns / RMA
+
+The master simply **curates the picklist** used by the **Returns / RMA** panel (Sales → ↩️ Returns). Both `sales_returns.reason` (the header reason) and `sales_return_lines.reason` (the per-line reason) remain free-text columns storing the chosen reason **name** — there is no foreign key. This keeps the change backward-compatible: existing returns keep their reason text whether or not it's in the master, and the dropdown surfaces the return's current reason even if it was later deactivated or never added. As an admin you can type a brand-new reason and choose **"+ Add new reason"** to add it to the master inline without leaving the form.
+
+### Delete protection
+
+Deleting an RMA reason is a hard delete, but it is **rejected (409)** if any return **or** return line is still tagged with that reason name — reassign those returns first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master

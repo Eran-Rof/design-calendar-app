@@ -327,6 +327,8 @@ export default [
   ["/api/internal/size-scales"                               , "./internal/size-scales/index.js"],
   ["/api/internal/seasons/:id"                               , "./internal/seasons/[id].js"],
   ["/api/internal/seasons"                                   , "./internal/seasons/index.js"],
+  ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
+  ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/style-matrix/resolve-sku"                  , "./internal/style-matrix/resolve-sku.js"],
   ["/api/internal/style-matrix"                              , "./internal/style-matrix/index.js"],
   ["/api/internal/planning/buy-plan-to-po"                   , "./internal/planning/buy-plan-to-po.js"],

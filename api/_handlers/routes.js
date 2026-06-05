@@ -351,6 +351,8 @@ import r_internal_rfqs_id_messages_index from "./internal/rfqs/[id]/messages/ind
 import r_internal_rfqs_id_publish from "./internal/rfqs/[id]/publish.js";
 import r_internal_rfqs_id_quotes from "./internal/rfqs/[id]/quotes.js";
 import r_internal_rfqs_index from "./internal/rfqs/index.js";
+import r_internal_rma_reasons_id from "./internal/rma-reasons/[id].js";
+import r_internal_rma_reasons_index from "./internal/rma-reasons/index.js";
 import r_internal_sales_by_customer_index from "./internal/sales-by-customer/index.js";
 import r_internal_sales_by_rep_index from "./internal/sales-by-rep/index.js";
 import r_internal_sales_orders_id from "./internal/sales-orders/[id].js";
@@ -922,6 +924,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-receipts/:id", handler: r_internal_ar_receipts_id },
   { pattern: "/api/internal/gl-accounts/:id", handler: r_internal_gl_accounts_id },
   { pattern: "/api/internal/price-lists/:id", handler: r_internal_price_lists_id },
+  { pattern: "/api/internal/rma-reasons/:id", handler: r_internal_rma_reasons_id },
   { pattern: "/api/internal/size-scales/:id", handler: r_internal_size_scales_id },
   { pattern: "/api/marketplace/listings/:id", handler: r_marketplace_listings_id },
   { pattern: "/api/internal/gl-periods/:id", handler: r_internal_gl_periods_id },
@@ -1062,6 +1065,7 @@ export const ROUTES = [
   { pattern: "/api/internal/gl-accounts", handler: r_internal_gl_accounts_index },
   { pattern: "/api/internal/phase-notes", handler: r_internal_phase_notes_index },
   { pattern: "/api/internal/price-lists", handler: r_internal_price_lists_index },
+  { pattern: "/api/internal/rma-reasons", handler: r_internal_rma_reasons_index },
   { pattern: "/api/internal/size-scales", handler: r_internal_size_scales_index },
   { pattern: "/api/marketplace/listings", handler: r_marketplace_listings_index },
   { pattern: "/api/sales/backfill-grain", handler: r_sales_backfill_grain },
