@@ -75,7 +75,9 @@ export default function InternalPurchaseOrders() {
   // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount so a
   // click from the Vendor Scorecard lands here pre-filtered to that vendor.
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
-  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch("", 200);
+  // Scorecard per-line drill: ?q=<po_number> seeds the search on mount so a
+  // new-tab deep-link lands here filtered to that single PO (q ilike po_number).
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("q"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
 

@@ -78,7 +78,9 @@ Tangerine has its own **independent top nav** with **section dropdowns** across 
 > - **💰 Treasury** (new top-level section): **Payments · Reconciliation · FX · Virtual Cards · Supply Chain Finance · Discount Offers · Tax**. "Reconciliation" is the parallel-run recon dashboard (AP/AR/Cash/GL/Inventory variance tracking).
 > - **🌱 ESG** (new top-level section) → **ESG & Compliance** group: **Sustainability · ESG Scores · Diversity · Compliance Audit · Compliance Automation**.
 > - **Workflow** group folded into the **🔧 Admin** dropdown: **Workflow Rules · Approvals Queue · Workspaces**.
-> - **📊 Reports** dropdown gains **Analytics · Insights · Anomalies · Benchmark · Health Scores · Preferred Vendors**.
+> - **📊 Reports** dropdown gains **Analytics · Insights · Anomalies · Benchmark · Preferred Vendors**.
+
+> **Vendor Health moved to Vendors (2026-06-05):** the old **Reports → Health Scores** panel is now **🏭 Vendors → ❤️ Vendor Health** (same panel, same `?m=health_scores` route — just relocated and renamed). Each vendor's overall health score also now appears as a tile in that vendor's **Vendor Scorecard** header.
 > - **🚚 Procurement** gains **RFQs** (the RFQ list; an individual RFQ's detail view still opens from a row).
 > - **🛒 Marketplaces** (inside Sales) gains **Marketplace** (vendor-sourcing listings) and **Marketplace Inquiries**.
 > - **🔧 Admin** gains **Entities** (entity registry; edit branding from a row) and **Onboarding**.

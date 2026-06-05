@@ -5,9 +5,13 @@
 // Wide fixed-overlay modal opened from the ℹ️ button on each Vendor Master row.
 // Fetches /api/internal/vendor-scorecard?vendor_id=… and renders:
 //   • header: vendor name + code + status + country
-//   • metric tiles: avg lead time, % on-time (promised), % on-time (required),
-//     AP balance
+//   • metric tiles: Vendor Health (overall score/100 + A–F grade, same source as
+//     the Vendor Health module), avg lead time, % on-time (promised),
+//     % on-time (required), AP balance, PO counts
 //   • tabs: Invoices (AP) / POs   (each with status + grand totals + ExportButton)
+//   • per-line drill: clicking a transaction row opens that exact record in a
+//     NEW BROWSER TAB (/tangerine?m=<module>&q=<doc#>); the old in-modal
+//     "Drill to:" bar / tile-drill / per-tab open-buttons were removed.
 //   • filters: PO status, gender N/A (vendor side is purchasing)
 //
 // HONESTY: pct_ontime_required is returned null by the server (no distinct
@@ -16,7 +20,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
-import { drillToModule } from "./scorecardDrill";
+
+// Deep-link a single transaction into its Tangerine module in a NEW TAB.
+// The target panels filter to a single record via their ?q= (doc-number ilike /
+// text) param, so the clicked line is the only row once the panel mounts.
+function openRecordInNewTab(module: "purchase_orders" | "ap_invoices" | "journal_entries", q: string): void {
+  if (typeof window === "undefined" || !q) return;
+  const url = new URL(window.location.origin + "/tangerine");
+  url.searchParams.set("m", module);
+  url.searchParams.set("q", q);
+  window.open(url.toString(), "_blank", "noopener");
+}
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -46,9 +60,29 @@ type Scorecard = {
   notes: Record<string, string>;
 };
 
+// Per-vendor health (same source as the Vendor Health module —
+// /api/internal/analytics/health-scores?vendor_id=…).
+type Health = {
+  overall_score: number; delivery_score: number; quality_score: number;
+  compliance_score: number; financial_score: number; responsiveness_score: number;
+};
+
 function fmtCents(c: number | null | undefined): string {
   if (c == null) return "—";
   return (c / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+function healthColor(s: number): string {
+  if (s >= 80) return C.success;
+  if (s >= 60) return C.warn;
+  return C.danger;
+}
+function healthGrade(s: number): string {
+  if (s >= 90) return "A";
+  if (s >= 80) return "B";
+  if (s >= 70) return "C";
+  if (s >= 60) return "D";
+  return "F";
 }
 
 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12 };
@@ -60,41 +94,41 @@ const th: React.CSSProperties = {
 const td: React.CSSProperties = { padding: "6px 8px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 12 };
 const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" };
 
-function Metric({ label, value, caption, onClick, drillLabel }: { label: string; value: string; caption?: string; onClick?: () => void; drillLabel?: string }) {
-  const clickable = !!onClick;
+function Metric({ label, value, caption, valueColor }: { label: string; value: string; caption?: string; valueColor?: string }) {
   return (
-    <div
-      style={{ ...card, ...(clickable ? { cursor: "pointer", transition: "border-color 120ms, background 120ms" } : {}) }}
-      onClick={onClick}
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick!(); } } : undefined}
-      onMouseEnter={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.primary; } : undefined}
-      onMouseLeave={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.cardBdr; } : undefined}
-      title={clickable ? drillLabel : undefined}
-    >
+    <div style={card}>
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{value}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: valueColor }}>{value}</div>
       {caption && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{caption}</div>}
-      {clickable && <div style={{ fontSize: 10, color: C.primary, marginTop: 6, fontWeight: 600 }}>{drillLabel || "Open ↗"}</div>}
     </div>
   );
 }
 
-// Small inline drill link used in tab toolbars.
-function DrillLink({ label, onClick }: { label: string; onClick: () => void }) {
+const drillArrow: React.CSSProperties = { color: C.primary, fontSize: 11, opacity: 0.7 };
+
+// A clickable transaction line. Single- or double-click opens the underlying
+// record in a NEW browser tab. Hover highlights the row to advertise the action.
+function DrillRow({ children, onOpen, title, disabled = false }: { children: React.ReactNode; onOpen: () => void; title?: string; disabled?: boolean }) {
   return (
-    <button
-      onClick={onClick}
-      style={{ background: "transparent", color: C.primary, border: `1px solid ${C.primary}`, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+    <tr
+      onClick={disabled ? undefined : onOpen}
+      onDoubleClick={disabled ? undefined : onOpen}
+      role={disabled ? undefined : "button"}
+      tabIndex={disabled ? undefined : 0}
+      onKeyDown={disabled ? undefined : (e) => { if (e.key === "Enter") { e.preventDefault(); onOpen(); } }}
+      title={disabled ? undefined : title}
+      style={{ cursor: disabled ? "default" : "pointer", transition: "background 120ms" }}
+      onMouseEnter={disabled ? undefined : (e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#0b1220"; }}
+      onMouseLeave={disabled ? undefined : (e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
     >
-      {label}
-    </button>
+      {children}
+    </tr>
   );
 }
 
 export default function VendorScorecard({ vendorId, onClose }: { vendorId: string; onClose: () => void }) {
   const [data, setData] = useState<Scorecard | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<"invoices" | "pos">("invoices");
@@ -115,6 +149,20 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
   }, [vendorId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Pull this vendor's health from the same source the Vendor Health module uses.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/analytics/health-scores?vendor_id=${encodeURIComponent(vendorId)}`);
+        if (!r.ok) return;
+        const j = await r.json() as { rows?: Health[] };
+        if (!cancelled) setHealth(j.rows?.[0] ?? null);
+      } catch { /* health is best-effort; scorecard still renders without it */ }
+    })();
+    return () => { cancelled = true; };
+  }, [vendorId]);
 
   const poStatuses = useMemo(
     () => Array.from(new Set((data?.purchase_orders || []).map((p) => p.status).filter(Boolean))).sort(),
@@ -166,30 +214,18 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted }}>No data.</div>
         ) : (
           <>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              <span style={{ fontSize: 11, color: C.textMuted, alignSelf: "center", textTransform: "uppercase", letterSpacing: 0.5 }}>Drill to:</span>
-              <DrillLink label="Purchase Orders ↗" onClick={() => drillToModule("purchase_orders", { vendor: data.header.vendor_id })} />
-              <DrillLink label="AP Invoices ↗" onClick={() => drillToModule("ap_invoices", { vendor: data.header.vendor_id })} />
-              <DrillLink label="Journal Entries ↗" onClick={() => drillToModule("journal_entries", { q: data.header.vendor_code || data.header.vendor_name })} />
-            </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
+              <Metric
+                label="Vendor Health"
+                value={health == null ? "—" : `${health.overall_score} · ${healthGrade(health.overall_score)}`}
+                valueColor={health == null ? undefined : healthColor(health.overall_score)}
+                caption={health == null ? "no health signal yet" : "overall score / 100 · grade"}
+              />
               <Metric label="Avg Lead Time" value={data.metrics.avg_lead_time_days == null ? "—" : `${data.metrics.avg_lead_time_days} d`} caption={data.notes.avg_lead_time_days} />
               <Metric label="% On-time (promised)" value={data.metrics.pct_ontime_promised == null ? "—" : `${data.metrics.pct_ontime_promised}%`} caption={data.notes.pct_ontime_promised} />
               <Metric label="% On-time (required)" value={data.metrics.pct_ontime_required == null ? "—" : `${data.metrics.pct_ontime_required}%`} caption={data.notes.pct_ontime_required} />
-              <Metric
-                label="AP Balance (open)"
-                value={fmtCents(data.metrics.ap_balance_cents)}
-                caption={data.notes.ap_balance_cents}
-                onClick={() => drillToModule("ap_invoices", { vendor: data.header.vendor_id })}
-                drillLabel="Open AP Invoices ↗"
-              />
-              <Metric
-                label="POs (received / total)"
-                value={`${data.metrics.received_po_count} / ${data.metrics.po_count}`}
-                onClick={() => drillToModule("purchase_orders", { vendor: data.header.vendor_id })}
-                drillLabel="Open Purchase Orders ↗"
-              />
+              <Metric label="AP Balance (open)" value={fmtCents(data.metrics.ap_balance_cents)} caption={data.notes.ap_balance_cents} />
+              <Metric label="POs (received / total)" value={`${data.metrics.received_po_count} / ${data.metrics.po_count}`} />
             </div>
 
             {/* Tabs */}
@@ -211,21 +247,20 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
             {tab === "invoices" && (
               <div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
-                  <DrillLink label="Open in AP Invoices ↗" onClick={() => drillToModule("ap_invoices", { vendor: data.header.vendor_id })} />
                   <ExportButton rows={(data.invoices || []) as unknown as Array<Record<string, unknown>>} filename={`vendor-${data.header.vendor_code || data.header.vendor_id}-ap-invoices`} sheetName="APInvoices" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>Invoice #</th><th style={th}>Posting date</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Total</th><th style={{ ...th, textAlign: "right" }}>Paid</th><th style={{ ...th, textAlign: "right" }}>Open</th></tr></thead>
                   <tbody>
                     {(data.invoices || []).map((i) => (
-                      <tr key={i.id}>
-                        <td style={td}>{i.invoice_number}</td>
+                      <DrillRow key={i.id} title={`Open invoice ${i.invoice_number} in a new tab`} onOpen={() => openRecordInNewTab("ap_invoices", i.invoice_number)}>
+                        <td style={td}>{i.invoice_number} <span style={drillArrow}>↗</span></td>
                         <td style={td}>{i.posting_date}</td>
                         <td style={td}>{i.gl_status}</td>
                         <td style={tdR}>{fmtCents(i.total_amount_cents)}</td>
                         <td style={tdR}>{fmtCents(i.paid_amount_cents)}</td>
                         <td style={tdR}>{fmtCents((i.total_amount_cents || 0) - (i.paid_amount_cents || 0))}</td>
-                      </tr>
+                      </DrillRow>
                     ))}
                   </tbody>
                   <tfoot>
@@ -243,21 +278,20 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
             {tab === "pos" && (
               <div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
-                  <DrillLink label="Open in Purchase Orders ↗" onClick={() => drillToModule("purchase_orders", { vendor: data.header.vendor_id })} />
                   <ExportButton rows={filteredPOs as unknown as Array<Record<string, unknown>>} filename={`vendor-${data.header.vendor_code || data.header.vendor_id}-pos`} sheetName="PurchaseOrders" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>PO #</th><th style={th}>Order date</th><th style={th}>Expected</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Exp. landed</th><th style={{ ...th, textAlign: "right" }}>Act. landed</th></tr></thead>
                   <tbody>
                     {filteredPOs.map((p) => (
-                      <tr key={p.id}>
-                        <td style={td}>{p.po_number}</td>
+                      <DrillRow key={p.id} title={p.po_number ? `Open PO ${p.po_number} in a new tab` : ""} onOpen={() => openRecordInNewTab("purchase_orders", p.po_number || "")} disabled={!p.po_number}>
+                        <td style={td}>{p.po_number || "(draft)"} {p.po_number ? <span style={drillArrow}>↗</span> : null}</td>
                         <td style={td}>{p.date_order || "—"}</td>
                         <td style={td}>{p.date_expected || p.date_expected_delivery || "—"}</td>
                         <td style={td}>{p.status || "—"}</td>
                         <td style={tdR}>{fmtCents(p.expected_landed_cost_cents)}</td>
                         <td style={tdR}>{fmtCents(p.actual_landed_cost_cents)}</td>
-                      </tr>
+                      </DrillRow>
                     ))}
                   </tbody>
                   <tfoot>

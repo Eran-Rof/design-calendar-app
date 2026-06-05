@@ -282,7 +282,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/reports/insights",           label: "Insights",            app: "tanda", route: "/tangerine?m=insights",          group: "Reports", icon: "💡" },
   { key: "tanda/reports/anomalies",          label: "Anomalies",           app: "tanda", route: "/tangerine?m=anomalies",         group: "Reports", icon: "🚨" },
   { key: "tanda/reports/benchmark",          label: "Benchmark",           app: "tanda", route: "/tangerine?m=benchmark",         group: "Reports", icon: "📈" },
-  { key: "tanda/reports/health-scores",      label: "Health Scores",       app: "tanda", route: "/tangerine?m=health_scores",     group: "Reports", icon: "❤️" },
+  { key: "tanda/reports/health-scores",      label: "Vendor Health",       app: "tanda", route: "/tangerine?m=health_scores",     group: "Vendors", icon: "❤️" },
   { key: "tanda/reports/preferred",          label: "Preferred Vendors",   app: "tanda", route: "/tangerine?m=preferred",         group: "Reports", icon: "⭐" },
   // ESG & Compliance group.
   { key: "tanda/esg/sustainability",         label: "Sustainability",      app: "tanda", route: "/tangerine?m=sustainability",    group: "ESG & Compliance", icon: "🌿" },
