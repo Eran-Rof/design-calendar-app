@@ -21,6 +21,33 @@ Live aggregates over the ledgers (read $0 until transactions post):
 
 (Served by `GET /api/internal/finance-kpis`.)
 
+## Executive ratios
+
+Cheap derived metrics computed from the KPIs above plus YTD paid spend:
+
+- **Net working capital** — `Open AR + Inventory @ cost − Open AP` (a crude
+  liquidity proxy; green when positive, red when negative).
+- **AR / AP ratio** — receivables ÷ payables cover, shown as `1.23×`
+  (green ≥ 1×, amber below).
+- **YTD spend (paid)** — total paid vendor invoices this year, with a tiny
+  inline-SVG **sparkline** of the monthly trend.
+- **Active vendors (paid)** — count of vendors with paid invoices YTD.
+
+## Business intelligence charts
+
+Small dark-theme charts over the **existing** spend report
+(`GET /api/internal/reports/spend`) and the finance KPIs — no new data sources:
+
+- **Top vendors by spend** — horizontal bar of the top 8 vendors by paid
+  invoice total, YTD.
+- **Monthly spend trend** — line chart of paid spend by month.
+- **Balance composition** — donut of Open AR vs Open AP vs Inventory @ cost.
+
+Each chart shows a graceful empty state ("reads $0 until transactions post")
+until the underlying data is present. Charts render with **recharts** (already a
+repo dependency) plus a tiny inline-SVG sparkline; the reusable primitives live
+in `src/tanda/components/MiniCharts.tsx`.
+
 ## Report links
 
 Grouped quick links that open each report in place:
