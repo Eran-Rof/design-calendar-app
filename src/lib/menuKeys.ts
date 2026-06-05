@@ -251,6 +251,16 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/hr/employee-departments",  label: "Employee Departments", app: "tanda", route: "/tangerine?m=employee_departments", group: "HR", icon: "🏢" },
   // Operations
   { key: "tanda/operations/scanner-sessions", label: "Scanner Sessions", app: "tanda", route: "/tangerine?m=scanner_sessions", group: "Operations", icon: "📱" },
+  // Registry-gap backfill — nav-reachable Tangerine modules that were missing
+  // a menu_key (favorites/home-route could not pin them). Group/label mirror
+  // their ModuleDef in src/Tangerine.tsx.
+  { key: "tanda/accounting/recon-report",       label: "Recon Report",         app: "tanda", route: "/tangerine?m=bank_recon_report",  group: "Accounting", icon: "⚖️" },
+  { key: "tanda/accounting/commission-accruals", label: "Commission Accruals", app: "tanda", route: "/tangerine?m=commission_accruals", group: "Accounting", icon: "💰" },
+  { key: "tanda/accounting/commission-payouts",  label: "Commission Payouts",  app: "tanda", route: "/tangerine?m=commission_payouts",  group: "Accounting", icon: "📜" },
+  { key: "tanda/shopify/refunds",                label: "Refunds",              app: "tanda", route: "/tangerine?m=shopify_refunds",     group: "Shopify", icon: "↩️" },
+  { key: "tanda/marketplaces/status",            label: "Marketplace Status",   app: "tanda", route: "/tangerine?m=marketplace_status",  group: "Marketplaces", icon: "🛒" },
+  { key: "tanda/audit/log",                      label: "Audit Log",            app: "tanda", route: "/tangerine?m=audit_log",           group: "Audit", icon: "🕒" },
+  { key: "tanda/admin/user-access",              label: "User Access",          app: "tanda", route: "/tangerine?m=user_access",         group: "Admin", icon: "🔐" },
 ];
 
 // ─── Tech Packs ────────────────────────────────────────────────────────────
@@ -304,4 +314,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 13;
+export const MENU_KEYS_VERSION = 14;

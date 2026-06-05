@@ -18,7 +18,9 @@ Both share the same login surface and the same `/tangerine` URL — access is ga
 
 Direct URL: `https://<your-domain>/tangerine`
 
-> **Note (Chunk T2, 2026-05-26):** Tangerine has its own auth gate — even though the underlying Microsoft OAuth is shared with the other PLM-suite apps, you must explicitly sign in to use Tangerine. If you've already signed in via Design Calendar / Tanda in this browser, Tangerine reuses that session and skips the login screen entirely. The signed-in email appears in the top-right of the top nav with a "Sign out" button next to it.
+> **Note (Chunk T2, 2026-05-26):** Tangerine has its own auth gate — even though the underlying Microsoft OAuth is shared with the other PLM-suite apps, you must explicitly sign in to use Tangerine. If you've already signed in via Design Calendar / Tanda in this browser, Tangerine reuses that session and skips the login screen entirely. The signed-in user appears in the top-right of the top nav (avatar + name) with a "Sign out" button next to it.
+
+> **Nav UX refresh (2026-06-05):** the top-right user area now shows a small **circular avatar** before your name — your Microsoft profile photo if you have one set, otherwise your initials on a coloured circle (the redundant "Signed in" label was removed). Hidden **Procurement** and **Pricing** module groups are now visible in the nav (see below), and every group dropdown lists its panels **alphabetically by name**.
 >
 > **Earlier note (Chunk T1, 2026-05-26):** Tangerine is its own top-level app at `/tangerine` — previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
 
@@ -62,13 +64,15 @@ The auto-provision call is **non-blocking** — if it fails (network glitch, ser
 
 ### Signing out
 
-In the top-right of the Tangerine top nav, you'll see your signed-in email with a "Sign out" button next to it. Click "Sign out" → confirm → tokens are cleared and you're returned to the login screen.
+In the top-right of the Tangerine top nav, you'll see your avatar + name with a "Sign out" button next to it (hover the name for your email). Click "Sign out" → confirm → tokens are cleared and you're returned to the login screen.
 
 Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. They share the same MS token but each has its own session lifecycle.
 
 ## The Tangerine nav layout
 
-Tangerine has its own **independent top nav** with **7 group dropdowns** across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each group dropdown opens a menu of the modules in that group; clicking a module navigates and closes the dropdown. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
+Tangerine has its own **independent top nav** with **section dropdowns** across the top (Master Data · Accounting · Vendors · **Procurement** · Inventory · Sales · Customers · Admin) + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each section dropdown nests its module groups; clicking a module navigates and closes the dropdown. Within any dropdown, **modules are listed alphabetically by name** so destinations are easy to scan. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
+
+> **Procurement & Pricing now visible (2026-06-05):** the **🚚 Procurement** section (Purchase Orders · Receiving · QC Inspections · Customs Entries · Broker Invoices · 3-Way Match · Procurement Recon · Bookkeeper Approval · EDI) is its own top-level dropdown, placed right after **Vendors**. The **Pricing** group (Price Lists · Promotions) now appears inside the **🛒 Sales** dropdown. Both were built but previously hidden because their groups weren't mapped into any nav section.
 
 Next to the group dropdowns is a **🔍 Find a panel** type-ahead box — start typing a panel name and the closest matches appear; <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>Enter</kbd> opens the top hit, <kbd>Esc</kbd> clears. It matches on **panel names** (so "master" shows Style/Vendor/Customer Master, not every panel that happens to live in the *Master Data* group); if nothing matches a panel name, it falls back to matching a **group name** so you can still jump by section.
 
