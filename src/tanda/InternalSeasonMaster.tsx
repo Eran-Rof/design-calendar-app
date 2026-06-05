@@ -22,6 +22,8 @@ const SEASONS_TABLE_KEY = "tangerine:seasons:columns";
 const SEASON_COLUMNS: ColumnDef[] = [
   { key: "code",       label: "Code" },
   { key: "name",       label: "Name" },
+  { key: "start_date", label: "From" },
+  { key: "end_date",   label: "To" },
   { key: "sort_order", label: "Sort" },
   { key: "is_active",  label: "Active" },
 ];
@@ -31,6 +33,9 @@ type Season = {
   entity_id: string;
   code: string;
   name: string;
+  // Informational season window (reporting/AI only); drives no logic. Nullable.
+  start_date: string | null;
+  end_date: string | null;
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -163,6 +168,8 @@ export default function InternalSeasonMaster() {
           columns={[
             { key: "code",       header: "Code" },
             { key: "name",       header: "Name" },
+            { key: "start_date", header: "From", format: "date" },
+            { key: "end_date",   header: "To", format: "date" },
             { key: "sort_order", header: "Sort", format: "number" },
             { key: "is_active",  header: "Active" },
             { key: "created_at", header: "Created", format: "datetime" },
@@ -199,6 +206,8 @@ export default function InternalSeasonMaster() {
               <tr>
                 <th style={th} hidden={!isVisible("code")}>Code</th>
                 <th style={th} hidden={!isVisible("name")}>Name</th>
+                <th style={th} hidden={!isVisible("start_date")}>From</th>
+                <th style={th} hidden={!isVisible("end_date")}>To</th>
                 <th style={th} hidden={!isVisible("sort_order")}>Sort</th>
                 <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
@@ -215,6 +224,8 @@ export default function InternalSeasonMaster() {
                 >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{s.code}</td>
                   <td style={td} hidden={!isVisible("name")}>{s.name}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("start_date")}>{s.start_date || "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("end_date")}>{s.end_date || "—"}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sort_order")}>{s.sort_order}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{s.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -250,6 +261,8 @@ interface ModalProps {
 function SeasonFormModal({ mode, season, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     name:       season?.name ?? "",
+    start_date: season?.start_date ?? "",
+    end_date:   season?.end_date ?? "",
     sort_order: season?.sort_order != null ? String(season.sort_order) : "0",
     is_active:  season?.is_active ?? true,
   });
@@ -272,6 +285,9 @@ function SeasonFormModal({ mode, season, onClose, onSaved }: ModalProps) {
       // code is server-generated (add) / locked (edit) — don't send.
       const body = {
         name:       form.name.trim(),
+        // Informational date range (reporting/AI only); ""→null server-side.
+        start_date: form.start_date.trim() === "" ? null : form.start_date,
+        end_date:   form.end_date.trim() === "" ? null : form.end_date,
         sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
         is_active:  form.is_active,
       };
@@ -319,6 +335,24 @@ function SeasonFormModal({ mode, season, onClose, onSaved }: ModalProps) {
               style={inputStyle}
               placeholder="e.g. FW26"
               autoFocus
+            />
+          </Field>
+          <Field label="From">
+            {/* Informational season window (reporting/AI only); drives no logic. */}
+            <input
+              type="date"
+              value={form.start_date}
+              onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="To">
+            {/* Informational season window (reporting/AI only); drives no logic. */}
+            <input
+              type="date"
+              value={form.end_date}
+              onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+              style={inputStyle}
             />
           </Field>
           <Field label="Sort order">
