@@ -120,6 +120,9 @@ export function buildInvoiceNumber(row) {
  *   1. If row.vendor_id is set, trust it.
  *   2. Else try `vendors.code = <vendorString>`.
  *   3. Else try `vendors.aliases @> {<vendorString>}`.
+ *   4. Else try `vendors.name = <vendorString>` (case-insensitive).
+ *      vendors.name is populated for all Xoro-synced vendors even when
+ *      code/aliases are empty, so this is the practical join for AP bills.
  */
 export async function resolveVendorId(supabase, row, vendorCache) {
   if (row?.vendor_id) return row.vendor_id;
@@ -146,6 +149,19 @@ export async function resolveVendorId(supabase, row, vendorCache) {
       .from("vendors")
       .select("id")
       .contains("aliases", [vstr])
+      .limit(1);
+    if (data && data.length > 0 && data[0]?.id) {
+      vendorCache.set(vstr, data[0].id);
+      return data[0].id;
+    }
+  }
+  // 4) name match (ilike for case tolerance; skips soft-deleted vendors)
+  {
+    const { data } = await supabase
+      .from("vendors")
+      .select("id")
+      .ilike("name", vstr)
+      .is("deleted_at", null)
       .limit(1);
     if (data && data.length > 0 && data[0]?.id) {
       vendorCache.set(vstr, data[0].id);
