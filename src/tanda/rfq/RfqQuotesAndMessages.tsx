@@ -36,6 +36,23 @@ export interface QuoteLine {
   notes: string | null;
 }
 
+export interface QuoteRevisionSnapshot {
+  total_price: number | null;
+  lead_time_days: number | null;
+  valid_until: string | null;
+  notes: string | null;
+  lines: { rfq_line_item_id: string | null; unit_price: number | null; quantity: number | null; notes: string | null }[];
+}
+
+export interface QuoteRevision {
+  id: string;
+  quote_id: string;
+  revision: number;
+  snapshot: QuoteRevisionSnapshot;
+  submitted_at: string | null;
+  created_at: string | null;
+}
+
 export interface Quote {
   id: string;
   vendor_id: string;
@@ -47,6 +64,8 @@ export interface Quote {
   notes: string | null;
   submitted_at: string | null;
   health_score: number;
+  revision?: number | null;
+  revisions?: QuoteRevision[];
   lines: QuoteLine[];
 }
 
@@ -168,22 +187,33 @@ export function RfqQuotesPanel({
           <div style={{ padding: 30, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No quotes yet.</div>
         ) : quotes.map((q) => {
           const lineNotes = (q.lines || []).filter((l) => l.notes && l.notes.trim());
+          const revisions = (q.revisions || []).slice().sort((a, b) => b.revision - a.revision);
+          const isRevised = (q.revision ?? 1) > 1 && revisions.length > 0;
           const hasNotes = !!(q.notes && q.notes.trim()) || lineNotes.length > 0;
+          const canExpand = hasNotes || isRevised;
           const isOpen = !!expanded[q.id];
           return (
             <div key={q.id}>
               <div style={{ display: "grid", gridTemplateColumns: cols, padding: "10px 14px", borderBottom: isOpen ? "none" : `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", color: C.text }}>
-                <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-                  {hasNotes && (
+                <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {canExpand && (
                     <span
                       onClick={() => setExpanded((p) => ({ ...p, [q.id]: !p[q.id] }))}
-                      title={isOpen ? "Hide vendor notes" : "Show vendor notes"}
+                      title={isOpen ? "Hide details" : (isRevised ? "Show revision history + vendor notes" : "Show vendor notes")}
                       style={{ cursor: "pointer", color: C.primary, fontSize: 11, userSelect: "none" }}
                     >
-                      {isOpen ? "▾" : "▸"} 📝
+                      {isOpen ? "▾" : "▸"} {hasNotes ? "📝" : "🕑"}
                     </span>
                   )}
                   {q.vendor_name || "—"}
+                  {isRevised && (
+                    <span
+                      title={`This vendor revised their quote ${(q.revision ?? 1) - 1} time(s)`}
+                      style={{ background: C.warn, color: "#1A1205", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.03 }}
+                    >
+                      Revised v{q.revision}
+                    </span>
+                  )}
                 </div>
                 <div style={{ textAlign: "right" }}>{q.total_price != null ? `$${Number(q.total_price).toLocaleString()}` : "—"}</div>
                 <div style={{ textAlign: "right", color: C.textSub }}>{q.lead_time_days != null ? `${q.lead_time_days}d` : "—"}</div>
@@ -199,8 +229,43 @@ export function RfqQuotesPanel({
                   </div>
                 )}
               </div>
-              {isOpen && hasNotes && (
+              {isOpen && canExpand && (
                 <div style={{ padding: "10px 16px 14px", borderBottom: `1px solid ${C.cardBdr}`, background: C.bg }}>
+                  {isRevised && (
+                    <div style={{ marginBottom: hasNotes ? 12 : 0 }}>
+                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", fontWeight: 700, marginBottom: 6 }}>Revision history — current vs. prior</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {/* Current (live) values */}
+                        <RevisionRow
+                          C={C}
+                          label={`v${q.revision} (current)`}
+                          when={q.submitted_at}
+                          whenLabel="submitted"
+                          totalPrice={q.total_price}
+                          leadTime={q.lead_time_days}
+                          validUntil={q.valid_until}
+                          lines={q.lines}
+                          lineLabel={lineLabel}
+                          highlight
+                        />
+                        {/* Prior revisions, newest first */}
+                        {revisions.map((rev) => (
+                          <RevisionRow
+                            key={rev.id}
+                            C={C}
+                            label={`v${rev.revision}`}
+                            when={rev.submitted_at}
+                            whenLabel="submitted"
+                            totalPrice={rev.snapshot?.total_price ?? null}
+                            leadTime={rev.snapshot?.lead_time_days ?? null}
+                            validUntil={rev.snapshot?.valid_until ?? null}
+                            lines={(rev.snapshot?.lines || []).map((l, i) => ({ id: `${rev.id}-${i}`, ...l }))}
+                            lineLabel={lineLabel}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {q.notes && q.notes.trim() && (
                     <div style={{ marginBottom: lineNotes.length ? 10 : 0 }}>
                       <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>Quote note</div>
@@ -228,6 +293,51 @@ export function RfqQuotesPanel({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// One row in the revision-history block: a version's total / lead-time /
+// valid-until + per-line prices, with the date it was submitted. The "current"
+// row is highlighted so the operator reads old vs new at a glance.
+function RevisionRow({
+  C, label, when, whenLabel, totalPrice, leadTime, validUntil, lines, lineLabel, highlight,
+}: {
+  C: RfqTheme;
+  label: string;
+  when: string | null;
+  whenLabel: string;
+  totalPrice: number | null;
+  leadTime: number | null;
+  validUntil: string | null;
+  lines: { id: string; rfq_line_item_id: string | null; unit_price: number | null; quantity: number | null; notes: string | null }[];
+  lineLabel?: (lineItemId: string | null) => string;
+  highlight?: boolean;
+}) {
+  const priced = (lines || []).filter((l) => l.unit_price != null);
+  return (
+    <div style={{ border: `1px solid ${highlight ? C.primary : C.cardBdr}`, borderRadius: 6, padding: "8px 10px", background: C.card }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: highlight ? C.primary : C.text }}>{label}</span>
+        <span style={{ fontSize: 11, color: C.textMuted }}>{whenLabel} {when ? new Date(when).toLocaleString() : "—"}</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.text }}>
+          Total <b>{totalPrice != null ? `$${Number(totalPrice).toLocaleString()}` : "—"}</b>
+          {" · "}Lead <b>{leadTime != null ? `${leadTime}d` : "—"}</b>
+          {" · "}Valid until <b>{validUntil ? String(validUntil).slice(0, 10) : "—"}</b>
+        </span>
+      </div>
+      {priced.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 14px", marginTop: 6 }}>
+          {priced.map((l) => {
+            const lbl = lineLabel ? lineLabel(l.rfq_line_item_id) : "Line";
+            return (
+              <span key={l.id} style={{ fontSize: 11, color: C.textSub }}>
+                <span style={{ color: C.textMuted }}>{lbl}:</span> ${Number(l.unit_price).toLocaleString()}{l.quantity != null ? ` ×${Number(l.quantity).toLocaleString()}` : ""}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

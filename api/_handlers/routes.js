@@ -550,6 +550,7 @@ import r_vendor_reports_summary from "./vendor/reports/summary.js";
 import r_vendor_rfqs_id_decline from "./vendor/rfqs/[id]/decline.js";
 import r_vendor_rfqs_id_index from "./vendor/rfqs/[id]/index.js";
 import r_vendor_rfqs_id_messages_index from "./vendor/rfqs/[id]/messages/index.js";
+import r_vendor_rfqs_id_quote_revise from "./vendor/rfqs/[id]/quote/revise.js";
 import r_vendor_rfqs_id_quotes_index from "./vendor/rfqs/[id]/quotes/index.js";
 import r_vendor_rfqs_id_quotes_submit from "./vendor/rfqs/[id]/quotes/submit.js";
 import r_vendor_rfqs_index from "./vendor/rfqs/index.js";
@@ -622,6 +623,7 @@ export const ROUTES = [
   { pattern: "/api/internal/scf/requests/:id/approve", handler: r_internal_scf_requests_id_approve },
   { pattern: "/api/internal/scf/requests/:id/fund", handler: r_internal_scf_requests_id_fund },
   { pattern: "/api/vendor/rfqs/:id/quotes/submit", handler: r_vendor_rfqs_id_quotes_submit },
+  { pattern: "/api/vendor/rfqs/:id/quote/revise", handler: r_vendor_rfqs_id_quote_revise },
   { pattern: "/api/internal/design/trend-brief/synthesize", handler: r_internal_design_trend_brief_synthesize },
   { pattern: "/api/internal/procurement/qc/dispositions", handler: r_internal_procurement_qc_dispositions },
   { pattern: "/api/internal/costing/search/categories", handler: r_internal_costing_search_categories },
