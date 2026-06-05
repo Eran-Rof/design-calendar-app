@@ -93,9 +93,17 @@ export default async function handler(req, res) {
           for (const r of rli || []) if (r.costing_line_id) onRfq.add(r.costing_line_id);
         }
         const counts = new Map(); // project_id → { draft, on_rfq, awarded, closed, total }
+        // The list view has 4 status tabs (draft/on_rfq/awarded/closed). Fold the
+        // stored 7-state lifecycle into them: sent/quoted/lost -> on_rfq (each
+        // went through an RFQ), awarded -> awarded, closed -> closed, revised /
+        // bare-draft -> draft. Stored status wins; legacy null/draft rows fall
+        // back to the old derivation (selected_vendor_quote_id / rfq_line_items).
         for (const l of lineRows || []) {
           let eff;
           if (l.status === "closed") eff = "closed";
+          else if (l.status === "awarded") eff = "awarded";
+          else if (l.status === "sent" || l.status === "quoted" || l.status === "lost") eff = "on_rfq";
+          else if (l.status === "revised") eff = "draft";
           else if (l.selected_vendor_quote_id) eff = "awarded";
           else if (onRfq.has(l.id)) eff = "on_rfq";
           else eff = "draft";

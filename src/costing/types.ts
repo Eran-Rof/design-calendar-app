@@ -9,10 +9,28 @@ export type CostingStatus =
   | "closed"
   | "cancelled";
 
-// Per-line status. Manual/stored values are draft|closed (user-settable);
-// on_rfq + awarded are derived auto-states layered on top in the app.
-export type CostingLineStatus = "draft" | "closed";
-export type CostingLineEffectiveStatus = "draft" | "on_rfq" | "awarded" | "closed";
+// Per-line STORED lifecycle status. Event-driven states (sent/quoted/awarded/
+// lost) are written server-side by the RFQ publish/submit/award handlers;
+// draft/closed are operator-settable; revised is reserved for Stage B.
+export type CostingLineStatus =
+  | "draft"
+  | "sent"
+  | "quoted"
+  | "awarded"
+  | "lost"
+  | "revised"
+  | "closed";
+// Effective status now mirrors the stored lifecycle (status is event-driven).
+// The legacy derived value `on_rfq` is retained for the projects-list buckets.
+export type CostingLineEffectiveStatus =
+  | "draft"
+  | "on_rfq"
+  | "sent"
+  | "quoted"
+  | "awarded"
+  | "lost"
+  | "revised"
+  | "closed";
 
 export type CostingQuoteStatus =
   | "pending"
@@ -107,8 +125,10 @@ export interface CostingLine {
   landed_cost: number | null;
   margin_pct: number | null;
   selected_vendor_quote_id: string | null;
-  /** Manual per-line status: 'draft' (default) or 'closed'. The on_rfq +
-   *  awarded states are derived (see _on_rfq + selected_vendor_quote_id). */
+  /** Stored per-line lifecycle status: draft|sent|quoted|awarded|lost|revised|
+   *  closed. Event-driven states are written server-side (publish/submit/award);
+   *  the operator only sets draft/closed. Falls back to the legacy derivation
+   *  (selected_vendor_quote_id / _on_rfq) when null on legacy rows. */
   status: CostingLineStatus | null;
   /** Derived (read-only, from the lines GET): the line is on a generated RFQ. */
   _on_rfq?: boolean;

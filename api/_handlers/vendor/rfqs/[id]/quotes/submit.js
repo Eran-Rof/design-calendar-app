@@ -7,6 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { getInternalRecipients, resolveInternalRecipients } from "../../../../../_lib/internal-recipients.js";
+import { markLinesQuoted } from "../../../../../_lib/costingLineStatus.js";
 
 export const config = { maxDuration: 15 };
 
@@ -64,6 +65,17 @@ export default async function handler(req, res) {
 
   // Flip the invitation to 'submitted' so the internal view can see it clearly
   await admin.from("rfq_invitations").update({ status: "submitted" }).eq("rfq_id", rfqId).eq("vendor_id", caller.vendor_id);
+
+  // Costing line lifecycle: promote every linked costing line sent -> quoted.
+  // Terminal states (awarded/lost/closed) are never downgraded; a line still in
+  // draft (publish ran pre-migration) is left for a later transition. Best-
+  // effort; never breaks the submit. Legacy / non-costing RFQs no-op.
+  try {
+    await markLinesQuoted(admin, rfqId, { changedBy: caller.display_name || caller.email || "vendor", note: "vendor_quote_submitted" });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[quote-submit] line status -> quoted issue rfq=${rfqId}: ${e && e.message ? e.message : String(e)}`);
+  }
 
   // Internal notification
   try {

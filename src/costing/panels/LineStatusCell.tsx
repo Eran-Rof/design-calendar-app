@@ -1,10 +1,10 @@
 // LineStatusCell — per-line status pill + menu for the costing grid.
 //
-// Status is per line. The EFFECTIVE status shown is derived (closed > awarded >
-// on_rfq > draft). The two auto states (On RFQ, Awarded) are read-only — the
-// app sets them. The operator can only pick the manual states: Draft / Closed.
-// Picking Closed overrides the auto states (a deliberate terminal close);
-// picking Draft clears the manual flag so the line falls back to its auto state.
+// Status is a STORED lifecycle (draft|sent|quoted|awarded|lost|revised|closed).
+// The event-driven states (Sent, Quoted, Awarded, Lost, Revised) are read-only —
+// the RFQ publish/submit/award handlers set them. The operator can only pick the
+// manual states: Draft / Closed. Picking Closed is a deliberate terminal close;
+// picking Draft resets the line to its starting state.
 
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -25,7 +25,8 @@ interface Props {
 export default function LineStatusCell({ line, onChange }: Props) {
   const eff = effectiveLineStatus(line);
   const sc = stageColor(eff);
-  const isAuto = eff === "on_rfq" || eff === "awarded";
+  // Event-driven (read-only) states: everything except the two manual ones.
+  const isAuto = eff !== "draft" && eff !== "closed";
 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -105,7 +106,11 @@ export default function LineStatusCell({ line, onChange }: Props) {
           {isAuto && (
             <div style={{ fontSize: 10, color: "#94A3B8", padding: "6px 8px", borderTop: "1px solid #334155", lineHeight: 1.4 }}>
               Currently <strong style={{ color: sc.fg }}>{stageLabel(eff)}</strong> — set automatically
-              {eff === "awarded" ? " (vendor awarded)." : " (line is on an RFQ)."}
+              {eff === "awarded" ? " (vendor awarded)."
+                : eff === "lost" ? " (another vendor won this style)."
+                : eff === "quoted" ? " (vendor submitted a quote)."
+                : eff === "revised" ? " (superseded by a revised line)."
+                : " (line is on a sent RFQ)."}
             </div>
           )}
         </div>,
