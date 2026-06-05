@@ -568,6 +568,7 @@ import r_vendor_rfqs_id_quote_revise from "./vendor/rfqs/[id]/quote/revise.js";
 import r_vendor_rfqs_id_quotes_index from "./vendor/rfqs/[id]/quotes/index.js";
 import r_vendor_rfqs_id_quotes_submit from "./vendor/rfqs/[id]/quotes/submit.js";
 import r_vendor_rfqs_index from "./vendor/rfqs/index.js";
+import r_vendor_rfqs_messages_inbox_index from "./vendor/rfqs/messages-inbox/index.js";
 import r_vendor_scf_eligible_invoices from "./vendor/scf/eligible-invoices.js";
 import r_vendor_scf_request from "./vendor/scf/request.js";
 import r_vendor_scf_requests from "./vendor/scf/requests.js";
@@ -856,6 +857,7 @@ export const ROUTES = [
   { pattern: "/api/internal/faire/sync-orders", handler: r_internal_faire_sync_orders },
   { pattern: "/api/internal/vendors/diversity", handler: r_internal_vendors_diversity },
   { pattern: "/api/vendor/marketplace/listing", handler: r_vendor_marketplace_listing_index },
+  { pattern: "/api/vendor/rfqs/messages-inbox", handler: r_vendor_rfqs_messages_inbox_index },
   { pattern: "/api/xoro/writeback/expedite-po", handler: r_xoro_writeback_expedite_po },
   { pattern: "/api/internal/costing/projects", handler: r_internal_costing_projects_index },
   { pattern: "/api/internal/fba/sync-returns", handler: r_internal_fba_sync_returns },
