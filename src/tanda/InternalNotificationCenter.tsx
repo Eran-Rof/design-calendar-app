@@ -171,7 +171,7 @@ export default function InternalNotificationCenter() {
                 <div style={{ marginTop: 6, fontSize: 11, color: C.textMuted }}>
                   {new Date(d.event.created_at).toLocaleString()}
                   {d.event.context_table && (
-                    <> · {d.event.context_table}#{(d.event.context_id || "").slice(0, 8)}</>
+                    <> · {d.event.context_table}</>
                   )}
                 </div>
               </div>

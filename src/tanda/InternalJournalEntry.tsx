@@ -175,7 +175,7 @@ export default function InternalJournalEntry() {
   const { getRowProps } = useRowClickEdit<JE>({
     onRowClick: (je) => setDetail(je),
     onBeforeRowClick: (id) => setHighlightedId(id),
-    ariaLabel: (je) => `Open journal entry ${je.id.slice(0, 8)}`,
+    ariaLabel: (je) => `Open journal entry ${je.description || "—"}`,
   });
 
   async function load() {
@@ -343,7 +343,7 @@ export default function InternalJournalEntry() {
                     {je.description}
                     <SourceBadge source={je.source} />
                   </td>
-                  <td style={{ ...td, fontSize: 12, color: C.textMuted }} hidden={!visibleColumns.has("source")}>{je.source_table || "—"}{je.source_id ? ` / ${je.source_id.slice(0, 8)}…` : ""}</td>
+                  <td style={{ ...td, fontSize: 12, color: C.textMuted }} hidden={!visibleColumns.has("source")}>{je.source_table || "—"}</td>
                   <td style={td} hidden={!visibleColumns.has("status")}>
                     <span style={{ color: statusColor(je.status), fontWeight: 600 }}>● {je.status}</span>
                   </td>
@@ -602,7 +602,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>Post manual journal entry</h3>
 
@@ -1024,13 +1024,13 @@ function JEDetailModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: 720, maxWidth: "95vw", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(720px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 18 }}>
             Journal entry detail
-            <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
-              {je.id.slice(0, 8)}…
+            <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>
+              {je.description || "—"}
             </span>
           </h3>
           <span style={{ color: statusColor(data?.status || je.status), fontWeight: 600, fontSize: 13 }}>
@@ -1057,7 +1057,7 @@ function JEDetailModal({
               <DetailRow
                 label="Source ref"
                 value={data.source_table
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>{data.source_table}{data.source_id ? ` / ${data.source_id.slice(0, 8)}…` : ""}</span>
+                  ? <span style={{ fontSize: 12 }}>{data.source_table}</span>
                   : "—"}
               />
               <DetailRow
@@ -1072,16 +1072,14 @@ function JEDetailModal({
               />
               <DetailRow
                 label="Sibling JE"
-                value={data.sibling_je_id
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>{data.sibling_je_id.slice(0, 8)}…</span>
-                  : "—"}
+                value={data.sibling_je_id ? "Yes" : "—"}
               />
               <DetailRow
                 label="Reverses / reversed by"
                 value={data.reverses_je_id
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>reverses {data.reverses_je_id.slice(0, 8)}…</span>
+                  ? "Reverses another entry"
                   : data.reversed_by_je_id
-                    ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>reversed by {data.reversed_by_je_id.slice(0, 8)}…</span>
+                    ? "Reversed by another entry"
                     : "—"}
               />
             </div>
@@ -1114,7 +1112,7 @@ function JEDetailModal({
                         <td style={{ ...td, fontSize: 12 }}>
                           {acct
                             ? <><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{acct.code}</span> — {acct.name}</>
-                            : <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>{l.account_id.slice(0, 8)}…</span>}
+                            : <span style={{ color: C.textMuted }}>—</span>}
                         </td>
                         <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
                           {parseFloat(l.debit || "0") > 0 ? parseFloat(l.debit).toFixed(2) : ""}
@@ -1129,9 +1127,7 @@ function JEDetailModal({
                           ) : null}
                         </td>
                         <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
-                          {l.subledger_type
-                            ? <>{l.subledger_type}{l.subledger_id ? ` / ${l.subledger_id.slice(0, 8)}…` : ""}</>
-                            : ""}
+                          {l.subledger_type || ""}
                         </td>
                       </tr>
                     );

@@ -99,7 +99,7 @@ const modalBg: React.CSSProperties = {
 };
 const modalCard: React.CSSProperties = {
   background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-  padding: 24, width: 560, maxWidth: "90vw", maxHeight: "90vh", overflow: "auto",
+  padding: 24, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
 function fmtDate(iso: string | null): string {
@@ -208,17 +208,17 @@ export default function InternalInventoryAdjustments() {
 
   function itemLabel(id: string): string {
     const it = itemById.get(id);
-    if (it) return it.sku_code || id.slice(0, 8);
-    return id.slice(0, 8);
+    if (it) return it.sku_code || "—";
+    return "—";
   }
   function glLabel(id: string): string {
     const g = glById.get(id);
     if (g) return `${g.code} - ${g.name}`;
-    return id.slice(0, 8);
+    return "—";
   }
 
   async function handleDelete(row: Adjustment) {
-    if (!(await confirmDialog(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`))) return;
+    if (!(await confirmDialog(`Delete adjustment for ${itemLabel(row.item_id)}? Only unposted rows can be deleted.`))) return;
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}`, { method: "DELETE" });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
@@ -229,7 +229,7 @@ export default function InternalInventoryAdjustments() {
   }
 
   async function handlePost(row: Adjustment) {
-    if (!(await confirmDialog(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`))) return;
+    if (!(await confirmDialog(`Post adjustment for ${itemLabel(row.item_id)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`))) return;
     const actor_user_id = getCachedAuthUserId();
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}/post`, {
       method: "POST",
@@ -242,9 +242,9 @@ export default function InternalInventoryAdjustments() {
       return;
     }
     if (out.requires_approval) {
-      notify(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`, "info");
+      notify(`Approval required. The adjustment stays draft until the request is decided.`, "info");
     } else {
-      notify(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`, "success");
+      notify(`Posted.`, "success");
     }
     void load();
   }
@@ -452,7 +452,7 @@ function AddModeChooser({
   };
   return (
     <div style={modalBg} onClick={onClose}>
-      <div style={{ ...modalCard, width: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalCard, width: "min(480px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>New Inventory Adjustment</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           Choose how to enter this adjustment.
@@ -605,7 +605,7 @@ function AdjustmentModal({
             <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Style</label>
             {selectedItem ? (
               <div style={{ marginBottom: 12 }}>
-                <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || selectedItem.id.slice(0, 8)}</span>{" "}
+                <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || "—"}</span>{" "}
                 <button type="button" style={{ ...btnSecondary, fontSize: 11 }} onClick={() => setItemId("")}>change</button>
               </div>
             ) : (
@@ -626,7 +626,7 @@ function AdjustmentModal({
                         style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, fontFamily: "monospace", color: C.textSub, borderBottom: `1px solid ${C.cardBdr}` }}
                         onClick={() => setItemId(it.id)}
                       >
-                        {it.sku_code || it.id.slice(0, 8)} - {it.description || ""}
+                        {it.sku_code || "—"} - {it.description || ""}
                       </div>
                     ))
                   )}
@@ -1021,7 +1021,7 @@ function MatrixAdjustmentModal({
 
   return (
     <div style={modalBg} onClick={onClose}>
-      <div style={{ ...modalCard, width: 820 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalCard, width: "min(820px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Adjustment</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           Pick type / counter account / reason once, choose a style, then type a signed qty into each cell:
