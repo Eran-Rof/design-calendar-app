@@ -304,7 +304,7 @@ export default function InternalGLDetail() {
                   <td style={td}>{r.posting_date}</td>
                   <td style={td}>{r.description || "—"}</td>
                   <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>
-                    {r.source_module}{r.source_id ? ` · ${r.source_id}` : ""}
+                    {r.source_module || "—"}
                   </td>
                   <td style={tdNum} hidden={!visibleColumns.has("debit")}>{fmtCents(r.debit_cents)}</td>
                   <td style={tdNum} hidden={!visibleColumns.has("credit")}>{fmtCents(r.credit_cents)}</td>

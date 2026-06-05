@@ -65,7 +65,7 @@ export default function InternalMarketplaceInquiries() {
         <ExportButton
           rows={rows.map((q) => ({
             ...q,
-            listing_title: q.listing?.title || q.listing_id,
+            listing_title: q.listing?.title || "—",
           })) as unknown as Array<Record<string, unknown>>}
           filename="marketplace-inquiries"
           sheetName="Inquiries"
@@ -91,7 +91,7 @@ export default function InternalMarketplaceInquiries() {
           {rows.map((q) => (
             <div key={q.id} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <div style={{ fontWeight: 700 }}>{q.listing?.title || q.listing_id}</div>
+                <div style={{ fontWeight: 700 }}>{q.listing?.title || "—"}</div>
                 <StatusChip status={q.status} />
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{new Date(q.created_at).toLocaleString()} · by {q.inquired_by}</div>
@@ -105,7 +105,7 @@ export default function InternalMarketplaceInquiries() {
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
                 {q.status !== "converted_to_rfq"
                   ? <button onClick={() => void convert(q)} style={btnPrimary}>Convert to RFQ</button>
-                  : <span style={{ fontSize: 11, color: C.success }}>→ RFQ {q.rfq_id?.slice(0, 8)}…</span>
+                  : <span style={{ fontSize: 11, color: C.success }}>→ Converted to RFQ</span>
                 }
               </div>
             </div>

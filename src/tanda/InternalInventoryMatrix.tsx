@@ -314,7 +314,7 @@ export default function InternalInventoryMatrix() {
     () =>
       brands.map((b) => ({
         value: b.id,
-        label: b.code && b.name ? `${b.code} — ${b.name}` : (b.name || b.code || b.id),
+        label: b.code && b.name ? `${b.code} — ${b.name}` : (b.name || b.code || "—"),
       })),
     [brands],
   );

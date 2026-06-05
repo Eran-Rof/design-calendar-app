@@ -70,7 +70,7 @@ export default function InternalMarketplace() {
           <ExportButton
             rows={rows.map((l) => ({
               ...l,
-              vendor_name: l.vendor?.name || l.vendor_id,
+              vendor_name: l.vendor?.name || "—",
               capabilities_list: (l.capabilities || []).join("; "),
               certifications_list: (l.certifications || []).join("; "),
               geographic_coverage_list: (l.geographic_coverage || []).join("; "),
@@ -108,7 +108,7 @@ export default function InternalMarketplace() {
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{l.title}</div>
                 {l.featured && <span style={{ fontSize: 10, color: "#fff", background: C.warn, padding: "2px 8px", borderRadius: 10, fontWeight: 700 }}>FEATURED</span>}
               </div>
-              <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>{l.vendor?.name || l.vendor_id}{l.category ? ` · ${l.category}` : ""}</div>
+              <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>{l.vendor?.name || "—"}{l.category ? ` · ${l.category}` : ""}</div>
               {l.description && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{l.description}</div>}
 
               {l.capabilities.length > 0 && (
@@ -173,7 +173,7 @@ function InquireModal({ listing, onClose, onSent }: { listing: Listing; onClose:
 
   return (
     <div style={overlay} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 520 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: "min(520px, 95vw)" }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Inquire about "{listing.title}"</h3>
         <Row label="On behalf of entity">
           <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={inp}>
@@ -204,4 +204,4 @@ const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px 
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const modal = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto" as const, color: C.text };
+const modal = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, maxHeight: "90vh", overflowY: "auto" as const, boxSizing: "border-box" as const, color: C.text };

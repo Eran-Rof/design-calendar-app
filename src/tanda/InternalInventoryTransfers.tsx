@@ -150,7 +150,7 @@ const modalBg: React.CSSProperties = {
 };
 const modalCard: React.CSSProperties = {
   background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-  padding: 24, width: 560, maxWidth: "90vw", maxHeight: "90vh", overflow: "auto",
+  padding: 24, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
 export default function InternalInventoryTransfers() {
@@ -160,6 +160,12 @@ export default function InternalInventoryTransfers() {
   const [itemId, setItemId] = useState("");
   const [fromLoc, setFromLoc] = useState("");
   const [toLoc, setToLoc] = useState("");
+  // Resolve item_id → human SKU label (no raw UUIDs in the table). Populated
+  // from /api/internal/items?ids= for the ids present in the current rows.
+  const [skuById, setSkuById] = useState<Record<string, string>>({});
+  function itemLabel(id: string): string {
+    return skuById[id] || "—";
+  }
 
   // Entry modals. "+ Add" opens a chooser that routes to single / matrix
   // (mirrors the #974 Adjustments AddModeChooser).
@@ -177,7 +183,7 @@ export default function InternalInventoryTransfers() {
   const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
     persistKey: "tangerine:inventorytransfers:sort",
     accessors: {
-      style: (t) => t.item_id,
+      style: (t) => itemLabel(t.item_id),
       from: (t) => t.from_location,
       to: (t) => t.to_location,
       date: (t) => t.transfer_date,
@@ -202,6 +208,28 @@ export default function InternalInventoryTransfers() {
     }
   }
   useEffect(() => { void load(); }, [itemId, fromLoc, toLoc]);
+
+  // Resolve the item ids in the current rows to sku_code labels.
+  useEffect(() => {
+    const ids = Array.from(new Set(rows.map((t) => t.item_id).filter(Boolean)))
+      .filter((id) => !(id in skuById));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/items?ids=${encodeURIComponent(ids.join(","))}`);
+        if (!r.ok) return;
+        const data = (await r.json()) as Array<{ id: string; sku_code: string | null }>;
+        if (cancelled) return;
+        setSkuById((prev) => {
+          const next = { ...prev };
+          for (const it of data) next[it.id] = it.sku_code || "—";
+          return next;
+        });
+      } catch { /* leave as "—" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function fmtDate(iso: string): string {
     if (!iso) return "—";
@@ -302,7 +330,7 @@ export default function InternalInventoryTransfers() {
             )}
             {sorted.map((t) => (
               <tr key={t.id}>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{t.item_id}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(t.item_id)}</td>
                 <td style={td} hidden={!isVisible("qty")}>{t.qty}</td>
                 <td style={td} hidden={!isVisible("from")}>{t.from_location}</td>
                 <td style={td} hidden={!isVisible("to")}>{t.to_location}</td>
@@ -769,7 +797,7 @@ function MatrixTransferModal({
 
   return (
     <div style={modalBg} onClick={onClose}>
-      <div style={{ ...modalCard, width: 820 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalCard, width: "min(820px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Transfer</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           Pick a FROM + TO location once, choose a style, then type a transfer qty into each cell.
