@@ -78,7 +78,7 @@ export default function VendorRfqMessageThread({ rfqId, height = 320, onChanged 
           const mine = m.sender_type === "vendor";
           return (
             <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 10 }}>
-              <div style={{ maxWidth: "78%", background: mine ? TH.primary : "#FFFFFF", color: mine ? "#FFFFFF" : TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
+              <div style={{ maxWidth: "78%", background: mine ? TH.primary : TH.bg, color: TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, opacity: 0.85, color: mine ? "rgba(255,255,255,0.9)" : TH.textMuted }}>
                   {m.sender_name} · {m.sender_type === "vendor" ? "You" : "Ring of Fire"}
                 </div>
@@ -97,7 +97,7 @@ export default function VendorRfqMessageThread({ rfqId, height = 320, onChanged 
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
           placeholder="Message Ring of Fire about this RFQ… (⌘/Ctrl+Enter to send)"
-          style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13, fontFamily: "inherit", resize: "vertical" }}
+          style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.bg, color: TH.text, fontSize: 13, fontFamily: "inherit", resize: "vertical" }}
         />
         <button onClick={() => void send()} disabled={sending || !draft.trim()} style={{ ...btnPrimary, opacity: sending || !draft.trim() ? 0.5 : 1, cursor: sending || !draft.trim() ? "not-allowed" : "pointer" }}>
           {sending ? "Sending…" : "Send"}
