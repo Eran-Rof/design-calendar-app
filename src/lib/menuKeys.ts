@@ -261,6 +261,40 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/marketplaces/status",            label: "Marketplace Status",   app: "tanda", route: "/tangerine?m=marketplace_status",  group: "Marketplaces", icon: "🛒" },
   { key: "tanda/audit/log",                      label: "Audit Log",            app: "tanda", route: "/tangerine?m=audit_log",           group: "Audit", icon: "🕒" },
   { key: "tanda/admin/user-access",              label: "User Access",          app: "tanda", route: "/tangerine?m=user_access",         group: "Admin", icon: "🔐" },
+  // #983 — surface 26 built-but-unmenued Tangerine panels.
+  // Treasury group.
+  { key: "tanda/treasury/payments",          label: "Payments",            app: "tanda", route: "/tangerine?m=payments",          group: "Treasury", icon: "💸" },
+  { key: "tanda/treasury/reconciliation",    label: "Reconciliation",      app: "tanda", route: "/tangerine?m=recon_dashboard",   group: "Treasury", icon: "⚖️" },
+  { key: "tanda/treasury/fx",                label: "FX",                  app: "tanda", route: "/tangerine?m=fx",                group: "Treasury", icon: "🌐" },
+  { key: "tanda/treasury/virtual-cards",     label: "Virtual Cards",       app: "tanda", route: "/tangerine?m=virtual_cards",     group: "Treasury", icon: "💳" },
+  { key: "tanda/treasury/scf",               label: "Supply Chain Finance", app: "tanda", route: "/tangerine?m=scf",              group: "Treasury", icon: "🏦" },
+  { key: "tanda/treasury/discount-offers",   label: "Discount Offers",     app: "tanda", route: "/tangerine?m=discount_offers",   group: "Treasury", icon: "⚡" },
+  { key: "tanda/treasury/tax",               label: "Tax",                 app: "tanda", route: "/tangerine?m=tax",               group: "Treasury", icon: "🧾" },
+  // Procurement RFQs.
+  { key: "tanda/procurement/rfqs",           label: "RFQs",                app: "tanda", route: "/tangerine?m=rfqs",              group: "Procurement", icon: "📨" },
+  // Reports analytics.
+  { key: "tanda/reports/analytics",          label: "Analytics",           app: "tanda", route: "/tangerine?m=analytics",         group: "Reports", icon: "📊" },
+  { key: "tanda/reports/insights",           label: "Insights",            app: "tanda", route: "/tangerine?m=insights",          group: "Reports", icon: "💡" },
+  { key: "tanda/reports/anomalies",          label: "Anomalies",           app: "tanda", route: "/tangerine?m=anomalies",         group: "Reports", icon: "🚨" },
+  { key: "tanda/reports/benchmark",          label: "Benchmark",           app: "tanda", route: "/tangerine?m=benchmark",         group: "Reports", icon: "📈" },
+  { key: "tanda/reports/health-scores",      label: "Health Scores",       app: "tanda", route: "/tangerine?m=health_scores",     group: "Reports", icon: "❤️" },
+  { key: "tanda/reports/preferred",          label: "Preferred Vendors",   app: "tanda", route: "/tangerine?m=preferred",         group: "Reports", icon: "⭐" },
+  // ESG & Compliance group.
+  { key: "tanda/esg/sustainability",         label: "Sustainability",      app: "tanda", route: "/tangerine?m=sustainability",    group: "ESG & Compliance", icon: "🌿" },
+  { key: "tanda/esg/esg-scores",             label: "ESG Scores",          app: "tanda", route: "/tangerine?m=esg_scores",        group: "ESG & Compliance", icon: "🌍" },
+  { key: "tanda/esg/diversity",              label: "Diversity",           app: "tanda", route: "/tangerine?m=diversity",         group: "ESG & Compliance", icon: "🤲" },
+  { key: "tanda/esg/compliance-audit",       label: "Compliance Audit",    app: "tanda", route: "/tangerine?m=compliance_audit",  group: "ESG & Compliance", icon: "📜" },
+  { key: "tanda/esg/compliance-automation",  label: "Compliance Automation", app: "tanda", route: "/tangerine?m=compliance_automation", group: "ESG & Compliance", icon: "🤖" },
+  // Workflow group.
+  { key: "tanda/workflow/rules",             label: "Workflow Rules",      app: "tanda", route: "/tangerine?m=workflow_rules",    group: "Workflow", icon: "🧩" },
+  { key: "tanda/workflow/executions",        label: "Approvals Queue",     app: "tanda", route: "/tangerine?m=workflow_executions", group: "Workflow", icon: "🗳️" },
+  { key: "tanda/workflow/workspaces",        label: "Workspaces",          app: "tanda", route: "/tangerine?m=workspaces",        group: "Workflow", icon: "🗂️" },
+  // Marketplaces.
+  { key: "tanda/marketplaces/marketplace",   label: "Marketplace",         app: "tanda", route: "/tangerine?m=marketplace",      group: "Marketplaces", icon: "🛍️" },
+  { key: "tanda/marketplaces/inquiries",     label: "Marketplace Inquiries", app: "tanda", route: "/tangerine?m=marketplace_inquiries", group: "Marketplaces", icon: "📩" },
+  // Admin.
+  { key: "tanda/admin/entities",             label: "Entities",            app: "tanda", route: "/tangerine?m=entities",          group: "Admin", icon: "🏛️" },
+  { key: "tanda/admin/onboarding",           label: "Onboarding",          app: "tanda", route: "/tangerine?m=onboarding",        group: "Admin", icon: "🚀" },
 ];
 
 // ─── Tech Packs ────────────────────────────────────────────────────────────
@@ -314,4 +348,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 14;
+export const MENU_KEYS_VERSION = 15;
