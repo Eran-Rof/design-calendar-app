@@ -91,6 +91,27 @@ The master simply **curates the picklist** used by the **Returns / RMA** panel (
 
 Deleting an RMA reason is a hard delete, but it is **rejected (409)** if any return **or** return line is still tagged with that reason name — reassign those returns first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## 🏬 Warehouse Master
+
+Find it under **Master Data → Warehouses** (`/tangerine?m=warehouse_master`). A warehouse is an operator-owned stock location — e.g. `Main Warehouse`. This panel curates those locations so inventory transfers, adjustments, and FIFO layers all point at a consistent list.
+
+Under the hood this builds **over the existing `inventory_locations` table** (the same table that backs multi-location inventory and the marketplace/3PL locations). The panel only shows and edits rows of `kind = 'warehouse'`; marketplace-held stock (`fba`, `wfs`) and `3pl` / `dropship` / `virtual` locations are managed by their own channel integrations and never appear here.
+
+### What a warehouse row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | Server-generated, read-only `WH-NNNNN`. Allocated on save; you never type it. (Older seed locations such as `MAIN_WH` keep their original code.) |
+| **Name** | The label that appears in location pickers, e.g. `Main Warehouse`. Required. |
+| **Address** | Optional free-text street address for the warehouse. |
+| **Country code** | Optional country, e.g. `US`. |
+| **Sort order** | Optional integer that orders the picker (low to high), then code as a tie-breaker. |
+| **Active** | Inactive warehouses drop out of pickers but stay in the table (toggle **Show inactive** to see them). |
+
+### Delete protection
+
+Deleting a warehouse is a hard delete, but it is **rejected (409)** if any inventory layer still points at it (FK) **or** any inventory transfer references its code as a from/to location — move that stock first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search (code, name, or address), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master
