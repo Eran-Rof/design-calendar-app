@@ -449,6 +449,8 @@ import r_internal_walmart_post_order_id from "./internal/walmart/post-order/[id]
 import r_internal_walmart_sync_orders from "./internal/walmart/sync-orders.js";
 import r_internal_walmart_sync_returns from "./internal/walmart/sync-returns.js";
 import r_internal_walmart_sync_settlements from "./internal/walmart/sync-settlements.js";
+import r_internal_warehouses_id from "./internal/warehouses/[id].js";
+import r_internal_warehouses_index from "./internal/warehouses/index.js";
 import r_internal_workflow_executions_id_approve from "./internal/workflow-executions/[id]/approve.js";
 import r_internal_workflow_executions_id_index from "./internal/workflow-executions/[id]/index.js";
 import r_internal_workflow_executions_id_reject from "./internal/workflow-executions/[id]/reject.js";
@@ -928,6 +930,7 @@ export const ROUTES = [
   { pattern: "/api/internal/size-scales/:id", handler: r_internal_size_scales_id },
   { pattern: "/api/marketplace/listings/:id", handler: r_marketplace_listings_id },
   { pattern: "/api/internal/gl-periods/:id", handler: r_internal_gl_periods_id },
+  { pattern: "/api/internal/warehouses/:id", handler: r_internal_warehouses_id },
   { pattern: "/api/internal/workspaces/:id", handler: r_internal_workspaces_id_index },
   { pattern: "/api/edi/inbound/:vendor_id", handler: r_edi_inbound_vendor_id },
   { pattern: "/api/internal/anomalies/:id", handler: r_internal_anomalies_id },
@@ -1079,6 +1082,7 @@ export const ROUTES = [
   { pattern: "/api/internal/onboarding", handler: r_internal_onboarding_index },
   { pattern: "/api/internal/sales-reps", handler: r_internal_sales_reps_index },
   { pattern: "/api/internal/scorecards", handler: r_internal_scorecards_index },
+  { pattern: "/api/internal/warehouses", handler: r_internal_warehouses_index },
   { pattern: "/api/internal/workspaces", handler: r_internal_workspaces_index },
   { pattern: "/api/sales/sync-invoices", handler: r_sales_sync_invoices },
   { pattern: "/api/shopify/collections", handler: r_shopify_collections },
