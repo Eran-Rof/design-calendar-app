@@ -157,7 +157,9 @@ export default function InternalInventoryTransfers() {
   const [rows, setRows] = useState<InventoryTransfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [itemId, setItemId] = useState("");
+  // SKU text filter applies CLIENT-SIDE against the resolved sku label (no raw
+  // UUID input; mirrors the sibling InternalInventoryAdjustments fix).
+  const [skuFilter, setSkuFilter] = useState("");
   const [fromLoc, setFromLoc] = useState("");
   const [toLoc, setToLoc] = useState("");
   // Resolve item_id → human SKU label (no raw UUIDs in the table). Populated
@@ -195,7 +197,6 @@ export default function InternalInventoryTransfers() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (itemId.trim()) params.set("item_id", itemId.trim());
       if (fromLoc.trim()) params.set("from_location", fromLoc.trim());
       if (toLoc.trim()) params.set("to_location", toLoc.trim());
       const r = await fetch(`/api/internal/inventory-transfers?${params.toString()}`);
@@ -207,7 +208,7 @@ export default function InternalInventoryTransfers() {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, [itemId, fromLoc, toLoc]);
+  useEffect(() => { void load(); }, [fromLoc, toLoc]);
 
   // Resolve the item ids in the current rows to sku_code labels.
   useEffect(() => {
@@ -230,6 +231,13 @@ export default function InternalInventoryTransfers() {
     })();
     return () => { cancelled = true; };
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Client-side SKU filter over the resolved sku label (itemLabel).
+  const displayRows = useMemo(() => {
+    const q = skuFilter.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((t) => itemLabel(t.item_id).toLowerCase().includes(q));
+  }, [sorted, skuFilter, skuById]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function fmtDate(iso: string): string {
     if (!iso) return "—";
@@ -257,9 +265,9 @@ export default function InternalInventoryTransfers() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
         <input
           style={{ ...inputStyle, width: 320 }}
-          placeholder="Item ID (uuid)"
-          value={itemId}
-          onChange={(e) => setItemId(e.target.value)}
+          placeholder="Filter by SKU…"
+          value={skuFilter}
+          onChange={(e) => setSkuFilter(e.target.value)}
         />
         <input
           style={{ ...inputStyle, width: 200 }}
@@ -321,14 +329,14 @@ export default function InternalInventoryTransfers() {
             {loading && (
               <tr><td style={td} colSpan={6}>Loading…</td></tr>
             )}
-            {!loading && rows.length === 0 && (
+            {!loading && displayRows.length === 0 && (
               <tr><td style={td} colSpan={6}>
                 <span style={{ color: C.textMuted }}>
                   No transfers logged yet. Use "+ Add" to log a single-variant or matrix transfer.
                 </span>
               </td></tr>
             )}
-            {sorted.map((t) => (
+            {displayRows.map((t) => (
               <tr key={t.id}>
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(t.item_id)}</td>
                 <td style={td} hidden={!isVisible("qty")}>{t.qty}</td>
@@ -438,12 +446,26 @@ function SingleTransferModal({
   const [err, setErr] = useState<string | null>(null);
   const { reasons, addReason } = useTransferReasons();
 
+  // SKU picker — load a batch of active items so the operator picks by SKU,
+  // never a raw UUID. SearchableSelect filters locally (sku / style / desc).
+  const [itemOpts, setItemOpts] = useState<Array<{ id: string; sku_code: string | null; style_code: string | null; description: string | null }>>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/items?limit=500`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) setItemOpts(data);
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
   async function save() {
     setErr(null);
     const qtyNum = Number(qty);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
     if (!reason.trim()) { notify("Pick a Transfer Reason before saving (or add a new one).", "error"); return; }
-    if (!itemId.trim()) { setErr("Item UUID is required"); return; }
+    if (!itemId.trim()) { setErr("Pick a SKU"); return; }
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) { setErr("Qty must be a positive number"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
     if (!toLoc.trim()) { setErr("To location is required"); return; }
@@ -491,13 +513,20 @@ function SingleTransferModal({
           </div>
         )}
 
-        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Item UUID</label>
-        <input
-          style={{ ...inputStyle, marginBottom: 12 }}
-          placeholder="Paste an ip_item_master SKU UUID"
-          value={itemId}
-          onChange={(e) => setItemId(e.target.value)}
-        />
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>SKU</label>
+        <div style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            value={itemId || null}
+            onChange={(v) => setItemId(v || "")}
+            options={itemOpts.map((it) => ({
+              value: it.id,
+              label: it.sku_code || it.style_code || "—",
+              searchHaystack: `${it.sku_code || ""} ${it.style_code || ""} ${it.description || ""}`,
+            }))}
+            placeholder="Search by SKU / style / description…"
+            emptyText="No matching items"
+          />
+        </div>
 
         <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Qty</label>
         <input
@@ -617,11 +646,11 @@ function MatrixTransferModal({
   const [err, setErr] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
 
-  // Load up to 200 styles for the picker (SearchableSelect filters locally).
+  // Load all styles for the picker (SearchableSelect filters locally).
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`/api/internal/style-master?limit=200`);
+        const r = await fetch(`/api/internal/style-master?limit=10000`);
         if (!r.ok) return;
         const data = await r.json();
         if (Array.isArray(data)) {

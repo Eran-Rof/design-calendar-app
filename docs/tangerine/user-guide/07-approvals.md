@@ -88,7 +88,7 @@ Click **Decide**:
 
 - Choose **approve** (closes current step in `any` mode, or counts toward quorum in `all` mode), **reject** (terminal — request → rejected), or **request_changes** (logged but no status change; caller typically cancels + re-opens).
 - Add optional notes (saved to `approval_decisions` audit log).
-- Enter your **user uuid** — this MVP UI takes it manually; a session-aware version lands later (currently the inbox is operator-grade, accountant-grade workflow comes alongside richer auth in a P2 follow-up).
+- You decide as your **signed-in user** — the "Acting as" line shows your name (resolved from your Microsoft sign-in); no UUID to type. To decide on someone else's behalf, click **Act as another user** and pick the employee from the searchable dropdown.
 
 A request **flips to `approved`** automatically when the last open step closes.
 

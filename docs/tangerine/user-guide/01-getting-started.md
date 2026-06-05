@@ -58,7 +58,7 @@ The **very first time** an operator signs into Tangerine with their work Microso
 
 The call is **idempotent**: signing in again does nothing destructive — entity_users uses `ON CONFLICT (auth_id, entity_id) DO NOTHING`, and the employee link only fires when `auth_user_id IS NULL`.
 
-The auto-provision call is **non-blocking** — if it fails (network glitch, server misconfig), the MS sign-in still succeeds and you can still use Tangerine; you'll see a console warning, and you can paste a uuid manually into the relevant panel inputs as a fallback.
+The auto-provision call is **non-blocking** — if it fails (network glitch, server misconfig), the MS sign-in still succeeds and you can still use Tangerine; you'll see a console warning. Panels resolve your identity from the cached sign-in — there are no UUID boxes to paste into; if a user-scoped panel can't find your identity, sign out and back in to refresh it.
 
 > **What this replaces:** the old workaround was three manual steps — open Supabase dashboard → Auth → Add user → paste email → click Create; then SQL editor → `INSERT INTO entity_users (auth_id, entity_id, role) VALUES (...)`; then `UPDATE employees SET auth_user_id = ... WHERE code='EB001'`. All three are now automatic on the first sign-in.
 

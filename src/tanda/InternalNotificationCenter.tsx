@@ -6,8 +6,10 @@
 // version lands when the auth surface gains a stable session uuid (P2-4
 // follow-up tracked in [[project-tangerine-progress]]).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId, setCachedAuthUserId } from "../utils/tangerineAuthUser";
+import SearchableSelect from "./components/SearchableSelect";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 type NotificationEvent = {
   id: string;
@@ -65,10 +67,22 @@ export default function InternalNotificationCenter() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showRead, setShowRead] = useState(true);
+  // Resolve the cached auth user id to a name (no raw uuid shown). An optional
+  // employee picker lets you switch whose inbox you view — never a uuid box.
+  const [switching, setSwitching] = useState(false);
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const userLabel = useMemo(() => {
+    const me = employees.find((e) => e.id === user);
+    if (me) {
+      const name = [me.first_name, me.last_name].filter(Boolean).join(" ").trim();
+      return (me.code && name) ? `${me.code} — ${name}` : (name || me.email || "Signed-in user");
+    }
+    return user ? "Signed-in user" : "Not signed in";
+  }, [employees, user]);
 
   async function load() {
     if (!user || !/^[0-9a-f-]{36}$/i.test(user)) {
-      setErr(user ? "Invalid user uuid" : null);
+      setErr(user ? "Invalid signed-in user" : null);
       setRows([]);
       return;
     }
@@ -121,12 +135,37 @@ export default function InternalNotificationCenter() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <input
-          style={{ ...inputStyle, width: 360 }}
-          placeholder="Your user uuid (cached locally)"
-          value={user}
-          onChange={(e) => saveUser(e.target.value)}
-        />
+        {!switching ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: C.text, fontSize: 13 }}>Signed in as <strong>{userLabel}</strong></span>
+            <button
+              type="button"
+              style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+              onClick={() => setSwitching(true)}
+            >
+              Switch user
+            </button>
+          </div>
+        ) : (
+          <div style={{ width: 360, display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <SearchableSelect
+                value={user || null}
+                onChange={(v) => { saveUser(v || ""); }}
+                options={employeeOptions}
+                placeholder="Pick an employee…"
+                emptyText="No matching employees"
+              />
+            </div>
+            <button
+              type="button"
+              style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+              onClick={() => setSwitching(false)}
+            >
+              Done
+            </button>
+          </div>
+        )}
         <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
           <input type="checkbox" checked={showRead} onChange={(e) => setShowRead(e.target.checked)} />
           Show read
@@ -139,7 +178,7 @@ export default function InternalNotificationCenter() {
         {loading && <div style={{ padding: 16, color: C.textMuted }}>Loading…</div>}
         {!loading && rows.length === 0 && (
           <div style={{ padding: 24, color: C.textMuted, textAlign: "center" }}>
-            {user ? "No notifications." : "Enter your user uuid to see your notifications."}
+            {user ? "No notifications." : "Sign in (or switch user) to see your notifications."}
           </div>
         )}
         {rows.map((d) => {

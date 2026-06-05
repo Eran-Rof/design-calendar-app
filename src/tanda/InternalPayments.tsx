@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Payment {
   id: string;
@@ -164,6 +165,8 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
   const [reference, setReference] = useState("");
   const [invoiceId, setInvoiceId] = useState("");
   const [saving, setSaving] = useState(false);
+  // AP invoices for the picker (scoped to the chosen vendor) — no raw UUID box.
+  const [invoiceOpts, setInvoiceOpts] = useState<Array<{ id: string; invoice_number: string | null }>>([]);
 
   useEffect(() => {
     (async () => {
@@ -175,6 +178,21 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       }
     })();
   }, []);
+
+  // Reload invoice options whenever the vendor changes; clear any prior pick
+  // that no longer belongs to the selected vendor.
+  useEffect(() => {
+    setInvoiceId("");
+    void (async () => {
+      try {
+        const qs = vendorId ? `?vendor_id=${encodeURIComponent(vendorId)}` : "";
+        const r = await fetch(`/api/internal/ap-invoices${qs}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) setInvoiceOpts(data);
+      } catch { /* non-fatal */ }
+    })();
+  }, [vendorId]);
 
   async function save() {
     if (!vendorId || !amount) { notify("Vendor and amount are required.", "error"); return; }
@@ -214,7 +232,22 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
             {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </Row>
-        <Row label="Invoice ID (optional)"><input value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} placeholder="UUID" style={inp} /></Row>
+        <Row label="Invoice (optional)">
+          <SearchableSelect
+            value={invoiceId || null}
+            onChange={(v) => setInvoiceId(v || "")}
+            options={[
+              { value: "", label: "None" },
+              ...invoiceOpts.map((iv) => ({
+                value: iv.id,
+                label: iv.invoice_number || "(no number)",
+                searchHaystack: `${iv.invoice_number || ""}`,
+              })),
+            ]}
+            placeholder={vendorId ? "Search invoice by number…" : "Pick a vendor first"}
+            emptyText={vendorId ? "No invoices for this vendor" : "Pick a vendor first"}
+          />
+        </Row>
         <Row label="Reference (optional)"><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="ACH batch ref, check #, etc." style={inp} /></Row>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>

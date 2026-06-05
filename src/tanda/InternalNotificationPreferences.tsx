@@ -6,6 +6,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId, setCachedAuthUserId } from "../utils/tangerineAuthUser";
+import SearchableSelect from "./components/SearchableSelect";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 type Pref = {
   user_id: string;
@@ -52,6 +54,18 @@ export default function InternalNotificationPreferences() {
   const [user, setUser] = useState<string>(() => getCachedAuthUserId());
   const [prefs, setPrefs] = useState<Pref[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  // Resolve cached auth user id → name (no raw uuid). Optional employee picker
+  // to switch whose preferences you edit — never a uuid box.
+  const [switching, setSwitching] = useState(false);
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const userLabel = useMemo(() => {
+    const me = employees.find((e) => e.id === user);
+    if (me) {
+      const name = [me.first_name, me.last_name].filter(Boolean).join(" ").trim();
+      return (me.code && name) ? `${me.code} — ${name}` : (name || me.email || "Signed-in user");
+    }
+    return user ? "Signed-in user" : "Not signed in";
+  }, [employees, user]);
 
   async function load() {
     if (!user || !/^[0-9a-f-]{36}$/i.test(user)) { setPrefs([]); return; }
@@ -77,7 +91,7 @@ export default function InternalNotificationPreferences() {
   }, [prefs]);
 
   async function toggle(kind: string, channel: "in_app" | "email") {
-    if (!user || !/^[0-9a-f-]{36}$/i.test(user)) { setErr("Enter your user uuid first"); return; }
+    if (!user || !/^[0-9a-f-]{36}$/i.test(user)) { setErr("Sign in (or switch user) first"); return; }
     const existing = prefMap.get(`${kind}|${channel}`);
     const nextEnabled = existing ? !existing.enabled : false; // missing row = opt-in; first click opts OUT
     const r = await fetch(`/api/internal/notification-preferences`, {
@@ -98,13 +112,38 @@ export default function InternalNotificationPreferences() {
         </span>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <input
-          style={{ ...inputStyle, width: 360 }}
-          placeholder="Your user uuid"
-          value={user}
-          onChange={(e) => saveUser(e.target.value)}
-        />
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
+        {!switching ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: C.text, fontSize: 13 }}>Signed in as <strong>{userLabel}</strong></span>
+            <button
+              type="button"
+              style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+              onClick={() => setSwitching(true)}
+            >
+              Switch user
+            </button>
+          </div>
+        ) : (
+          <div style={{ width: 360, display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <SearchableSelect
+                value={user || null}
+                onChange={(v) => { saveUser(v || ""); }}
+                options={employeeOptions}
+                placeholder="Pick an employee…"
+                emptyText="No matching employees"
+              />
+            </div>
+            <button
+              type="button"
+              style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+              onClick={() => setSwitching(false)}
+            >
+              Done
+            </button>
+          </div>
+        )}
       </div>
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
