@@ -28,7 +28,7 @@ UPDATE rfq_messages m
 UPDATE rfq_messages m
    SET vendor_id = single.vendor_id
   FROM (
-    SELECT rfq_id, MIN(vendor_id) AS vendor_id
+    SELECT rfq_id, MIN(vendor_id::text)::uuid AS vendor_id
       FROM rfq_invitations
      GROUP BY rfq_id
     HAVING COUNT(*) = 1
