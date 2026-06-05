@@ -555,6 +555,7 @@ export default [
   ["/api/internal/costing/lines/:line_id/compliance/:req_id" , "./internal/costing/lines/[line_id]/compliance/[req_id].js"],
   ["/api/internal/costing/projects/:id/generate-rfqs"        , "./internal/costing/projects/[id]/generate-rfqs.js"],
   ["/api/internal/costing/rfqs"                              , "./internal/costing/rfqs/index.js"],
+  ["/api/internal/costing/rfq-compare"                       , "./internal/costing/rfq-compare/index.js"],
   ["/api/internal/costing/rfqs/:id"                          , "./internal/costing/rfqs/[id]/index.js"],
   ["/api/internal/costing/lines/:line_id/po-history"         , "./internal/costing/lines/[line_id]/po-history.js"],
   ["/api/internal/costing/masters/freeform"                  , "./internal/costing/masters/freeform.js"],
@@ -597,6 +598,7 @@ export default [
   ["/api/cron/ip-normalize"                                  , "./cron/ip-normalize.js"],
   ["/api/cron/ip-freshness-refresh"                          , "./cron/ip-freshness-refresh.js"],
   ["/api/cron/ip-integration-health"                         , "./cron/ip-integration-health.js"],
+  ["/api/internal/rfqs/messages-inbox"                       , "./internal/rfqs/messages-inbox/index.js"],
   ["/api/internal/rfqs/:id/messages"                         , "./internal/rfqs/[id]/messages/index.js"],
   ["/api/vendor/rfqs/:id/messages"                           , "./vendor/rfqs/[id]/messages/index.js"],
 ];

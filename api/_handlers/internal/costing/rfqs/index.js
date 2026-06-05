@@ -52,7 +52,7 @@ export default async function handler(req, res) {
   // 500s with "column does not exist". Retry without the column so the
   // list view still loads — customer + project_name columns will be
   // null until the migration runs.
-  const baseCols = "id, entity_id, title, description, category, status, submission_deadline, delivery_required_by, estimated_quantity, estimated_budget, currency, created_at, updated_at";
+  const baseCols = "id, entity_id, code, title, description, category, status, submission_deadline, delivery_required_by, estimated_quantity, estimated_budget, currency, created_at, updated_at";
   const colsWithSource = `${baseCols}, source_costing_project_id`;
   const colsWithSourceAndDates = `${colsWithSource}, request_date, due_date, projected_delivery_date`;
   const runQuery = (cols) => {
@@ -78,6 +78,13 @@ export default async function handler(req, res) {
   if (rfqsErr && /column .* does not exist/i.test(rfqsErr.message || "") && /(request_date|due_date|projected_delivery_date)/.test(rfqsErr.message || "")) {
     ({ data: rfqs, error: rfqsErr } = await runQuery(colsWithSource));
     if (rfqs) rfqs = rfqs.map((r) => ({ ...r, request_date: null, due_date: null, projected_delivery_date: null }));
+  }
+  // `code` is the newest column (20260812000000_rfq_code.sql). If the deploy
+  // is ahead of the migration, strip it and null it so the list still loads.
+  if (rfqsErr && /column .* does not exist/i.test(rfqsErr.message || "") && /\bcode\b/.test(rfqsErr.message || "")) {
+    const colsNoCode = colsTop.replace(/, code\b/, "").replace(/\bcode, /, "");
+    ({ data: rfqs, error: rfqsErr } = await runQuery(colsNoCode));
+    if (rfqs) rfqs = rfqs.map((r) => ({ ...r, code: null }));
   }
   if (rfqsErr && /source_costing_project_id/.test(rfqsErr.message || "")) {
     // eslint-disable-next-line no-console

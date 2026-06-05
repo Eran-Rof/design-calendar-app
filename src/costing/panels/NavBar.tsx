@@ -53,6 +53,18 @@ export default function CostingNavBar() {
           RFQs
         </button>
         <button
+          onClick={() => navigate("rfq-compare")}
+          style={navBtn(view === "rfq-compare")}
+        >
+          Compare RFQs
+        </button>
+        <button
+          onClick={() => navigate("messages")}
+          style={navBtn(view === "messages")}
+        >
+          Messages
+        </button>
+        <button
           onClick={() => navigate("settings")}
           style={navBtn(view === "settings")}
         >
