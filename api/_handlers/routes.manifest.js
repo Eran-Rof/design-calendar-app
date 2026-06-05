@@ -492,6 +492,7 @@ export default [
   ["/api/internal/pim/attribute-defs"                        , "./internal/pim/attribute-defs/index.js"],
   ["/api/internal/pim/categories/:id"                        , "./internal/pim/categories/[id].js"],
   ["/api/internal/pim/categories"                            , "./internal/pim/categories/index.js"],
+  ["/api/internal/pim/style-colors"                          , "./internal/pim/style-colors/index.js"],
   ["/api/internal/xoro-mirror/ap"                            , "./internal/xoro-mirror/ap.js"],
   ["/api/internal/search"                                    , "./internal/search/index.js"],
   ["/api/internal/users/me/preferences/favorites"            , "./internal/users/me/preferences/favorites.js"],

@@ -291,6 +291,7 @@ import r_internal_pim_attribute_defs_id from "./internal/pim/attribute-defs/[id]
 import r_internal_pim_attribute_defs_index from "./internal/pim/attribute-defs/index.js";
 import r_internal_pim_categories_id from "./internal/pim/categories/[id].js";
 import r_internal_pim_categories_index from "./internal/pim/categories/index.js";
+import r_internal_pim_style_colors_index from "./internal/pim/style-colors/index.js";
 import r_internal_pim_styles_style_id from "./internal/pim/styles/[style_id].js";
 import r_internal_pim_styles_style_id_attributes from "./internal/pim/styles/[style_id]/attributes.js";
 import r_internal_pim_styles_style_id_description_index from "./internal/pim/styles/[style_id]/description/index.js";
@@ -832,6 +833,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/projects", handler: r_internal_costing_projects_index },
   { pattern: "/api/internal/fba/sync-returns", handler: r_internal_fba_sync_returns },
   { pattern: "/api/internal/insights/summary", handler: r_internal_insights_summary },
+  { pattern: "/api/internal/pim/style-colors", handler: r_internal_pim_style_colors_index },
   { pattern: "/api/internal/scanner/sessions", handler: r_internal_scanner_sessions_index },
   { pattern: "/api/internal/shopify/backfill", handler: r_internal_shopify_backfill },
   { pattern: "/api/internal/tax/calculations", handler: r_internal_tax_calculations },
