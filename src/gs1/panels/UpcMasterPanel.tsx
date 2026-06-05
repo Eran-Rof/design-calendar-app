@@ -4,6 +4,8 @@ import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { UpcItemInput } from "../types";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 
 const TABLE_KEY = "gs1.upc_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -234,6 +236,14 @@ export default function UpcMasterPanel() {
     ? upcItems.filter(u => `${u.style_no} ${u.color} ${u.upc} ${u.size}`.toLowerCase().includes(search.toLowerCase()))
     : upcItems;
 
+  // Additive per-column sort — runs BEFORE the 500-row display cap so the
+  // sort spans the whole filtered set, not just the first page. Sortable
+  // columns map to direct scalar fields (Source → source_method).
+  const { sorted: sortedUpc, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "gs1:upc_master:sort",
+    accessors: { source: (u) => u.source_method ?? "" },
+  });
+
   return (
     <div style={{ padding: "24px 16px", maxWidth: 1100, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: TH.text }}>UPC Item Master</h2>
@@ -363,17 +373,17 @@ export default function UpcMasterPanel() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("upc")}>UPC</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("style_no")}>Style No</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("color")}>Color</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("size")}>Size</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("description")}>Description</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("source")}>Source</th>
+                      <SortableTh label="UPC" sortKey="upc" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("upc")} />
+                      <SortableTh label="Style No" sortKey="style_no" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("style_no")} />
+                      <SortableTh label="Color" sortKey="color" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("color")} />
+                      <SortableTh label="Size" sortKey="size" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("size")} />
+                      <SortableTh label="Description" sortKey="description" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("description")} />
+                      <SortableTh label="Source" sortKey="source" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("source")} />
                       <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.slice(0, 500).map(u => (
+                    {sortedUpc.slice(0, 500).map(u => (
                       <tr key={u.id}>
                         <td style={{ ...TD_STYLE, fontFamily: "monospace" }} hidden={!visibleColumns.has("upc")}>{u.upc}</td>
                         <td style={TD_STYLE} hidden={!visibleColumns.has("style_no")}>{u.style_no}</td>

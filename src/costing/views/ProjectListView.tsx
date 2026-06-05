@@ -12,6 +12,8 @@ import ExportButton from "../../tanda/exports/ExportButton";
 import { stripExcelPrefix } from "../services/costingApi";
 import { tabStyle } from "./tabStyle";
 import { stageColor, stageLabel, stageIcon } from "../hooks/usePlanFlow";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 import type { CostingProject, CostingLineEffectiveStatus } from "../types";
 
 // Canonical dark-slate palette (matches the Tangerine Internal* modals).
@@ -66,10 +68,19 @@ export default function ProjectListView() {
   }, [projects]);
 
   const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
-  const visible = React.useMemo(
+  const filtered = React.useMemo(
     () => projects.filter((p) => projectHasStatus(p, activeTab.key)),
     [projects, activeTab],
   );
+
+  // Additive per-column sort — only reorders the already-filtered rows on a
+  // header click; leaves the natural order otherwise. Sortable columns map to
+  // direct scalar fields (or a trivially-correct accessor); Customer + Line
+  // Status are computed/JSX and stay inert.
+  const { sorted: visible, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "costing:projects:sort",
+    accessors: { sales_rep: (p) => p.sales_rep?.display_name ?? "" },
+  });
 
   const onNew = React.useCallback(() => { setNewName(""); setNewModalOpen(true); }, []);
 
@@ -153,14 +164,14 @@ export default function ProjectListView() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead style={{ background: "#0F172A" }}>
             <tr>
-              <Th>Project</Th>
-              <Th>Brand</Th>
-              <Th>Gender</Th>
+              <SortableTh label="Project" sortKey="project_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <SortableTh label="Brand" sortKey="brand" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <SortableTh label="Gender" sortKey="gender_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
               <Th>Customer</Th>
-              <Th>Sales Rep</Th>
+              <SortableTh label="Sales Rep" sortKey="sales_rep" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
               <Th>Line Status</Th>
-              <Th>Due</Th>
-              <Th>Created</Th>
+              <SortableTh label="Due" sortKey="due_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <SortableTh label="Created" sortKey="created_at" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
               <Th></Th>
             </tr>
           </thead>
@@ -280,8 +291,9 @@ export default function ProjectListView() {
   );
 }
 
+const TH_STYLE: React.CSSProperties = { textAlign: "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" };
 function Th({ children }: { children: React.ReactNode }) {
-  return <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" }}>{children}</th>;
+  return <th style={TH_STYLE}>{children}</th>;
 }
 function Td({ children }: { children: React.ReactNode }) {
   return <td style={{ padding: "8px 12px", color: "#E2E8F0" }}>{children}</td>;

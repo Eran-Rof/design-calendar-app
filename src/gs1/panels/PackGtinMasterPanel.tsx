@@ -6,6 +6,8 @@ import { KNOWN_SCALE_CODES } from "../types";
 import type { PackGtin, PackGtinBom, PackGtinBomIssue, BomStatus } from "../types";
 import * as db from "../services/supabaseGs1";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 
 const TABLE_KEY = "gs1.pack_gtin_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -206,6 +208,19 @@ export default function PackGtinMasterPanel() {
 
   const notBuiltCount = packGtins.filter(g => g.bom_status === "not_built" || g.bom_status === "error").length;
 
+  // Additive per-column sort over the GTIN list. Sortable columns map to
+  // direct scalar fields or a trivially-correct accessor (Scale → scale_code,
+  // Missing UPCs → bom_issue_summary count, Last Built → bom_last_built_at).
+  // BOM Status renders a badge but backs onto the direct bom_status enum.
+  const { sorted: sortedGtins, sortKey, sortDir, onHeaderClick } = useSort(packGtins, {
+    persistKey: "gs1:pack_gtin_master:sort",
+    accessors: {
+      scale: (g) => g.scale_code ?? "",
+      missing_upcs: (g) => (g.bom_issue_summary?.missing_upcs as number | undefined) ?? 0,
+      last_built: (g) => (g.bom_last_built_at ? new Date(g.bom_last_built_at) : null),
+    },
+  });
+
   return (
     <div style={{ padding: "24px 16px", maxWidth: 1200, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: TH.text }}>Pack GTIN Master</h2>
@@ -330,20 +345,20 @@ export default function PackGtinMasterPanel() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("style_no")}>Style No</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("color")}>Color</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("scale")}>Scale</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("pack_gtin")}>Pack GTIN</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("units_per_pack")}>Units/Pack</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("bom_status")}>BOM Status</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("missing_upcs")}>Missing UPCs</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("last_built")}>Last Built</th>
-                      <th style={TH_STYLE} hidden={!visibleColumns.has("status")}>Status</th>
+                      <SortableTh label="Style No" sortKey="style_no" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("style_no")} />
+                      <SortableTh label="Color" sortKey="color" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("color")} />
+                      <SortableTh label="Scale" sortKey="scale" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("scale")} />
+                      <SortableTh label="Pack GTIN" sortKey="pack_gtin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("pack_gtin")} />
+                      <SortableTh label="Units/Pack" sortKey="units_per_pack" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("units_per_pack")} />
+                      <SortableTh label="BOM Status" sortKey="bom_status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("bom_status")} />
+                      <SortableTh label="Missing UPCs" sortKey="missing_upcs" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("missing_upcs")} />
+                      <SortableTh label="Last Built" sortKey="last_built" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("last_built")} />
+                      <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("status")} />
                       <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {packGtins.map(g => {
+                    {sortedGtins.map(g => {
                       const isBuilding = buildingId === g.id;
                       const missingUpcs = (g.bom_issue_summary?.missing_upcs as number | undefined) ?? 0;
                       const lastBuilt = g.bom_last_built_at
