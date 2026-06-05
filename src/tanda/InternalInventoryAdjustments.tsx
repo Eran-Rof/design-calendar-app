@@ -151,7 +151,6 @@ export default function InternalInventoryAdjustments() {
     try {
       const params = new URLSearchParams();
       if (filterType) params.set("adjustment_type", filterType);
-      if (filterItem.trim()) params.set("item_id", filterItem.trim());
       if (filterPosted) params.set("posted", filterPosted);
       if (filterFrom) params.set("from", filterFrom);
       if (filterTo) params.set("to", filterTo);
@@ -164,7 +163,7 @@ export default function InternalInventoryAdjustments() {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, [filterType, filterItem, filterPosted, filterFrom, filterTo]);
+  useEffect(() => { void load(); }, [filterType, filterPosted, filterFrom, filterTo]);
 
   // Side-load items (for SKU display + picker) + gl_accounts (for picker).
   useEffect(() => {
@@ -277,7 +276,7 @@ export default function InternalInventoryAdjustments() {
         </select>
         <input
           style={{ ...inputStyle, width: 320 }}
-          placeholder="Item ID (uuid)"
+          placeholder="Filter by SKU…"
           value={filterItem}
           onChange={(e) => setFilterItem(e.target.value)}
         />
@@ -366,7 +365,10 @@ export default function InternalInventoryAdjustments() {
                 <span style={{ color: C.textMuted }}>No adjustments. Use "+ Add" above.</span>
               </td></tr>
             )}
-            {rows.map((row) => {
+            {rows.filter((row) => {
+              const fq = filterItem.trim().toLowerCase();
+              return !fq || itemLabel(row.item_id).toLowerCase().includes(fq);
+            }).map((row) => {
               const isPositive = row.qty_delta > 0;
               return (
                 <tr key={row.id}>
@@ -631,12 +633,6 @@ function AdjustmentModal({
                     ))
                   )}
                 </div>
-                <input
-                  style={{ ...inputStyle, marginBottom: 12 }}
-                  placeholder="Or paste item UUID directly"
-                  value={itemId}
-                  onChange={(e) => setItemId(e.target.value)}
-                />
               </>
             )}
 
@@ -815,11 +811,12 @@ function MatrixAdjustmentModal({
   const [err, setErr] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
 
-  // Load up to 200 styles for the picker (SearchableSelect filters locally).
+  // Load ALL styles for the picker (SearchableSelect filters locally) so the
+  // operator can find any style — not just the first 200.
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`/api/internal/style-master?limit=200`);
+        const r = await fetch(`/api/internal/style-master?limit=10000`);
         if (!r.ok) return;
         const data = await r.json();
         if (Array.isArray(data)) {
