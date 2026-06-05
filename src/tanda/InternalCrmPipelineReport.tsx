@@ -8,6 +8,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
 
@@ -68,6 +70,7 @@ export default function InternalCrmPipelineReport() {
   const [data, setData] = useState<PipelineReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const { options: employeeOptions } = useEmployeeOptions();
 
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [customerFilter, setCustomerFilter] = useState<string>("");
@@ -159,13 +162,13 @@ export default function InternalCrmPipelineReport() {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 18 }}>
         <div style={{ minWidth: 240 }}>
-          <label style={labelStyle}>Owner user id</label>
-          <input
-            type="text"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Owner</label>
+          <SearchableSelect
+            value={ownerFilter || null}
+            onChange={(v) => setOwnerFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ minWidth: 260 }}>

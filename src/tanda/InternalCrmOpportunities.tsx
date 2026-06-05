@@ -13,6 +13,7 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_OPPS_TABLE_KEY = "tangerine:crmopportunities:columns";
@@ -167,6 +168,16 @@ export default function InternalCrmOpportunities() {
   const [rows, setRows] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Employee picker options + id→name map (no raw user UUIDs anywhere).
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const ownerName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const e of employees) {
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      m[e.id] = (e.code && name) ? `${e.code} — ${name}` : (name || e.code || e.email || e.id);
+    }
+    return m;
+  }, [employees]);
 
   const [stageFilter, setStageFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
@@ -293,13 +304,13 @@ export default function InternalCrmOpportunities() {
           <Select label="Stage" value={stageFilter} onChange={setStageFilter} options={[...STAGE_VALUES]} />
         </div>
         <div style={{ minWidth: 220 }}>
-          <label style={labelStyle}>Owner user id</label>
-          <input
-            type="text"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Owner</label>
+          <SearchableSelect
+            value={ownerFilter || null}
+            onChange={(v) => setOwnerFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ minWidth: 220 }}>
@@ -384,8 +395,8 @@ export default function InternalCrmOpportunities() {
                 <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("probability")}>{r.probability_pct}</td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("expected")}>{fmtMoney(r.expected_cents)}</td>
                 <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("expected_close")}>{fmtDateOnly(r.expected_close_date)}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("owner")}>
-                  {r.owner_user_id ? truncate(r.owner_user_id, 12) : "—"}
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("owner")}>
+                  {r.owner_user_id ? (ownerName[r.owner_user_id] || truncate(r.owner_user_id, 12)) : "—"}
                 </td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("created")}>{fmtDate(r.created_at)}</td>
               </tr>
@@ -451,6 +462,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { options: employeeOptions } = useEmployeeOptions();
 
   // Local pending edits — applied on save.
   const [title, setTitle] = useState("");
@@ -635,13 +647,13 @@ function OpportunityDetailModal({ id, onClose, customers }: {
                 style={inputStyle}
               />
             </Field>
-            <Field label="Owner user id">
-              <input
-                type="text"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                style={inputStyle}
-                placeholder="uuid…"
+            <Field label="Owner">
+              <SearchableSelect
+                value={owner || null}
+                onChange={(v) => setOwner(v || "")}
+                options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+                placeholder="Unassigned"
+                emptyText="No matching employees"
               />
             </Field>
           </div>
@@ -828,6 +840,7 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { options: employeeOptions } = useEmployeeOptions();
   const [title, setTitle] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [owner, setOwner] = useState("");
@@ -909,8 +922,14 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
             {STAGE_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
-        <Field label="Owner user id">
-          <input type="text" value={owner} onChange={(e) => setOwner(e.target.value)} style={inputStyle} placeholder="uuid…" />
+        <Field label="Owner">
+          <SearchableSelect
+            value={owner || null}
+            onChange={(v) => setOwner(v || "")}
+            options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+            placeholder="Unassigned"
+            emptyText="No matching employees"
+          />
         </Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>

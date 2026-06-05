@@ -14,6 +14,7 @@ import { confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_TASKS_TABLE_KEY = "tangerine:crmtasks:columns";
@@ -145,6 +146,16 @@ export default function InternalCrmTasks() {
   const [rows, setRows] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Employee picker options + id→name map (no raw user UUIDs anywhere).
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const assigneeName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const e of employees) {
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      m[e.id] = (e.code && name) ? `${e.code} — ${name}` : (name || e.code || e.email || e.id);
+    }
+    return m;
+  }, [employees]);
 
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("");
@@ -322,13 +333,13 @@ export default function InternalCrmTasks() {
           </select>
         </div>
         <div style={{ minWidth: 220 }}>
-          <label style={labelStyle}>Assignee user id</label>
-          <input
-            type="text"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Assignee</label>
+          <SearchableSelect
+            value={assigneeFilter || null}
+            onChange={(v) => setAssigneeFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ minWidth: 160 }}>
@@ -415,8 +426,8 @@ export default function InternalCrmTasks() {
                   <td style={td} hidden={!isVisible("status")}><span style={pill(STATUS_COLOR[t.status])}>{t.status.replace("_", " ")}</span></td>
                   <td style={td} hidden={!isVisible("priority")}><span style={pill(PRIORITY_COLOR[t.priority])}>{t.priority}</span></td>
                   <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("due")}>{fmtDateOnly(t.due_date)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
-                    {t.assignee_user_id ? truncate(t.assignee_user_id, 12) : "—"}
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
+                    {t.assignee_user_id ? (assigneeName[t.assignee_user_id] || truncate(t.assignee_user_id, 12)) : "—"}
                   </td>
                   <td style={td} hidden={!isVisible("customer")}>
                     {t.customer_id
@@ -484,6 +495,7 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { options: employeeOptions } = useEmployeeOptions();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -613,8 +625,14 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
             <Field label="Due">
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle} />
             </Field>
-            <Field label="Assignee user id">
-              <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+            <Field label="Assignee">
+              <SearchableSelect
+                value={assignee || null}
+                onChange={(v) => setAssignee(v || "")}
+                options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+                placeholder="Unassigned"
+                emptyText="No matching employees"
+              />
             </Field>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -670,6 +688,7 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { options: employeeOptions } = useEmployeeOptions();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
@@ -740,8 +759,14 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
         <Field label="Due">
           <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle} />
         </Field>
-        <Field label="Assignee user id">
-          <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+        <Field label="Assignee">
+          <SearchableSelect
+            value={assignee || null}
+            onChange={(v) => setAssignee(v || "")}
+            options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+            placeholder="Unassigned"
+            emptyText="No matching employees"
+          />
         </Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

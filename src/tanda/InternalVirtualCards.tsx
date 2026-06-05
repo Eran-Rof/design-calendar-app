@@ -3,6 +3,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Card {
   id: string;
@@ -177,6 +178,18 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
   const [invoiceId, setInvoiceId] = useState("");
   const [provider, setProvider] = useState<"stripe" | "marqeta" | "railsbank">("stripe");
   const [saving, setSaving] = useState(false);
+  // Approved AP invoices, picked by number (no raw UUID input).
+  const [invoiceOpts, setInvoiceOpts] = useState<Array<{ id: string; invoice_number: string | null; vendor_id: string | null }>>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/ap-invoices?status=posted`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) setInvoiceOpts(data);
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
   const [result, setResult] = useState<{ reveal_url: string; card: { card_number_last4: string; credit_limit: number } } | null>(null);
 
   async function issue() {
@@ -199,7 +212,19 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>{result ? "Card issued" : "Issue virtual card"}</h3>
         {!result ? (
           <>
-            <Row label="Invoice ID"><input value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} placeholder="UUID of the approved invoice" style={inp} /></Row>
+            <Row label="Invoice">
+              <SearchableSelect
+                value={invoiceId || null}
+                onChange={(v) => setInvoiceId(v || "")}
+                options={invoiceOpts.map((iv) => ({
+                  value: iv.id,
+                  label: iv.invoice_number || "(no number)",
+                  searchHaystack: `${iv.invoice_number || ""}`,
+                }))}
+                placeholder="Search approved invoice by number…"
+                emptyText="No posted AP invoices"
+              />
+            </Row>
             <Row label="Provider">
               <select value={provider} onChange={(e) => setProvider(e.target.value as "stripe")} style={inp}>
                 <option value="stripe">Stripe</option>

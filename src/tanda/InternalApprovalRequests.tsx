@@ -4,13 +4,15 @@
 // Lists pending/decided requests. Decide modal lets a user with the right
 // role mark a step approve/reject/request_changes. Cancel for owner/admin.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
+import SearchableSelect from "./components/SearchableSelect";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const APPROVAL_REQ_TABLE_KEY = "tangerine:approvalrequests:columns";
@@ -137,11 +139,10 @@ export default function InternalApprovalRequests() {
   useEffect(() => { void load(); }, [statusFilter, kindFilter]);
 
   async function cancelRequest(req: Request) {
-    // Pre-fill from the Tangerine auth bridge cache (set on first MS sign-in).
-    // If empty for any reason, fall back to the legacy prompt as a safety net.
-    const cached = getCachedAuthUserId();
-    const actor = cached || prompt("Your user ID (uuid) to cancel:");
-    if (!actor) return;
+    // Use the cached MS-sign-in identity — never prompt for a raw uuid. If the
+    // operator isn't signed in, surface a sign-in error instead of a uuid box.
+    const actor = getCachedAuthUserId();
+    if (!actor) { setErr("Sign in with Microsoft to cancel an approval request."); return; }
     const r = await fetch(`/api/internal/approval-requests/${req.id}/cancel`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -281,17 +282,28 @@ function DecideModal({ request, onCancel, onSaved }: {
   const step = currentStep(request);
   const [decision, setDecision] = useState<"approve" | "reject" | "request_changes">("approve");
   const [notes, setNotes] = useState("");
-  // Pre-fill from the auth bridge cache so the operator doesn't paste a uuid
-  // on every decision. Stays editable in case someone needs to act on
-  // someone else's behalf.
+  // Pre-fill from the auth bridge cache so the operator never sees or types a
+  // uuid. The signed-in user is the default actor; an "act as another user"
+  // toggle reveals an EMPLOYEE picker (never a raw uuid box).
   const [actor, setActor] = useState(() => getCachedAuthUserId());
+  const [actAsOther, setActAsOther] = useState(false);
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const signedInLabel = useMemo(() => {
+    const cached = getCachedAuthUserId();
+    const me = employees.find((e) => e.id === cached);
+    if (me) {
+      const name = [me.first_name, me.last_name].filter(Boolean).join(" ").trim();
+      return (me.code && name) ? `${me.code} — ${name}` : (name || me.email || "Signed-in user");
+    }
+    return cached ? "Signed-in user" : "Not signed in";
+  }, [employees]);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function submit() {
     setErr(null);
     if (!step) { setErr("No current step"); return; }
-    if (!actor) { setErr("actor_user_id is required"); return; }
+    if (!actor) { setErr("No signed-in user — pick who you're acting as."); return; }
     setSaving(true);
     try {
       const r = await fetch(`/api/internal/approval-requests/${request.id}/decide`, {
@@ -345,13 +357,36 @@ function DecideModal({ request, onCancel, onSaved }: {
           />
         </Field>
 
-        <Field label="Your user ID (uuid)">
-          <input
-            style={inputStyle}
-            placeholder="actor uuid (pre-filled from MS sign-in bridge; override only to act on behalf of someone else)"
-            value={actor}
-            onChange={(e) => setActor(e.target.value)}
-          />
+        <Field label="Acting as">
+          {!actAsOther ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ color: C.text, fontSize: 13 }}>{signedInLabel}</span>
+              <button
+                type="button"
+                style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}
+                onClick={() => setActAsOther(true)}
+              >
+                Act as another user
+              </button>
+            </div>
+          ) : (
+            <div>
+              <SearchableSelect
+                value={actor || null}
+                onChange={(v) => setActor(v || "")}
+                options={employeeOptions}
+                placeholder="Pick the employee you're acting as…"
+                emptyText="No matching employees"
+              />
+              <button
+                type="button"
+                style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12, marginTop: 6 }}
+                onClick={() => { setActAsOther(false); setActor(getCachedAuthUserId()); }}
+              >
+                Use my own sign-in
+              </button>
+            </div>
+          )}
         </Field>
 
         {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginTop: 8, fontSize: 13 }}>{err}</div>}

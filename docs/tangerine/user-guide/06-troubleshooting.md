@@ -53,7 +53,7 @@ The Periods panel exposes three dedicated actions per period — **Run checks**,
 
 | Error message | Cause | Fix |
 |---|---|---|
-| "actor_user_id (uuid) is required" (400) | Reopen UI failed to attach the current user's uuid | Sign out and back in to refresh `localStorage.tangerine.auth_user_id`. If the problem persists, paste your uuid manually. |
+| "Sign in with Microsoft (admin role) to reopen a period." | The reopen action couldn't find your cached sign-in identity | Sign out and back in to refresh `localStorage.tangerine.auth_user_id`, then retry. The UI no longer accepts a manually-typed uuid. |
 | "reason is required (operator note explaining the reopen)" (400) | You left the reason box blank | Reopens are audited — fill the textarea with why you're reopening. |
 | 403 Forbidden | Caller doesn't hold `role='admin'` on the entity | Only admins can reopen. Ask an admin to do it, or have your role bumped via `entity_users`. |
 | Reopen button disabled / period is in `closed_with_closing_jes` | Terminal status set by year-end close | Cannot be reopened. File correcting JEs in the next FY instead. |

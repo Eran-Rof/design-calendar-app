@@ -37,7 +37,7 @@ A list view with these columns:
 
 Three filter inputs above the table:
 
-- **Item ID (uuid)** — exact match on the item being moved
+- **Filter by SKU…** — type any part of a SKU; the table filters in place (client-side) against the resolved SKU labels. No UUID needed.
 - **From location** — exact match on the source location
 - **To location** — exact match on the destination location
 
@@ -57,7 +57,7 @@ This mirrors the **Matrix Adjustment** and **Matrix Sales-Order** entry exactly 
 
 ### + Add → Single variant
 
-Click **+ Add**, then choose the **Single variant** tile for a one-SKU transfer: paste an item UUID, a qty, the From/To locations, a **Transfer Reason** (required), and optional notes. This is the secondary path when you only need to move a single variant.
+Click **+ Add**, then choose the **Single variant** tile for a one-SKU transfer: **pick a SKU** with the searchable dropdown (search by SKU / style / description — no UUID), a qty, the From/To locations, a **Transfer Reason** (required), and optional notes. This is the secondary path when you only need to move a single variant.
 
 ### Empty state
 

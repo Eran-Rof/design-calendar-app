@@ -12,6 +12,7 @@ import SearchableSelect from "./components/SearchableSelect";
 // Cross-cutter T11-3 — audit-trail drop-in for the case detail modal.
 import RowHistory from "./components/RowHistory";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CASES_TABLE_KEY = "tangerine:cases:columns";
@@ -147,6 +148,16 @@ export default function InternalCases() {
   const [rows, setRows] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Employee picker options + id→name map (no raw user UUIDs anywhere).
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const assigneeName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const e of employees) {
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      m[e.id] = (e.code && name) ? `${e.code} — ${name}` : (name || e.code || e.email || e.id);
+    }
+    return m;
+  }, [employees]);
 
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [severityFilter, setSeverityFilter] = useState<string>("");
@@ -276,13 +287,13 @@ export default function InternalCases() {
           <Select label="Severity" value={severityFilter} onChange={setSeverityFilter} options={[...SEVERITY_VALUES]} />
         </div>
         <div style={{ minWidth: 220 }}>
-          <label style={labelStyle}>Assignee user id</label>
-          <input
-            type="text"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Assignee</label>
+          <SearchableSelect
+            value={assigneeFilter || null}
+            onChange={(v) => setAssigneeFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
@@ -352,8 +363,8 @@ export default function InternalCases() {
                 <td style={td} hidden={!isVisible("customer")}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : (r.external_email || "—")}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={pill(r.status, STATUS_COLOR[r.status])}>{r.status.replace("_", " ")}</span></td>
                 <td style={td} hidden={!isVisible("severity")}><span style={pill(r.severity, SEVERITY_COLOR[r.severity])}>{r.severity}</span></td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
-                  {r.assignee_user_id ? truncate(r.assignee_user_id, 12) : "—"}
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
+                  {r.assignee_user_id ? (assigneeName[r.assignee_user_id] || truncate(r.assignee_user_id, 12)) : "—"}
                 </td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("created")}>{fmtDate(r.created_at)}</td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("last_activity")}>{fmtDate(r.last_activity_at || r.updated_at)}</td>
@@ -420,6 +431,7 @@ function CaseDetailModal({ id, onClose, customers }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { options: employeeOptions } = useEmployeeOptions();
   const [newComment, setNewComment] = useState("");
   const [commentInternal, setCommentInternal] = useState(true);
 
@@ -541,8 +553,14 @@ function CaseDetailModal({ id, onClose, customers }: {
                 {SEVERITY_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
-            <Field label="Assignee user id">
-              <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+            <Field label="Assignee">
+              <SearchableSelect
+                value={assignee || null}
+                onChange={(v) => setAssignee(v || "")}
+                options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+                placeholder="Unassigned"
+                emptyText="No matching employees"
+              />
             </Field>
             <Field label="Customer">
               <div style={{ ...inputStyle, padding: "6px 10px", color: C.textSub, fontSize: 12 }}>
@@ -641,6 +659,7 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { options: employeeOptions } = useEmployeeOptions();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [customerId, setCustomerId] = useState("");
@@ -721,8 +740,14 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
             {SEVERITY_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
-        <Field label="Assignee user id">
-          <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+        <Field label="Assignee">
+          <SearchableSelect
+            value={assignee || null}
+            onChange={(v) => setAssignee(v || "")}
+            options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+            placeholder="Unassigned"
+            emptyText="No matching employees"
+          />
         </Field>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>

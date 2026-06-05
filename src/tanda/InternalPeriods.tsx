@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 // Cross-cutter T11-3 — audit-trail drop-in for the period detail/preflight modal.
 import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
@@ -159,15 +160,16 @@ export default function InternalPeriods() {
   }
 
   async function reopen(p: Period) {
+    // Actor is the cached MS-sign-in identity — never prompt for a raw uuid.
+    const actor = getCachedAuthUserId();
+    if (!actor) { notify("Sign in with Microsoft (admin role) to reopen a period.", "error"); return; }
     const reason = prompt(`Reopen FY${p.fiscal_year} period ${p.period_number}? Operator notes (required):`);
     if (!reason || !reason.trim()) return;
-    const actorPrompt = prompt("Your auth_user_id (UUID, admin role required):");
-    if (!actorPrompt || !actorPrompt.trim()) return;
     try {
       const r = await fetch(`/api/internal/gl-periods/${p.id}/reopen`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actor_user_id: actorPrompt.trim(), reason: reason.trim() }),
+        body: JSON.stringify({ actor_user_id: actor.trim(), reason: reason.trim() }),
       });
       const data = await r.json();
       if (!r.ok) {
