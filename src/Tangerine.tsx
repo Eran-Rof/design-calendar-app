@@ -1140,7 +1140,10 @@ function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: Mo
         aria-label="Find a panel"
         style={{
           background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 6, padding: "6px 10px", fontSize: 13, width: 200, outline: "none",
+          borderRadius: 6, padding: "6px 10px", fontSize: 13, outline: "none",
+          // Shrinks on narrow viewports (down to a usable 140px) so it never
+          // forces the bar to overflow, but caps at 200px on wide screens.
+          width: "clamp(140px, 14vw, 200px)",
         }}
       />
       {open && results.length > 0 && (
@@ -1341,10 +1344,16 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
       style={{
         background: "#0b1220",
         borderBottom: `1px solid ${C.cardBdr}`,
-        padding: "10px 24px",
+        padding: "10px 16px",
         display: "flex",
         alignItems: "center",
-        gap: 20,
+        // Allow the row to tighten its inter-item gap as width shrinks, with a
+        // sane floor, so the whole bar fits common widths (1280–1920) without a
+        // horizontal page scrollbar. The group-dropdown <nav> is the flex/wrap
+        // element that absorbs the slack (see below); Favorites, Find-a-panel,
+        // Apps and the user/avatar stay fixed and always visible.
+        gap: "clamp(8px, 1vw, 20px)",
+        minWidth: 0,
         position: "sticky",
         top: 0,
         zIndex: 100,
@@ -1390,7 +1399,15 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
       {/* Favorites — first action icon (consistent across all apps). */}
       <FavoritesMenu />
 
-      <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20, alignItems: "center" }}>
+      {/* Menu-item finder — type-ahead jump to any panel, positioned right after
+          Favorites (separate from the section dropdowns). Respects the same
+          permission filter. flexShrink:0 keeps it from being squeezed out when
+          the group-dropdown row wraps/shrinks. */}
+      <div style={{ flexShrink: 0 }}>
+        <MenuSearch items={searchItems} onSelect={handleSelect} />
+      </div>
+
+      <nav style={{ display: "flex", flexWrap: "wrap", gap: 4, rowGap: 6, flex: 1, minWidth: 0, marginLeft: 20, alignItems: "center" }}>
         {NAV_SECTIONS.map((sec) => {
           // Sub-groups of this section that have at least one permitted module.
           const subGroups = sec.groups
@@ -1430,8 +1447,12 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                   background: containsActive || isOpen ? C.card : "transparent",
                   border: `1px solid ${containsActive || isOpen ? C.cardBdr : "transparent"}`,
                   color: containsActive || isOpen ? C.text : C.textSub,
-                  padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 6,
+                  // Responsive: padding + gap tighten as the viewport narrows so
+                  // every group button stays on the bar at common widths.
+                  padding: "6px clamp(7px, 0.6vw, 12px)", borderRadius: 6,
+                  fontSize: "clamp(12px, 0.85vw, 13px)", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: "clamp(4px, 0.4vw, 6px)",
+                  whiteSpace: "nowrap",
                 }}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
@@ -1550,8 +1571,10 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             title="Inventory planning — forecasting, supply, scenarios (opens in a new tab)"
             style={{
               background: "transparent", border: "1px solid transparent", color: C.textSub,
-              padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+              padding: "6px clamp(7px, 0.6vw, 12px)", borderRadius: 6,
+              fontSize: "clamp(12px, 0.85vw, 13px)", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: "clamp(4px, 0.4vw, 6px)",
+              textDecoration: "none", whiteSpace: "nowrap",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
@@ -1559,13 +1582,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
           </a>
         )}
-
-        {/* Menu-item finder — type-ahead jump to any panel, separate from the
-            section dropdowns. Respects the same permission filter. */}
-        <MenuSearch items={searchItems} onSelect={handleSelect} />
       </nav>
 
-      <div style={{ position: "relative" }}>
+      <div style={{ position: "relative", flexShrink: 0 }}>
         <button
           type="button"
           onClick={onToggleApps}
@@ -1591,7 +1610,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
         {appsOpen && <AppsLauncher onClose={onCloseApps} />}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4, flexShrink: 0 }}>
         {(userName || userEmail) && (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }} title={userEmail || userName || ""}>
             <UserAvatar name={userName} email={userEmail} photoUrl={userPhotoUrl} />
