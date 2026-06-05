@@ -30,7 +30,7 @@ const btnSecondary: React.CSSProperties = { background: "transparent", color: C.
 
 type Demand = {
   line_id: string; so_id: string; so_number: string | null; order_date: string | null;
-  requested_ship_date: string | null; so_status: string; customer_id: string; customer_name: string | null;
+  requested_ship_date: string | null; cancel_date: string | null; so_status: string; customer_id: string; customer_name: string | null;
   is_factored: boolean; factor_approval_status: string | null; factor_reference: string | null;
   factor_approved_cents: number | string | null; has_card: boolean; item_id: string; sku_code: string | null;
   color: string | null; size: string | null; description: string | null; qty_ordered: number | string;
@@ -44,15 +44,15 @@ type Proposal = {
   current_allocated: number; proposed_allocated: number; grant: number; blocked_reason?: string;
 };
 
+// Rows are now grouped under a per-SO sub-header (customer · start-ship · cancel),
+// so the former per-row Customer / Start-Ship columns are redundant and dropped.
 const COLUMNS: ColumnDef[] = [
-  { key: "customer",   label: "Customer" },
   { key: "tier",       label: "Priority" },
-  { key: "start_ship", label: "Start Ship" },
   { key: "ordered",    label: "Ordered" },
   { key: "allocated",  label: "Allocated" },
   { key: "open",       label: "Open" },
 ];
-const TABLE_KEY = "tangerine:allocations:columns";
+const TABLE_KEY = "tangerine:allocations:columns:v2";
 
 const TIER_BADGE: Record<number, { label: string; color: string }> = {
   1: { label: "🅕 factor",  color: C.success },
@@ -71,8 +71,13 @@ function tierOf(d: Demand): number {
 }
 const n = (v: number | string | null | undefined) => Number(v ?? 0);
 
-type Sku = { item_id: string; sku_code: string | null; size: string | null; avail: Avail | null; lines: Demand[] };
-type Rollup = { key: string; style: string; color: string; skus: Sku[]; onHand: number; reserved: number; available: number; demand: number };
+// One group per sales order. The sub-header carries the SO's customer + dates;
+// `lines` are that SO's demand rows (one per size-level SKU still open).
+type SoGroup = {
+  so_id: string; so_number: string | null; customer_name: string | null;
+  requested_ship_date: string | null; cancel_date: string | null; order_date: string | null;
+  tier: number; lines: Demand[]; available: number; demand: number;
+};
 
 export default function InternalAllocations() {
   const [demand, setDemand] = useState<Demand[]>([]);
@@ -82,7 +87,15 @@ export default function InternalAllocations() {
   const [err, setErr] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [onlyShort, setOnlyShort] = useState(false);
-  const { value: search, debouncedValue: dSearch, setValue: setSearch } = useDebouncedSearch("", 250);
+  // PART 40 — SO→allocation auto-open. A Sales Order opens Allocations via
+  // ?m=sales_allocations&so=<so_number>; seed the search with that SO so the
+  // workbench lands pre-filtered to it. Read once on mount.
+  const initialSo = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    try { return (new URLSearchParams(window.location.search).get("so") || "").trim(); } catch { return ""; }
+  }, []);
+  const { value: search, debouncedValue: dSearch, setValue: setSearch } = useDebouncedSearch(initialSo, 250);
+  const [focusSo] = useState(initialSo);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [savingLine, setSavingLine] = useState<string | null>(null);
@@ -168,37 +181,33 @@ export default function InternalAllocations() {
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
   }, []);
 
-  // Build the style/color → SKU → lines tree.
-  const rollups = useMemo<Rollup[]>(() => {
-    const byRollup = new Map<string, Rollup>();
+  // Build the SO → lines tree. One group per sales order; its demand rows are
+  // listed under a single sub-header (customer · start-ship · cancel).
+  const soGroups = useMemo<SoGroup[]>(() => {
+    const bySo = new Map<string, SoGroup>();
     for (const d of demand) {
-      const style = (d.description || "—").trim();
-      const color = (d.color || "—").trim();
-      const rkey = `${style}||${color}`;
-      let ru = byRollup.get(rkey);
-      if (!ru) { ru = { key: rkey, style, color, skus: [], onHand: 0, reserved: 0, available: 0, demand: 0 }; byRollup.set(rkey, ru); }
-      let sku = ru.skus.find((s) => s.item_id === d.item_id);
-      if (!sku) {
-        const a = avail[d.item_id] || null;
-        sku = { item_id: d.item_id, sku_code: d.sku_code, size: d.size, avail: a, lines: [] };
-        ru.skus.push(sku);
-        ru.onHand += n(a?.on_hand_qty); ru.reserved += n(a?.reserved_qty); ru.available += n(a?.available_qty);
-      }
-      sku.lines.push(d);
-      ru.demand += n(d.open_qty);
+      let g = bySo_get(bySo, d);
+      g.lines.push(d);
+      g.demand += n(d.open_qty);
     }
-    // Sort lines within a SKU by priority tier then oldest order.
-    for (const ru of byRollup.values()) {
-      ru.skus.sort((a, b) => String(a.size || "").localeCompare(String(b.size || "")));
-      for (const s of ru.skus) {
-        s.lines.sort((a, b) => {
-          const ta = tierOf(a), tb = tierOf(b);
-          if (ta !== tb) return ta - tb;
-          return String(a.order_date || "9999").localeCompare(String(b.order_date || "9999"));
-        });
+    // Available stock is per item_id (size SKU); count each item once per SO so a
+    // SO spanning multiple lines of the same SKU doesn't double-count availability.
+    for (const g of bySo.values()) {
+      const seen = new Set<string>();
+      for (const d of g.lines) {
+        if (d.item_id && !seen.has(d.item_id)) { seen.add(d.item_id); g.available += n(avail[d.item_id]?.available_qty); }
       }
+      // Sort each SO's lines by style/color then size for a stable read.
+      g.lines.sort((a, b) =>
+        String(a.description || "").localeCompare(String(b.description || "")) ||
+        String(a.color || "").localeCompare(String(b.color || "")) ||
+        String(a.size || "").localeCompare(String(b.size || "")));
     }
-    return [...byRollup.values()].sort((a, b) => a.style.localeCompare(b.style) || a.color.localeCompare(b.color));
+    // Order SOs by priority tier, then earliest requested-ship, then SO number.
+    return [...bySo.values()].sort((a, b) =>
+      a.tier - b.tier ||
+      String(a.requested_ship_date || "9999").localeCompare(String(b.requested_ship_date || "9999")) ||
+      String(a.so_number || "~").localeCompare(String(b.so_number || "~")));
   }, [demand, avail]);
 
   const demandByLine = useMemo(() => new Map(demand.map((d) => [d.line_id, d])), [demand]);
@@ -303,12 +312,13 @@ export default function InternalAllocations() {
   const exportRows = useMemo(() => demand.map((d) => ({
     so_number: d.so_number || "(draft)", customer: d.customer_name || d.customer_id,
     style: d.description || "", color: d.color || "", size: d.size || "", sku_code: d.sku_code || "",
-    priority: TIER_BADGE[tierOf(d)].label, start_ship: d.requested_ship_date || "",
+    priority: TIER_BADGE[tierOf(d)].label, start_ship: d.requested_ship_date || "", cancel: d.cancel_date || "",
     ordered: n(d.qty_ordered), allocated: n(d.qty_allocated), open: n(d.open_qty),
     available: n(avail[d.item_id]?.available_qty),
   })), [demand, avail]);
 
-  const colSpan = 1 + ["customer", "tier", "start_ship", "ordered", "allocated", "open"].filter(isVisible).length;
+  // First column is the SKU·Size descriptor (always shown); the rest follow COLUMNS.
+  const colSpan = 1 + ["tier", "ordered", "allocated", "open"].filter(isVisible).length;
 
   return (
     <div style={{ color: C.text }}>
@@ -344,12 +354,22 @@ export default function InternalAllocations() {
           columns={[
             { key: "so_number", header: "SO #" }, { key: "customer", header: "Customer" },
             { key: "style", header: "Style" }, { key: "color", header: "Color" }, { key: "size", header: "Size" },
-            { key: "sku_code", header: "SKU" }, { key: "priority", header: "Priority" }, { key: "start_ship", header: "Start Ship", format: "date" },
+            { key: "sku_code", header: "SKU" }, { key: "priority", header: "Priority" },
+            { key: "start_ship", header: "Start Ship", format: "date" }, { key: "cancel", header: "Cancel", format: "date" },
             { key: "ordered", header: "Ordered" }, { key: "allocated", header: "Allocated" }, { key: "open", header: "Open" }, { key: "available", header: "Available" },
           ] as ExportColumn<Record<string, unknown>>[]} />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      {/* PART 40 — when opened from a Sales Order, the workbench lands focused on
+          that SO (its number seeded into the search). Show + offer to clear it. */}
+      {focusSo && search === focusSo && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1e1b4b", border: `1px solid ${C.violet}`, borderRadius: 6, padding: "6px 12px", marginBottom: 10, fontSize: 13 }}>
+          <span>Focused on sales order <b style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{focusSo}</b> (opened from Sales Orders).</span>
+          <button style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12 }} onClick={() => setSearch("")}>Show all demand</button>
+        </div>
+      )}
 
       {/* Batch bar — check lines (☑ in the SO column) then set or clear their
           allocation together. */}
@@ -372,81 +392,79 @@ export default function InternalAllocations() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th}>SO # / Style · Color · Size</th>
-            {isVisible("customer") && <th style={th}>Customer</th>}
+            <th style={th}>Style · Color · Size</th>
             {isVisible("tier") && <th style={th}>Priority</th>}
-            {isVisible("start_ship") && <th style={th}>Start Ship</th>}
             {isVisible("ordered") && <th style={{ ...th, textAlign: "right" }}>Ordered</th>}
             {isVisible("allocated") && <th style={{ ...th, textAlign: "right" }}>Allocated</th>}
             {isVisible("open") && <th style={{ ...th, textAlign: "right" }}>Open</th>}
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={colSpan}>Loading…</td></tr>}
-            {!loading && rollups.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={colSpan}>No open demand to allocate. (Confirm sales orders to populate this workbench.)</td></tr>}
-            {!loading && rollups.map((ru) => {
-              const rCollapsed = collapsed[ru.key];
-              const itemIds = ru.skus.map((s) => s.item_id);
+            {!loading && soGroups.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={colSpan}>No open demand to allocate. (Confirm sales orders to populate this workbench.)</td></tr>}
+            {!loading && soGroups.map((g) => {
+              const gCollapsed = collapsed[g.so_id];
+              const itemIds = [...new Set(g.lines.map((l) => l.item_id).filter(Boolean))];
+              const gBadge = TIER_BADGE[g.tier] || TIER_BADGE[3];
               return (
-                <FragmentRows key={ru.key}>
-                  {/* Style/color rollup header */}
+                <FragmentRows key={g.so_id}>
+                  {/* Per-SO sub-header — Customer · Start Ship · Cancel. Styled like
+                      the main header row; one per sales order. */}
                   <tr style={{ background: "#0b1220" }}>
-                    <td style={{ ...td, fontWeight: 700 }} colSpan={1}>
-                      <span onClick={() => setCollapsed((p) => ({ ...p, [ru.key]: !p[ru.key] }))} style={{ cursor: "pointer", color: C.textMuted, marginRight: 8 }}>{rCollapsed ? "▶" : "▼"}</span>
-                      {ru.style} <span style={{ color: C.textMuted }}>·</span> {ru.color}
-                      <span style={{ color: C.textMuted, fontWeight: 400, marginLeft: 10, fontSize: 11 }}>
-                        on-hand {ru.onHand} · reserved {ru.reserved} · <span style={{ color: ru.available > 0 ? C.success : C.textMuted }}>avail {ru.available}</span> · demand {ru.demand}
-                      </span>
-                    </td>
-                    <td style={{ ...td, textAlign: "right" }} colSpan={Math.max(colSpan - 1, 1)}>
-                      <button style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12, color: C.violet, borderColor: "#5b21b6" }}
-                        disabled={previewBusy || ru.available <= 0}
-                        onClick={() => void runAutoAllocate(itemIds, `${ru.style} · ${ru.color}`)} title="Priority full-fill this style/color">⚡ Auto</button>
+                    <td style={{ ...th, textTransform: "none", letterSpacing: 0, fontSize: 13, color: C.text }} colSpan={colSpan}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <span onClick={() => setCollapsed((p) => ({ ...p, [g.so_id]: !p[g.so_id] }))} style={{ cursor: "pointer", color: C.textMuted }}>{gCollapsed ? "▶" : "▼"}</span>
+                        <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700 }}>{g.so_number || "(draft)"}</span>
+                        <span style={{ color: C.textMuted }}>·</span>
+                        <span style={{ fontWeight: 600 }}>{g.customer_name || "—"}</span>
+                        <span style={{ color: C.textMuted }}>·</span>
+                        <span style={{ color: C.textSub }}>Start Ship <b style={{ color: C.text }}>{g.requested_ship_date || "—"}</b></span>
+                        <span style={{ color: C.textMuted }}>·</span>
+                        <span style={{ color: C.textSub }}>Cancel <b style={{ color: C.text }}>{g.cancel_date || "—"}</b></span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: gBadge.color, border: `1px solid ${gBadge.color}`, borderRadius: 4, padding: "1px 6px" }} title={g.tier === 9 ? "Factored SO not approved — cannot allocate" : ""}>{gBadge.label}</span>
+                        <span style={{ color: C.textMuted, fontWeight: 400, fontSize: 11 }}>
+                          <span style={{ color: g.available > 0 ? C.success : C.textMuted }}>avail {g.available}</span> · demand {g.demand}
+                        </span>
+                        <div style={{ flex: 1 }} />
+                        <button style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12, color: C.violet, borderColor: "#5b21b6" }}
+                          disabled={previewBusy || g.available <= 0 || g.tier === 9}
+                          onClick={() => void runAutoAllocate(itemIds, `${g.so_number || "(draft)"} · ${g.customer_name || ""}`)} title="Priority full-fill this sales order">⚡ Auto</button>
+                      </div>
                     </td>
                   </tr>
-                  {!rCollapsed && ru.skus.map((sku) => (
-                    <FragmentRows key={sku.item_id}>
-                      {/* SKU (size) sub-header */}
-                      <tr>
-                        <td style={{ ...td, paddingLeft: 28, color: C.textSub, fontWeight: 600 }} colSpan={1}>
-                          {sku.sku_code || "—"} <span style={{ color: C.textMuted, fontWeight: 400 }}>· size {sku.size || "—"}</span>
+                  {/* This SO's demand line rows (one per open size-level SKU). */}
+                  {!gCollapsed && g.lines.map((d) => {
+                    const tier = tierOf(d);
+                    const badge = TIER_BADGE[tier] || TIER_BADGE[3];
+                    const editVal = edits[d.line_id] ?? String(n(d.qty_allocated));
+                    const shipFloor = n(d.qty_shipped);
+                    const a = avail[d.item_id];
+                    return (
+                      <tr key={d.line_id}>
+                        <td style={{ ...td, paddingLeft: 26 }}>
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                            <input type="checkbox" checked={selected.has(d.line_id)} onChange={() => toggleSelect(d.line_id)} />
+                            <span>
+                              {(d.description || "—")} <span style={{ color: C.textMuted }}>·</span> {(d.color || "—")} <span style={{ color: C.textMuted }}>·</span> size {d.size || "—"}
+                              <span style={{ color: C.textMuted, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11, marginLeft: 8 }}>{d.sku_code || ""}</span>
+                              <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 8 }}>(avail {n(a?.available_qty)})</span>
+                            </span>
+                          </label>
                         </td>
-                        <td style={{ ...td, color: C.textMuted, fontSize: 11 }} colSpan={Math.max(colSpan - 1, 1)}>
-                          on-hand {n(sku.avail?.on_hand_qty)} · reserved {n(sku.avail?.reserved_qty)} · <span style={{ color: n(sku.avail?.available_qty) > 0 ? C.success : C.textMuted }}>available {n(sku.avail?.available_qty)}</span>
-                        </td>
+                        {isVisible("tier") && <td style={td}><span title={tier === 9 ? "Factored SO not approved — cannot allocate" : ""} style={{ fontSize: 11, fontWeight: 600, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 4, padding: "1px 6px" }}>{badge.label}</span></td>}
+                        {isVisible("ordered") && <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n(d.qty_ordered)}</td>}
+                        {isVisible("allocated") && <td style={{ ...td, textAlign: "right" }}>
+                          <input type="text" inputMode="decimal" value={editVal}
+                            onChange={(e) => setEdits((p) => ({ ...p, [d.line_id]: e.target.value }))}
+                            onBlur={() => void commitCell(d)}
+                            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEdits((p) => { const c = { ...p }; delete c[d.line_id]; return c; }); }}
+                            disabled={savingLine === d.line_id}
+                            title={shipFloor > 0 ? `Cannot go below shipped (${shipFloor})` : "Set allocated qty (0 releases)"}
+                            style={{ ...numCell, opacity: savingLine === d.line_id ? 0.5 : 1, borderColor: edits[d.line_id] != null ? C.primary : C.cardBdr }} />
+                        </td>}
+                        {isVisible("open") && <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: n(d.open_qty) > 0 ? C.warn : C.textMuted }}>{n(d.open_qty)}</td>}
                       </tr>
-                      {/* Competing SO lines */}
-                      {sku.lines.map((d) => {
-                        const tier = tierOf(d);
-                        const badge = TIER_BADGE[tier] || TIER_BADGE[3];
-                        const editVal = edits[d.line_id] ?? String(n(d.qty_allocated));
-                        const shipFloor = n(d.qty_shipped);
-                        return (
-                          <tr key={d.line_id}>
-                            <td style={{ ...td, paddingLeft: 24, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
-                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                                <input type="checkbox" checked={selected.has(d.line_id)} onChange={() => toggleSelect(d.line_id)} />
-                                {d.so_number || "(draft)"}
-                              </label>
-                            </td>
-                            {isVisible("customer") && <td style={td}>{d.customer_name || "—"}</td>}
-                            {isVisible("tier") && <td style={td}><span title={tier === 9 ? "Factored SO not approved — cannot allocate" : ""} style={{ fontSize: 11, fontWeight: 600, color: badge.color, border: `1px solid ${badge.color}`, borderRadius: 4, padding: "1px 6px" }}>{badge.label}</span></td>}
-                            {isVisible("start_ship") && <td style={td}>{d.requested_ship_date || "—"}</td>}
-                            {isVisible("ordered") && <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n(d.qty_ordered)}</td>}
-                            {isVisible("allocated") && <td style={{ ...td, textAlign: "right" }}>
-                              <input type="text" inputMode="decimal" value={editVal}
-                                onChange={(e) => setEdits((p) => ({ ...p, [d.line_id]: e.target.value }))}
-                                onBlur={() => void commitCell(d)}
-                                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEdits((p) => { const c = { ...p }; delete c[d.line_id]; return c; }); }}
-                                disabled={savingLine === d.line_id}
-                                title={shipFloor > 0 ? `Cannot go below shipped (${shipFloor})` : "Set allocated qty (0 releases)"}
-                                style={{ ...numCell, opacity: savingLine === d.line_id ? 0.5 : 1, borderColor: edits[d.line_id] != null ? C.primary : C.cardBdr }} />
-                            </td>}
-                            {isVisible("open") && <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: n(d.open_qty) > 0 ? C.warn : C.textMuted }}>{n(d.open_qty)}</td>}
-                          </tr>
-                        );
-                      })}
-                    </FragmentRows>
-                  ))}
+                    );
+                  })}
                 </FragmentRows>
               );
             })}
@@ -595,3 +613,17 @@ export default function InternalAllocations() {
 
 // Group multiple <tr> without an extra DOM node.
 function FragmentRows({ children }: { children: React.ReactNode }) { return <>{children}</>; }
+
+// Get-or-create the SoGroup for a demand row, seeding its header fields once.
+function bySo_get(map: Map<string, SoGroup>, d: Demand): SoGroup {
+  let g = map.get(d.so_id);
+  if (!g) {
+    g = {
+      so_id: d.so_id, so_number: d.so_number, customer_name: d.customer_name,
+      requested_ship_date: d.requested_ship_date, cancel_date: d.cancel_date, order_date: d.order_date,
+      tier: tierOf(d), lines: [], available: 0, demand: 0,
+    };
+    map.set(d.so_id, g);
+  }
+  return g;
+}

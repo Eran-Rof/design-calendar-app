@@ -36,7 +36,7 @@ async function resolveDefaultEntityId(admin) {
 }
 
 const DEMAND_COLS =
-  "line_id, so_id, so_number, entity_id, order_date, requested_ship_date, so_status, " +
+  "line_id, so_id, so_number, entity_id, order_date, requested_ship_date, cancel_date, so_status, " +
   "customer_id, customer_name, is_factored, factor_approval_status, factor_reference, " +
   "factor_approved_cents, has_card, item_id, sku_code, color, size, description, " +
   "qty_ordered, qty_allocated, qty_shipped, open_qty, unit_price_cents, brand_id, channel_id";
