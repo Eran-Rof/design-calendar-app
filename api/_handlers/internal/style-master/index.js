@@ -195,7 +195,23 @@ export default async function handler(req, res) {
       }
       return res.status(500).json({ error: error.message });
     }
-    return res.status(201).json(data);
+
+    // Opt-in GS1 UPC minting (Style Master "Generate UPCs" checkbox). When the
+    // operator ticks it, mint one unique UPC-A per (style, color, size) from the
+    // company GS1 prefix using the atomic counter. Failure here is non-fatal —
+    // the style is already created; we surface the outcome on `upc_minting` so
+    // the UI can toast it. Existing Xoro/Excel UPCs are never touched.
+    let upcMinting = null;
+    if (v.data.generate_upcs === true) {
+      try {
+        const { mintUpcsForStyle } = await import("../../../_lib/gs1/mintForStyle.js");
+        upcMinting = await mintUpcsForStyle(admin, entityId, data);
+      } catch (e) {
+        upcMinting = { minted: 0, skipped: true, reason: `UPC minting failed: ${e?.message || String(e)}` };
+      }
+    }
+
+    return res.status(201).json(upcMinting ? { ...data, upc_minting: upcMinting } : data);
   }
 
   res.setHeader("Allow", "GET, POST");
@@ -248,6 +264,9 @@ export function validateInsert(body) {
   } else {
     body.size_scale_id = null;
   }
+  // Opt-in UPC minting flag — boolean, never persisted on the style row; the
+  // handler reads it after insert to mint GS1 UPC-A codes for the new style.
+  body.generate_upcs = body.generate_upcs === true || body.generate_upcs === "true";
   // Optional classifier fields — coerce empty strings to null so the
   // handler doesn't persist empty text.
   for (const k of ["group_name", "category_name", "sub_category_name", "rise"]) {

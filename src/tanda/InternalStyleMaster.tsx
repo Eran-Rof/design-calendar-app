@@ -667,6 +667,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const [seasons, setSeasons] = useState<SeasonLite[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Opt-in GS1 UPC minting (add mode only). Disabled until we confirm a GS1
+  // company prefix is configured — minting without one would produce invalid
+  // barcodes, so we gate the checkbox instead.
+  const [generateUpcs, setGenerateUpcs] = useState(false);
+  const [gs1HasPrefix, setGs1HasPrefix] = useState<boolean | null>(null);
 
   // Load active fabric_codes for the SearchableSelect picker. Errors are
   // non-fatal — the operator can still save without a fabric.
@@ -712,6 +717,23 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Probe whether a GS1 company prefix is configured so we can enable/disable
+  // the "Generate UPCs" checkbox. Add mode only — existing styles keep their
+  // Xoro/Excel UPCs untouched. Non-fatal on error (checkbox stays disabled).
+  useEffect(() => {
+    if (mode !== "add") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/upc-items?check_prefix=1`);
+        if (!r.ok) { if (!cancelled) setGs1HasPrefix(false); return; }
+        const data = await r.json();
+        if (!cancelled) setGs1HasPrefix(!!data?.has_prefix);
+      } catch { if (!cancelled) setGs1HasPrefix(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [mode]);
 
   // Season picker options — value === label === the season NAME (free text).
   // The style's existing season is surfaced even if it isn't in the master list.
@@ -848,6 +870,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       let method: string;
       if (mode === "add") {
         body.style_code = form.style_code.trim().toUpperCase();
+        // Opt-in GS1 UPC minting — only sent when the prefix is configured and
+        // the operator ticked the box.
+        if (generateUpcs && gs1HasPrefix) body.generate_upcs = true;
         url = "/api/internal/style-master";
         method = "POST";
       } else {
@@ -860,6 +885,16 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      // Surface the UPC minting outcome (add mode + opt-in). The style is saved
+      // regardless; minting runs server-side after insert.
+      if (mode === "add" && body.generate_upcs) {
+        const saved = await r.json().catch(() => ({}));
+        const m = saved?.upc_minting;
+        if (m) {
+          if (m.minted > 0) notify(`Minted ${m.minted} GS1 UPC${m.minted === 1 ? "" : "s"} for this style.`, "success");
+          else if (m.skipped) notify(`No UPCs minted: ${m.reason || "nothing to mint"}`, "info");
+        }
+      }
       onSaved();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1042,6 +1077,43 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               Yes (enforce 5-dim matrix on linked items)
             </label>
           </Field>
+
+          {/* Opt-in GS1 UPC minting — add mode only. Disabled (with tooltip)
+              until a GS1 company prefix is configured so we never mint invalid
+              barcodes. Existing styles keep their Xoro/Excel UPCs untouched. */}
+          {mode === "add" && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                UPC Barcodes
+              </div>
+              <label
+                title={
+                  gs1HasPrefix === false
+                    ? "No GS1 company prefix is configured — set one in Company Settings to enable UPC minting."
+                    : "Mint one unique GS1 UPC per color/size for this style in the background on save."
+                }
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, fontSize: 13,
+                  color: gs1HasPrefix === false ? C.textMuted : C.textSub,
+                  opacity: gs1HasPrefix === false ? 0.55 : 1,
+                  cursor: gs1HasPrefix === false ? "not-allowed" : "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={generateUpcs && gs1HasPrefix !== false}
+                  disabled={gs1HasPrefix === false}
+                  onChange={(e) => setGenerateUpcs(e.target.checked)}
+                />
+                Generate UPCs (GS1) — one unique UPC per color/size
+              </label>
+              {gs1HasPrefix === false && (
+                <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>
+                  No GS1 company prefix configured — minting is unavailable.
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {mode === "edit" && style && (

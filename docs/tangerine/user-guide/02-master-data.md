@@ -37,8 +37,26 @@ Click **+ Add style** to open. Fields:
 | Planning class | no | `core` / `seasonal` / `fashion` |
 | Base fabric | no | Free text |
 | Apparel? | checkbox, defaults true | When true, linked item-master rows must carry all 5 matrix dims (CHECK enforces). |
+| Generate UPCs (GS1) | checkbox, defaults off | Opt-in. When ticked, the backend mints **one unique UPC-A barcode per color/size** for the new style from the company GS1 prefix, in the background on save. See below. |
 
 The form rejects empty style code, missing description, invalid enum values, and out-of-range design year (1990–2100) with a clear error message at the bottom of the modal.
+
+### Generating UPCs for a new style (opt-in GS1 minting)
+
+Existing styles keep the UPCs they already carry from Xoro / Excel — minting never touches them. For a **new** style you can have Tangerine mint barcodes automatically:
+
+1. In the **Add style** modal, tick **Generate UPCs (GS1)**.
+2. Save. The style is created immediately; minting then runs server-side and a toast reports how many UPCs were minted.
+
+What gets minted:
+
+- One **unique 12-digit UPC-A** per `(style, color, size)` cell, written to the UPC master with source `gs1`.
+- Sizes come from the style's **size scale**; colors come from the style's existing color SKUs. A brand-new style with no colors yet mints nothing — re-tick the box later once colors exist, and only the still-missing cells are filled (it never duplicates).
+- Each barcode is built from the company **GS1 prefix** plus an **atomic counter** (the same never-reused counter that mints pack GTINs) and the correct UPC check digit, so no two items ever share a number.
+
+The checkbox is **disabled** (greyed out, with a tooltip) when no GS1 company prefix is configured — minting without one would produce invalid barcodes. Set the prefix in Company Settings first.
+
+Minted UPCs appear in the **UPC Report** (Reports menu, 🔖 UPC Report).
 
 ![Style Master Add modal](screenshots/02-style-master-add-modal.png)
 <!-- screenshot needed: the Add modal with all fields visible -->
