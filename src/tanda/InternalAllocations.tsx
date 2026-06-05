@@ -413,7 +413,20 @@ export default function InternalAllocations() {
                     <td style={{ ...th, textTransform: "none", letterSpacing: 0, fontSize: 13, color: C.text }} colSpan={colSpan}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                         <span onClick={() => setCollapsed((p) => ({ ...p, [g.so_id]: !p[g.so_id] }))} style={{ cursor: "pointer", color: C.textMuted }}>{gCollapsed ? "▶" : "▼"}</span>
-                        <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700 }}>{g.so_number || "(draft)"}</span>
+                        {/* PART 44 — clickable SO # → back to the Sales Orders panel,
+                            focused on this SO (reverse of the SO→Allocations drill).
+                            Mirrors openAllocations(): full-page hop to ?m=sales_orders
+                            &so=<SO#>, which InternalSalesOrders reads to seed its SO
+                            search box. SO number is resolved (never a UUID). */}
+                        {g.so_number ? (
+                          <span
+                            onClick={() => { window.location.href = `?m=sales_orders&so=${encodeURIComponent(g.so_number || "")}`; }}
+                            title="Open this sales order"
+                            style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
+                          >{g.so_number} ↗</span>
+                        ) : (
+                          <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700 }}>(draft)</span>
+                        )}
                         <span style={{ color: C.textMuted }}>·</span>
                         <span style={{ fontWeight: 600 }}>{g.customer_name || "—"}</span>
                         <span style={{ color: C.textMuted }}>·</span>

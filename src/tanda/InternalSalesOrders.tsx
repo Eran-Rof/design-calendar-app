@@ -80,7 +80,10 @@ export default function InternalSalesOrders() {
   // Scorecard drill-through: ?customer=<id> seeds the customer filter on mount
   // so a click from the Customer Scorecard lands here pre-filtered.
   const [customerFilter, setCustomerFilter] = useState(() => readDrillParam("customer"));
-  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch("", 200);
+  // PART 44 — reverse drill from the Allocations Workbench: clicking a SO #
+  // sub-header navigates here with ?so=<SO#>; seed the SO search box with it so
+  // this panel lands pre-filtered to that order (mirrors the ?customer= seed).
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("so"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
 
