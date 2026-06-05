@@ -225,6 +225,9 @@ export type RfqStatus = "draft" | "published" | "closed" | "awarded";
 export interface RfqListRow {
   id: string;
   entity_id: string;
+  /** Human-readable auto-generated RFQ code, format RFQ-00001. Null on rows
+   *  predating the 20260812000000_rfq_code.sql backfill / pre-migration deploys. */
+  code: string | null;
   title: string;
   description: string | null;
   category: string | null;

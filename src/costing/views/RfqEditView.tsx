@@ -238,6 +238,14 @@ export default function RfqEditView() {
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <a href="#" onClick={(e) => { e.preventDefault(); navigate("rfq-list"); }} style={{ color: "#60A5FA", textDecoration: "none", fontSize: 13 }}>← RFQs</a>
+        {detail?.rfq.code && (
+          <span style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: 12, fontWeight: 700, color: "#CBD5E1",
+            background: "#1E293B", border: "1px solid #334155",
+            borderRadius: 4, padding: "2px 8px", whiteSpace: "nowrap",
+          }}>{detail.rfq.code}</span>
+        )}
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {detail?.rfq.title || "Loading…"}
         </h2>
