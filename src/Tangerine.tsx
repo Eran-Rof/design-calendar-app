@@ -151,6 +151,7 @@ import InternalMarketplace            from "./tanda/InternalMarketplace";
 import InternalMarketplaceInquiries   from "./tanda/InternalMarketplaceInquiries";
 import InternalEntities               from "./tanda/InternalEntities";
 import InternalOnboarding             from "./tanda/InternalOnboarding";
+import InternalApiKeys                from "./tanda/InternalApiKeys";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
@@ -305,7 +306,9 @@ type ModuleKey =
   | "marketplace_inquiries"
   // #983 — Admin.
   | "entities"
-  | "onboarding";
+  | "onboarding"
+  // M15 — External / Partner API key admin.
+  | "api_keys";
 
 type GroupKey = "Master Data" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
@@ -529,6 +532,8 @@ const MODULES: ModuleDef[] = [
   // #983 — Admin: entity registry + vendor onboarding.
   { key: "entities",            label: "Entities",           emoji: "🏛️", group: "Admin" },
   { key: "onboarding",          label: "Onboarding",         emoji: "🚀", group: "Admin" },
+  // M15 — External / Partner API key admin.
+  { key: "api_keys",            label: "API Keys",           emoji: "🔑", group: "Admin" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -906,6 +911,8 @@ export default function Tangerine() {
         {/* #983 — Admin */}
         {activeModule === "entities"               && <InternalEntities />}
         {activeModule === "onboarding"             && <InternalOnboarding />}
+        {/* M15 — External / Partner API key admin */}
+        {activeModule === "api_keys"               && <InternalApiKeys />}
       </main>
       {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
       <EntitySwitcher />

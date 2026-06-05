@@ -203,6 +203,7 @@ const KEYS = [
   "tanda/marketplaces/inquiries",
   "tanda/admin/entities",
   "tanda/admin/onboarding",
+  "tanda/admin/api-keys",
   // Tech Packs (T4-5 close-out)
   "techpack/dashboard",
   "techpack/list",
