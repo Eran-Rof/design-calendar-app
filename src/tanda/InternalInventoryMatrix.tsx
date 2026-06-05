@@ -118,6 +118,111 @@ function pickPrimaryImage(images: PimImageRow[]): PrimaryImage {
 
 const ALL_WAREHOUSES = "__all__";
 
+// ── MatrixRow type (shared by single-style and brand-level views) ─────────────
+
+type MatrixRow = {
+  key: string;
+  color: string;
+  rise: string | null;
+  sizes: Record<string, number>;
+  totalQty: number;
+  avgCostCents: number | null; // qty-weighted blended avg, cents
+  totalCostCents: number;
+  costedQty: number; // qty of SKUs that actually carry a cost (blend denominator)
+  lastReceived: string | null;
+};
+
+// Pure helper — builds MatrixRow[] from a payload given a qty accessor.
+// Extracted so both the single-style useMemo and the brand-level renderer can
+// call the same logic without duplication.
+function buildMatrixRows(
+  payload: MatrixPayload,
+  riseFilter: string[],
+  showRise: boolean,
+  skuQtyFn: (s: MatrixSku) => number,
+  cellQtyFn: (c: ExplodeCell) => number,
+): MatrixRow[] {
+  const active = riseFilter.length ? new Set(riseFilter) : null;
+  const map = new Map<string, MatrixRow>();
+  for (const s of payload.skus) {
+    const rise = s.rise ?? null;
+    if (active && !(rise != null && active.has(rise))) continue;
+    const color = s.color ?? "—";
+    const key = showRise ? `${color}|${rise ?? ""}` : color;
+    let row = map.get(key);
+    if (!row) {
+      row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
+      map.set(key, row);
+    }
+    const qty = skuQtyFn(s);
+    if (s.size) row.sizes[s.size] = (row.sizes[s.size] || 0) + qty;
+    row.totalQty += qty;
+    // Only SKUs with a real (non-zero) cost contribute to the weighted blend.
+    if (s.avg_cost_cents != null && s.avg_cost_cents > 0) {
+      row.totalCostCents += Math.round(qty * s.avg_cost_cents);
+      row.costedQty += qty;
+    }
+    if (s.last_received && (!row.lastReceived || s.last_received > row.lastReceived)) {
+      row.lastReceived = s.last_received;
+    }
+  }
+  // Fold exploded PPK eaches (additive, qty/sizes only — no per-each cost).
+  if (payload.explode?.enabled) {
+    for (const c of payload.explode.cells) {
+      const qty = cellQtyFn(c);
+      if (!qty) continue;
+      const color = c.color || "—";
+      const key = showRise ? `${color}|` : color;
+      let row = map.get(key);
+      if (!row) {
+        row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
+        map.set(key, row);
+      }
+      if (c.size) row.sizes[c.size] = (row.sizes[c.size] || 0) + qty;
+      row.totalQty += qty;
+    }
+  }
+  // Blended avg cost = totalCost / costedQty (weighted over costed SKUs only).
+  for (const row of map.values()) {
+    if (row.costedQty > 0 && row.totalCostCents > 0) {
+      row.avgCostCents = Math.round(row.totalCostCents / row.costedQty);
+    }
+  }
+  // Simple-mean fallback for avg cost when no qty-weighted cost is available.
+  const skuByRow = new Map<string, number[]>();
+  for (const s of payload.skus) {
+    const rise = s.rise ?? null;
+    if (active && !(rise != null && active.has(rise))) continue;
+    const color = s.color ?? "—";
+    const key = showRise ? `${color}|${rise ?? ""}` : color;
+    if (s.avg_cost_cents != null) {
+      const arr = skuByRow.get(key) ?? [];
+      arr.push(s.avg_cost_cents);
+      skuByRow.set(key, arr);
+    }
+  }
+  for (const row of map.values()) {
+    if (row.avgCostCents == null) {
+      const arr = skuByRow.get(row.key);
+      if (arr && arr.length) row.avgCostCents = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+    }
+  }
+  // Recalculate totalCostCents for rows where the simple-mean fallback filled
+  // avgCostCents but the primary accumulation produced 0 (no costedQty). Without
+  // this the row's Total Cost cell renders "—" even though the avg is known.
+  for (const row of map.values()) {
+    if (row.totalCostCents === 0 && row.avgCostCents != null && row.avgCostCents > 0 && row.totalQty > 0) {
+      row.totalCostCents = Math.round(row.totalQty * row.avgCostCents);
+    }
+  }
+  // Sort by descending row Total qty (highest first); stable for ties.
+  const ordered = [...map.values()];
+  return ordered
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (b.r.totalQty - a.r.totalQty) || (a.i - b.i))
+    .map((x) => x.r);
+}
+
 // ── palette (mirrors poMatrixTab + other Internal* panels) ───────────────────
 
 const C = {
@@ -230,6 +335,15 @@ export default function InternalInventoryMatrix() {
   const [primaryImage, setPrimaryImage] = useState<PrimaryImage>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
+  // Per-color thumbnail images for each row in the matrix (fetched from the
+  // PIM style images endpoint). Key = color lowercase-trimmed || "__default__".
+  const [styleImages, setStyleImages] = useState<Map<string, string>>(new Map());
+
+  // Brand-level view: when brandId is set but styleId is empty, load matrices
+  // for up to 50 of the brand's styles and render them all.
+  const [brandPayloads, setBrandPayloads] = useState<Array<{style: StyleListRow; payload: MatrixPayload}>>([]);
+  const [brandLoading, setBrandLoading] = useState(false);
+
   // Style list + size-scale names once on mount. Request the endpoint's max
   // limit so EVERY entity style is reachable in the picker (operator reported
   // missing styles when the list was capped).
@@ -308,6 +422,52 @@ export default function InternalInventoryMatrix() {
     setRiseFilter([]);
     setWarehouse(ALL_WAREHOUSES);
   }, [styleId]);
+
+  // Fetch per-color thumbnail images for the active style from the PIM endpoint.
+  // Build a Map<color_lowercase, thumbUrl> so each color row can show its image.
+  useEffect(() => {
+    setStyleImages(new Map());
+    if (!styleId) return;
+    fetch(`/api/internal/pim/styles/${encodeURIComponent(styleId)}/images`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((imgs: Array<{color?: string | null; signedUrls?: {thumb?: string}; storage_path_thumb?: string}>) => {
+        const m = new Map<string, string>();
+        for (const img of (Array.isArray(imgs) ? imgs : [])) {
+          const key = (img.color || "").toLowerCase().trim() || "__default__";
+          const url = img.signedUrls?.thumb || img.storage_path_thumb || "";
+          if (url && !m.has(key)) m.set(key, url); // first image per color wins
+        }
+        setStyleImages(m);
+      })
+      .catch(() => {/* non-fatal — matrix still renders without per-row images */});
+  }, [styleId]);
+
+  // Brand-level view: when brandId is set but no specific styleId, fetch
+  // matrices for up to 50 of the brand's styles in parallel.
+  useEffect(() => {
+    if (!brandId || styleId) { setBrandPayloads([]); return; }
+    const stylesToLoad = brandStyles.slice(0, 50);
+    if (stylesToLoad.length === 0) { setBrandPayloads([]); return; }
+    setBrandLoading(true);
+    setBrandPayloads([]);
+    Promise.all(
+      stylesToLoad.map(async (s) => {
+        try {
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}`);
+          if (!r.ok) return null;
+          const p = await r.json() as MatrixPayload;
+          return { style: s, payload: p };
+        } catch { return null; }
+      })
+    ).then((results) => {
+      const valid = results.filter(
+        (x): x is {style: StyleListRow; payload: MatrixPayload} =>
+          x !== null && (x.payload.skus?.length ?? 0) > 0
+      );
+      setBrandPayloads(valid);
+      setBrandLoading(false);
+    });
+  }, [brandId, styleId, brandStyles]);
 
   // Brand picker options (blank = all brands). Label prefers code, falls back to name.
   const brandOptions = useMemo<SearchableSelectOption[]>(
@@ -401,112 +561,12 @@ export default function InternalInventoryMatrix() {
   };
 
   // Group SKUs into matrix rows: one row per color (× rise when the style
-  // spans >1 rise). Each row carries a size→qty map, a blended avg cost
-  // (qty-weighted across the row's SKUs), the row's total qty, total cost,
-  // and the latest received date.
-  type MatrixRow = {
-    key: string;
-    color: string;
-    rise: string | null;
-    sizes: Record<string, number>;
-    totalQty: number;
-    avgCostCents: number | null; // qty-weighted blended avg, cents
-    totalCostCents: number;
-    costedQty: number; // qty of SKUs that actually carry a cost (blend denominator)
-    lastReceived: string | null;
-  };
-
+  // spans >1 rise). Delegates to the pure buildMatrixRows helper above,
+  // capturing the warehouse-aware qty accessors from this closure.
   const rows = useMemo<MatrixRow[]>(() => {
     if (!payload) return [];
-    const active = riseFilter.length ? new Set(riseFilter) : null;
-    const map = new Map<string, MatrixRow>();
-    for (const s of payload.skus) {
-      const rise = s.rise ?? null;
-      if (active && !(rise != null && active.has(rise))) continue;
-      const color = s.color ?? "—";
-      const key = showRise ? `${color}|${rise ?? ""}` : color;
-      let row = map.get(key);
-      if (!row) {
-        row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
-        map.set(key, row);
-      }
-      const qty = skuQty(s);
-      if (s.size) row.sizes[s.size] = (row.sizes[s.size] || 0) + qty;
-      row.totalQty += qty;
-      // Only SKUs with a real (non-zero) cost contribute to the weighted blend
-      // — both numerator AND denominator. Many color/size SKUs have no
-      // ip_item_avg_cost row (sku_code spelling mismatch), so dividing the
-      // cost-weighted sum by total qty would understate the avg (e.g. one
-      // costed size out of five → $0.81 instead of $5.72). Weighting by
-      // costedQty keeps the blend on the same per-unit basis as the data.
-      if (s.avg_cost_cents != null && s.avg_cost_cents > 0) {
-        row.totalCostCents += Math.round(qty * s.avg_cost_cents);
-        row.costedQty += qty;
-      }
-      if (s.last_received && (!row.lastReceived || s.last_received > row.lastReceived)) {
-        row.lastReceived = s.last_received;
-      }
-    }
-
-    // Fold exploded PPK eaches into the matrix (additive). Explode cells carry
-    // no rise dimension (a pack is rise-agnostic), so when the style spans >1
-    // rise they land on a rise-less "(prepack)" row per color rather than being
-    // attributed to a specific rise. When rise filtering is active we still show
-    // them (a rise-less bucket is never excluded by a rise filter). They add to
-    // qty/sizes only — there is no per-each cost on a pack.
-    if (payload.explode?.enabled) {
-      for (const c of payload.explode.cells) {
-        const qty = cellQty(c);
-        if (!qty) continue;
-        const color = c.color || "—";
-        const key = showRise ? `${color}|` : color; // rise-less bucket
-        let row = map.get(key);
-        if (!row) {
-          row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
-          map.set(key, row);
-        }
-        if (c.size) row.sizes[c.size] = (row.sizes[c.size] || 0) + qty;
-        row.totalQty += qty;
-      }
-    }
-
-    // Blended avg cost = totalCost / costedQty (cents) — weighted only over the
-    // SKUs that actually carry a cost, so partial cost coverage doesn't dilute
-    // the per-unit average. When no SKU in the row has cost, leave avg null and
-    // fall through to the simple-mean fallback below.
-    for (const row of map.values()) {
-      if (row.costedQty > 0 && row.totalCostCents > 0) {
-        row.avgCostCents = Math.round(row.totalCostCents / row.costedQty);
-      }
-    }
-    // Simple-mean fallback for avg cost (covers zero-qty rows) and ensure every
-    // row reflects an avg when any SKU has cost.
-    const skuByRow = new Map<string, number[]>();
-    for (const s of payload.skus) {
-      const rise = s.rise ?? null;
-      if (active && !(rise != null && active.has(rise))) continue;
-      const color = s.color ?? "—";
-      const key = showRise ? `${color}|${rise ?? ""}` : color;
-      if (s.avg_cost_cents != null) {
-        const arr = skuByRow.get(key) ?? [];
-        arr.push(s.avg_cost_cents);
-        skuByRow.set(key, arr);
-      }
-    }
-    for (const row of map.values()) {
-      if (row.avgCostCents == null) {
-        const arr = skuByRow.get(row.key);
-        if (arr && arr.length) row.avgCostCents = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
-      }
-    }
-    // Sort by descending row Total qty (highest first); stable for ties — the
-    // Map preserves first-seen (SKU) order, and we keep that order on equal qty.
-    const ordered = [...map.values()];
-    return ordered
-      .map((r, i) => ({ r, i }))
-      .sort((a, b) => (b.r.totalQty - a.r.totalQty) || (a.i - b.i))
-      .map((x) => x.r);
-  }, [payload, riseFilter, showRise, warehouse]);
+    return buildMatrixRows(payload, riseFilter, showRise, skuQty, cellQty);
+  }, [payload, riseFilter, showRise, warehouse]); // warehouse drives skuQty/cellQty
 
   // Apply the hide-zero-total-rows toggle (default ON). Hides color rows whose
   // row Total under the active metric+warehouse is 0 (e.g. White / Woodland Camo
@@ -564,11 +624,10 @@ export default function InternalInventoryMatrix() {
     return cols;
   }, [sizeOrder, showRise]);
 
-  // The footer's "Grand Total" label must span EVERY leading data column so the
-  // size totals and trailing Total/Total-Cost cells line up under their headers.
-  // Leading data cols = Base Part + Description + Color (= 3), plus Rise when the
-  // style spans >1 rise (= 4). The previous value (2/3) was off by one, which
-  // shifted the whole footer one column left of the data rows.
+  // The footer's "Grand Total" label cell spans the non-image leading data
+  // columns: Base Part + Description + Color (= 3), plus Rise when the style
+  // spans >1 rise (= 4). The Image column is a separate empty <td /> that
+  // precedes this cell in the footer row (added PR #1022).
   const colSpanLead = showRise ? 4 : 3;
 
   return (
@@ -857,14 +916,118 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
+      {/* Brand-level view — brand selected but no specific style: render all
+          brand styles' matrices stacked, each with a style header bar. */}
+      {!styleId && brandId && (
+        brandLoading ? (
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+            Loading brand inventory…
+          </div>
+        ) : brandPayloads.length === 0 ? (
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+            No styles with inventory for this brand.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {brandPayloads.map(({ style: bStyle, payload: bPayload }) => {
+              const bRises = bPayload.rises ?? [];
+              const bShowRise = bRises.length > 1;
+              const bSizeOrder = bPayload.sizes.length ? bPayload.sizes :
+                (() => { const s: string[] = []; for (const sk of bPayload.skus) if (sk.size && !s.includes(sk.size)) s.push(sk.size); return s; })();
+              const bSkuQty = (s: MatrixSku) => {
+                if (warehouse !== ALL_WAREHOUSES) return num((s.on_hand_by_wh || {})[warehouse]);
+                return num(s.on_hand_qty);
+              };
+              const bCellQty = (c: ExplodeCell) => {
+                if (warehouse !== ALL_WAREHOUSES) return num((c.by_wh || {})[warehouse]);
+                return num(c.qty);
+              };
+              const bRows = buildMatrixRows(bPayload, [], bShowRise, bSkuQty, bCellQty)
+                .filter((r) => !hideZeros || r.totalQty !== 0);
+              if (bRows.length === 0) return null;
+              const bColSpan = bShowRise ? 3 : 2; // Image + Color [+ Rise]
+              const bColTotals: Record<string, number> = {};
+              for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+              const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
+              const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
+              return (
+                <div key={bStyle.id}>
+                  <div style={{ padding: "6px 12px", background: C.card, borderRadius: "8px 8px 0 0", border: `1px solid ${C.sectionBdr}`, borderBottom: "none", fontSize: 13, fontWeight: 700, color: C.base, fontFamily: "monospace" }}>
+                    {bStyle.style_code}{bStyle.style_name ? ` — ${bStyle.style_name}` : ""}
+                  </div>
+                  <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: "0 0 8px 8px", border: `1px solid ${C.sectionBdr}` }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: C.headerBg }}>
+                          <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
+                          <th style={{ ...thBase, textAlign: "left" }}>Color</th>
+                          {bShowRise && <th style={{ ...thBase, textAlign: "left" }}>Rise</th>}
+                          {bSizeOrder.map((sz) => (
+                            <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
+                          ))}
+                          <th style={{ ...thBase, textAlign: "center" }}>Total</th>
+                          <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
+                          <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>
+                          <th style={{ ...thBase, textAlign: "center" }}>Last Rcvd</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bRows.map((row, ri) => {
+                          const isLast = ri === bRows.length - 1;
+                          // Use brand-level styleImages map doesn't apply here (we'd need per-style
+                          // maps). Render an empty placeholder so layout is consistent.
+                          return (
+                            <tr key={row.key} style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
+                              <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
+                                <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />
+                              </td>
+                              <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                              {bShowRise && <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>}
+                              {bSizeOrder.map((sz) => (
+                                <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
+                                  {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
+                                </td>
+                              ))}
+                              <td style={{ padding: "6px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>{fmtQty(row.totalQty)}</td>
+                              <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{row.avgCostCents == null ? "—" : fmtCurrency(row.avgCostCents / 100)}</td>
+                              <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontWeight: 600, fontFamily: "monospace" }}>{row.totalCostCents > 0 ? fmtCurrency(row.totalCostCents / 100) : "—"}</td>
+                              <td style={{ padding: "6px 12px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{row.lastReceived ? fmtDate(row.lastReceived.slice(0, 10)) : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
+                          <td colSpan={bColSpan} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
+                          {bSizeOrder.map((sz) => (
+                            <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
+                              {bColTotals[sz] ? fmtQty(bColTotals[sz]) : "—"}
+                            </td>
+                          ))}
+                          <td style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>{fmtQty(bGrandQty)}</td>
+                          <td style={{ padding: "10px 12px" }} />
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: C.green, fontWeight: 800, fontFamily: "monospace" }}>{bGrandCost > 0 ? fmtCurrency(bGrandCost / 100) : "—"}</td>
+                          <td style={{ padding: "10px 12px" }} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
       {/* Matrix table — poMatrixTab-style "Item Matrix" look. */}
       {loading ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-      ) : !styleId ? (
+      ) : !styleId && !brandId ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
           Pick a style to view its inventory matrix.
         </div>
-      ) : !payload || rows.length === 0 ? (
+      ) : !styleId ? null /* brand-level view rendered above */
+      : !payload || rows.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
           No SKUs found for this style{showRise && riseFilter.length ? " at the selected rise." : "."}
         </div>
@@ -877,6 +1040,7 @@ export default function InternalInventoryMatrix() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.headerBg }}>
+                <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Base Part</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Description</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Color</th>
@@ -898,6 +1062,19 @@ export default function InternalInventoryMatrix() {
                     key={row.key}
                     style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
                   >
+                    <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
+                      {(() => {
+                        const key = row.color.toLowerCase().trim();
+                        const url = styleImages.get(key) || styleImages.get("__default__") || "";
+                        return url ? (
+                          <img
+                            src={url}
+                            alt={row.color}
+                            style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155" }}
+                          />
+                        ) : <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />;
+                      })()}
+                    </td>
                     <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700, borderRight: `1px solid ${C.sectionBdr}` }}>
                       {payload.style.style_code}
                     </td>
@@ -931,6 +1108,7 @@ export default function InternalInventoryMatrix() {
             </tbody>
             <tfoot>
               <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
+                <td style={{ padding: "12px 14px" }} />
                 <td colSpan={colSpanLead} style={{ padding: "12px 14px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
                 {sizeOrder.map((sz) => (
                   <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
