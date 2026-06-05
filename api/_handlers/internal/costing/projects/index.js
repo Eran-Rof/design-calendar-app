@@ -76,43 +76,28 @@ export default async function handler(req, res) {
         console.warn("[costing/projects] ip_customer_master enrichment failed:", e.message);
       }
     }
-    // Per-project line-status breakdown (status is per LINE now). Effective
-    // status precedence: closed > awarded > on_rfq > draft. Attached as
-    // `_status_counts` so the list shows "1/5 awarded, 4/5 draft" per project.
+    // Per-project line-status breakdown (status is per LINE, stored lifecycle).
+    // Reads costing_lines.status directly — the 7-value event-driven enum.
     const projectIds = (data || []).map((p) => p.id);
     if (projectIds.length > 0) {
       try {
         const { data: lineRows } = await admin.from("costing_lines")
-          .select("id, project_id, status, selected_vendor_quote_id")
+          .select("id, project_id, status")
           .in("project_id", projectIds).range(0, 9999);
-        const lineIds = (lineRows || []).map((l) => l.id);
-        const onRfq = new Set();
-        if (lineIds.length > 0) {
-          const { data: rli } = await admin.from("rfq_line_items")
-            .select("costing_line_id").in("costing_line_id", lineIds);
-          for (const r of rli || []) if (r.costing_line_id) onRfq.add(r.costing_line_id);
-        }
-        const counts = new Map(); // project_id → { draft, on_rfq, awarded, closed, total }
-        // The list view has 4 status tabs (draft/on_rfq/awarded/closed). Fold the
-        // stored 7-state lifecycle into them: sent/quoted/lost -> on_rfq (each
-        // went through an RFQ), awarded -> awarded, closed -> closed, revised /
-        // bare-draft -> draft. Stored status wins; legacy null/draft rows fall
-        // back to the old derivation (selected_vendor_quote_id / rfq_line_items).
+        const VALID = new Set(["draft","sent","quoted","awarded","lost","revised","closed"]);
+        const counts = new Map();
         for (const l of lineRows || []) {
-          let eff;
-          if (l.status === "closed") eff = "closed";
-          else if (l.status === "awarded") eff = "awarded";
-          else if (l.status === "sent" || l.status === "quoted" || l.status === "lost") eff = "on_rfq";
-          else if (l.status === "revised") eff = "draft";
-          else if (l.selected_vendor_quote_id) eff = "awarded";
-          else if (onRfq.has(l.id)) eff = "on_rfq";
-          else eff = "draft";
+          const eff = (l.status && VALID.has(l.status)) ? l.status : "draft";
           let c = counts.get(l.project_id);
-          if (!c) { c = { draft: 0, on_rfq: 0, awarded: 0, closed: 0, total: 0 }; counts.set(l.project_id, c); }
+          if (!c) {
+            c = { draft: 0, sent: 0, quoted: 0, awarded: 0, lost: 0, revised: 0, closed: 0, total: 0 };
+            counts.set(l.project_id, c);
+          }
           c[eff]++; c.total++;
         }
+        const empty = { draft: 0, sent: 0, quoted: 0, awarded: 0, lost: 0, revised: 0, closed: 0, total: 0 };
         for (const p of data || []) {
-          p._status_counts = counts.get(p.id) || { draft: 0, on_rfq: 0, awarded: 0, closed: 0, total: 0 };
+          p._status_counts = counts.get(p.id) || { ...empty };
         }
       } catch (e) {
         console.warn("[costing/projects] line-status breakdown failed:", e.message);

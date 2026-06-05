@@ -20,17 +20,8 @@ export type CostingLineStatus =
   | "lost"
   | "revised"
   | "closed";
-// Effective status now mirrors the stored lifecycle (status is event-driven).
-// The legacy derived value `on_rfq` is retained for the projects-list buckets.
-export type CostingLineEffectiveStatus =
-  | "draft"
-  | "on_rfq"
-  | "sent"
-  | "quoted"
-  | "awarded"
-  | "lost"
-  | "revised"
-  | "closed";
+// Effective status mirrors the stored lifecycle exactly.
+export type CostingLineEffectiveStatus = CostingLineStatus;
 
 export type CostingQuoteStatus =
   | "pending"
@@ -69,7 +60,7 @@ export interface CostingProject {
   grid_state: Record<string, unknown>;
   /** Per-line status breakdown from the projects-list GET (status is per line
    *  now). Drives the list's status column + tab counts. */
-  _status_counts?: { draft: number; on_rfq: number; awarded: number; closed: number; total: number };
+  _status_counts?: { draft: number; sent: number; quoted: number; awarded: number; lost: number; revised: number; closed: number; total: number };
   user_id: string | null;
   created_at: string;
   updated_at: string;
@@ -127,8 +118,7 @@ export interface CostingLine {
   selected_vendor_quote_id: string | null;
   /** Stored per-line lifecycle status: draft|sent|quoted|awarded|lost|revised|
    *  closed. Event-driven states are written server-side (publish/submit/award);
-   *  the operator only sets draft/closed. Falls back to the legacy derivation
-   *  (selected_vendor_quote_id / _on_rfq) when null on legacy rows. */
+   *  the operator can manually set draft or closed. */
   status: CostingLineStatus | null;
   /** Derived (read-only, from the lines GET): the line is on a generated RFQ. */
   _on_rfq?: boolean;
