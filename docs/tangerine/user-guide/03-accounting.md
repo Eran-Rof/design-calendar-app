@@ -430,6 +430,7 @@ The reconciliation is a defense-in-depth check — under normal operations it sh
 
 - **Concepts** (dual-basis, control accounts, subledgers, audit immutability): [04-concepts.md](04-concepts.md)
 - **Workflows** (month-end close, manual adjustment, AP invoice manual entry): [05-workflows.md](05-workflows.md)
+- **Accounts Payable** ([13-accounts-payable.md](13-accounts-payable.md)) — the AP-invoice form now **defaults its Payment Terms from the selected vendor's master record** (`vendors.payment_terms_id`). Picking a vendor auto-fills the Payment terms picker (alongside the vendor's default AP + expense accounts); on an existing invoice it only fills when the field is still blank so an explicit edit is never overwritten.
 - **Troubleshooting** (period closed, unbalanced, missing subledger, account not found): [06-troubleshooting.md](06-troubleshooting.md)
 
 ---
