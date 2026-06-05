@@ -47,6 +47,10 @@ type B2BAccount = {
 
 type Customer = { id: string; name: string; customer_code?: string | null };
 
+// Customer codes/names carry a legacy Xoro "EXCEL:" prefix from the Excel ingest
+// (e.g. EXCEL:MACYS). Strip it for display — mirrors costingApi's stripExcelTag.
+const stripExcel = (s: string | null | undefined): string => (s || "").replace(/^EXCEL:/i, "").trim();
+
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "buyer", label: "Buyer" },
   { value: "approver", label: "Approver" },
@@ -159,7 +163,9 @@ export default function InternalB2BAccounts() {
   function customerName(id: string): string {
     const c = customerMap[id];
     if (!c) return id.slice(0, 8);
-    return c.customer_code ? `${c.name} (${c.customer_code})` : c.name;
+    const name = stripExcel(c.name);
+    const code = stripExcel(c.customer_code);
+    return code ? `${name} (${code})` : name;
   }
 
   return (
@@ -325,11 +331,15 @@ function B2BAccountFormModal({ mode, account, customers, onClose, onSaved }: Mod
     }
   }
 
-  const customerOptions = customers.map((c) => ({
-    value: c.id,
-    label: c.customer_code ? `${c.name} (${c.customer_code})` : c.name,
-    searchHaystack: `${c.name} ${c.customer_code || ""}`,
-  }));
+  const customerOptions = customers.map((c) => {
+    const name = stripExcel(c.name);
+    const code = stripExcel(c.customer_code);
+    return {
+      value: c.id,
+      label: code ? `${name} (${code})` : name,
+      searchHaystack: `${name} ${code}`,
+    };
+  });
 
   return (
     <div
