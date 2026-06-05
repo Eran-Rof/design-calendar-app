@@ -64,6 +64,7 @@ import InternalAPAging            from "./tanda/InternalAPAging";
 import InternalSalesByRep         from "./tanda/InternalSalesByRep";
 import InternalSalesByCustomer    from "./tanda/InternalSalesByCustomer";
 import InternalGLDetail           from "./tanda/InternalGLDetail";
+import InternalUpcReport          from "./tanda/InternalUpcReport";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
@@ -181,6 +182,7 @@ type ModuleKey =
   | "three_pl"
   | "edi"
   | "reports_hub"
+  | "upc_report"
   | "fixed_assets"
   | "budgets"
   | "form_1099"
@@ -393,6 +395,7 @@ const MODULES: ModuleDef[] = [
   { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Sales" },
   { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Customers" },
   { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
+  { key: "upc_report",        label: "UPC Report",        emoji: "🔖", group: "Reports" },
   // P8-3 — M25 CRM panels under new 🤝 CRM nav group.
   { key: "crm_opportunities",   label: "Opportunities",     emoji: "💼", group: "CRM" },
   { key: "crm_activities",      label: "Activities",        emoji: "📋", group: "CRM" },
@@ -716,6 +719,7 @@ export default function Tangerine() {
         {activeModule === "sales_by_rep"        && <InternalSalesByRep />}
         {activeModule === "sales_by_customer"   && <InternalSalesByCustomer />}
         {activeModule === "gl_detail"           && <InternalGLDetail />}
+        {activeModule === "upc_report"          && <InternalUpcReport />}
         {/* P8-3 — M25 CRM panels */}
         {activeModule === "crm_opportunities"   && <InternalCrmOpportunities />}
         {activeModule === "crm_activities"      && <InternalCrmActivities />}

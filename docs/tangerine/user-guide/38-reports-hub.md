@@ -30,6 +30,19 @@ Grouped quick links that open each report in place:
 - **General Ledger** — GL Detail, Chart of Accounts, Journal Entries, Periods.
 - **Sales** — Sales by Rep, Sales by Customer.
 
+## 🔖 UPC Report
+
+Reports menu → **🔖 UPC Report**. Lists every barcode in the UPC master at `(style, color, size)` grain, joined to the style for its name:
+
+| Column | Meaning |
+|---|---|
+| Style / Style Name | The style the UPC belongs to. |
+| Color / Size | The variant the barcode identifies. |
+| UPC | The 12-digit UPC-A. |
+| Source | `GS1 (minted)` for barcodes minted by Tangerine, or `Excel` / `Xoro` for imported ones. |
+
+Type in the search box to filter by style, color, size, or UPC. The **Export** button downloads the current view as xlsx, and **Columns** toggles which columns show. This is where the UPCs minted via the Style Master **Generate UPCs (GS1)** checkbox land (see [Master Data → Style Master](02-master-data.md)).
+
 > A dozen procurement/vendor **analytics** endpoints also exist
 > (`api/_handlers/internal/analytics/*`: spend, forecast, health-scores,
 > diversity-spend, early-payment, fx…); folding those into charts here is the

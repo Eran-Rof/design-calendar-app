@@ -138,6 +138,7 @@ const KEYS = [
   "tanda/reports/sales-by-customer",
   "tanda/reports/hub",
   "tanda/reports/gl-detail",
+  "tanda/reports/upc-report",
   "tanda/vendors/scorecard",
   "tanda/customers/scorecard",
   "tanda/inventory/transfers",

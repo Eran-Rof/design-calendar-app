@@ -416,6 +416,7 @@ import r_internal_tpl_providers_index from "./internal/tpl-providers/index.js";
 import r_internal_tpl_shipments_id from "./internal/tpl-shipments/[id].js";
 import r_internal_tpl_shipments_index from "./internal/tpl-shipments/index.js";
 import r_internal_trial_balance_index from "./internal/trial-balance/index.js";
+import r_internal_upc_items_index from "./internal/upc-items/index.js";
 import r_internal_users_access_index from "./internal/users-access/index.js";
 import r_internal_users_access_me from "./internal/users-access/me.js";
 import r_internal_users_access_override from "./internal/users-access/override.js";
@@ -1098,6 +1099,7 @@ export const ROUTES = [
   { pattern: "/api/internal/employees", handler: r_internal_employees_index },
   { pattern: "/api/internal/form-1099", handler: r_internal_form_1099_index },
   { pattern: "/api/internal/gl-detail", handler: r_internal_gl_detail_index },
+  { pattern: "/api/internal/upc-items", handler: r_internal_upc_items_index },
   { pattern: "/api/vendor/attachments", handler: r_vendor_attachments_index },
   { pattern: "/api/xoro/probe-filters", handler: r_xoro_probe_filters },
   { pattern: "/api/xoro/sales-history", handler: r_xoro_sales_history },

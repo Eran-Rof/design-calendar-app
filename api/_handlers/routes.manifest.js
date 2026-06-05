@@ -333,6 +333,7 @@ export default [
   ["/api/internal/warehouses"                                , "./internal/warehouses/index.js"],
   ["/api/internal/style-matrix/resolve-sku"                  , "./internal/style-matrix/resolve-sku.js"],
   ["/api/internal/style-matrix"                              , "./internal/style-matrix/index.js"],
+  ["/api/internal/upc-items"                                 , "./internal/upc-items/index.js"],
   ["/api/internal/planning/buy-plan-to-po"                   , "./internal/planning/buy-plan-to-po.js"],
   ["/api/internal/planning/link-planning-vendor"             , "./internal/planning/link-planning-vendor.js"],
   ["/api/internal/planning/sync-tangerine-supply"            , "./internal/planning/sync-tangerine-supply.js"],
