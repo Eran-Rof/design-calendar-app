@@ -674,6 +674,10 @@ export interface RfqCompareLineItem {
   line_index: number | null;
   description: string | null;
   quantity: number | null;
+  // Reference SELL price from the source costing line
+  // (rfq_line_items.costing_line_id → costing_lines.sell_price). NULL when the
+  // RFQ line was not originated from costing. Drives margin = (sell − quoted) / sell.
+  sell_price: number | null;
 }
 
 export interface RfqCompareQuoteLine {

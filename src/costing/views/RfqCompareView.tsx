@@ -7,9 +7,12 @@
 //   • cheapest unit price per line is highlighted green (and tagged "best")
 //   • each non-cheapest cell shows its % above the line's lowest price
 //   • the per-line spread (max − min) is shown in a dedicated column
-//   • per-vendor footer totals (Σ extended) + lead time + valid-until
-//   • the overall cheapest vendor per RFQ is flagged
-//   • a project-level summary names the lowest-total vendor + lead-time spread
+//   • per-vendor footer totals (Σ extended) + WEIGHTED MARGIN + lead time
+//   • each cell shows the line's gross margin (sell − quoted)/sell vs the
+//     reference sell_price from the source costing line ("—" when unknown)
+//   • the overall cheapest vendor AND the best-margin vendor are both flagged
+//     (they can differ) per RFQ
+//   • a project-level summary names lowest-total + best-margin + fastest-lead
 //   • vendor quote-level notes + per-line notes are surfaced
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -26,28 +29,56 @@ const fmtUnit = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maxim
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const fmtPct = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 
-// Light palette consistent with RfqListView / RfqEditView (which use the
-// light costing surface, not the dark ATS shell).
+// DARK palette — matches the rest of the Costing module (RfqListView): page
+// #0F172A, cards #1E293B, borders #334155, text #E2E8F0, muted #94A3B8.
 const C = {
-  pageBg: "#F8FAFC",
-  card: "#FFFFFF",
-  border: "#E2E8F0",
-  borderStrong: "#CBD5E1",
-  text: "#1E293B",
-  subtle: "#64748B",
-  headerBg: "#F1F5F9",
-  best: "#DCFCE7",      // cheapest cell fill (green)
-  bestFg: "#166534",
-  bestBorder: "#86EFAC",
-  worst: "#FEF2F2",     // subtle red tint for the priciest
-  accent: "#1E40AF",
+  pageBg: "#0F172A",
+  card: "#1E293B",
+  border: "#334155",
+  borderStrong: "#475569",
+  text: "#E2E8F0",
+  subtle: "#94A3B8",
+  headerBg: "#1E293B",
+  // thead / tfoot / summary bands — darker than the card so they read as header
+  // rows against the #1E293B card (matches RfqListView thead = page bg).
+  bandBg: "#0F172A",
+  hover: "#334155",     // row/option hover + selected on dark
+  best: "#064E3B",      // cheapest cell fill (green, on dark)
+  bestFg: "#6EE7B7",
+  bestBorder: "#065F46",
+  worst: "rgba(127,29,29,0.35)", // subtle red tint for the priciest
+  accent: "#60A5FA",
+  // Margin colors (legible on dark).
+  marginGood: "#6EE7B7",
+  marginThin: "#FBBF24",
+  marginBad: "#F87171",
+  pctAbove: "#FBBF24",  // "+x% above lowest" (amber on dark)
 };
+
+// Margin threshold: at/above is "healthy" (green), below is "thin" (amber),
+// negative is "bad" (red).
+const HEALTHY_MARGIN = 0.40;
 
 function money(n: number | null | undefined): string {
   return typeof n === "number" && Number.isFinite(n) ? `$${fmtMoney.format(n)}` : "—";
 }
 function unit(n: number | null | undefined): string {
   return typeof n === "number" && Number.isFinite(n) ? `$${fmtUnit.format(n)}` : "—";
+}
+// Gross margin (fraction 0..1) if bought at `quoted` and sold at `sell`.
+function margin(sell: number | null | undefined, quoted: number | null | undefined): number | null {
+  if (typeof sell !== "number" || !Number.isFinite(sell) || sell <= 0) return null;
+  if (typeof quoted !== "number" || !Number.isFinite(quoted)) return null;
+  return (sell - quoted) / sell;
+}
+function marginColor(m: number | null): string {
+  if (m === null) return C.subtle;
+  if (m < 0) return C.marginBad;
+  if (m < HEALTHY_MARGIN) return C.marginThin;
+  return C.marginGood;
+}
+function pctMargin(m: number | null): string {
+  return m === null ? "—" : `${(m * 100).toFixed(0)}%`;
 }
 
 export default function RfqCompareView() {
@@ -135,7 +166,7 @@ export default function RfqCompareView() {
             background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
             boxShadow: "0 8px 24px rgba(0,0,0,0.12)", maxHeight: 320, overflowY: "auto",
           }}>
-            {projErr && <div style={{ padding: 12, color: "#B91C1C", fontSize: 13 }}>{projErr}</div>}
+            {projErr && <div style={{ padding: 12, color: "#F87171", fontSize: 13 }}>{projErr}</div>}
             {!projErr && filteredProjects.length === 0 && (
               <div style={{ padding: 12, color: C.subtle, fontSize: 13 }}>No matching projects.</div>
             )}
@@ -144,12 +175,12 @@ export default function RfqCompareView() {
                 key={p.id}
                 onClick={() => { setPicked(p.id); setOpen(false); setSearch(""); }}
                 style={{
-                  padding: "9px 12px", fontSize: 13, cursor: "pointer",
-                  background: p.id === picked ? C.headerBg : "transparent",
+                  padding: "9px 12px", fontSize: 13, cursor: "pointer", color: C.text,
+                  background: p.id === picked ? C.hover : "transparent",
                   borderBottom: `1px solid ${C.border}`,
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = C.headerBg)}
-                onMouseLeave={(e) => (e.currentTarget.style.background = p.id === picked ? C.headerBg : "transparent")}
+                onMouseEnter={(e) => (e.currentTarget.style.background = C.hover)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = p.id === picked ? C.hover : "transparent")}
               >
                 {p.project_name}
                 {p.brand && <span style={{ color: C.subtle, marginLeft: 8 }}>· {p.brand}</span>}
@@ -160,7 +191,7 @@ export default function RfqCompareView() {
       </div>
 
       {loading && <div style={{ color: C.subtle, fontSize: 14 }}>Loading comparison…</div>}
-      {error && <div style={{ color: "#B91C1C", fontSize: 14 }}>{error}</div>}
+      {error && <div style={{ color: "#F87171", fontSize: 14 }}>{error}</div>}
 
       {!loading && !error && picked && data && (
         <CompareBody data={data} />
@@ -239,6 +270,42 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
     return best;
   }, [extendedTotals]);
 
+  // Per-vendor WEIGHTED margin across the lines the vendor quoted, using the
+  // reference sell_price from each RFQ line:
+  //   (Σ sell·qty − Σ quoted·qty) / Σ sell·qty   (only lines with a known sell)
+  const sellByItem = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const li of rfq.line_items) m.set(li.id, typeof li.sell_price === "number" ? li.sell_price : null);
+    return m;
+  }, [rfq.line_items]);
+
+  const vendorMargins = useMemo(() => {
+    return quotes.map((q) => {
+      const qtyByItem = new Map<string, number>();
+      for (const li of rfq.line_items) qtyByItem.set(li.id, typeof li.quantity === "number" ? li.quantity : 0);
+      let sumSell = 0; let sumQuoted = 0; let any = false;
+      for (const ql of q.lines) {
+        const sell = sellByItem.get(ql.rfq_line_item_id) ?? null;
+        if (typeof sell !== "number" || sell <= 0 || typeof ql.unit_price !== "number") continue;
+        const qty = typeof ql.quantity === "number" ? ql.quantity : (qtyByItem.get(ql.rfq_line_item_id) ?? 0);
+        if (qty <= 0) continue;
+        sumSell += sell * qty;
+        sumQuoted += ql.unit_price * qty;
+        any = true;
+      }
+      return any && sumSell > 0 ? (sumSell - sumQuoted) / sumSell : null;
+    });
+  }, [quotes, rfq.line_items, sellByItem]);
+
+  // Vendor with the BEST overall margin (may differ from cheapest total).
+  const bestMarginVendorIdx = useMemo(() => {
+    let best = -1; let bestVal = -Infinity;
+    vendorMargins.forEach((m, i) => {
+      if (typeof m === "number" && m > bestVal) { bestVal = m; best = i; }
+    });
+    return best;
+  }, [vendorMargins]);
+
   // Lead-time spread for the project-level summary.
   const leadTimes = quotes
     .map((q, i) => ({ i, lt: q.lead_time_days }))
@@ -261,7 +328,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
       <MatrixHeader rfq={rfq} />
 
       {/* Project-level summary line */}
-      <div style={{ padding: "10px 16px", background: C.headerBg, borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+      <div style={{ padding: "10px 16px", background: C.bandBg, borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
         {cheapestVendorIdx >= 0 ? (
           <span>
             <strong style={{ color: C.bestFg }}>Lowest total:</strong>{" "}
@@ -270,6 +337,15 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
           </span>
         ) : (
           <span style={{ color: C.subtle }}>No priced quotes to total.</span>
+        )}
+        {bestMarginVendorIdx >= 0 && vendorMargins[bestMarginVendorIdx] !== null && (
+          <span style={{ marginLeft: 18 }}>
+            <strong style={{ color: C.bestFg }}>Best margin:</strong>{" "}
+            {quotes[bestMarginVendorIdx].vendor_name || "Vendor"}{" "}
+            (<span style={{ color: marginColor(vendorMargins[bestMarginVendorIdx]) }}>
+              {pctMargin(vendorMargins[bestMarginVendorIdx])}
+            </span>)
+          </span>
         )}
         {fastest && (
           <span style={{ marginLeft: 18 }}>
@@ -284,16 +360,19 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
           <thead>
-            <tr style={{ background: C.headerBg }}>
-              <th style={{ ...thStyle, position: "sticky", left: 0, background: C.headerBg, minWidth: 240, textAlign: "left" }}>
+            <tr style={{ background: C.bandBg }}>
+              <th style={{ ...thStyle, position: "sticky", left: 0, background: C.bandBg, minWidth: 240, textAlign: "left" }}>
                 Line item
               </th>
               {quotes.map((q, i) => (
                 <th key={q.vendor_id + i} style={{ ...thStyle, minWidth: colW }}>
-                  <div style={{ fontWeight: 700 }}>
+                  <div style={{ fontWeight: 700, color: C.text }}>
                     {q.vendor_name || "Vendor"}
                     {i === cheapestVendorIdx && (
                       <span style={bestPill}>cheapest</span>
+                    )}
+                    {i === bestMarginVendorIdx && vendorMargins[i] !== null && (
+                      <span style={bestMarginPill}>best margin</span>
                     )}
                   </div>
                   {q.status && <div style={{ fontSize: 11, color: C.subtle, fontWeight: 400 }}>{q.status}</div>}
@@ -332,6 +411,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                         : 0;
                     const qty = typeof c?.qty === "number" ? c.qty : (typeof li.quantity === "number" ? li.quantity : null);
                     const ext = typeof c?.unit === "number" && typeof qty === "number" ? c.unit * qty : null;
+                    const mgn = margin(li.sell_price, c?.unit);
                     return (
                       <td
                         key={i}
@@ -348,8 +428,11 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                           <>
                             <div>{unit(c.unit)}{isMin && <span style={{ fontSize: 10, marginLeft: 4 }}>★</span>}</div>
                             {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {money(ext)}</div>}
+                            <div style={{ fontSize: 11, color: marginColor(mgn), fontWeight: mgn !== null ? 600 : 400 }}>
+                              mgn {pctMargin(mgn)}
+                            </div>
                             {pctAbove > 0 && (
-                              <div style={{ fontSize: 11, color: "#B45309" }}>+{fmtPct.format(pctAbove)}%</div>
+                              <div style={{ fontSize: 11, color: C.pctAbove }}>+{fmtPct.format(pctAbove)}%</div>
                             )}
                             {c.notes && <div style={{ fontSize: 10, color: C.subtle, fontStyle: "italic" }} title={c.notes}>📝</div>}
                           </>
@@ -359,7 +442,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                       </td>
                     );
                   })}
-                  <td style={{ ...tdStyle, color: spread ? "#B45309" : C.subtle }}>
+                  <td style={{ ...tdStyle, color: spread ? C.pctAbove : C.subtle }}>
                     {spread !== null ? unit(spread) : "—"}
                   </td>
                 </tr>
@@ -367,8 +450,8 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
             })}
           </tbody>
           <tfoot>
-            <tr style={{ borderTop: `2px solid ${C.borderStrong}`, background: C.headerBg }}>
-              <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.headerBg, fontWeight: 700, textAlign: "left" }}>
+            <tr style={{ borderTop: `2px solid ${C.borderStrong}`, background: C.bandBg }}>
+              <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.bandBg, fontWeight: 700, textAlign: "left" }}>
                 Total (Σ extended)
               </td>
               {quotes.map((q, i) => (
@@ -376,26 +459,49 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                   key={q.vendor_id + i}
                   style={{
                     ...tdStyle, fontWeight: 700,
-                    background: i === cheapestVendorIdx ? C.best : C.headerBg,
+                    background: i === cheapestVendorIdx ? C.best : C.bandBg,
                     color: i === cheapestVendorIdx ? C.bestFg : C.text,
                   }}
                 >
                   {money(extendedTotals[i])}
                 </td>
               ))}
-              <td style={{ ...tdStyle, background: C.headerBg }} />
+              <td style={{ ...tdStyle, background: C.bandBg }} />
             </tr>
-            <tr style={{ background: C.headerBg }}>
-              <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.headerBg, fontWeight: 600, textAlign: "left", color: C.subtle }}>
+            <tr style={{ background: C.bandBg }}>
+              <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.bandBg, fontWeight: 700, textAlign: "left" }}>
+                Weighted margin
+              </td>
+              {quotes.map((q, i) => {
+                const m = vendorMargins[i];
+                const isBest = i === bestMarginVendorIdx && m !== null;
+                return (
+                  <td
+                    key={q.vendor_id + i}
+                    style={{
+                      ...tdStyle, fontWeight: 700,
+                      background: isBest ? C.best : C.bandBg,
+                      color: m === null ? C.subtle : marginColor(m),
+                    }}
+                  >
+                    {pctMargin(m)}
+                    {isBest && <span style={{ fontSize: 10, marginLeft: 4 }}>★</span>}
+                  </td>
+                );
+              })}
+              <td style={{ ...tdStyle, background: C.bandBg }} />
+            </tr>
+            <tr style={{ background: C.bandBg }}>
+              <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.bandBg, fontWeight: 600, textAlign: "left", color: C.subtle }}>
                 Lead time · Valid until
               </td>
               {quotes.map((q, i) => (
-                <td key={q.vendor_id + i} style={{ ...tdStyle, background: C.headerBg, fontSize: 12, color: C.subtle }}>
+                <td key={q.vendor_id + i} style={{ ...tdStyle, background: C.bandBg, fontSize: 12, color: C.subtle }}>
                   <div>{typeof q.lead_time_days === "number" ? `${q.lead_time_days}d` : "—"}</div>
                   <div>{q.valid_until ? fmtDateDisplay(q.valid_until) : "—"}</div>
                 </td>
               ))}
-              <td style={{ ...tdStyle, background: C.headerBg }} />
+              <td style={{ ...tdStyle, background: C.bandBg }} />
             </tr>
           </tfoot>
         </table>
@@ -463,6 +569,18 @@ const bestPill: React.CSSProperties = {
   color: C.bestFg,
   background: C.best,
   border: `1px solid ${C.bestBorder}`,
+  borderRadius: 6,
+  padding: "1px 5px",
+  textTransform: "uppercase",
+};
+
+const bestMarginPill: React.CSSProperties = {
+  marginLeft: 6,
+  fontSize: 10,
+  fontWeight: 700,
+  color: "#0F172A",
+  background: C.marginGood,
+  border: `1px solid ${C.marginGood}`,
   borderRadius: 6,
   padding: "1px 5px",
   textTransform: "uppercase",
