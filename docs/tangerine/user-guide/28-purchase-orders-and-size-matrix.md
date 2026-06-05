@@ -180,6 +180,14 @@ The **Avg Cost** column is a qty-weighted blended average across the row's SKUs 
 
 > **Blend note (PR #20).** `ip_item_avg_cost` is keyed by `sku_code`, and many color/size SKUs have no matching cost row (the master's `sku_code` spelling — e.g. `RYB0412-CREAM-TONAL-GRIZZLY-CAMO-32` — doesn't match the cost table's `RYB0412-CREAMTONALGRIZZLYCAMO-32`). The blend therefore weights **only the qty of SKUs that actually carry a cost** (`costedQty`), not the row's total qty. Weighting by total qty understated the average whenever cost coverage was partial — e.g. RYB0412 "Cream Tonal Grizzly Camo" / "Wither Fade Ashen Camo" showed **$0.81** (one costed size out of five) instead of the real **~$5.72**. The fix keeps the average on the same per-unit basis as the data; zero/near-zero costs are ignored.
 
+### Per-color image thumbnails (PR #1022)
+
+Each color row now shows a **44 × 44 px thumbnail** in the first column ("Img"). The image for each row comes from the style's PIM images filtered to that color (first image per color wins; falls back to the style's default image if no color-specific image is found). Styles or colors with no PIM image show a dark placeholder square. Image loading is non-fatal — the matrix renders immediately and fills in thumbnails asynchronously.
+
+### Brand-level view (PR #1022)
+
+**Pick a brand but leave the Style picker empty.** Instead of the "Pick a style…" prompt, the panel loads matrices for up to **50 of the brand's styles in parallel** and renders them stacked, each with a header bar showing the style code and name. The active Warehouse and Hide-Zero-Rows filters apply to all sub-matrices. Styles that return no SKUs (or whose every row is zero under the active filters) are omitted. This view gives the operator a quick brand-wide on-hand snapshot without clicking through styles one by one.
+
 ### By-size on-hand cutover status
 
 This is the financially-material part. **By default the Inventory Matrix is COLOR-grain**, because planning (ATS) deliberately collapses Xoro REST on-hand to color grain in `scripts/rest_to_ats_inventory.py` + `api/_lib/planning-sync.js` (writing `ip_inventory_snapshot` at color grain). Per-size on-hand needs a size-grain source.
