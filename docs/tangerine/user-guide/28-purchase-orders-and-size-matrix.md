@@ -166,13 +166,15 @@ A read-only on-hand view (`src/tanda/InternalInventoryMatrix.tsx`, PRs #729/#737
 
 - **Brand filter** — scopes the style picker to one brand (client-side, `"" = all brands`).
 - **Style picker** — searchable over up to 10k entity styles; searches code, name, description, group/category/sub-category (PR #740), **and the style's brand code/name** (PR #956) so a brand-alone search (e.g. typing `ROF` or `Psycho Tuna` into the Style box) resolves that brand's styles.
-- **Show: On-Hand / ATS ↗** — On-Hand is the only metric. The old "Available" toggle was **replaced by a link out to the ATS app** at `/ats` (PR #760), which opens in a new tab (PR #766). ATS is the suite's source of truth for available-to-sell.
+- **Show: On-Hand / ATS ↗** — On-Hand is the only metric. The old "Available" toggle was **replaced by a link out to the ATS app** at `/ats` (PR #760), which opens in a new tab (PR #766). ATS is the suite's source of truth for available-to-sell. The link is **deep-linked to the currently-selected style** (PR #21): it carries `?style=<style_code>`, which ATS reads on load and seeds into its free-text search box so ATS opens already filtered to that style.
 - **Warehouse filter** — "All" sums every warehouse; individual buttons narrow to one. The breakdown comes from each layer's `notes` `wh=<Store>` token; color-grain layers with no token bucket under `(unassigned)`.
 - **Rows: Hide Zero / Show All** — defaults to **Hide Zero** (hides color rows with a zero row-total under the active warehouse). Grand totals are computed over visible rows so they always match what's shown.
 - **Prepacks: Off / Explode PPK** — see §28.7.
 - **Rise chips** — only when the style spans more than one rise.
 
 The **Avg Cost** column is a qty-weighted blended average across the row's SKUs (cents), sourced from `ip_item_avg_cost` (dollars × 100). **Last Received** is the latest `inventory_layers.received_at` on the row's SKUs. Standard `ExportButton` exports the flat per-row grid.
+
+> **Blend note (PR #20).** `ip_item_avg_cost` is keyed by `sku_code`, and many color/size SKUs have no matching cost row (the master's `sku_code` spelling — e.g. `RYB0412-CREAM-TONAL-GRIZZLY-CAMO-32` — doesn't match the cost table's `RYB0412-CREAMTONALGRIZZLYCAMO-32`). The blend therefore weights **only the qty of SKUs that actually carry a cost** (`costedQty`), not the row's total qty. Weighting by total qty understated the average whenever cost coverage was partial — e.g. RYB0412 "Cream Tonal Grizzly Camo" / "Wither Fade Ashen Camo" showed **$0.81** (one costed size out of five) instead of the real **~$5.72**. The fix keeps the average on the same per-unit basis as the data; zero/near-zero costs are ignored.
 
 ### By-size on-hand cutover status
 

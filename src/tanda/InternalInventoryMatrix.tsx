@@ -328,6 +328,7 @@ export default function InternalInventoryMatrix() {
     totalQty: number;
     avgCostCents: number | null; // qty-weighted blended avg, cents
     totalCostCents: number;
+    costedQty: number; // qty of SKUs that actually carry a cost (blend denominator)
     lastReceived: string | null;
   };
 
@@ -342,14 +343,21 @@ export default function InternalInventoryMatrix() {
       const key = showRise ? `${color}|${rise ?? ""}` : color;
       let row = map.get(key);
       if (!row) {
-        row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, lastReceived: null };
+        row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
         map.set(key, row);
       }
       const qty = skuQty(s);
       if (s.size) row.sizes[s.size] = (row.sizes[s.size] || 0) + qty;
       row.totalQty += qty;
-      if (s.avg_cost_cents != null) {
+      // Only SKUs with a real (non-zero) cost contribute to the weighted blend
+      // — both numerator AND denominator. Many color/size SKUs have no
+      // ip_item_avg_cost row (sku_code spelling mismatch), so dividing the
+      // cost-weighted sum by total qty would understate the avg (e.g. one
+      // costed size out of five → $0.81 instead of $5.72). Weighting by
+      // costedQty keeps the blend on the same per-unit basis as the data.
+      if (s.avg_cost_cents != null && s.avg_cost_cents > 0) {
         row.totalCostCents += Math.round(qty * s.avg_cost_cents);
+        row.costedQty += qty;
       }
       if (s.last_received && (!row.lastReceived || s.last_received > row.lastReceived)) {
         row.lastReceived = s.last_received;
@@ -370,7 +378,7 @@ export default function InternalInventoryMatrix() {
         const key = showRise ? `${color}|` : color; // rise-less bucket
         let row = map.get(key);
         if (!row) {
-          row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, lastReceived: null };
+          row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
           map.set(key, row);
         }
         if (c.size) row.sizes[c.size] = (row.sizes[c.size] || 0) + qty;
@@ -378,12 +386,13 @@ export default function InternalInventoryMatrix() {
       }
     }
 
-    // Blended avg cost = totalCost / totalQty (cents). When a row has qty but
-    // no cost data, leave avg null; when qty is 0 fall back to a simple mean of
-    // the SKUs' avg_cost so a cost still shows for zero-on-hand colors.
+    // Blended avg cost = totalCost / costedQty (cents) — weighted only over the
+    // SKUs that actually carry a cost, so partial cost coverage doesn't dilute
+    // the per-unit average. When no SKU in the row has cost, leave avg null and
+    // fall through to the simple-mean fallback below.
     for (const row of map.values()) {
-      if (row.totalQty > 0 && row.totalCostCents > 0) {
-        row.avgCostCents = Math.round(row.totalCostCents / row.totalQty);
+      if (row.costedQty > 0 && row.totalCostCents > 0) {
+        row.avgCostCents = Math.round(row.totalCostCents / row.costedQty);
       }
     }
     // Simple-mean fallback for avg cost (covers zero-qty rows) and ensure every
@@ -526,11 +535,13 @@ export default function InternalInventoryMatrix() {
               On-Hand
             </button>
             <a
-              href="/ats"
+              href={`/ats${payload?.style.style_code ? `?style=${encodeURIComponent(payload.style.style_code)}` : ""}`}
               target="_blank"
               rel="noopener noreferrer"
               style={atsLinkStyle}
-              title="Open the ATS app for available-to-sell"
+              title={payload?.style.style_code
+                ? `Open the ATS app filtered to ${payload.style.style_code}`
+                : "Open the ATS app for available-to-sell"}
             >
               ATS ↗
             </a>

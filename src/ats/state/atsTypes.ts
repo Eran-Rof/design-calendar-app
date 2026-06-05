@@ -144,12 +144,15 @@ export type ATSAction =
   | { type: "UPLOAD_FAIL"; error: string }
   | { type: "UPLOAD_RESET" };
 
-export function createInitialState(startDate: string): ATSState {
+export function createInitialState(startDate: string, initialSearch = ""): ATSState {
   return {
     startDate,
     rangeUnit: "months",
     rangeValue: 6,
-    search: "",
+    // Prefilled from a `?style=` deep-link (e.g. the Inventory Matrix "ATS ↗"
+    // link). The free-text search matches on row SKU, which carries the style
+    // code prefix, so seeding it focuses ATS on that style on first paint.
+    search: initialSearch,
     filterCategory: [],
     filterSubCategory: [],
     filterStyle: [],
