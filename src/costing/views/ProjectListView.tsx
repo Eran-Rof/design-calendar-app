@@ -219,6 +219,7 @@ export default function ProjectListView() {
             style={{
               background: C.card, border: `1px solid ${C.cardBdr}`,
               borderRadius: 10, padding: 0, width: "100%", maxWidth: 480,
+              maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
               color: C.text, boxShadow: "0 24px 60px rgba(0,0,0,0.55)",
             }}
           >

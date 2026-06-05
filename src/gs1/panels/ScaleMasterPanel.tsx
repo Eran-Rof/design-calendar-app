@@ -55,7 +55,7 @@ function EditModal({ code, existing, onSave, onClose }: {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 420, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>Scale: {code}</h3>
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: TH.textSub2 }}>Description</label>

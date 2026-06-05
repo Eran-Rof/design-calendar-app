@@ -231,7 +231,7 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 520, maxWidth: "92vw", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 520, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
         <h3 style={{ margin: "0 0 14px", color: TH.text, fontSize: 16 }}>{existing ? "Update ERP connection" : "Connect ERP"}</h3>
         <Field label="System">
           <select value={type} onChange={(e) => setType(e.target.value)} style={inp}>

@@ -122,14 +122,18 @@ function ExceptionCard({ group, issues, onNavigate, onResolveAll }: {
   );
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function IssueRow({ issue }: { issue: DataQualityIssue }) {
+  // Hide opaque UUID identifiers; only surface human-readable codes (GTIN, SSCC, etc.).
+  const showId = issue.entity_id && !UUID_RE.test(issue.entity_id);
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 0", borderBottom: `1px solid rgba(0,0,0,0.06)` }}>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 12, color: TH.text }}>{issue.message}</div>
-        {issue.entity_id && (
+        {issue.entity_type && (
           <div style={{ fontSize: 11, color: TH.textMuted, fontFamily: "monospace", marginTop: 2 }}>
-            {issue.entity_type}: {issue.entity_id}
+            {issue.entity_type}{showId ? `: ${issue.entity_id}` : ""}
           </div>
         )}
       </div>

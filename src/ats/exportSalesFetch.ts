@@ -957,7 +957,7 @@ export async function fetchSalesAggregates({ rows, needT3, needLY, customer, cus
     }
     for (const [custId, acc] of byCustomerAcc) {
       byCustomer.set(custId, {
-        customerName: custId === "__unknown" ? "(unknown / no customer)" : (nameById.get(custId) ?? custId.slice(0, 8)),
+        customerName: custId === "__unknown" ? "(unknown / no customer)" : (nameById.get(custId) ?? "—"),
         t3: acc.t3,
         ly: acc.ly,
         bySku: acc.bySku,

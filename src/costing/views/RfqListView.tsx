@@ -8,7 +8,7 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs, deleteRfq, publishRfq, awardRfq } from "../services/costingApi";
+import { listRfqs, deleteRfq, publishRfq, awardRfq, stripExcelPrefix } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
@@ -129,8 +129,8 @@ export default function RfqListView() {
     const isDraft = r.status === "draft";
     appConfirm(
       isDraft
-        ? `Send RFQ "${r.title || r.id}" to ${vendorLabel}? This publishes it and notifies the invited vendor(s).`
-        : `Re-send RFQ "${r.title || r.id}" to ${vendorLabel}? The invited vendor(s) will be notified again.`,
+        ? `Send RFQ "${r.title || r.code || "RFQ"}" to ${vendorLabel}? This publishes it and notifies the invited vendor(s).`
+        : `Re-send RFQ "${r.title || r.code || "RFQ"}" to ${vendorLabel}? The invited vendor(s) will be notified again.`,
       isDraft ? "Send" : "Re-send",
       async () => {
         setSending((prev) => new Set(prev).add(r.id));
@@ -290,7 +290,7 @@ export default function RfqListView() {
                   <Td><span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap" }}>{r.code || "—"}</span></Td>
                   <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.title || "(untitled)"}</span></Td>
                   <Td>{r.vendor_name || "—"}</Td>
-                  <Td>{r.customer_name || "—"}</Td>
+                  <Td>{stripExcelPrefix(r.customer_name) || "—"}</Td>
                   <Td>{r.project_name || "—"}</Td>
                   <Td align="right">{r.line_count}</Td>
                   <Td align="right">{typeof r.estimated_quantity === "number" ? fmtQty.format(r.estimated_quantity) : "—"}</Td>
