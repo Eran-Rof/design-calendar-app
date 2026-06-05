@@ -164,6 +164,7 @@ import r_internal_costing_projects_id_generate_rfqs from "./internal/costing/pro
 import r_internal_costing_projects_id_index from "./internal/costing/projects/[id]/index.js";
 import r_internal_costing_projects_id_lines from "./internal/costing/projects/[id]/lines.js";
 import r_internal_costing_projects_index from "./internal/costing/projects/index.js";
+import r_internal_costing_rfq_compare_index from "./internal/costing/rfq-compare/index.js";
 import r_internal_costing_rfqs_id_index from "./internal/costing/rfqs/[id]/index.js";
 import r_internal_costing_rfqs_index from "./internal/costing/rfqs/index.js";
 import r_internal_costing_search_categories from "./internal/costing/search/categories.js";
@@ -806,6 +807,7 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-feeds/exchange", handler: r_internal_bank_feeds_exchange },
   { pattern: "/api/internal/commissions/payouts", handler: r_internal_commissions_payouts },
   { pattern: "/api/internal/commissions/reverse", handler: r_internal_commissions_reverse },
+  { pattern: "/api/internal/costing/rfq-compare", handler: r_internal_costing_rfq_compare_index },
   { pattern: "/api/internal/crm/pipeline-report", handler: r_internal_crm_pipeline_report_index },
   { pattern: "/api/internal/marketplace/inquire", handler: r_internal_marketplace_inquire },
   { pattern: "/api/internal/recon/run-inventory", handler: r_internal_recon_run_inventory },

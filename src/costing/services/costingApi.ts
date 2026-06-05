@@ -662,3 +662,53 @@ export async function awardRfq(rfqId: string, vendorId: string): Promise<AwardRf
     headers: { "Content-Type": "application/json" },
   }));
 }
+
+// ── Compare RFQs (cross-RFQ vendor-quote comparison for one project) ─────────
+// GET /api/internal/costing/rfq-compare?project_id=… → every RFQ in the
+// project with its line items + submitted vendor quotes (+ per-line unit
+// prices). The matrix math (cheapest-per-line, deltas) is computed client-side
+// in RfqCompareView.
+
+export interface RfqCompareLineItem {
+  id: string;
+  line_index: number | null;
+  description: string | null;
+  quantity: number | null;
+}
+
+export interface RfqCompareQuoteLine {
+  rfq_line_item_id: string;
+  unit_price: number | null;
+  quantity: number | null;
+  notes: string | null;
+}
+
+export interface RfqCompareQuote {
+  vendor_id: string;
+  vendor_name: string | null;
+  status: string | null;
+  total_price: number | null;
+  lead_time_days: number | null;
+  valid_until: string | null;
+  notes: string | null;
+  lines: RfqCompareQuoteLine[];
+}
+
+export interface RfqCompareRfq {
+  id: string;
+  code: string | null;
+  title: string | null;
+  status: string | null;
+  line_items: RfqCompareLineItem[];
+  quotes: RfqCompareQuote[];
+}
+
+export interface RfqCompareResult {
+  project: { id: string; name: string };
+  rfqs: RfqCompareRfq[];
+}
+
+export async function compareRfqs(projectId: string): Promise<RfqCompareResult> {
+  const sp = new URLSearchParams({ project_id: projectId });
+  return json<RfqCompareResult>(await fetch(`/api/internal/costing/rfq-compare?${sp.toString()}`));
+}
