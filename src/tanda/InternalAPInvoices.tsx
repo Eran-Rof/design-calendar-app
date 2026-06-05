@@ -51,6 +51,7 @@ type APInvoice = {
   description: string | null;
   expense_account_id: string | null;
   ap_account_id: string | null;
+  payment_terms_id?: string | null;
   receiving_channel?: "WS" | "EC" | null;
   accrual_je_id: string | null;
   cash_je_id: string | null;
@@ -74,6 +75,7 @@ type APInvoiceLine = {
 type APInvoiceFull = APInvoice & { lines: APInvoiceLine[] };
 
 type Vendor = { id: string; name: string; vendor_code?: string };
+type PaymentTerm = { id: string; code: string; name: string; due_days: number; is_active?: boolean };
 type Account = {
   id: string;
   code: string;
@@ -529,6 +531,8 @@ function APInvoiceModal({
   const [description, setDescription] = useState(invoice?.description || "");
   const [apAccountId, setApAccountId] = useState(invoice?.ap_account_id || "");
   const [expenseAccountId, setExpenseAccountId] = useState(invoice?.expense_account_id || "");
+  const [paymentTermsId, setPaymentTermsId] = useState(invoice?.payment_terms_id || "");
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm[]>([]);
   // The selected vendor's current defaults (for auto-fill + the write-back prompt).
   const [vendorDefaults, setVendorDefaults] = useState<{ ap: string | null; expense: string | null }>({ ap: null, expense: null });
 
@@ -546,6 +550,14 @@ function APInvoiceModal({
     fetch("/api/internal/gl-accounts?limit=1000")
       .then((r) => r.json())
       .then((arr: Account[]) => setAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
+      .catch(() => {});
+  }, []);
+
+  // Payment-terms master for the Payment Terms picker.
+  useEffect(() => {
+    fetch("/api/internal/payment-terms")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: PaymentTerm[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
       .catch(() => {});
   }, []);
 
@@ -572,9 +584,13 @@ function APInvoiceModal({
         if (cancel || !v) return;
         const dAp = v.default_gl_ap_account_id || null;
         const dEx = v.default_gl_expense_account_id || null;
+        const dTerms = v.payment_terms_id || null;
         setVendorDefaults({ ap: dAp, expense: dEx });
         setApAccountId((prev) => (isNew ? (dAp || "") : (prev || dAp || "")));
         setExpenseAccountId((prev) => (isNew ? (dEx || "") : (prev || dEx || "")));
+        // Auto-fill payment terms only when new or the field is still empty —
+        // never clobber an explicit edit on an existing invoice.
+        if (dTerms) setPaymentTermsId((prev) => (isNew ? dTerms : (prev || dTerms)));
       })
       .catch(() => {});
     return () => { cancel = true; };
@@ -683,6 +699,7 @@ function APInvoiceModal({
         description: description.trim() || null,
         expense_account_id: expenseAccountId || null,
         ap_account_id: apAccountId || null,
+        payment_terms_id: paymentTermsId || null,
         lines: apiLines,
       };
 
@@ -801,12 +818,24 @@ function APInvoiceModal({
               </Field>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Posting date">
                 <input type="date" value={postingDate} onChange={(e) => setPostingDate(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Due date">
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!editable} style={inputStyle} />
+              </Field>
+              <Field label="Payment terms">
+                <SearchableSelect
+                  value={paymentTermsId || null}
+                  onChange={(v) => setPaymentTermsId(v)}
+                  options={[
+                    { value: "", label: "(none)" },
+                    ...paymentTerms.map((t) => ({ value: t.id, label: `${t.name} (${t.due_days}d)` })),
+                  ]}
+                  placeholder="(defaults from vendor)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="Default expense account">
                 <SearchableSelect

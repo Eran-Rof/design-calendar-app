@@ -108,7 +108,7 @@ export default async function handler(req, res) {
       .select(
         "id, entity_id, vendor_id, invoice_number, invoice_kind, gl_status, " +
         "posting_date, due_date, description, expense_account_id, ap_account_id, " +
-        "receiving_channel, accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
+        "payment_terms_id, receiving_channel, accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
         "source, created_at, updated_at"
       )
       .eq("entity_id", entityId)
@@ -165,6 +165,7 @@ export default async function handler(req, res) {
       description: v.data.description,
       expense_account_id: v.data.expense_account_id,
       ap_account_id,
+      payment_terms_id: v.data.payment_terms_id,
       receiving_channel: v.data.receiving_channel,
     };
 
@@ -262,6 +263,9 @@ export function validateInsert(body) {
   if (body.ap_account_id && !isUuid(body.ap_account_id)) {
     return { error: "ap_account_id must be a uuid" };
   }
+  if (body.payment_terms_id && !isUuid(body.payment_terms_id)) {
+    return { error: "payment_terms_id must be a uuid" };
+  }
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     return { error: "lines must be a non-empty array" };
   }
@@ -326,6 +330,7 @@ export function validateInsert(body) {
       description: body.description ? String(body.description).trim() : null,
       expense_account_id: body.expense_account_id || null,
       ap_account_id: body.ap_account_id || null,
+      payment_terms_id: body.payment_terms_id || null,
       receiving_channel: body.receiving_channel === "EC" ? "EC" : (body.receiving_channel === "WS" ? "WS" : null),
       lines: normalizedLines,
     },

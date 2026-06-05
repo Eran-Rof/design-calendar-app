@@ -49,8 +49,9 @@ From the **AP Invoices** panel, click **+ New invoice**.
 | Kind | yes | `vendor_bill` / `vendor_credit_memo` / `expense_report` |
 | Posting date | yes | The date the GL JE will land on (must be inside an open period at posting time) |
 | Due date | optional | Defaults to posting date if blank — set explicitly per vendor terms |
-| Default expense account | optional | Used when a line has no per-line override |
-| AP account | optional | Defaults to `entities.default_ap_account_id` (code `2010`) |
+| Payment terms | optional | **Auto-fills from the vendor master's `payment_terms_id`** when you pick a vendor. On a new invoice the vendor's preset is adopted; on an existing invoice it only fills if the field is still empty (an explicit edit is never clobbered). Pick from the M-Payment-Terms master or leave `(none)`. |
+| Default expense account | optional | Used when a line has no per-line override (also auto-fills from the vendor master) |
+| AP account | optional | Defaults to `entities.default_ap_account_id` (code `2010`) (also auto-fills from the vendor master) |
 | Description | optional | Free text |
 | Lines (≥ 1) | yes | Mix of expense lines and inventory lines |
 
