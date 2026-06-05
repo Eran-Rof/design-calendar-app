@@ -7,6 +7,7 @@
 // the same engine (api/_lib/pricing/engine.js).
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -49,7 +50,7 @@ export default function InternalPriceLists() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [detail, setDetail] = useState<PriceList | null>(null);
@@ -58,7 +59,7 @@ export default function InternalPriceLists() {
     setLoading(true); setErr(null);
     try {
       const p = new URLSearchParams();
-      if (q.trim()) p.set("q", q.trim());
+      if (qDebounced.trim()) p.set("q", qDebounced.trim());
       if (includeInactive) p.set("include_inactive", "true");
       const r = await fetch(`/api/internal/price-lists?${p.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -66,7 +67,7 @@ export default function InternalPriceLists() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [includeInactive]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [qDebounced, includeInactive]);
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
     fetch("/api/internal/style-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
@@ -79,7 +80,7 @@ export default function InternalPriceLists() {
         <button style={btnPrimary} onClick={() => setNewOpen(true)}>+ New price list</button>
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void load(); }} placeholder="Search code / name…" style={{ ...inputStyle, width: 220 }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search code / name…" style={{ ...inputStyle, width: 220 }} />
         <button style={btnSecondary} onClick={() => void load()}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} /> Include inactive

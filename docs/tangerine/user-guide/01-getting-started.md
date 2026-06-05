@@ -127,6 +127,12 @@ flowchart LR
 
 Through Chunks 7/7b/7c/8a/8b/8c (May 25-26) the 6 admin panels temporarily lived in the Tanda PO WIP app's "Vendors ▾" dropdown — a poor architectural home for ERP master data. Chunk T1 (2026-05-26) moved them to their own `/tangerine` app and removed them from Tanda's menu entirely. If you have muscle memory pointing at Tanda, retrain it: **the panels are at `/tangerine`** now.
 
+## UI conventions
+
+### Search filters as you type
+
+Every master-data panel (Style Master, Vendor Master, Customer Master, Genders, Countries, Fabric Codes, Factors, Payment Terms, Season Master, Size Scales, Style Classifications, Employee Departments/Titles, B2B Accounts/Price List, Price Lists, Promotions, Purchase Orders, Sales Orders, Prepack Matrix, PIM Catalog, Pack GTIN Master, …) filters **live as you type** — there's no need to press **Enter** or click a **Search** button. Results refresh automatically about a fifth of a second after you stop typing. Any **Search** button still present simply forces an immediate refresh; you can ignore it. Press **Esc** in a search box to clear it.
+
 ## Reading these docs
 
 | You want to… | Go to |

@@ -16,6 +16,7 @@
 // Spec: docs/tangerine/P8-data-crm-architecture.md §5 + §6.
 
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import InternalPimStyleDetail from "./InternalPimStyleDetail";
@@ -201,7 +202,7 @@ export default function InternalPimProductCatalog() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [categoryFilter, setCategoryFilter] = useState<string>(""); // category id; expands children
   const [publishFilter, setPublishFilter] = useState<string>("");
   const [brandFilter, setBrandFilter] = useState<string>(""); // brand id (Chunk J item 4)
@@ -249,7 +250,7 @@ export default function InternalPimProductCatalog() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       params.set("limit", "500");
       const r = await fetch(`/api/internal/style-master?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -307,9 +308,15 @@ export default function InternalPimProductCatalog() {
   useEffect(() => {
     void loadCategories();
     void loadBrands();
-    void loadStyles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live search: refetch styles ~200ms after the operator stops typing.
+  // Fires once on mount with the empty query for the initial load.
+  useEffect(() => {
+    void loadStyles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qDebounced]);
 
   const catPaths = useMemo(() => buildCategoryPathMap(categories), [categories]);
   const brandNameById = useMemo(() => {
@@ -429,7 +436,6 @@ export default function InternalPimProductCatalog() {
           placeholder="Search style code or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void loadStyles()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void loadStyles()} style={btnSecondary}>Search</button>
