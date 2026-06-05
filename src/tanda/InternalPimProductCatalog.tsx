@@ -83,6 +83,10 @@ type ImageRow = {
   storage_path: string;
   storage_path_thumb: string | null;
   storage_path_web: string | null;
+  // The composite handler signs the bucket-relative storage_path* into real,
+  // renderable URLs. The raw paths are NOT usable as <img src>, so we must read
+  // these for display.
+  signed_urls?: { thumb: string | null; web: string | null; print: string | null } | null;
   is_primary: boolean;
   sort_order: number;
 };
@@ -194,7 +198,9 @@ function pickPrimaryThumb(images: ImageRow[]): string | null {
     return a.sort_order - b.sort_order;
   });
   const top = sorted[0];
-  return top.storage_path_thumb || top.storage_path_web || top.storage_path || null;
+  // Use the SIGNED urls (renderable); the storage_path* fields are bucket-
+  // relative paths that won't load as an <img src>.
+  return top.signed_urls?.thumb || top.signed_urls?.web || top.signed_urls?.print || null;
 }
 
 function fmtDate(iso: string | null | undefined): string {
