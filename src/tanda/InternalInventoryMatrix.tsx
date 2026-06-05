@@ -249,21 +249,32 @@ export default function InternalInventoryMatrix() {
     if (styleId && !brandStyles.some((s) => s.id === styleId)) setStyleId("");
   }, [brandStyles, styleId]);
 
+  // brand_id → "CODE Name" so a brand-only search (typing a brand code/name
+  // into the Style picker) resolves that brand's styles. Without this the brand
+  // never reaches the style haystack below, so a brand-alone search matched
+  // nothing even though every style carries a brand_id.
+  const brandLabelById = useMemo<Map<string, string>>(
+    () => new Map(brands.map((b) => [b.id, [b.code, b.name].filter(Boolean).join(" ")])),
+    [brands],
+  );
+
   // Style picker options "<style_code> — <style_name>".
   const styleOptions = useMemo<SearchableSelectOption[]>(
     () =>
       brandStyles.map((s) => {
         const name = s.style_name || s.description || "";
         const label = name ? `${s.style_code} — ${name}` : s.style_code;
-        // Search across code + name + description + group/category/sub so a
-        // style is reachable by any of them (not just code/name).
+        // Search across code + name + description + group/category/sub + brand
+        // so a style is reachable by any of them (not just code/name) — including
+        // a brand-alone search where the operator types just the brand code/name.
         const searchHaystack = [
           s.style_code, s.style_name, s.description,
           s.group_name, s.category_name, s.sub_category_name,
+          s.brand_id ? brandLabelById.get(s.brand_id) : null,
         ].filter(Boolean).join(" ");
         return { value: s.id, label, searchHaystack };
       }),
-    [brandStyles],
+    [brandStyles, brandLabelById],
   );
 
   const rises = payload?.rises ?? [];
