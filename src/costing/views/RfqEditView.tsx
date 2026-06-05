@@ -15,7 +15,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
-import { RfqQuotesPanel, RfqMessageThread, type RfqTheme } from "../../tanda/rfq/RfqQuotesAndMessages";
+import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme } from "../../tanda/rfq/RfqQuotesAndMessages";
 import { getRfq, updateRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
 import { appConfirm } from "../../utils/theme";
@@ -491,11 +491,19 @@ export default function RfqEditView() {
             />
           </div>
 
-          {/* Internal RFQ message thread — read vendor messages and reply as
-              "Ring of Fire". Same /api/internal/rfqs/:id/messages feed as the
-              Tanda RFQ detail. */}
+          {/* Internal RFQ message thread — PRIVATE per vendor. Pick which
+              invited vendor to converse with, then read their messages and
+              reply as "Ring of Fire". Same /api/internal/rfqs/:id/messages
+              feed (now vendor-scoped) as the Tanda RFQ detail. */}
           <div style={{ maxWidth: 1080 }}>
-            <RfqMessageThread rfqId={detail.rfq.id} theme={COSTING_RFQ_THEME} />
+            <RfqVendorThreadPanel
+              rfqId={detail.rfq.id}
+              theme={COSTING_RFQ_THEME}
+              vendors={invitations.map((i: RfqInvitation) => ({
+                vendor_id: i.vendor_id,
+                vendor_name: i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id,
+              }))}
+            />
           </div>
         </>
       )}

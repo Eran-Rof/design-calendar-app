@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
-import { RfqQuotesPanel, RfqMessageThread, type RfqTheme, type QuoteSortKey } from "./rfq/RfqQuotesAndMessages";
+import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme, type QuoteSortKey } from "./rfq/RfqQuotesAndMessages";
 
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; awarded_to_vendor_id: string | null };
@@ -96,7 +96,11 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
         reloadKey={reloadKey}
       />
 
-      <RfqMessageThread rfqId={rfqId} theme={C} />
+      <RfqVendorThreadPanel
+        rfqId={rfqId}
+        theme={C}
+        vendors={(detail.invitations || []).map((i) => ({ vendor_id: i.vendor_id, vendor_name: i.vendor?.name || i.vendor_id }))}
+      />
     </div>
   );
 }

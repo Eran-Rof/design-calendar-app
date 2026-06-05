@@ -351,12 +351,13 @@ interface RfqMessage {
 }
 
 /**
- * Internal-side RFQ message thread. Lets the buyer reviewing this RFQ read
- * vendor messages and reply as "Ring of Fire". Talks to
- * /api/internal/rfqs/:id/messages (the rfq_messages table is service-role
- * only). Internal replies right-aligned, vendor messages left-aligned.
+ * Internal-side RFQ message thread, scoped to ONE vendor (private 1:1).
+ * Threads are per (rfq, vendor): the buyer reads that vendor's messages and
+ * replies as "Ring of Fire". Talks to /api/internal/rfqs/:id/messages with a
+ * required vendor_id (the rfq_messages table is service-role only). Internal
+ * replies right-aligned, vendor messages left-aligned.
  */
-export function RfqMessageThread({ rfqId, theme, onPosted }: { rfqId: string; theme: RfqTheme; onPosted?: () => void }) {
+export function RfqMessageThread({ rfqId, vendorId, theme, onPosted }: { rfqId: string; vendorId: string; theme: RfqTheme; onPosted?: () => void }) {
   const C = theme;
   const [messages, setMessages] = useState<RfqMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -368,14 +369,14 @@ export function RfqMessageThread({ rfqId, theme, onPosted }: { rfqId: string; th
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`/api/internal/rfqs/${rfqId}/messages`);
+      const r = await fetch(`/api/internal/rfqs/${rfqId}/messages?vendor_id=${encodeURIComponent(vendorId)}`);
       if (!r.ok) throw new Error(await r.text());
       setMessages((await r.json()) as RfqMessage[]);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [rfqId]);
+  useEffect(() => { void load(); }, [rfqId, vendorId]);
 
   async function send() {
     const body = draft.trim();
@@ -386,7 +387,7 @@ export function RfqMessageThread({ rfqId, theme, onPosted }: { rfqId: string; th
       const r = await fetch(`/api/internal/rfqs/${rfqId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, sender_name: "Ring of Fire" }),
+        body: JSON.stringify({ body, vendor_id: vendorId, sender_name: "Ring of Fire" }),
       });
       if (!r.ok) throw new Error(await r.text());
       setDraft("");
@@ -434,6 +435,62 @@ export function RfqMessageThread({ rfqId, theme, onPosted }: { rfqId: string; th
           {sending ? "Sending…" : "Send"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Per-RFQ message panel for the internal side. Threads are now PRIVATE per
+ * vendor, so this renders a vendor selector (the RFQ's invited vendors) above
+ * the thread; picking a vendor shows that vendor's 1:1 conversation. Defaults
+ * to the first invited vendor; shows an empty state when the RFQ has no
+ * invitations (nothing to message until it's sent).
+ */
+export function RfqVendorThreadPanel({
+  rfqId,
+  vendors,
+  theme,
+  onPosted,
+}: {
+  rfqId: string;
+  vendors: { vendor_id: string; vendor_name: string }[];
+  theme: RfqTheme;
+  onPosted?: () => void;
+}) {
+  const C = theme;
+  const [vendorId, setVendorId] = useState<string>(vendors[0]?.vendor_id ?? "");
+  useEffect(() => {
+    // Keep selection valid as the invited-vendor list changes (e.g. after send).
+    if (vendors.length === 0) { if (vendorId) setVendorId(""); return; }
+    if (!vendors.some((v) => v.vendor_id === vendorId)) setVendorId(vendors[0].vendor_id);
+  }, [vendors, vendorId]);
+
+  if (vendors.length === 0) {
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, marginTop: 16, padding: "20px 16px", color: C.textMuted, fontSize: 13 }}>
+        <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>Messages</div>
+        No vendors invited yet. Send this RFQ to a vendor to start a private conversation with them.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>Conversation with:</span>
+        <select
+          value={vendorId}
+          onChange={(e) => setVendorId(e.target.value)}
+          style={{ padding: "5px 8px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 12, fontFamily: "inherit" }}
+        >
+          {vendors.map((v) => (
+            <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>
+          ))}
+        </select>
+      </div>
+      {vendorId && (
+        <RfqMessageThread key={vendorId} rfqId={rfqId} vendorId={vendorId} theme={C} onPosted={onPosted} />
+      )}
     </div>
   );
 }

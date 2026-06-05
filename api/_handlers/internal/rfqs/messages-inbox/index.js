@@ -1,21 +1,25 @@
 // api/internal/rfqs/messages-inbox
 //
-// Global RFQ-messages inbox for the internal/buyer side. The per-RFQ thread
-// lives at /api/internal/rfqs/:id/messages; this endpoint aggregates ACROSS
-// rfqs so the Costing module can show a single "Messages" list of every RFQ
-// that has at least one message.
+// Global RFQ-messages inbox for the internal/buyer side. Threads are PER-VENDOR
+// (private 1:1), so this lists one row PER (rfq, invited vendor) conversation —
+// driven by rfq_invitations (every SENT RFQ has ≥1 invitation), LEFT-joined to
+// rfq_messages aggregates so a conversation appears even with ZERO messages.
+// That makes every sent RFQ×vendor selectable in the Costing "Messages" inbox,
+// so the buyer can START a new conversation, not just reply to existing ones.
 //
-// GET → one row per RFQ that has ≥1 rfq_messages row:
+// GET → one row per (rfq, invited vendor):
 //   {
 //     rfq_id,
 //     rfq_title,
-//     last_message_at,        // ISO ts of the most recent message
-//     last_message_preview,   // body of that most recent message (trimmed)
-//     unread_internal,        // count of vendor messages with read_by_internal=false
-//     total,                  // total messages in the thread
-//     vendor_names,           // string[] of invited vendor names (best-effort)
+//     project_name,           // source costing project name (best-effort)
+//     vendor_id,
+//     vendor_name,
+//     total,                  // messages in THIS vendor's thread
+//     unread_internal,        // vendor msgs with read_by_internal=false in this thread
+//     last_message_at,        // ISO ts of the most recent message (null if none)
+//     last_preview,           // body of that most recent message (trimmed)
 //   }
-// Sorted unread-first (unread_internal desc), then last_message_at desc.
+// Sorted: unread first, then last_message_at desc (nulls last), then rfq recency.
 //
 // rfq_messages is RLS-on with NO policies → service-role only; the browser
 // cannot query it directly, which is why this lives behind a server handler.
@@ -41,96 +45,92 @@ export default async function handler(req, res) {
 
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
-  // Pull every message (newest first) and fold into a per-RFQ summary. The
-  // rfq_messages table is the only place these live, so we aggregate here in
-  // JS rather than relying on a DB view (none exists for this shape today).
-  const { data: messages, error } = await admin
-    .from("rfq_messages")
-    .select("rfq_id, sender_type, sender_name, body, read_by_internal, created_at")
-    .order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
+  // Every SENT RFQ has ≥1 rfq_invitations row; a draft with no invitations is
+  // not messageable and is excluded by construction. One conversation per
+  // (rfq, vendor).
+  const { data: invites, error: invErr } = await admin
+    .from("rfq_invitations")
+    .select("rfq_id, vendor_id, vendors(name, legal_name, code)");
+  if (invErr) return res.status(500).json({ error: invErr.message });
 
-  const byRfq = new Map();
-  for (const m of messages || []) {
-    if (!m.rfq_id) continue;
-    let agg = byRfq.get(m.rfq_id);
-    if (!agg) {
-      // First message seen for this RFQ is the most recent one (desc order).
-      agg = {
-        rfq_id: m.rfq_id,
-        rfq_title: null,
-        last_message_at: m.created_at,
-        last_message_preview: (m.body || "").trim().slice(0, 160),
-        unread_internal: 0,
-        total: 0,
-        vendor_names: [],
-        _vendorSenderNames: new Set(),
-      };
-      byRfq.set(m.rfq_id, agg);
-    }
-    agg.total += 1;
-    if (m.sender_type === "vendor") {
-      if (!m.read_by_internal) agg.unread_internal += 1;
-      if (m.sender_name && m.sender_name.trim()) agg._vendorSenderNames.add(m.sender_name.trim());
-    }
-  }
+  const conversations = (invites || []).filter((i) => i.rfq_id && i.vendor_id);
+  if (conversations.length === 0) return res.status(200).json([]);
 
-  const rfqIds = [...byRfq.keys()];
-  if (rfqIds.length === 0) return res.status(200).json([]);
+  const rfqIds = [...new Set(conversations.map((i) => i.rfq_id))];
 
-  // RFQ titles. SELECT only columns that exist today (title, status) — NOT
-  // rfqs.code, which may not exist on this schema yet.
+  // RFQ headers: title, status, source costing project (for the "project · RFQ"
+  // label) and created_at (the recency tie-breaker). SELECT only columns known
+  // to exist on this schema.
   const { data: rfqs } = await admin
     .from("rfqs")
-    .select("id, title, status")
+    .select("id, title, status, source_costing_project_id, created_at")
     .in("id", rfqIds);
-  for (const r of rfqs || []) {
-    const agg = byRfq.get(r.id);
-    if (agg) {
-      agg.rfq_title = r.title || null;
-      agg.status = r.status || null;
+  const rfqById = new Map((rfqs || []).map((r) => [r.id, r]));
+
+  const projectIds = [...new Set((rfqs || []).map((r) => r.source_costing_project_id).filter(Boolean))];
+  const projectNameById = new Map();
+  if (projectIds.length > 0) {
+    const { data: projects } = await admin
+      .from("costing_projects")
+      .select("id, project_name")
+      .in("id", projectIds);
+    for (const p of projects || []) projectNameById.set(p.id, p.project_name || null);
+  }
+
+  // Message aggregates per (rfq_id, vendor_id). Pull every message newest-first
+  // and fold; the first one seen for a key is its most-recent message. Legacy
+  // rows with no vendor_id can't be attributed to a private thread, so they are
+  // skipped here (they still surface inside the per-vendor thread via the
+  // vendor_id IS NULL fold in the messages handler).
+  const { data: messages, error: msgErr } = await admin
+    .from("rfq_messages")
+    .select("rfq_id, vendor_id, sender_type, body, read_by_internal, created_at")
+    .order("created_at", { ascending: false });
+  if (msgErr) return res.status(500).json({ error: msgErr.message });
+
+  const aggByKey = new Map();
+  const keyOf = (rfqId, vendorId) => `${rfqId}::${vendorId}`;
+  for (const m of messages || []) {
+    if (!m.rfq_id || !m.vendor_id) continue;
+    const key = keyOf(m.rfq_id, m.vendor_id);
+    let agg = aggByKey.get(key);
+    if (!agg) {
+      agg = { last_message_at: m.created_at, last_preview: (m.body || "").trim().slice(0, 160), total: 0, unread_internal: 0 };
+      aggByKey.set(key, agg);
     }
+    agg.total += 1;
+    if (m.sender_type === "vendor" && !m.read_by_internal) agg.unread_internal += 1;
   }
 
-  // Invited vendor name(s) per RFQ (best-effort — empty for ad-hoc threads
-  // with no invitations). Falls back to the distinct vendor sender names seen
-  // in the thread when no invitation rows exist.
-  const { data: invites } = await admin
-    .from("rfq_invitations")
-    .select("rfq_id, vendor_id, vendors(name, legal_name, code)")
-    .in("rfq_id", rfqIds);
-  const invNamesByRfq = new Map();
-  for (const inv of invites || []) {
-    const v = inv.vendors || {};
-    const name = v.name || v.legal_name || v.code || null;
-    if (!name) continue;
-    let set = invNamesByRfq.get(inv.rfq_id);
-    if (!set) { set = new Set(); invNamesByRfq.set(inv.rfq_id, set); }
-    set.add(name);
-  }
-
-  const rows = [...byRfq.values()].map((agg) => {
-    const invSet = invNamesByRfq.get(agg.rfq_id);
-    const names = invSet && invSet.size > 0
-      ? [...invSet]
-      : [...agg._vendorSenderNames];
+  const rows = conversations.map((conv) => {
+    const rfq = rfqById.get(conv.rfq_id) || {};
+    const v = conv.vendors || {};
+    const agg = aggByKey.get(keyOf(conv.rfq_id, conv.vendor_id));
     return {
-      rfq_id: agg.rfq_id,
-      rfq_title: agg.rfq_title,
-      status: agg.status ?? null,
-      last_message_at: agg.last_message_at,
-      last_message_preview: agg.last_message_preview,
-      unread_internal: agg.unread_internal,
-      total: agg.total,
-      vendor_names: names,
+      rfq_id: conv.rfq_id,
+      rfq_title: rfq.title || null,
+      status: rfq.status ?? null,
+      project_name: rfq.source_costing_project_id ? (projectNameById.get(rfq.source_costing_project_id) || null) : null,
+      vendor_id: conv.vendor_id,
+      vendor_name: v.name || v.legal_name || v.code || null,
+      total: agg?.total ?? 0,
+      unread_internal: agg?.unread_internal ?? 0,
+      last_message_at: agg?.last_message_at ?? null,
+      last_preview: agg?.last_preview ?? "",
+      _rfq_created_at: rfq.created_at || null,
     };
   });
 
-  // Unread-first, then most-recent-message first.
+  // Unread first; then most-recent-message first (nulls last); then RFQ recency.
   rows.sort((a, b) => {
     if (b.unread_internal !== a.unread_internal) return b.unread_internal - a.unread_internal;
-    return String(b.last_message_at).localeCompare(String(a.last_message_at));
+    if (!!b.last_message_at !== !!a.last_message_at) return a.last_message_at ? -1 : 1;
+    if (a.last_message_at && b.last_message_at && a.last_message_at !== b.last_message_at) {
+      return String(b.last_message_at).localeCompare(String(a.last_message_at));
+    }
+    return String(b._rfq_created_at || "").localeCompare(String(a._rfq_created_at || ""));
   });
 
+  for (const r of rows) delete r._rfq_created_at;
   return res.status(200).json(rows);
 }

@@ -68,10 +68,14 @@ export default async function handler(req, res) {
   if (!invite) return res.status(403).json({ error: "RFQ not found or you were not invited" });
 
   if (req.method === "GET") {
+    // Private 1:1 thread: a vendor only ever sees their OWN messages for this
+    // RFQ. Legacy rows with no vendor_id (pre per-vendor scoping) are still
+    // shown to the inviting vendor so nothing is silently lost.
     const { data: messages, error } = await admin
       .from("rfq_messages")
-      .select("id, rfq_id, sender_type, sender_name, body, read_by_vendor, read_by_internal, created_at")
+      .select("id, rfq_id, vendor_id, sender_type, sender_name, body, read_by_vendor, read_by_internal, created_at")
       .eq("rfq_id", rfqId)
+      .or(`vendor_id.eq.${caller.vendor_id},vendor_id.is.null`)
       .order("created_at", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
 
@@ -95,6 +99,7 @@ export default async function handler(req, res) {
 
     const { data: msg, error: msgErr } = await admin.from("rfq_messages").insert({
       rfq_id: rfqId,
+      vendor_id: caller.vendor_id,
       sender_type: "vendor",
       sender_auth_id: caller.auth_id,
       sender_name: caller.display_name || caller.email || "Vendor",
