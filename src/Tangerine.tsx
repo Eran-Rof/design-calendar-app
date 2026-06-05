@@ -47,6 +47,8 @@ import InternalSalesReturns       from "./tanda/InternalSalesReturns";
 import InternalDropShip          from "./tanda/InternalDropShip";
 import InternalThreePL           from "./tanda/InternalThreePL";
 import InternalEDI               from "./tanda/InternalEDI";
+import InternalEdiCustomers      from "./tanda/InternalEdiCustomers";
+import InternalEdiSettings       from "./tanda/InternalEdiSettings";
 import InternalReportsHub        from "./tanda/InternalReportsHub";
 import InternalFixedAssets       from "./tanda/InternalFixedAssets";
 import InternalBudgets           from "./tanda/InternalBudgets";
@@ -214,6 +216,8 @@ type ModuleKey =
   | "drop_ship"
   | "three_pl"
   | "edi"
+  | "edi_customers"
+  | "edi_settings"
   | "reports_hub"
   | "upc_report"
   | "fixed_assets"
@@ -310,7 +314,7 @@ type ModuleKey =
   // M15 — External / Partner API key admin.
   | "api_keys";
 
-type GroupKey = "Master Data" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+type GroupKey = "Master Data" | "EDI" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 type ModuleDef = {
   key: ModuleKey;
@@ -328,7 +332,7 @@ type ModuleDef = {
 // short while preserving the group taxonomy. Every GroupKey must appear in
 // exactly one section (else its modules vanish from the nav).
 const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
-  { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
+  { section: "Master Data", emoji: "📚", groups: ["Master Data", "EDI"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
   // #983 — Treasury: cash/FX/cards/SCF/discounts/tax + parallel-run recon.
   { section: "Treasury",    emoji: "💰", groups: ["Treasury"] },
@@ -352,6 +356,7 @@ const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
 
 const GROUP_ICON: Record<GroupKey, string> = {
   "Master Data":      "📚",
+  "EDI":              "🔌",
   "Accounting":       "💼",
   "Treasury":         "💰",
   "Vendors":          "🏭",
@@ -416,7 +421,11 @@ const MODULES: ModuleDef[] = [
   { key: "sales_returns",     label: "Returns/RMA",        emoji: "↩️", group: "Sales" },
   { key: "drop_ship",         label: "Drop-Ship",          emoji: "📦", group: "Sales" },
   { key: "three_pl",          label: "3PL",                emoji: "🚚", group: "Inventory" },
-  { key: "edi",               label: "EDI",                emoji: "🔌", group: "Procurement" },
+  // EDI restructured into a sub-menu under Master Data: Vendors / Customers /
+  // Settings. The existing vendor X12 panel keeps key `edi`, relabelled "Vendors".
+  { key: "edi",               label: "Vendors",            emoji: "🏭", group: "EDI" },
+  { key: "edi_customers",     label: "Customers",          emoji: "🤝", group: "EDI" },
+  { key: "edi_settings",      label: "Settings",           emoji: "⚙️", group: "EDI" },
   { key: "reports_hub",       label: "Reports & Analytics", emoji: "📊", group: "Reports" },
   { key: "fixed_assets",      label: "Fixed Assets",       emoji: "🏢", group: "Accounting" },
   { key: "budgets",           label: "Budgets",            emoji: "🎯", group: "Accounting" },
@@ -818,6 +827,8 @@ export default function Tangerine() {
         {activeModule === "drop_ship" && <InternalDropShip />}
         {activeModule === "three_pl" && <InternalThreePL />}
         {activeModule === "edi" && <InternalEDI />}
+        {activeModule === "edi_customers" && <InternalEdiCustomers />}
+        {activeModule === "edi_settings" && <InternalEdiSettings />}
         {activeModule === "reports_hub" && <InternalReportsHub />}
         {activeModule === "fixed_assets" && <InternalFixedAssets />}
         {activeModule === "budgets" && <InternalBudgets />}
