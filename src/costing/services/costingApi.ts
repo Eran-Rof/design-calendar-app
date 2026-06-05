@@ -727,3 +727,9 @@ export async function compareRfqs(projectId: string): Promise<RfqCompareResult> 
   const sp = new URLSearchParams({ project_id: projectId });
   return json<RfqCompareResult>(await fetch(`/api/internal/costing/rfq-compare?${sp.toString()}`));
 }
+
+// Only projects whose RFQs have at least one real vendor quote — used to populate
+// the Compare-RFQs picker so empty projects aren't listed.
+export async function compareEligibleProjects(): Promise<CostingProject[]> {
+  return json<CostingProject[]>(await fetch(`/api/internal/costing/rfq-compare/projects`));
+}

@@ -16,7 +16,7 @@
 //   • vendor quote-level notes + per-line notes are surfaced
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { listProjects, compareRfqs } from "../services/costingApi";
+import { compareEligibleProjects, compareRfqs } from "../services/costingApi";
 import type {
   CostingProject,
   RfqCompareResult,
@@ -96,11 +96,11 @@ export default function RfqCompareView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load projects for the picker.
+  // Load projects for the picker — only those with RFQs that have vendor quotes.
   useEffect(() => {
     let alive = true;
     setProjLoading(true);
-    listProjects()
+    compareEligibleProjects()
       .then((rows) => { if (alive) { setProjects(rows); setProjErr(null); } })
       .catch((e) => { if (alive) setProjErr((e as Error).message); })
       .finally(() => { if (alive) setProjLoading(false); });
@@ -169,7 +169,9 @@ export default function RfqCompareView() {
           }}>
             {projErr && <div style={{ padding: 12, color: "#F87171", fontSize: 13 }}>{projErr}</div>}
             {!projErr && filteredProjects.length === 0 && (
-              <div style={{ padding: 12, color: C.subtle, fontSize: 13 }}>No matching projects.</div>
+              <div style={{ padding: 12, color: C.subtle, fontSize: 13 }}>
+                {projects.length === 0 ? "No projects have vendor quotes to compare yet." : "No matching projects."}
+              </div>
             )}
             {filteredProjects.map((p) => (
               <div
