@@ -75,6 +75,10 @@ Each line must resolve to a positive `line_total_cents`. There are two paths:
 
 The trigger `ar_invoice_lines_maintain_total` rebuilds `ar_invoices.total_amount_cents` after every line insert / update / delete. The UI shows a running total under the lines table.
 
+### ☰ List / ▦ Matrix view
+
+The Lines section of the invoice modal has a **☰ List / ▦ Matrix** toggle. **List** is the editable default (add/edit lines, pick the style, set qty and price). **Matrix** is a read-only **color × size grid** of the invoice's inventory lines (rows = color, columns = size, with row/column totals) — handy for verifying the size breakdown of a wholesale invoice. Each line stores only an item id; the matrix resolves those ids to the SKU's color/size. Flat-amount / service lines and items with no color/size appear in a **"Non-matrix lines"** list beneath the grid.
+
 ## Posting — Approval gate + FIFO consume
 
 Click **Post** on a draft row (or on a pending-approval row to re-emit the gate). The handler:
