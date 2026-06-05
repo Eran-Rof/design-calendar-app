@@ -26,6 +26,7 @@ export default [
   ["/api/internal/scf/requests/:id/approve"                  , "./internal/scf/requests/[id]/approve.js"],
   ["/api/internal/scf/requests/:id/fund"                     , "./internal/scf/requests/[id]/fund.js"],
   ["/api/vendor/rfqs/:id/quotes/submit"                      , "./vendor/rfqs/[id]/quotes/submit.js"],
+  ["/api/vendor/rfqs/:id/quote/revise"                       , "./vendor/rfqs/[id]/quote/revise.js"],
   ["/api/internal/design/trend-brief/synthesize"             , "./internal/design/trend-brief/synthesize.js"],
   ["/api/vendor/marketplace/listing/publish"                 , "./vendor/marketplace/listing/publish.js"],
   ["/api/internal/design/trend-brief/list"                   , "./internal/design/trend-brief/list.js"],

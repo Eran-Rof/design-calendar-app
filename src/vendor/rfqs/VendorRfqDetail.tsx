@@ -16,7 +16,7 @@ interface RfqDetail {
     fabric_code: string | null; fabric_name: string | null; fit: string | null;
   }[];
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
-  quote: { id: string; status: string; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[] } | null;
+  quote: { id: string; status: string; revision?: number | null; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[] } | null;
   // Documents attached to the source costing lines (tech packs, spec sheets,
   // reference images), each with a short-lived signed URL. Images render as a
   // product-image strip; other kinds as a downloadable list.
@@ -158,6 +158,26 @@ export default function VendorRfqDetail() {
       if (!r.ok) throw new Error(await r.text());
       await load();
       alert("Quote submitted.");
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally { setSaving(false); }
+  }
+
+  // Revise an already-submitted quote: snapshots the current version, reopens
+  // the quote as a draft (server-side), then reloads so the form is editable
+  // again. The vendor then edits + re-submits as the next revision.
+  async function reviseQuote() {
+    if (!confirm("Revise this quote? Your current submission is saved as a prior revision, and you can edit and re-submit.")) return;
+    setSaving(true);
+    try {
+      const t = await token();
+      const r = await fetch(`/api/vendor/rfqs/${id}/quote/revise`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (!r.ok) throw new Error(await r.text());
+      await load();
+      alert("Quote reopened for revision — edit your prices and re-submit.");
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : String(e));
     } finally { setSaving(false); }
@@ -346,10 +366,25 @@ export default function VendorRfqDetail() {
 
       {quote && !canEdit && (
         <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "18px 22px", marginTop: 16 }}>
-          <div style={{ fontSize: 13, color: TH.textSub2 }}>
-            <b>Your submitted quote</b> — Total: {quote.total_price != null ? fmtMoney(quote.total_price) : "—"} · Lead time: {quote.lead_time_days ?? "—"}d · Status: {quote.status}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 13, color: TH.textSub2 }}>
+                <b>Your submitted quote</b>{quote.revision && quote.revision > 1 ? <span style={{ color: TH.textMuted }}> (revision v{quote.revision})</span> : null} — Total: {quote.total_price != null ? fmtMoney(quote.total_price) : "—"} · Lead time: {quote.lead_time_days ?? "—"}d · Status: {quote.status}
+              </div>
+              {quote.notes && <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 6 }}>{quote.notes}</div>}
+            </div>
+            {/* Revise affordance: only while the quote is still open (submitted /
+                under_review) and the RFQ deadline hasn't passed. Clicking
+                reopens the quote as a draft so the vendor can edit + re-submit. */}
+            {(quote.status === "submitted" || quote.status === "under_review") && !deadlinePassed && rfq.status !== "closed" && rfq.status !== "awarded" && (
+              <button onClick={() => void reviseQuote()} disabled={saving} style={btnPrimary}>{saving ? "Working…" : "Revise quote"}</button>
+            )}
           </div>
-          {quote.notes && <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 6 }}>{quote.notes}</div>}
+          {(quote.status === "submitted" || quote.status === "under_review") && !deadlinePassed && rfq.status !== "closed" && rfq.status !== "awarded" && (
+            <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 10 }}>
+              Need to change your pricing? Click <b>Revise quote</b> — your current submission is saved, and you can edit and re-submit while this RFQ is open.
+            </div>
+          )}
         </div>
       )}
 

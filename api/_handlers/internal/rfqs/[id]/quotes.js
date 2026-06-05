@@ -38,6 +38,24 @@ export default async function handler(req, res) {
   ]);
   if (quotesRes.error) return res.status(500).json({ error: quotesRes.error.message });
 
+  // Revision history (graceful if the table doesn't exist yet — falls back to
+  // an empty map, same pattern as the optional-column ladders elsewhere).
+  const revisionsByQuote = new Map();
+  try {
+    const { data: revs, error: revErr } = await admin
+      .from("rfq_quote_revisions")
+      .select("id, quote_id, revision, snapshot, submitted_at, created_at")
+      .eq("rfq_id", id)
+      .order("revision", { ascending: true });
+    if (!revErr && Array.isArray(revs)) {
+      for (const r of revs) {
+        const arr = revisionsByQuote.get(r.quote_id) || [];
+        arr.push(r);
+        revisionsByQuote.set(r.quote_id, arr);
+      }
+    }
+  } catch { /* table not migrated yet — no history */ }
+
   const vendorIds = [...new Set((quotesRes.data || []).map((q) => q.vendor_id))];
   const [kpiRes, docTypesRes, docsRes, invRes] = await Promise.all([
     admin.from("vendor_kpi_live").select("*").in("vendor_id", vendorIds),
@@ -92,6 +110,8 @@ export default async function handler(req, res) {
       lines: linesByQuote.get(q.id) || [],
       vendor_name: q.vendor?.name || null,
       health_score: comp.overall,
+      revision: q.revision != null ? q.revision : 1,
+      revisions: revisionsByQuote.get(q.id) || [],
     };
   });
 
