@@ -6,9 +6,13 @@
 //       Query: ?item_id=<uuid>, ?from_location=<str>, ?to_location=<str>,
 //              ?limit=<n> (default 100, max 500)
 //
-// POST/PATCH/DELETE not exposed in this skeleton chunk. Multi-warehouse +
-// transfer creation UX lands when M37 ships its full chunk. Schema exists
-// for forward compatibility.
+// POST — create ONE transfer row (location-to-location move). The Matrix
+//        transfer UX in InternalInventoryTransfers.tsx calls this once per
+//        non-zero cell, resolving each cell to a SKU id first. Body:
+//          { item_id, qty, from_location, to_location,
+//            transfer_date?, notes?, created_by_user_id? }
+//
+// PATCH/DELETE not exposed (transfers are append-only at this stage).
 //
 // Tangerine P3 Chunk 7.
 
@@ -18,7 +22,7 @@ export const config = { maxDuration: 15 };
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID");
 }
 
@@ -68,14 +72,57 @@ export function parseListQuery(searchParams) {
   return out;
 }
 
+// Validate + normalize a create body. Pure for testability. Returns
+// { error } or { value: { item_id, qty, from_location, to_location,
+//   transfer_date|null, notes|null, created_by_user_id|null } }.
+export function parseCreateBody(body) {
+  const b = body && typeof body === "object" ? body : {};
+
+  const itemId = typeof b.item_id === "string" ? b.item_id.trim() : "";
+  if (!itemId) return { error: "item_id is required" };
+  if (!isUuid(itemId)) return { error: "item_id must be a uuid" };
+
+  const qty = Number(b.qty);
+  if (!Number.isFinite(qty) || qty <= 0) return { error: "qty must be a positive number" };
+
+  const fromLoc = typeof b.from_location === "string" ? b.from_location.trim() : "";
+  if (!fromLoc) return { error: "from_location is required" };
+
+  const toLoc = typeof b.to_location === "string" ? b.to_location.trim() : "";
+  if (!toLoc) return { error: "to_location is required" };
+
+  if (fromLoc === toLoc) return { error: "to_location must differ from from_location" };
+
+  const out = {
+    item_id: itemId,
+    qty,
+    from_location: fromLoc,
+    to_location: toLoc,
+    transfer_date: null,
+    notes: null,
+    created_by_user_id: null,
+  };
+
+  if (b.transfer_date != null && String(b.transfer_date).trim() !== "") {
+    out.transfer_date = String(b.transfer_date).trim();
+  }
+  if (typeof b.notes === "string" && b.notes.trim() !== "") {
+    out.notes = b.notes.trim();
+  }
+  const actor = typeof b.created_by_user_id === "string" ? b.created_by_user_id.trim() : "";
+  if (actor && isUuid(actor)) out.created_by_user_id = actor;
+
+  return { value: out };
+}
+
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({
-      error: "Method not allowed. Inventory transfers list is read-only at this skeleton stage; creation UX lands when M37 multi-warehouse ships.",
+      error: "Method not allowed. Inventory transfers supports GET (list) and POST (create).",
     });
   }
 
@@ -84,6 +131,30 @@ export default async function handler(req, res) {
 
   const entityId = await resolveDefaultEntityId(admin);
   if (!entityId) return res.status(500).json({ error: "Default entity (ROF) not found" });
+
+  if (req.method === "POST") {
+    const parsedBody = parseCreateBody(req.body);
+    if (parsedBody.error) return res.status(400).json({ error: parsedBody.error });
+    const v = parsedBody.value;
+    const insertRow = {
+      entity_id: entityId,
+      item_id: v.item_id,
+      qty: v.qty,
+      from_location: v.from_location,
+      to_location: v.to_location,
+    };
+    if (v.transfer_date) insertRow.transfer_date = v.transfer_date;
+    if (v.notes) insertRow.notes = v.notes;
+    if (v.created_by_user_id) insertRow.created_by_user_id = v.created_by_user_id;
+
+    const { data, error } = await admin
+      .from("inventory_transfers")
+      .insert(insertRow)
+      .select("*")
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json(data);
+  }
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const parsed = parseListQuery(url.searchParams);

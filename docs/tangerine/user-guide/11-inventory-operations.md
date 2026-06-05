@@ -6,7 +6,7 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 | Panel | Status | Chunk |
 |---|---|---|
-| 🔁 Inventory Transfers | **Read-only skeleton** | P3-7 (2026-05-27) |
+| 🔁 Inventory Transfers | **Live** (matrix + single-variant entry) | P3-7 (2026-05-27); entry shipped 2026-06-05 |
 | 📐 Inventory Adjustments | **Live** | P3-5 (2026-05-27) |
 | 🧮 Cycle Counts | Not shipped yet | P3-6 (planned) |
 | 🛠️ Inventory Adjustments | In flight | P3-5 (planned) |
@@ -14,11 +14,11 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 ---
 
-## 11.1 Inventory Transfers (skeleton)
+## 11.1 Inventory Transfers
 
 **Where:** Tangerine top nav → **🔁 Inventory Transfers** (Inventory group).
 
-**Purpose:** records location-to-location movements of inventory. At the P3-7 skeleton stage the panel is **read-only**: the schema (`inventory_transfers` table) is in place for forward compatibility, but the create / edit UX is intentionally deferred until the multi-warehouse module lands.
+**Purpose:** records location-to-location movements of inventory. The panel supports two entry paths — a **matrix transfer** (a whole style's color × size grid at once, like the Sales-Order and Adjustment matrix entry) and a **single-variant** transfer — plus the filterable list.
 
 ### What you'll see
 
@@ -41,19 +41,27 @@ Three filter inputs above the table:
 
 Any combination of filters narrows the list. Clear an input to drop that filter.
 
-### Why the "Add" button is disabled
+### ▦ Matrix transfer (recommended)
 
-The **+ Add** button is intentionally disabled with the tooltip:
+Click **▦ Matrix transfer** to open the size-grid entry modal:
 
-> *"Multi-warehouse + transfer creation lands when M37 full UX ships. Schema exists for forward compatibility."*
+1. **Pick a FROM location and a TO location** (free-form text — they must differ). The From/To boxes default to whatever you typed in the panel's filter inputs, so set those first to pre-fill.
+2. *(Optional)* type a **Notes** line — it is applied to every transfer row created in this batch.
+3. **Pick a style** with the searchable dropdown. The panel loads that style's **color × size** grid (× inseam when the style spans multiple inseams). The faint number above each cell is the current on-hand.
+4. **Type a transfer qty into each cell** you want to move. The header counts the cells filled and the total units.
+5. Click **Create N transfer(s)**. Each non-zero cell is resolved to its SKU / `inventory_item_id` (find-or-create, exactly like the Matrix Adjustment) and **one `inventory_transfers` row is created per cell** — same `from_location` / `to_location` / `notes` across the batch.
 
-Until the multi-warehouse module lands, the operator runs a single location and there's nothing to transfer between. The table will remain empty by design. When M37's full chunk ships, this same panel grows a create-transfer modal + GL impact wiring for cross-entity moves.
+This mirrors the **Matrix Adjustment** and **Matrix Sales-Order** entry exactly — one style, one grid, one row per filled cell.
+
+### + Add (single variant)
+
+Click **+ Add** for a one-SKU transfer: paste an item UUID, a qty, the From/To locations, and optional notes. This is the secondary path when you only need to move a single variant.
 
 ### Empty state
 
-> *"No transfers logged yet. Schema is in place for forward compatibility."*
+> *"No transfers logged yet. Use "▦ Matrix transfer" or "+ Add"."*
 
-This is the expected state during P3 until M37 ships its full UX or a cross-entity transfer is created elsewhere.
+This is the expected state until the first transfer is created.
 
 ---
 
@@ -95,7 +103,8 @@ Cross-entity transfers — once that scenario is supported — will post via `gl
 | Method | Path | Behavior |
 |---|---|---|
 | `GET` | `/api/internal/inventory-transfers` | List (filterable, capped at 500). Default 100 rows ordered by `transfer_date DESC`. |
-| `POST` / `PATCH` / `DELETE` | (any) | **Returns 405 Method Not Allowed.** Creation UX deferred. |
+| `POST` | `/api/internal/inventory-transfers` | Create one transfer row. Body: `item_id` (uuid), `qty` (>0), `from_location`, `to_location` (must differ), optional `notes`, `transfer_date`, `created_by_user_id`. Returns 201 with the created row. The matrix-transfer UI calls this once per non-zero cell. |
+| `PATCH` / `DELETE` | (any) | **Returns 405 Method Not Allowed.** Transfers are append-only at this stage. |
 
 Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (text), `limit` (1–500, default 100).
 
@@ -312,5 +321,5 @@ If any single line's variance exceeds **10%** of its `system_qty` (configurable 
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.
 - **P3-5 — Inventory Adjustments:** add `🛠️ Adjustments` panel under this same Inventory group. Posts to GL via M37 / M5 logic per architecture §5.
-- **M37 full UX (post-P3):** enable create + edit + post on Inventory Transfers. The disabled `+ Add` button activates; the schema doesn't change.
+- **M37 transfer entry (shipped 2026-06-05):** matrix + single-variant create on Inventory Transfers (`POST /api/internal/inventory-transfers`). Still pending: edit + GL posting for cross-entity moves; the schema doesn't change.
 - **Positive-variance cost capture in UI:** the finalize flow currently relies on `ip_item_avg_cost` for positive variances; a future iteration adds an inline cost prompt for items that have no avg-cost row.
