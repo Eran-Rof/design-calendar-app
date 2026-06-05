@@ -405,7 +405,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New sales order" : `Sales order ${so?.so_number || "(draft)"} — ${so?.status}`}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -564,7 +564,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       {/* M44 — ship modal (carrier + tracking; ships the allocated quantities). */}
       {shipOpen && (
         <div onClick={(e) => { e.stopPropagation(); setShipOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 420, color: C.text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
             <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>🚚 Ship sales order</h3>
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Records a carrier shipment and ships each line's allocated quantity. The SO moves to <b>shipped</b> when fully shipped (else fulfilling).</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>

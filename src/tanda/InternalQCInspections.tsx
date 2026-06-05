@@ -66,10 +66,10 @@ function poNumberFor(rec: Inspection["receipt"], poById: Map<string, PO>): strin
     const po = poById.get(rec.purchase_order_id);
     if (po?.po_number) return po.po_number;
   }
-  return `Receipt ${String(rec.id).slice(0, 8)}`;
+  return rec.receipt_date ? `Receipt — ${rec.receipt_date}` : "(no PO #)";
 }
 function employeeName(e: Employee): string {
-  return e.name || e.full_name || [e.first_name, e.last_name].filter(Boolean).join(" ") || `Employee ${String(e.id).slice(0, 8)}`;
+  return e.name || e.full_name || [e.first_name, e.last_name].filter(Boolean).join(" ") || "(unnamed)";
 }
 
 const EXPORT_COLUMNS: ExportColumn<Record<string, unknown>>[] = [
@@ -233,7 +233,7 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
 
   function receiptLabel(r: Receipt): string {
     const po = r.purchase_order_id ? poById.get(r.purchase_order_id) : null;
-    const poNum = r.purchase_order?.po_number || po?.po_number || `Receipt ${String(r.id).slice(0, 8)}`;
+    const poNum = r.purchase_order?.po_number || po?.po_number || "(no PO #)";
     return `${poNum} — ${r.receipt_date}`;
   }
 
@@ -322,7 +322,7 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 960, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{headerLabel}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -479,13 +479,13 @@ function DispositionModal({ inspectionId, receiptId, onClose, onPosted }: { insp
   }
 
   function lineLabel(l: ReceiptLine): string {
-    const desc = l.purchase_order_line?.description || `Line ${String(l.id).slice(0, 8)}`;
+    const desc = l.purchase_order_line?.description || "(no description)";
     return `${desc} · accepted ${l.qty_accepted}`;
   }
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Record disposition</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
           Write-off and vendor-credit post a journal entry immediately and draw the units from FIFO stock; RMA and rework are recorded only.

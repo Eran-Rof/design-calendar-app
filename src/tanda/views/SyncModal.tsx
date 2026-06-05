@@ -396,7 +396,7 @@ function SyncProgressModal({ syncProgress, syncProgressMsg, syncErr, cancelSync 
 }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000 }}>
-      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 16, padding: 32, width: 420, boxShadow: "0 32px 80px rgba(0,0,0,0.5)" }}>
+      <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 16, padding: 32, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 32px 80px rgba(0,0,0,0.5)" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#F1F5F9", marginBottom: 8 }}>🔄 Syncing from Xoro…</div>
         <div style={{ fontSize: 13, color: "#9CA3AF", marginBottom: 20 }}>{syncProgressMsg || "Please wait…"}</div>
         <div style={{ background: "#0F172A", borderRadius: 8, overflow: "hidden", height: 10, marginBottom: 12 }}>
@@ -432,7 +432,7 @@ function SyncDoneModal({ syncDone, setSyncDone }: {
   const { added, changed, deleted } = syncDone;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000 }}>
-      <div style={{ background: "#1E293B", border: "1px solid #10B981", borderRadius: 16, padding: 32, width: 380, boxShadow: "0 32px 80px rgba(0,0,0,0.5)", textAlign: "center" }}>
+      <div style={{ background: "#1E293B", border: "1px solid #10B981", borderRadius: 16, padding: 32, width: "min(380px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 32px 80px rgba(0,0,0,0.5)", textAlign: "center" }}>
         <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "#10B981", marginBottom: 16 }}>Sync Complete!</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>

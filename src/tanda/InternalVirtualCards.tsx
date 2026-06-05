@@ -157,7 +157,7 @@ export default function InternalVirtualCards() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <h3 style={{ margin: 0, fontSize: 16 }}>
                 Documents — card •••• {docsCard.card_number_last4}
-                <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{docsCard.vendor?.name || docsCard.vendor_id}</span>
+                <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{docsCard.vendor?.name || "—"}</span>
               </h3>
               <button onClick={() => setDocsCard(null)} style={{ ...btnMini }}>Close</button>
             </div>

@@ -135,7 +135,7 @@ export default function InternalWorkflowExecutions() {
 
 function summariseContext(ctx: Record<string, unknown>) {
   const parts: string[] = [];
-  if (ctx.vendor_id) parts.push(`vendor ${String(ctx.vendor_id).slice(0, 8)}`);
+  if (ctx.vendor_name) parts.push(`vendor ${String(ctx.vendor_name)}`);
   if (ctx.amount) parts.push(`amount $${Number(ctx.amount).toLocaleString()}`);
   if (ctx.anomaly_severity) parts.push(`severity ${ctx.anomaly_severity}`);
   if (ctx.po_number) parts.push(`PO ${ctx.po_number}`);

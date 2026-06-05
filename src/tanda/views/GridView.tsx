@@ -906,7 +906,7 @@ export function GridView({
             onClick={dismiss}
           >
             <div
-              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: "min(500px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
               onClick={e => e.stopPropagation()}
             >
               <div style={{ padding: "16px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1713,7 +1713,7 @@ export function GridView({
           onClick={() => setDDPChangeModal(null)}
         >
           <div
-            style={{ background: "#0F172A", border: "1px solid #F97316", borderRadius: 10, width: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+            style={{ background: "#0F172A", border: "1px solid #F97316", borderRadius: 10, width: "min(460px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

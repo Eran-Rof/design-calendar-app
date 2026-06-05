@@ -259,7 +259,7 @@ function ReviewModal({ doc, docType, vendorName, onClose, onAction, openFile }: 
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: "min(600px, 95vw)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: "min(600px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary, marginBottom: 4 }}>REVIEW · {docType?.name ?? "—"}</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 18 }}>{vendorName ?? "—"}</div>
 

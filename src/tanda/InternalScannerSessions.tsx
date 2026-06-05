@@ -16,6 +16,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
+import { useItemResolver } from "./hooks/useItemResolver";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SCANNER_SESSIONS_TABLE_KEY = "tangerine:scannersessions:columns";
@@ -228,10 +229,10 @@ export default function InternalScannerSessions() {
                   {new Date(s.created_at).toLocaleString()}
                 </td>
                 <td style={td} hidden={!isVisible("mode")}>{s.mode}</td>
-                <td style={td} hidden={!isVisible("target")}>{s.target_kind}{s.target_id ? ` / ${s.target_id.slice(0, 8)}…` : ""}</td>
+                <td style={td} hidden={!isVisible("target")}>{s.target_kind}</td>
                 <td style={{ ...td, color: statusColor(s.status), fontWeight: 600 }} hidden={!isVisible("status")}>{s.status}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("device")}>
-                  {s.device_user_id.slice(0, 8)}…
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("device")}>
+                  —
                 </td>
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("last_scan")}>
                   {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : "—"}
@@ -256,6 +257,8 @@ export default function InternalScannerSessions() {
 }
 
 function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; onClose: () => void }) {
+  const itemIds = session.events.map((e) => e.resolved_item_id).filter(Boolean) as string[];
+  const { itemMap } = useItemResolver(itemIds, itemIds.length > 0);
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -263,11 +266,11 @@ function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; 
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 880, maxHeight: "90vh", display: "flex", flexDirection: "column",
+        padding: 24, width: "min(880px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column",
       }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>
-            Session {session.id.slice(0, 8)}…
+            {session.mode} session · {new Date(session.created_at).toLocaleString()}
           </h2>
           <span style={{
             marginLeft: 12, padding: "2px 8px", borderRadius: 4,
@@ -285,13 +288,13 @@ function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; 
         }}>
           <Stat label="Mode" value={session.mode} />
           <Stat label="Target Kind" value={session.target_kind} />
-          <Stat label="Target ID" value={session.target_id || "—"} mono />
-          <Stat label="Device User" value={session.device_user_id} mono />
+          <Stat label="Target ID" value="—" />
+          <Stat label="Device User" value="—" />
           <Stat label="Created" value={new Date(session.created_at).toLocaleString()} />
           <Stat label="Submitted" value={session.submitted_at ? new Date(session.submitted_at).toLocaleString() : "—"} />
           <Stat label="Last Scan" value={session.scanned_at ? new Date(session.scanned_at).toLocaleString() : "—"} />
           <Stat label="Event Count" value={String(session.events.length)} />
-          <Stat label="Entity" value={session.entity_id} mono />
+          <Stat label="Entity" value="—" />
         </div>
 
         {Object.keys(session.client_meta || {}).length > 0 && (
@@ -337,8 +340,8 @@ function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; 
                     {new Date(ev.client_timestamp).toLocaleString()}
                   </td>
                   <td style={{ ...td, fontFamily: "monospace" }}>{ev.scanned_barcode}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: ev.resolved_item_id ? C.text : C.danger }}>
-                    {ev.resolved_item_id ? `${ev.resolved_item_id.slice(0, 8)}…` : "unresolved"}
+                  <td style={{ ...td, fontSize: 11, color: ev.resolved_item_id ? C.text : C.danger }}>
+                    {ev.resolved_item_id ? (itemMap.get(ev.resolved_item_id)?.sku_code || "—") : "unresolved"}
                   </td>
                   <td style={td}>{ev.qty}</td>
                   <td style={{ ...td, color: C.textSub }}>{ev.notes || "—"}</td>

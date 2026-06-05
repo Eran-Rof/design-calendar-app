@@ -144,7 +144,7 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1100px, 95vw)", maxHeight: "92vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div>

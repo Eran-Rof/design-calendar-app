@@ -35,11 +35,11 @@ type Customer = { id: string; name: string; customer_code?: string | null };
 type Style = { id: string; style_code: string | null; style_name?: string | null };
 type Brand = { id: string; name: string; code?: string };
 
-const styleLabel = (s: Style | null) => !s ? "" : (s.style_name ? `${s.style_code || s.id.slice(0, 8)} — ${s.style_name}` : (s.style_code || s.id.slice(0, 8)));
+const styleLabel = (s: Style | null) => !s ? "" : (s.style_name ? `${s.style_code || "—"} — ${s.style_name}` : (s.style_code || "—"));
 function discountLabel(p: Promo) { return p.discount_type === "percent" ? `${Number(p.discount_value)}% off` : `$${(Number(p.discount_value) / 100).toFixed(2)} off`; }
 function scopeBits(p: Promo): string {
   const b: string[] = [];
-  if (p.style_id) b.push(`style ${p.style?.style_code || p.style_id.slice(0, 8)}`);
+  if (p.style_id) b.push(`style ${p.style?.style_code || "—"}`);
   if (p.brand_id) b.push("brand");
   if (p.customer_id) b.push(`cust ${p.customer?.name || ""}`.trim());
   if (p.customer_tier) b.push(`tier ${p.customer_tier}`);
@@ -172,7 +172,7 @@ function PromoModal({ promo, customers, styles, brands, onClose, onSaved }: { pr
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 640, maxWidth: 820, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(820px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New promotion" : `Promotion — ${promo?.name}`}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="Spring Sale" /></Field>

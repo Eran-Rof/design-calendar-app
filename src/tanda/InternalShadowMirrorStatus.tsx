@@ -287,8 +287,8 @@ export default function InternalShadowMirrorStatus() {
                     </div>
                   ) : (
                     <div style={{ fontSize: 11, color: C.textSub }}>
-                      JE: <span style={{ fontFamily: "monospace", color: run.je_id ? C.success : C.textMuted }}>
-                        {run.je_id ? `${run.je_id.slice(0, 8)}…` : "—"}
+                      JE: <span style={{ color: run.je_id ? C.success : C.textMuted }}>
+                        {run.je_id ? "✓ posted" : "—"}
                       </span>
                     </div>
                   )}
@@ -492,11 +492,11 @@ function RunDetailModal({ run, onClose }: { run: MirrorRun; onClose: () => void 
           {run.je_id && (
             <>
               <span style={{ color: C.textMuted }}>Summary JE</span>
-              <span style={{ fontFamily: "monospace", fontSize: 11 }}>{run.je_id}</span>
+              <span style={{ color: C.success, fontSize: 11 }}>✓ posted</span>
             </>
           )}
-          <span style={{ color: C.textMuted }}>Run ID</span>
-          <span style={{ fontFamily: "monospace", fontSize: 11 }}>{run.id}</span>
+          <span style={{ color: C.textMuted }}>Run date</span>
+          <span style={{ fontSize: 11 }}>{run.mirror_date}</span>
         </div>
 
         {Array.isArray(run.errors) && run.errors.length > 0 ? (

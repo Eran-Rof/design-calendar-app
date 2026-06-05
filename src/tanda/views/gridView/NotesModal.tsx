@@ -82,7 +82,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
       onClick={onClose}
     >
       <div
-        style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 560, maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+        style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

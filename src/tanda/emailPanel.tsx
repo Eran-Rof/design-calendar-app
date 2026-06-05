@@ -614,7 +614,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
         {emailComposeOpen && (
           <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.3)" }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ width: 560, maxHeight: "90vh", background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: 12, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}
+            <div style={{ width: "min(560px, 95vw)", maxHeight: "90vh", boxSizing: "border-box", background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: 12, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden" }}
               onClick={e => e.stopPropagation()}>
               <div
                 style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg2, borderRadius: "12px 12px 0 0", cursor: "grab", userSelect: "none" as const }}
