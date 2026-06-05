@@ -58,6 +58,8 @@ import r_edi_inbound_vendor_id from "./edi/inbound/[vendor_id].js";
 import r_edi_inbound_index from "./edi/inbound/index.js";
 import r_edi_outbound_payment from "./edi/outbound/payment.js";
 import r_edi_outbound_po from "./edi/outbound/po.js";
+import r_internal_adjustment_types_id from "./internal/adjustment-types/[id].js";
+import r_internal_adjustment_types_index from "./internal/adjustment-types/index.js";
 import r_internal_ai_documents from "./internal/ai/documents.js";
 import r_internal_ai_insights from "./internal/ai/insights.js";
 import r_internal_ai_mention_suggest from "./internal/ai/mention-suggest.js";
@@ -901,6 +903,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-fabric-codes/:id", handler: r_internal_style_fabric_codes_id },
   { pattern: "/api/internal/approval-requests/:id", handler: r_internal_approval_requests_id },
   { pattern: "/api/internal/onboarding/:vendor_id", handler: r_internal_onboarding_vendor_id_index },
+  { pattern: "/api/internal/adjustment-types/:id", handler: r_internal_adjustment_types_id },
   { pattern: "/api/internal/prepack-matrices/:id", handler: r_internal_prepack_matrices_id },
   { pattern: "/api/internal/price-list-items/:id", handler: r_internal_price_list_items_id },
   { pattern: "/api/internal/price-promotions/:id", handler: r_internal_price_promotions_id },
@@ -996,6 +999,7 @@ export const ROUTES = [
   { pattern: "/api/cron/faire-orders-nightly", handler: r_cron_faire_orders_nightly },
   { pattern: "/api/cron/faire-returns-weekly", handler: r_cron_faire_returns_weekly },
   { pattern: "/api/cron/ip-freshness-refresh", handler: r_cron_ip_freshness_refresh },
+  { pattern: "/api/internal/adjustment-types", handler: r_internal_adjustment_types_index },
   { pattern: "/api/internal/income-statement", handler: r_internal_income_statement_index },
   { pattern: "/api/internal/prepack-matrices", handler: r_internal_prepack_matrices_index },
   { pattern: "/api/internal/price-list-items", handler: r_internal_price_list_items_index },

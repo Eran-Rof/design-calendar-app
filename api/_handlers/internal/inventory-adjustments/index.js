@@ -24,7 +24,13 @@ import { applyBrandScope } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 15 };
 
-const VALID_TYPES = ["damage","shrinkage","found","correction","write_off","return_to_vendor"];
+// adjustment_type is now a CONFIGURABLE category sourced from the
+// adjustment_type_master CRUD list (a category/reason for grouping only — it does
+// NOT drive FIFO accounting, which is governed purely by qty sign + unit cost).
+// We therefore accept any non-empty string (the master curates the picklist),
+// while still tolerating the legacy fixed enum values for backward compatibility.
+// LEGACY_TYPES is retained only for documentation of the original seed set.
+const LEGACY_TYPES = ["damage","shrinkage","found","correction","write_off","return_to_vendor"];
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -64,9 +70,8 @@ export function parseListQuery(searchParams) {
 
   const adjType = (searchParams.get("adjustment_type") || "").trim();
   if (adjType) {
-    if (!VALID_TYPES.includes(adjType)) {
-      return { error: `adjustment_type must be one of ${VALID_TYPES.join("|")}` };
-    }
+    // adjustment_type is a free-text category (sourced from adjustment_type_master);
+    // any non-empty value is a valid filter.
     out.filters.adjustment_type = adjType;
   }
 
@@ -107,8 +112,11 @@ export function validateInsert(body) {
   if (!body.item_id || !isUuid(String(body.item_id))) {
     return { error: "item_id (uuid) required" };
   }
-  if (!body.adjustment_type || !VALID_TYPES.includes(body.adjustment_type)) {
-    return { error: `adjustment_type required, one of ${VALID_TYPES.join("|")}` };
+  // adjustment_type is a free-text category sourced from adjustment_type_master
+  // (curated picklist, not an FK). Require a non-empty string; the master governs
+  // which values appear in the UI, but any name is accepted for backward compat.
+  if (!body.adjustment_type || !String(body.adjustment_type).trim()) {
+    return { error: "adjustment_type required" };
   }
   if (body.qty_delta == null || body.qty_delta === "") {
     return { error: "qty_delta required" };
@@ -147,7 +155,7 @@ export function validateInsert(body) {
   return {
     data: {
       item_id: String(body.item_id),
-      adjustment_type: body.adjustment_type,
+      adjustment_type: String(body.adjustment_type).trim(),
       qty_delta: qty,
       unit_cost_cents: unitCost,
       reason: String(body.reason).trim(),

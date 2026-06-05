@@ -110,6 +110,29 @@ The master simply **curates the picklist** used by the **Returns / RMA** panel (
 
 Deleting an RMA reason is a hard delete, but it is **rejected (409)** if any return **or** return line is still tagged with that reason name — reassign those returns first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## ⚙️ Adjustment Types
+
+Find it under **Master Data → Adjustment Types** (`/tangerine?m=adjustment_type_master`). An adjustment type is a **category / reason** an inventory adjustment can be tagged with — `Shrinkage`, `Damage`, `Found`, `Correction`, `Write-off`, `Return to Vendor`, `Cycle Count`. It replaces the old fixed list that used to be hard-coded into the Inventory Adjustments panel, so you can now add, rename, retire, and reorder the types yourself.
+
+### What an adjustment type row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | Server-generated, read-only `ADJT-NNNNN`. Allocated on save; you never type it. |
+| **Name** | The label that appears in the Inventory Adjustments type picker, e.g. `Shrinkage`. Required. |
+| **Sort order** | Optional integer that orders the picker (low to high), then code as a tie-breaker. |
+| **Active** | Inactive types drop out of the adjustments picker but stay in the table (toggle **Show inactive** to see them). |
+
+### How it relates to Inventory Adjustments — and what it does NOT do
+
+The master simply **curates the picklist** used by the **Inventory Adjustments** panel (Inventory → Adjustments). `inventory_adjustments.adjustment_type` remains a free-text column storing the chosen type **name** — there is no foreign key. This keeps the change backward-compatible: existing adjustments keep their type text whether or not it's in the master.
+
+> **Important:** the adjustment type is **informational only — a category for grouping and reporting.** It does **not** drive the increase/decrease FIFO accounting. Whether an adjustment *adds* a FIFO layer or *consumes* one is decided purely by the **sign of the quantity** (positive = increase, negative = decrease) and, for increases, the **unit cost** — never by the type you pick.
+
+### Delete protection
+
+Deleting an adjustment type is a hard delete, but it is **rejected (409)** if any inventory adjustment is still tagged with that type name — reassign those adjustments first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏬 Warehouse Master
 
 Find it under **Master Data → Warehouses** (`/tangerine?m=warehouse_master`). A warehouse is an operator-owned stock location — e.g. `Main Warehouse`. This panel curates those locations so inventory transfers, adjustments, and FIFO layers all point at a consistent list.
