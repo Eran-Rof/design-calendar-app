@@ -352,6 +352,7 @@ import r_internal_rfqs_id_messages_index from "./internal/rfqs/[id]/messages/ind
 import r_internal_rfqs_id_publish from "./internal/rfqs/[id]/publish.js";
 import r_internal_rfqs_id_quotes from "./internal/rfqs/[id]/quotes.js";
 import r_internal_rfqs_index from "./internal/rfqs/index.js";
+import r_internal_rfqs_messages_inbox_index from "./internal/rfqs/messages-inbox/index.js";
 import r_internal_rma_reasons_id from "./internal/rma-reasons/[id].js";
 import r_internal_rma_reasons_index from "./internal/rma-reasons/index.js";
 import r_internal_sales_by_customer_index from "./internal/sales-by-customer/index.js";
@@ -808,6 +809,7 @@ export const ROUTES = [
   { pattern: "/api/internal/crm/pipeline-report", handler: r_internal_crm_pipeline_report_index },
   { pattern: "/api/internal/marketplace/inquire", handler: r_internal_marketplace_inquire },
   { pattern: "/api/internal/recon/run-inventory", handler: r_internal_recon_run_inventory },
+  { pattern: "/api/internal/rfqs/messages-inbox", handler: r_internal_rfqs_messages_inbox_index },
   { pattern: "/api/internal/scorecards/generate", handler: r_internal_scorecards_generate },
   { pattern: "/api/internal/walmart/sync-orders", handler: r_internal_walmart_sync_orders },
   { pattern: "/api/vendor/marketplace/inquiries", handler: r_vendor_marketplace_inquiries_index },

@@ -246,7 +246,7 @@ interface RfqMessage {
  * /api/internal/rfqs/:id/messages (the rfq_messages table is service-role
  * only). Internal replies right-aligned, vendor messages left-aligned.
  */
-export function RfqMessageThread({ rfqId, theme }: { rfqId: string; theme: RfqTheme }) {
+export function RfqMessageThread({ rfqId, theme, onPosted }: { rfqId: string; theme: RfqTheme; onPosted?: () => void }) {
   const C = theme;
   const [messages, setMessages] = useState<RfqMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -281,6 +281,7 @@ export function RfqMessageThread({ rfqId, theme }: { rfqId: string; theme: RfqTh
       if (!r.ok) throw new Error(await r.text());
       setDraft("");
       await load();
+      onPosted?.();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setSending(false); }

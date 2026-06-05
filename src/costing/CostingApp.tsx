@@ -13,6 +13,7 @@ import ProjectEditView from "./views/ProjectEditView";
 import SettingsView from "./views/SettingsView";
 import RfqListView from "./views/RfqListView";
 import RfqEditView from "./views/RfqEditView";
+import RfqMessagesInbox from "./views/RfqMessagesInbox";
 import { getView } from "./helpers";
 import { useDocumentTitle } from "../shared/useDocumentTitle";
 
@@ -20,6 +21,7 @@ import { useDocumentTitle } from "../shared/useDocumentTitle";
 const COSTING_VIEW_LABELS: Record<string, string> = {
   list:       "Projects",
   edit:       "Project",
+  messages:   "Messages",
   settings:   "Masters",
   "rfq-list": "RFQs",
   "rfq-edit": "RFQ",
@@ -65,6 +67,7 @@ export default function CostingApp() {
         {view === "settings" && <SettingsView />}
         {view === "rfq-list" && <RfqListView />}
         {view === "rfq-edit" && <RfqEditView />}
+        {view === "messages" && <RfqMessagesInbox />}
       </div>
 
       {/* Canonical Tangerine warn surface — renders the shared toast +
