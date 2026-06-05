@@ -55,9 +55,10 @@ const C = {
   pctAbove: "#FBBF24",  // "+x% above lowest" (amber on dark)
 };
 
-// Margin threshold: at/above is "healthy" (green), below is "thin" (amber),
-// negative is "bad" (red).
-const HEALTHY_MARGIN = 0.40;
+// Margin color tiers (operator spec 2026-06-05): >=20% healthy (green),
+// 18-19.99% thin (amber), below 18% (incl. negative) bad (red).
+const HEALTHY_MARGIN = 0.20;
+const THIN_MARGIN = 0.18;
 
 function money(n: number | null | undefined): string {
   return typeof n === "number" && Number.isFinite(n) ? `$${fmtMoney.format(n)}` : "—";
@@ -73,9 +74,9 @@ function margin(sell: number | null | undefined, quoted: number | null | undefin
 }
 function marginColor(m: number | null): string {
   if (m === null) return C.subtle;
-  if (m < 0) return C.marginBad;
-  if (m < HEALTHY_MARGIN) return C.marginThin;
-  return C.marginGood;
+  if (m >= HEALTHY_MARGIN) return C.marginGood;   // >=20% green
+  if (m >= THIN_MARGIN) return C.marginThin;       // 18-19.99% amber
+  return C.marginBad;                              // <18% (incl. negative) red
 }
 function pctMargin(m: number | null): string {
   return m === null ? "—" : `${(m * 100).toFixed(0)}%`;
