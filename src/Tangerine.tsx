@@ -1425,7 +1425,7 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
               <span style={{ fontSize: 22 }}>{a.emoji}</span>
               <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.2, minWidth: 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{a.label}</span>
-                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.description}</span>
+                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: "normal", overflowWrap: "anywhere" }}>{a.description}</span>
               </div>
             </a>
           ))}
@@ -1655,7 +1655,7 @@ function ExternalLinkCard({ href, label, emoji, sublabel }: { href: string; labe
     >
       <div style={{ fontSize: 32 }}>{emoji}</div>
       <div style={{ fontSize: 15, fontWeight: 600 }}>{label} <span style={{ fontSize: 12, color: C.textMuted }}>↗</span></div>
-      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{sublabel}</div>
+      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "normal", overflowWrap: "anywhere", minWidth: 0 }}>{sublabel}</div>
     </a>
   );
 }
