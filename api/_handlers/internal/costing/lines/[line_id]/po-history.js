@@ -1,23 +1,27 @@
 // api/internal/costing/lines/:line_id/po-history
 //
-// GET → past tanda_pos line-items matching the costing line's style + vendor.
+// GET → past tanda_pos PO history matching the costing line's style,
+// ACROSS ALL VENDORS, aggregated to ONE row per PO.
 //
 // Filters:
 //   • po_line_items.item_number ILIKE '<style_code>%'   (catches SKUs under the style)
-//   • tanda_pos.vendor_id = costing_line_vendors.vendor_id  (line's selected vendor)
+//   • vendor is NOT filtered — every PO that bought this style is returned,
+//     regardless of which vendor it came from.
 //
 // Includes archived POs — operator wants to see ALL historical pricing
-// for the same item from the same vendor regardless of archive state
+// for the same style regardless of archive state
 // (data->>'_archived' is not filtered out).
 //
-// Returned shape per row:
+// Grain: ONE row per PO (matching line items grouped by po_id). Returned shape:
 //   • po_number
-//   • received_date   — date_expected when received, else null
-//   • planned_ddp     — date_expected_delivery from po_line_items, else
-//                       tanda_pos.date_expected fallback
-//   • unit_price
-//   • item_number     — the matched SKU
-//   • qty_ordered / qty_received  (for context in the popover)
+//   • vendor_name    — tanda_pos.vendor_id → vendors.name
+//   • qty_ordered    — Σ ordered across matching line items
+//   • qty_received   — Σ received across matching line items
+//   • unit_price     — quantity-weighted average Σ(unit_price·qty)/Σqty
+//                      (falls back to a simple average if qty is missing)
+//   • received_date  — date_expected when any line received, else null
+//   • planned_ddp    — max line date_expected_delivery, else tanda_pos.date_expected
+//   • status / archived
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
@@ -49,9 +53,9 @@ export default async function handler(req, res) {
   const lineId = getLineId(req);
   if (!lineId) return res.status(400).json({ error: "Missing line id" });
 
-  // 1. Line — need its style_code + the selected vendor's id.
+  // 1. Line — need its style_code.
   const { data: line, error: lineErr } = await admin.from("costing_lines")
-    .select("id, style_code, selected_vendor_quote_id")
+    .select("id, style_code")
     .eq("id", lineId).maybeSingle();
   if (lineErr) return res.status(500).json({ error: lineErr.message });
   if (!line) return res.status(404).json({ error: "Line not found" });
@@ -61,59 +65,117 @@ export default async function handler(req, res) {
     return res.status(200).json({ rows: [], reason: "no_style_code" });
   }
 
-  // 2. Vendor id from the selected costing_line_vendors row.
-  let vendorId = null;
-  if (line.selected_vendor_quote_id) {
-    const { data: quote } = await admin.from("costing_line_vendors")
-      .select("vendor_id")
-      .eq("id", line.selected_vendor_quote_id).maybeSingle();
-    vendorId = quote?.vendor_id || null;
-  }
-  if (!vendorId) {
-    return res.status(200).json({ rows: [], reason: "no_selected_vendor" });
-  }
-
-  // 3. Pull tanda_pos rows for that vendor (incl. archived).
-  const { data: pos, error: posErr } = await admin.from("tanda_pos")
-    .select("uuid_id, po_number, date_expected, date_order, status, data")
-    .eq("vendor_id", vendorId)
-    .order("date_expected", { ascending: false, nullsFirst: false })
-    .limit(500);
-  if (posErr) return res.status(500).json({ error: posErr.message });
-  if (!pos || pos.length === 0) {
-    return res.status(200).json({ rows: [], reason: "no_pos_for_vendor" });
-  }
-
-  const poByUuid = new Map(pos.map((p) => [p.uuid_id, p]));
-  const poIds = pos.map((p) => p.uuid_id);
-
-  // 4. Matching line items in one batched query. ILIKE on item_number
+  // 2. Matching line items ACROSS ALL POs/vendors. ILIKE on item_number
   // catches every SKU under the style (item codes typically prefix with
-  // the style code, e.g. RCB1868-CHARCOAL-M).
+  // the style code, e.g. RCB1868-CHARCOAL-M). Paginate so a popular style
+  // with many SKUs/POs isn't silently truncated by the 1000-row cap.
   const safeStyle = styleCode.replace(/[%_]/g, "\\$&");
-  const { data: items, error: itemsErr } = await admin.from("po_line_items")
-    .select("po_id, item_number, description, qty_ordered, qty_received, unit_price, line_total, date_expected_delivery")
-    .in("po_id", poIds)
-    .ilike("item_number", `${safeStyle}%`)
-    .limit(500);
-  if (itemsErr) return res.status(500).json({ error: itemsErr.message });
+  const PAGE = 1000;
+  const items = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error: itemsErr } = await admin.from("po_line_items")
+      .select("po_id, item_number, qty_ordered, qty_received, unit_price, date_expected_delivery")
+      .ilike("item_number", `${safeStyle}%`)
+      .range(from, from + PAGE - 1);
+    if (itemsErr) return res.status(500).json({ error: itemsErr.message });
+    if (!page || page.length === 0) break;
+    items.push(...page);
+    if (page.length < PAGE) break;
+  }
 
-  const rows = (items || []).map((it) => {
+  if (items.length === 0) {
+    return res.status(200).json({ rows: [], reason: "no_pos_for_style" });
+  }
+
+  // 3. Load the parent POs (incl. archived) + their vendor names.
+  const poIds = [...new Set(items.map((it) => it.po_id).filter(Boolean))];
+  const poByUuid = new Map();
+  for (let i = 0; i < poIds.length; i += 200) {
+    const slice = poIds.slice(i, i + 200);
+    const { data: pos, error: posErr } = await admin.from("tanda_pos")
+      .select("uuid_id, po_number, vendor_id, date_expected, status, data")
+      .in("uuid_id", slice);
+    if (posErr) return res.status(500).json({ error: posErr.message });
+    (pos || []).forEach((p) => poByUuid.set(p.uuid_id, p));
+  }
+
+  const vendorIds = [...new Set([...poByUuid.values()].map((p) => p.vendor_id).filter(Boolean))];
+  const vendorName = new Map();
+  for (let i = 0; i < vendorIds.length; i += 200) {
+    const slice = vendorIds.slice(i, i + 200);
+    const { data: vs, error: vErr } = await admin.from("vendors")
+      .select("id, name").in("id", slice);
+    if (vErr) return res.status(500).json({ error: vErr.message });
+    (vs || []).forEach((v) => vendorName.set(v.id, v.name));
+  }
+
+  // 4. Aggregate line items → ONE row per PO.
+  const byPo = new Map(); // po_id → accumulator
+  for (const it of items) {
     const po = poByUuid.get(it.po_id);
-    const archived = !!(po && po.data && (po.data._archived === true || po.data._archived === "true"));
-    const received = typeof it.qty_received === "number" && it.qty_received > 0;
+    if (!po) continue; // orphan line item with no parent PO — skip
+    let acc = byPo.get(it.po_id);
+    if (!acc) {
+      acc = {
+        po_id: it.po_id,
+        po_number: po.po_number || null,
+        vendor_name: po.vendor_id ? (vendorName.get(po.vendor_id) || null) : null,
+        status: po.status || null,
+        archived: !!(po.data && (po.data._archived === true || po.data._archived === "true")),
+        po_date_expected: po.date_expected || null,
+        qty_ordered: 0,
+        qty_received: 0,
+        priceQtySum: 0,   // Σ(unit_price · qty)  for weighted avg
+        priceQtyWeight: 0, // Σ qty (where both price & qty present)
+        priceSum: 0,      // Σ unit_price          for fallback simple avg
+        priceCount: 0,    // # of lines with a price
+        maxPlannedDdp: null,
+        anyReceived: false,
+      };
+      byPo.set(it.po_id, acc);
+    }
+    const qtyOrd = typeof it.qty_ordered === "number" ? it.qty_ordered : 0;
+    const qtyRec = typeof it.qty_received === "number" ? it.qty_received : 0;
+    acc.qty_ordered += qtyOrd;
+    acc.qty_received += qtyRec;
+    if (qtyRec > 0) acc.anyReceived = true;
+
+    if (typeof it.unit_price === "number") {
+      acc.priceSum += it.unit_price;
+      acc.priceCount += 1;
+      const w = qtyOrd > 0 ? qtyOrd : 0;
+      if (w > 0) {
+        acc.priceQtySum += it.unit_price * w;
+        acc.priceQtyWeight += w;
+      }
+    }
+    if (it.date_expected_delivery) {
+      if (!acc.maxPlannedDdp || it.date_expected_delivery > acc.maxPlannedDdp) {
+        acc.maxPlannedDdp = it.date_expected_delivery;
+      }
+    }
+  }
+
+  const rows = [...byPo.values()].map((acc) => {
+    let unit_price = null;
+    if (acc.priceQtyWeight > 0) {
+      unit_price = acc.priceQtySum / acc.priceQtyWeight;
+    } else if (acc.priceCount > 0) {
+      unit_price = acc.priceSum / acc.priceCount;
+    }
+    const received_date = acc.anyReceived ? (acc.po_date_expected || null) : null;
+    const planned_ddp = acc.anyReceived ? null : (acc.maxPlannedDdp || acc.po_date_expected || null);
     return {
-      po_number: po?.po_number || null,
-      po_id: it.po_id,
-      item_number: it.item_number,
-      description: it.description,
-      qty_ordered: it.qty_ordered,
-      qty_received: it.qty_received,
-      unit_price: it.unit_price,
-      received_date: received ? (po?.date_expected || null) : null,
-      planned_ddp: !received ? (it.date_expected_delivery || po?.date_expected || null) : null,
-      status: po?.status || null,
-      archived,
+      po_number: acc.po_number,
+      po_id: acc.po_id,
+      vendor_name: acc.vendor_name,
+      qty_ordered: acc.qty_ordered,
+      qty_received: acc.qty_received,
+      unit_price,
+      received_date,
+      planned_ddp,
+      status: acc.status,
+      archived: acc.archived,
     };
   }).sort((a, b) => {
     const da = (a.received_date || a.planned_ddp || "");
