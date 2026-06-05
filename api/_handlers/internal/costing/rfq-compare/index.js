@@ -125,11 +125,16 @@ export default async function handler(req, res) {
   if (costingLineIds.length > 0) {
     const { data: clRows, error: clErr } = await admin
       .from("costing_lines")
-      .select("id, sell_price")
+      .select("id, sell_price, sell_target")
       .in("id", costingLineIds);
     if (!clErr && clRows) {
       for (const cl of clRows) {
-        sellByCostingLine.set(cl.id, typeof cl.sell_price === "number" ? cl.sell_price : null);
+        // Reference sell = sell_price, falling back to sell_target when sell_price
+        // is unset/0 (operators often fill the target sell but not the final one).
+        const sp = typeof cl.sell_price === "number" && cl.sell_price > 0
+          ? cl.sell_price
+          : (typeof cl.sell_target === "number" && cl.sell_target > 0 ? cl.sell_target : null);
+        sellByCostingLine.set(cl.id, sp);
       }
     }
   }

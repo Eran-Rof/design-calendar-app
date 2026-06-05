@@ -175,6 +175,7 @@ import r_internal_costing_projects_id_index from "./internal/costing/projects/[i
 import r_internal_costing_projects_id_lines from "./internal/costing/projects/[id]/lines.js";
 import r_internal_costing_projects_index from "./internal/costing/projects/index.js";
 import r_internal_costing_rfq_compare_index from "./internal/costing/rfq-compare/index.js";
+import r_internal_costing_rfq_compare_projects_index from "./internal/costing/rfq-compare/projects/index.js";
 import r_internal_costing_rfqs_id_index from "./internal/costing/rfqs/[id]/index.js";
 import r_internal_costing_rfqs_index from "./internal/costing/rfqs/index.js";
 import r_internal_costing_search_categories from "./internal/costing/search/categories.js";
@@ -639,6 +640,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/rfqs/:id/quotes/submit", handler: r_vendor_rfqs_id_quotes_submit },
   { pattern: "/api/vendor/rfqs/:id/quote/revise", handler: r_vendor_rfqs_id_quote_revise },
   { pattern: "/api/internal/design/trend-brief/synthesize", handler: r_internal_design_trend_brief_synthesize },
+  { pattern: "/api/internal/costing/rfq-compare/projects", handler: r_internal_costing_rfq_compare_projects_index },
   { pattern: "/api/internal/procurement/qc/dispositions", handler: r_internal_procurement_qc_dispositions },
   { pattern: "/api/internal/costing/search/categories", handler: r_internal_costing_search_categories },
   { pattern: "/api/internal/costing/search/sales-reps", handler: r_internal_costing_search_sales_reps },
