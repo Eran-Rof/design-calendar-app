@@ -5,6 +5,8 @@ import { searchAudit, type IpAuditRow } from "../../governance/services/auditExp
 import { S, PAL, formatDateTime } from "../../components/styles";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.audit_explorer";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -42,6 +44,20 @@ export default function AuditExplorer() {
     } finally { setLoading(false); }
   }
   useEffect(() => { void run(); }, []);
+
+  // Additive per-column sort over the fetched audit rows. Sortable columns map
+  // to direct scalar fields (or a trivially-correct accessor); Old → New is a
+  // computed composite and stays inert.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "ip:audit_explorer:sort",
+    accessors: {
+      when: (r) => r.created_at ?? "",
+      actor: (r) => r.actor ?? "",
+      entity: (r) => r.entity_type ?? "",
+      event_field: (r) => r.event_or_field ?? "",
+      message: (r) => r.message ?? "",
+    },
+  });
 
   return (
     <div>
@@ -85,17 +101,17 @@ export default function AuditExplorer() {
         <table style={S.table}>
           <thead>
             <tr>
-              <th hidden={!visibleColumns.has("when")} style={S.th}>When</th>
-              <th hidden={!visibleColumns.has("source")} style={S.th}>Source</th>
-              <th hidden={!visibleColumns.has("actor")} style={S.th}>Actor</th>
-              <th hidden={!visibleColumns.has("entity")} style={S.th}>Entity</th>
-              <th hidden={!visibleColumns.has("event_field")} style={S.th}>Event / Field</th>
+              <SortableTh label="When" sortKey="when" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("when")} />
+              <SortableTh label="Source" sortKey="source" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("source")} />
+              <SortableTh label="Actor" sortKey="actor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("actor")} />
+              <SortableTh label="Entity" sortKey="entity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("entity")} />
+              <SortableTh label="Event / Field" sortKey="event_field" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("event_field")} />
               <th hidden={!visibleColumns.has("old_new")} style={S.th}>Old → New</th>
-              <th hidden={!visibleColumns.has("message")} style={S.th}>Message</th>
+              <SortableTh label="Message" sortKey="message" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("message")} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={`${r.source}:${r.id}`}>
                 <td hidden={!visibleColumns.has("when")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDateTime(r.created_at)}</td>
                 <td hidden={!visibleColumns.has("source")} style={S.td}>

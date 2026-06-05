@@ -53,7 +53,15 @@ Notes:
 - Sorting is layered on top of the Columns show/hide and Export buttons — it only reorders what's already on screen, and the **Export respects the current sort order**.
 - Some columns are intentionally **not sortable** (they show no ▲/▼ on hover) — these are computed, lookup, or multi-value cells where a row-by-row sort wouldn't be meaningful.
 
-This is rolling out panel-by-panel. The master-data and operations panels (Genders, Countries, Payment Terms, Fabric Codes, Factors, Style Classifications, Employees, Employee Titles/Departments, Customer/Vendor Master, CRM Tasks/Activities, Inventory Transfers, Cycle Counts, Scanner Sessions, and Approval Requests) have it now; the rest follow in later waves.
+This is rolling out panel-by-panel. The master-data and operations panels (Genders, Countries, Payment Terms, Fabric Codes, Factors, Style Classifications, Employees, Employee Titles/Departments, Customer/Vendor Master, CRM Tasks/Activities, Inventory Transfers, Cycle Counts, Scanner Sessions, and Approval Requests) had it first (wave 1).
+
+**Wave 2 (2026-06-05)** extends the same click-to-sort to the sibling apps:
+
+- **Costing** — Projects list and RFQs list.
+- **GS1** — Scale Master, UPC Item Master, and Pack GTIN Master.
+- **Planning** — the admin Job Runs and Audit Explorer dashboards.
+
+The heavily virtualized / sticky-column grids (the main ATS grid, the wholesale/ecom planning grids) are intentionally left out — a row-by-row reorder there would fight the frozen columns and per-cell editors.
 
 ## Code map
 

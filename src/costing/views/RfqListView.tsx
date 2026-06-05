@@ -12,6 +12,8 @@ import { listRfqs, deleteRfq, publishRfq, awardRfq, stripExcelPrefix } from "../
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 import type { RfqListRow, RfqStatus } from "../types";
 
 const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
@@ -77,6 +79,20 @@ export default function RfqListView() {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
+
+  // Additive per-column sort over the already-fetched rows (the server
+  // returns a default order; a header click reorders client-side). Sortable
+  // columns map to direct scalar fields or a trivially-correct accessor; the
+  // checkbox, Status badge, and Actions columns stay inert.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "costing:rfqs:sort",
+    accessors: {
+      vendor_name: (r) => r.vendor_name ?? "",
+      customer_name: (r) => stripExcelPrefix(r.customer_name) ?? "",
+      project_name: (r) => r.project_name ?? "",
+      due: (r) => (r.due_date || r.delivery_required_by) ?? "",
+    },
+  });
 
   const onOpen = (id: string) => navigate("rfq-edit", id);
   const setNotice = useCostingStore((s) => s.setNotice);
@@ -245,18 +261,18 @@ export default function RfqListView() {
                   style={{ cursor: "pointer", accentColor: "#60A5FA" }}
                 />
               </Th>
-              <Th>Code</Th>
-              <Th>Title</Th>
-              <Th>Vendor</Th>
-              <Th>Customer</Th>
-              <Th>Project</Th>
-              <Th align="right">Lines</Th>
-              <Th align="right">Est Qty</Th>
-              <Th align="right">Est Budget</Th>
-              <Th align="right">Target Cost / Unit</Th>
-              <Th>Status</Th>
-              <Th>Due</Th>
-              <Th>Created</Th>
+              <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Title" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Vendor" sortKey="vendor_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Customer" sortKey="customer_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Project" sortKey="project_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Lines" sortKey="line_count" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Est Qty" sortKey="estimated_quantity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Est Budget" sortKey="estimated_budget" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Target Cost / Unit" sortKey="target_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Due" sortKey="due" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Created" sortKey="created_at" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
               <Th></Th>
             </tr>
           </thead>
@@ -266,7 +282,7 @@ export default function RfqListView() {
                 {q || status ? "No RFQs match the filter." : "No RFQs yet — generate one from a Costing project."}
               </td></tr>
             )}
-            {rows.map((r) => {
+            {sortedRows.map((r) => {
               const sc = STATUS_COLOR[r.status] || STATUS_COLOR.draft;
               return (
                 <tr
@@ -370,8 +386,11 @@ export default function RfqListView() {
   );
 }
 
+function thStyle(align?: "left" | "right" | "center"): React.CSSProperties {
+  return { textAlign: align || "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" };
+}
 function Th({ children, align }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
-  return <th style={{ textAlign: align || "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" }}>{children}</th>;
+  return <th style={thStyle(align)}>{children}</th>;
 }
 function Td({ children, align }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
   return <td style={{ padding: "8px 12px", color: "#E2E8F0", textAlign: align || "left" }}>{children}</td>;

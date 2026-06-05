@@ -85,6 +85,17 @@ rebuild). An **exported** batch can be reopened to *ready* to revise/re-export
 (xlsx export isn't a commit); a *submitted* batch cannot (writeback may have run).
 On the Scenarios screen, the approved→in_review action is labelled **Reopen**.
 
+## Click-to-sort (Admin dashboards)
+
+The Admin **Job Runs** and **Audit Explorer** tables now support per-column
+click-to-sort (2026-06-05): click a header to cycle ascending ▲ → descending ▼
+→ off, blanks always sink to the bottom, and the choice is remembered per panel.
+It layers on top of the existing filters and the Columns show/hide button —
+only the on-screen rows are reordered. The big wholesale/ecom planning grids are
+intentionally left out (their frozen columns + inline editors make a row-by-row
+reorder unsafe). Shared primitive: `src/tanda/hooks/useSort.ts` +
+`src/tanda/components/SortableTh.tsx`.
+
 ## Connects to
 
 - **← ATS** (on-hand snapshot) and **← PO WIP / Tanda** (open POs + DDP timing).

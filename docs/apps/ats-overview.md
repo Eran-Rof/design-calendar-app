@@ -60,6 +60,15 @@ same code path (`POST /api/planning/sync-on-hand`). Planning keeps ATS supply at
 separate source; see [po-wip-overview.md](po-wip-overview.md) and the Planning
 overview).
 
+## Column sort
+
+The main ATS grid is a custom virtualized / sticky-left-column grid with a
+stacked totals row, so the universal per-column click-to-sort (rolled out to the
+master-data and master-list panels in the 2026-06 sort waves) is **intentionally
+not** wired here — a naive row reorder would fight the frozen columns and the
+per-period cumulative/delta math. Sort/ordering in ATS stays driven by its own
+filter and grouping controls.
+
 ## See also
 - [po-wip-overview.md](po-wip-overview.md) — the PO data ATS pulls in
 - [inventory-planning-overview.md](inventory-planning-overview.md) — downstream consumer

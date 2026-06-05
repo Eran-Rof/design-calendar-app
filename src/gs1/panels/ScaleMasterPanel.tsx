@@ -5,6 +5,8 @@ import type { ScaleSizeRatio } from "../types";
 import { KNOWN_SCALE_CODES } from "../types";
 import type { BomCheckResult } from "../services/bomBuilderService";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 
 const TABLE_KEY = "gs1.scale_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -107,6 +109,12 @@ export default function ScaleMasterPanel() {
 
   useEffect(() => { loadScales(); }, []);
 
+  // Additive per-column sort over the scale list. Sortable columns map to
+  // direct scalar fields; Size Ratios is a computed join (inert).
+  const { sorted: sortedScales, sortKey, sortDir, onHeaderClick } = useSort(scales, {
+    persistKey: "gs1:scale_master:sort",
+  });
+
   const ratiosFor = (code: string) => scaleRatios.filter(r => r.scale_code === code);
 
   async function handleSave(code: string, ratios: Array<{ size: string; qty: number }>, desc: string) {
@@ -195,15 +203,15 @@ export default function ScaleMasterPanel() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={TH_STYLE} hidden={!visibleColumns.has("scale_code")}>Scale Code</th>
-                    <th style={TH_STYLE} hidden={!visibleColumns.has("description")}>Description</th>
-                    <th style={TH_STYLE} hidden={!visibleColumns.has("total_units")}>Total Units</th>
+                    <SortableTh label="Scale Code" sortKey="scale_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("scale_code")} />
+                    <SortableTh label="Description" sortKey="description" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("description")} />
+                    <SortableTh label="Total Units" sortKey="total_units" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("total_units")} />
                     <th style={TH_STYLE} hidden={!visibleColumns.has("size_ratios")}>Size Ratios</th>
                     <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scales.map(sc => {
+                  {sortedScales.map(sc => {
                     const ratios = ratiosFor(sc.scale_code);
                     return (
                       <tr key={sc.id}>

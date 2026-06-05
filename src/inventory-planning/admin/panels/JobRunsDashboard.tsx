@@ -6,6 +6,8 @@ import { listRecentJobs, retry } from "../../jobs/services/jobRunService";
 import { S, PAL, formatDateTime } from "../../components/styles";
 import type { ToastMessage } from "../../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.job_runs";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -56,6 +58,21 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
   const counts: Record<string, number> = { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0, partial_success: 0 };
   for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
 
+  // Additive per-column sort over the already-filtered rows. Every visible
+  // column maps to a direct scalar field (or a trivially-correct accessor).
+  const { sorted: sortedVisible, sortKey, sortDir, onHeaderClick } = useSort(visible, {
+    persistKey: "ip:job_runs:sort",
+    accessors: {
+      type: (r) => r.job_type ?? "",
+      scope: (r) => r.job_scope ?? "",
+      started: (r) => r.started_at ?? "",
+      completed: (r) => r.completed_at ?? "",
+      initiator: (r) => r.initiated_by ?? "",
+      retry: (r) => r.retry_count,
+      error: (r) => r.error_message ?? "",
+    },
+  });
+
   async function doRetry(job: IpJobRun) {
     try {
       await retry(job, currentUserEmail);
@@ -99,19 +116,19 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
         <table style={S.table}>
           <thead>
             <tr>
-              <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
-              <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
-              <th hidden={!visibleColumns.has("scope")} style={S.th}>Scope</th>
-              <th hidden={!visibleColumns.has("started")} style={S.th}>Started</th>
-              <th hidden={!visibleColumns.has("completed")} style={S.th}>Completed</th>
-              <th hidden={!visibleColumns.has("initiator")} style={S.th}>Initiator</th>
-              <th hidden={!visibleColumns.has("retry")} style={{ ...S.th, textAlign: "right" }}>Retry #</th>
-              <th hidden={!visibleColumns.has("error")} style={S.th}>Error</th>
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("status")} />
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+              <SortableTh label="Scope" sortKey="scope" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("scope")} />
+              <SortableTh label="Started" sortKey="started" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("started")} />
+              <SortableTh label="Completed" sortKey="completed" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("completed")} />
+              <SortableTh label="Initiator" sortKey="initiator" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("initiator")} />
+              <SortableTh label="Retry #" sortKey="retry" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("retry")} />
+              <SortableTh label="Error" sortKey="error" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("error")} />
               <th style={S.th}></th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((r) => (
+            {sortedVisible.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer", background: r.status === "failed" ? "#3f1d1d22" : undefined }}
                   onClick={() => setSelected(r)}>
                 <td hidden={!visibleColumns.has("status")} style={S.td}>
