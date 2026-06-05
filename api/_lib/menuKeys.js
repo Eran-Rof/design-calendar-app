@@ -102,6 +102,7 @@ const KEYS = [
   "tanda/master/size-scales",
   "tanda/master/seasons",
   "tanda/master/rma-reasons",
+  "tanda/master/adjustment-types",
   "tanda/master/warehouses",
   // P18-F — internal B2B admin (buyers + wholesale price list).
   "tanda/b2b/accounts",

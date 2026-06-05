@@ -329,6 +329,8 @@ export default [
   ["/api/internal/seasons"                                   , "./internal/seasons/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
+  ["/api/internal/adjustment-types/:id"                      , "./internal/adjustment-types/[id].js"],
+  ["/api/internal/adjustment-types"                          , "./internal/adjustment-types/index.js"],
   ["/api/internal/warehouses/:id"                            , "./internal/warehouses/[id].js"],
   ["/api/internal/warehouses"                                , "./internal/warehouses/index.js"],
   ["/api/internal/style-matrix/resolve-sku"                  , "./internal/style-matrix/resolve-sku.js"],

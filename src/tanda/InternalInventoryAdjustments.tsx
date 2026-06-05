@@ -50,10 +50,12 @@ type Adjustment = {
 type Item = { id: string; sku_code: string | null; description?: string | null };
 type GlAccount = { id: string; code: string; name: string; is_postable: boolean; account_type?: string };
 
-const TYPES = [
-  "damage", "shrinkage", "found", "correction", "write_off", "return_to_vendor",
-] as const;
-type AdjustmentType = (typeof TYPES)[number];
+// adjustment_type is now sourced from the configurable Adjustment Type master
+// (adjustment_type_master). A type is a CATEGORY / reason for grouping only — it
+// does NOT drive the increase/decrease FIFO accounting (that's the qty sign +
+// unit cost). The stored value is the chosen type NAME (free text, no FK).
+type AdjType = { id: string; code: string; name: string; is_active: boolean };
+type AdjustmentType = string;
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -118,6 +120,7 @@ export default function InternalInventoryAdjustments() {
   const [rows, setRows] = useState<Adjustment[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [adjTypes, setAdjTypes] = useState<AdjType[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -128,7 +131,9 @@ export default function InternalInventoryAdjustments() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
-  // Modal
+  // Add flow. "+ Add" is the single entry point; it first opens a small chooser
+  // (Single variant vs Matrix), which then opens the corresponding modal.
+  const [addChooserOpen, setAddChooserOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<Adjustment | null>(null);
   const [matrixModalOpen, setMatrixModalOpen] = useState(false);
@@ -178,6 +183,14 @@ export default function InternalInventoryAdjustments() {
       try {
         const glRes = await fetch(`/api/internal/gl-accounts`);
         if (glRes.ok) setGlAccounts(await glRes.json());
+      } catch { /* non-fatal */ }
+      try {
+        // Adjustment Type master — drives the type picklist + filter (active only).
+        const atRes = await fetch(`/api/internal/adjustment-types`);
+        if (atRes.ok) {
+          const data = await atRes.json();
+          if (Array.isArray(data)) setAdjTypes(data as AdjType[]);
+        }
       } catch { /* non-fatal */ }
     })();
   }, []);
@@ -245,15 +258,8 @@ export default function InternalInventoryAdjustments() {
         </span>
         <button
           type="button"
-          style={{ ...btnSecondary, marginLeft: "auto" }}
-          onClick={() => setMatrixModalOpen(true)}
-        >
-          ▦ Matrix adjustment
-        </button>
-        <button
-          type="button"
-          style={btnPrimary}
-          onClick={() => { setEditingRow(null); setModalOpen(true); }}
+          style={{ ...btnPrimary, marginLeft: "auto" }}
+          onClick={() => { setEditingRow(null); setAddChooserOpen(true); }}
         >
           + Add
         </button>
@@ -267,7 +273,7 @@ export default function InternalInventoryAdjustments() {
           onChange={(e) => setFilterType(e.target.value)}
         >
           <option value="">All types</option>
-          {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          {adjTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
         </select>
         <input
           style={{ ...inputStyle, width: 320 }}
@@ -396,10 +402,22 @@ export default function InternalInventoryAdjustments() {
         </table>
       </div>
 
+      {addChooserOpen && (
+        <AddModeChooser
+          onPick={(mode) => {
+            setAddChooserOpen(false);
+            if (mode === "single") setModalOpen(true);
+            else setMatrixModalOpen(true);
+          }}
+          onClose={() => setAddChooserOpen(false)}
+        />
+      )}
+
       {modalOpen && (
         <AdjustmentModal
           glAccounts={glAccounts}
           items={items}
+          adjTypes={adjTypes}
           existing={editingRow}
           onClose={() => { setModalOpen(false); setEditingRow(null); }}
           onSaved={() => { setModalOpen(false); setEditingRow(null); void load(); }}
@@ -409,6 +427,7 @@ export default function InternalInventoryAdjustments() {
       {matrixModalOpen && (
         <MatrixAdjustmentModal
           glAccounts={glAccounts}
+          adjTypes={adjTypes}
           onClose={() => setMatrixModalOpen(false)}
           onSaved={() => { setMatrixModalOpen(false); void load(); }}
         />
@@ -417,11 +436,53 @@ export default function InternalInventoryAdjustments() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Add-mode chooser — the single "+ Add" entry point. The operator picks
+// whether to add a Single variant adjustment or a Matrix (color × size) batch.
+// ─────────────────────────────────────────────────────────────────────────
+function AddModeChooser({
+  onPick, onClose,
+}: {
+  onPick: (mode: "single" | "matrix") => void;
+  onClose: () => void;
+}) {
+  const tile: React.CSSProperties = {
+    flex: 1, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+    padding: 20, cursor: "pointer", textAlign: "center", color: C.text,
+  };
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, width: 480 }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>New Inventory Adjustment</h2>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Choose how to enter this adjustment.
+        </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <button type="button" style={tile} onClick={() => onPick("single")}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>＋</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Single variant</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>One SKU, one signed qty.</div>
+          </button>
+          <button type="button" style={tile} onClick={() => onPick("matrix")}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>▦</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Matrix</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>Color × size grid; one draft per non-zero cell.</div>
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button type="button" style={btnSecondary} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdjustmentModal({
-  glAccounts, items, existing, onClose, onSaved,
+  glAccounts, items, adjTypes, existing, onClose, onSaved,
 }: {
   glAccounts: GlAccount[];
   items: Item[];
+  adjTypes: AdjType[];
   existing: Adjustment | null;
   onClose: () => void;
   onSaved: () => void;
@@ -430,7 +491,7 @@ function AdjustmentModal({
   const [itemId, setItemId] = useState(existing?.item_id || "");
   const [itemQuery, setItemQuery] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
-    (existing?.adjustment_type as AdjustmentType) || "shrinkage"
+    existing?.adjustment_type || adjTypes[0]?.name || ""
   );
   const [qtyDelta, setQtyDelta] = useState<string>(
     existing != null ? String(existing.qty_delta) : "-1"
@@ -573,13 +634,19 @@ function AdjustmentModal({
             )}
 
             <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Adjustment Type</label>
-            <select
-              style={{ ...inputStyle, marginBottom: 12 }}
-              value={adjustmentType}
-              onChange={(e) => setAdjustmentType(e.target.value as AdjustmentType)}
-            >
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <div style={{ marginBottom: 12 }}>
+              <SearchableSelect
+                value={adjustmentType || null}
+                onChange={(v) => setAdjustmentType(v || "")}
+                options={adjTypes.map((t) => ({
+                  value: t.name,
+                  label: t.name,
+                  searchHaystack: `${t.code} ${t.name}`,
+                }))}
+                placeholder="Search adjustment type…"
+                emptyText="No adjustment types — add some in the Adjustment Types master"
+              />
+            </div>
           </>
         )}
 
@@ -709,14 +776,15 @@ function rowKeyOf(color: string | null, inseam: string | null): string {
 }
 
 function MatrixAdjustmentModal({
-  glAccounts, onClose, onSaved,
+  glAccounts, adjTypes, onClose, onSaved,
 }: {
   glAccounts: GlAccount[];
+  adjTypes: AdjType[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   // Batch-level fields (applied to every created adjustment).
-  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("shrinkage");
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(adjTypes[0]?.name || "");
   const [glAccountId, setGlAccountId] = useState("");
   const [reason, setReason] = useState("");
   // Brand pool for POSITIVE (increase) cells only — mirrors the single "+ Add"
@@ -961,13 +1029,17 @@ function MatrixAdjustmentModal({
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 200px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Adjustment Type</label>
-            <select
-              style={inputStyle}
-              value={adjustmentType}
-              onChange={(e) => setAdjustmentType(e.target.value as AdjustmentType)}
-            >
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <SearchableSelect
+              value={adjustmentType || null}
+              onChange={(v) => setAdjustmentType(v || "")}
+              options={adjTypes.map((t) => ({
+                value: t.name,
+                label: t.name,
+                searchHaystack: `${t.code} ${t.name}`,
+              }))}
+              placeholder="Search adjustment type…"
+              emptyText="No adjustment types — add some in the Adjustment Types master"
+            />
           </div>
           <div style={{ flex: "2 1 320px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
