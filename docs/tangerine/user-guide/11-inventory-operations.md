@@ -7,10 +7,13 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 | Panel | Status | Chunk |
 |---|---|---|
 | 🔁 Inventory Transfers | **Live** (matrix + single-variant entry) | P3-7 (2026-05-27); entry shipped 2026-06-05 |
-| 📐 Inventory Adjustments | **Live** | P3-5 (2026-05-27) |
-| 🧮 Cycle Counts | Not shipped yet | P3-6 (planned) |
-| 🛠️ Inventory Adjustments | In flight | P3-5 (planned) |
+| 📐 Inventory Adjustments | **Live** (GL auto-select + reason master dropdown) | P3-5 (2026-05-27); improved #1020 |
+| 📋 Adjustment Reason Master | **Live** | Master Data → Adjustment Reasons (#1020) |
 | 📋 Cycle Counts | **Shipped** | P3-6 (2026-05-27) |
+
+> **#1020 improvements (2026-08-25):**
+> - **GL account auto-selected** — the server always resolves the "Inventory Adjustments Expense" account from Chart of Accounts automatically. Operators no longer pick a GL account when creating an adjustment.
+> - **Reason from master** — the free-text reason field is replaced by a searchable dropdown sourced from the new **Adjustment Reason Master** (`Master Data → 📋 Adjustment Reasons`). Manage reasons there; they appear in both the single-variant and matrix adjustment modals.
 
 ---
 

@@ -26,6 +26,7 @@ import InternalSizeScales         from "./tanda/InternalSizeScales";
 import InternalSeasonMaster       from "./tanda/InternalSeasonMaster";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
+import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
 import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
 import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
@@ -197,6 +198,7 @@ type ModuleKey =
   | "season_master"
   | "rma_reason_master"
   | "adjustment_type_master"
+  | "adjustment_reason_master"
   | "transfer_reason_master"
   | "warehouse_master"
   // P18-F — internal B2B admin (buyers + wholesale price list).
@@ -398,6 +400,7 @@ const MODULES: ModuleDef[] = [
   { key: "season_master",        label: "Seasons Master",            emoji: "🍂", group: "Master Data" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
+  { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
   { key: "transfer_reason_master", label: "Transfer Reasons Master", emoji: "🔁", group: "Master Data" },
   { key: "warehouse_master",     label: "Warehouses Master",         emoji: "🏬", group: "Master Data" },
   // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
@@ -809,6 +812,7 @@ export default function Tangerine() {
         {activeModule === "season_master"        && <InternalSeasonMaster />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
+        {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
         {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
         {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}

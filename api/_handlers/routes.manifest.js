@@ -330,6 +330,8 @@ export default [
   ["/api/internal/seasons"                                   , "./internal/seasons/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
+  ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],
+  ["/api/internal/adjustment-reasons"                        , "./internal/adjustment-reasons/index.js"],
   ["/api/internal/adjustment-types/:id"                      , "./internal/adjustment-types/[id].js"],
   ["/api/internal/adjustment-types"                          , "./internal/adjustment-types/index.js"],
   ["/api/internal/transfer-reasons/:id"                      , "./internal/transfer-reasons/[id].js"],
