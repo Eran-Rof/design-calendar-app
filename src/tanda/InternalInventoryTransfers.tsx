@@ -21,7 +21,7 @@ import SortableTh from "./components/SortableTh";
 import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
-import { notify } from "../shared/ui/warn";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 
@@ -65,6 +65,19 @@ function useTransferReasons() {
     }
   }
   return { reasons, addReason };
+}
+
+type Warehouse = { id: string; code: string; name: string };
+
+function useWarehouses() {
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/warehouses")
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => { if (Array.isArray(d)) setWarehouses(d); })
+      .catch(() => {/* non-fatal */});
+  }, []);
+  return warehouses;
 }
 
 function TransferReasonPicker({
@@ -154,15 +167,21 @@ const modalCard: React.CSSProperties = {
   padding: 24, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
+type StyleMasterRow = { id: string; style_code: string; style_name: string | null };
+type WarehouseRow = { id: string; code: string; name: string };
+
 export default function InternalInventoryTransfers() {
   const [rows, setRows] = useState<InventoryTransfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  // SKU text filter applies CLIENT-SIDE against the resolved sku label (no raw
-  // UUID input; mirrors the sibling InternalInventoryAdjustments fix).
-  const [skuFilter, setSkuFilter] = useState("");
-  const [fromLoc, setFromLoc] = useState("");
-  const [toLoc, setToLoc] = useState("");
+  // Style SearchableSelect filter (replaces free-text UUID/SKU input).
+  const [filterStyleId, setFilterStyleId] = useState("");
+  // Warehouse SearchableSelect filters (replaces free-text from/to inputs).
+  const [filterFromCode, setFilterFromCode] = useState("");
+  const [filterToCode, setFilterToCode] = useState("");
+  // Master data for filter dropdowns.
+  const [styles, setStyles] = useState<StyleMasterRow[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   // Resolve item_id → human SKU label (no raw UUIDs in the table). Populated
   // from /api/internal/items?ids= for the ids present in the current rows.
   const [skuById, setSkuById] = useState<Record<string, string>>({});
@@ -170,11 +189,20 @@ export default function InternalInventoryTransfers() {
     return skuById[id] || "—";
   }
 
+  // Style id → sku_code map for the list display.
+  const styleById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of styles) m.set(s.id, s.style_code);
+    return m;
+  }, [styles]);
+
   // Entry modals. "+ Add" opens a chooser that routes to single / matrix
   // (mirrors the #974 Adjustments AddModeChooser).
   const [addChooserOpen, setAddChooserOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
+  // Edit modal state.
+  const [editingRow, setEditingRow] = useState<InventoryTransfer | null>(null);
 
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
@@ -193,13 +221,26 @@ export default function InternalInventoryTransfers() {
     },
   });
 
+  // Load styles and warehouses once on mount for filter dropdowns.
+  useEffect(() => {
+    fetch("/api/internal/style-master?limit=10000")
+      .then((r) => r.json())
+      .then((d) => setStyles(Array.isArray(d) ? d : []))
+      .catch(() => {});
+    fetch("/api/internal/warehouses")
+      .then((r) => r.json())
+      .then((d) => setWarehouses(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+
   async function load() {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (fromLoc.trim()) params.set("from_location", fromLoc.trim());
-      if (toLoc.trim()) params.set("to_location", toLoc.trim());
+      if (filterStyleId) params.set("item_id", filterStyleId);
+      if (filterFromCode) params.set("from_location", filterFromCode);
+      if (filterToCode) params.set("to_location", filterToCode);
       const r = await fetch(`/api/internal/inventory-transfers?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json());
@@ -209,7 +250,7 @@ export default function InternalInventoryTransfers() {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, [fromLoc, toLoc]);
+  useEffect(() => { void load(); }, [filterStyleId, filterFromCode, filterToCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resolve the item ids in the current rows to sku_code labels.
   useEffect(() => {
@@ -233,14 +274,36 @@ export default function InternalInventoryTransfers() {
     return () => { cancelled = true; };
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Client-side SKU filter over the resolved sku label (itemLabel).
-  const displayRows = useMemo(() => {
-    const q = skuFilter.trim().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter((t) => itemLabel(t.item_id).toLowerCase().includes(q));
-  }, [sorted, skuFilter, skuById]); // eslint-disable-line react-hooks/exhaustive-deps
+  // No extra client-side filter — filtering is server-side via query params.
+  const displayRows = useMemo(() => sorted, [sorted]);
 
   const fmtDate = fmtDateDisplay;
+
+  // Filter dropdown options.
+  const styleOpts = useMemo(() => [
+    { value: "", label: "All styles" },
+    ...styles.map((s) => ({
+      value: s.id,
+      label: s.style_name ? `${s.style_code} — ${s.style_name}` : s.style_code,
+    })),
+  ], [styles]);
+
+  const whOpts = useMemo(() => warehouses.map((w) => ({
+    value: w.code,
+    label: `${w.code} — ${w.name}`,
+  })), [warehouses]);
+
+  async function handleDelete(row: InventoryTransfer) {
+    const label = styleById.get(row.item_id) ?? skuById[row.item_id] ?? row.item_id.slice(0, 8);
+    if (!(await confirmDialog(`Delete this transfer (${label})? Only unposted transfers can be deleted.`))) return;
+    const r = await fetch(`/api/internal/inventory-transfers/${row.id}`, { method: "DELETE" });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      notify(`Delete failed: ${(e as { error?: string }).error || r.status}`, "error");
+      return;
+    }
+    void load();
+  }
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.text }}>
@@ -259,24 +322,30 @@ export default function InternalInventoryTransfers() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <input
-          style={{ ...inputStyle, width: 320 }}
-          placeholder="Filter by SKU…"
-          value={skuFilter}
-          onChange={(e) => setSkuFilter(e.target.value)}
-        />
-        <input
-          style={{ ...inputStyle, width: 200 }}
-          placeholder="From location"
-          value={fromLoc}
-          onChange={(e) => setFromLoc(e.target.value)}
-        />
-        <input
-          style={{ ...inputStyle, width: 200 }}
-          placeholder="To location"
-          value={toLoc}
-          onChange={(e) => setToLoc(e.target.value)}
-        />
+        <div style={{ width: 280 }}>
+          <SearchableSelect
+            value={filterStyleId || null}
+            onChange={(v) => setFilterStyleId(v || "")}
+            options={styleOpts}
+            placeholder="All styles"
+          />
+        </div>
+        <div style={{ width: 220 }}>
+          <SearchableSelect
+            value={filterFromCode || null}
+            onChange={(v) => setFilterFromCode(v || "")}
+            options={[{ value: "", label: "All from warehouses" }, ...whOpts]}
+            placeholder="From warehouse"
+          />
+        </div>
+        <div style={{ width: 220 }}>
+          <SearchableSelect
+            value={filterToCode || null}
+            onChange={(v) => setFilterToCode(v || "")}
+            options={[{ value: "", label: "All to warehouses" }, ...whOpts]}
+            placeholder="To warehouse"
+          />
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
           <TablePrefsButton
             tableKey={INV_XFER_TABLE_KEY}
@@ -319,14 +388,15 @@ export default function InternalInventoryTransfers() {
               <SortableTh label="To" sortKey="to" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("to")} />
               <SortableTh label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("date")} />
               <SortableTh label="Notes" sortKey="notes" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("notes")} />
+              <th style={th} />
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td style={td} colSpan={6}>Loading…</td></tr>
+              <tr><td style={td} colSpan={7}>Loading…</td></tr>
             )}
             {!loading && displayRows.length === 0 && (
-              <tr><td style={td} colSpan={6}>
+              <tr><td style={td} colSpan={7}>
                 <span style={{ color: C.textMuted }}>
                   No transfers logged yet. Use "+ Add" to log a single-variant or matrix transfer.
                 </span>
@@ -334,12 +404,29 @@ export default function InternalInventoryTransfers() {
             )}
             {displayRows.map((t) => (
               <tr key={t.id}>
-                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(t.item_id)}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("style")}>
+                  {styleById.get(t.item_id) ?? skuById[t.item_id] ?? t.item_id.slice(0, 8)}
+                </td>
                 <td style={td} hidden={!isVisible("qty")}>{t.qty}</td>
                 <td style={td} hidden={!isVisible("from")}>{t.from_location}</td>
                 <td style={td} hidden={!isVisible("to")}>{t.to_location}</td>
                 <td style={td} hidden={!isVisible("date")}>{fmtDate(t.transfer_date)}</td>
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("notes")}>{t.notes || "—"}</td>
+                <td style={{ ...td, whiteSpace: "nowrap" }}>
+                  {!t.posted_je_id && (
+                    <>
+                      <button
+                        style={btnSecondary}
+                        onClick={() => { setEditingRow(t); setAddChooserOpen(false); }}
+                      >Edit</button>
+                      {" "}
+                      <button
+                        style={{ ...btnSecondary, color: C.danger, borderColor: C.danger }}
+                        onClick={() => void handleDelete(t)}
+                      >Del</button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -359,8 +446,8 @@ export default function InternalInventoryTransfers() {
 
       {addOpen && (
         <SingleTransferModal
-          defaultFrom={fromLoc.trim()}
-          defaultTo={toLoc.trim()}
+          defaultFrom={filterFromCode}
+          defaultTo={filterToCode}
           onClose={() => setAddOpen(false)}
           onSaved={() => { setAddOpen(false); void load(); }}
         />
@@ -368,10 +455,18 @@ export default function InternalInventoryTransfers() {
 
       {matrixOpen && (
         <MatrixTransferModal
-          defaultFrom={fromLoc.trim()}
-          defaultTo={toLoc.trim()}
+          defaultFrom={filterFromCode}
+          defaultTo={filterToCode}
           onClose={() => setMatrixOpen(false)}
           onSaved={() => { setMatrixOpen(false); void load(); }}
+        />
+      )}
+
+      {editingRow && (
+        <EditTransferModal
+          row={editingRow}
+          onClose={() => setEditingRow(null)}
+          onSaved={() => { setEditingRow(null); void load(); }}
         />
       )}
     </div>
@@ -441,6 +536,8 @@ function SingleTransferModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { reasons, addReason } = useTransferReasons();
+  const warehouses = useWarehouses();
+  const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
   // SKU picker — load a batch of active items so the operator picks by SKU,
   // never a raw UUID. SearchableSelect filters locally (sku / style / desc).
@@ -460,7 +557,7 @@ function SingleTransferModal({
     setErr(null);
     const qtyNum = Number(qty);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
-    if (!reason.trim()) { notify("Pick a Transfer Reason before saving (or add a new one).", "error"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Transfer Reason before saving."); return; }
     if (!itemId.trim()) { setErr("Pick a SKU"); return; }
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) { setErr("Qty must be a positive number"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
@@ -536,12 +633,14 @@ function SingleTransferModal({
 
         <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From location</label>
-            <input style={inputStyle} value={fromLoc} onChange={(e) => setFromLoc(e.target.value)} placeholder="e.g. MAIN" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From warehouse</label>
+            <SearchableSelect value={fromLoc || null} onChange={(v) => setFromLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
-            <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To warehouse</label>
+            <SearchableSelect value={toLoc || null} onChange={(v) => setToLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
         </div>
 
@@ -628,6 +727,8 @@ function MatrixTransferModal({
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const { reasons, addReason } = useTransferReasons();
+  const warehouses = useWarehouses();
+  const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
   // Style picker.
   const [styleOpts, setStyleOpts] = useState<StyleOption[]>([]);
@@ -739,7 +840,7 @@ function MatrixTransferModal({
   async function createAll() {
     setErr(null);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
-    if (!reason.trim()) { notify("Pick a Transfer Reason before creating transfers (or add a new one).", "error"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Transfer Reason before creating transfers."); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
     if (!toLoc.trim()) { setErr("To location is required"); return; }
@@ -837,12 +938,14 @@ function MatrixTransferModal({
 
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 200px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From location</label>
-            <input style={inputStyle} value={fromLoc} onChange={(e) => setFromLoc(e.target.value)} placeholder="e.g. MAIN" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From warehouse</label>
+            <SearchableSelect value={fromLoc || null} onChange={(v) => setFromLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: "1 1 200px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
-            <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To warehouse</label>
+            <SearchableSelect value={toLoc || null} onChange={(v) => setToLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: "2 1 320px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Notes (optional)</label>
@@ -912,11 +1015,102 @@ function MatrixTransferModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", position: "sticky", bottom: 0, background: C.card, paddingTop: 12, marginTop: 8, borderTop: `1px solid ${C.cardBdr}` }}>
           {progress && <span style={{ color: C.textMuted, fontSize: 12, marginRight: "auto" }}>{progress}</span>}
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" style={btnPrimary} onClick={() => void createAll()} disabled={saving || enteredCount === 0}>
             {saving ? "Creating…" : `Create ${enteredCount} transfer(s)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// EditTransferModal — PATCH qty / notes / transfer_date on an unposted row.
+// (#1024)
+// ─────────────────────────────────────────────────────────────────────────
+function EditTransferModal({
+  row, onClose, onSaved,
+}: {
+  row: InventoryTransfer;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [qty, setQty] = useState(String(row.qty));
+  const [notes, setNotes] = useState(row.notes || "");
+  const [transferDate, setTransferDate] = useState(
+    row.transfer_date ? String(row.transfer_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const qtyNum = parseInt(qty, 10);
+      if (!Number.isFinite(qtyNum) || qtyNum <= 0) throw new Error("Qty must be a positive integer");
+      const r = await fetch(`/api/internal/inventory-transfers/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qty: qtyNum, notes: notes.trim() || null, transfer_date: transferDate }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify("Transfer updated.", "success");
+      onSaved();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, width: "min(500px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>Edit Transfer</h2>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+          Only <strong>Qty</strong>, <strong>Transfer Date</strong>, and <strong>Notes</strong> can be changed.
+          Delete and recreate to change the SKU or locations.
+        </div>
+
+        {err && (
+          <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
+            {err}
+          </div>
+        )}
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Qty</label>
+        <input
+          style={{ ...inputStyle, marginBottom: 12, width: 120 }}
+          type="number"
+          min={1}
+          step={1}
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+        />
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Transfer Date</label>
+        <input
+          type="date"
+          style={{ ...inputStyle, marginBottom: 12 }}
+          value={transferDate}
+          onChange={(e) => setTransferDate(e.target.value)}
+        />
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Notes (optional)</label>
+        <textarea
+          style={{ ...inputStyle, marginBottom: 12, minHeight: 50, resize: "vertical" }}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" style={btnPrimary} onClick={() => void save()} disabled={saving}>
+            {saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
       </div>

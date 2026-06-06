@@ -63,6 +63,8 @@ import r_external_v1_invoices from "./external/v1/invoices.js";
 import r_external_v1_orders from "./external/v1/orders.js";
 import r_external_v1_ping from "./external/v1/ping.js";
 import r_external_v1_styles from "./external/v1/styles.js";
+import r_internal_adjustment_reasons_id from "./internal/adjustment-reasons/[id].js";
+import r_internal_adjustment_reasons_index from "./internal/adjustment-reasons/index.js";
 import r_internal_adjustment_types_id from "./internal/adjustment-types/[id].js";
 import r_internal_adjustment_types_index from "./internal/adjustment-types/index.js";
 import r_internal_ai_documents from "./internal/ai/documents.js";
@@ -278,6 +280,7 @@ import r_internal_inventory_cycle_counts_id from "./internal/inventory-cycle-cou
 import r_internal_inventory_cycle_counts_finalize from "./internal/inventory-cycle-counts/finalize.js";
 import r_internal_inventory_cycle_counts_index from "./internal/inventory-cycle-counts/index.js";
 import r_internal_inventory_cycle_counts_lines from "./internal/inventory-cycle-counts/lines.js";
+import r_internal_inventory_transfers_id from "./internal/inventory-transfers/[id].js";
 import r_internal_inventory_transfers_index from "./internal/inventory-transfers/index.js";
 import r_internal_ip_ai_demand_index from "./internal/ip-ai-demand/index.js";
 import r_internal_items_index from "./internal/items/index.js";
@@ -934,7 +937,9 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-adjustments/:id", handler: r_internal_inventory_adjustments_id },
   { pattern: "/api/internal/style-classifications/:id", handler: r_internal_style_classifications_id },
   { pattern: "/api/internal/employee-departments/:id", handler: r_internal_employee_departments_id },
+  { pattern: "/api/internal/inventory-transfers/:id", handler: r_internal_inventory_transfers_id },
   { pattern: "/api/internal/workflow-executions/:id", handler: r_internal_workflow_executions_id_index },
+  { pattern: "/api/internal/adjustment-reasons/:id", handler: r_internal_adjustment_reasons_id },
   { pattern: "/api/internal/customer-locations/:id", handler: r_internal_customer_locations_id },
   { pattern: "/api/internal/style-fabric-codes/:id", handler: r_internal_style_fabric_codes_id },
   { pattern: "/api/internal/approval-requests/:id", handler: r_internal_approval_requests_id },
@@ -1019,6 +1024,7 @@ export const ROUTES = [
   { pattern: "/api/cron/crm-tasks-due-tomorrow", handler: r_cron_crm_tasks_due_tomorrow },
   { pattern: "/api/cron/fba-settlements-weekly", handler: r_cron_fba_settlements_weekly },
   { pattern: "/api/cron/walmart-orders-nightly", handler: r_cron_walmart_orders_nightly },
+  { pattern: "/api/internal/adjustment-reasons", handler: r_internal_adjustment_reasons_index },
   { pattern: "/api/internal/customer-locations", handler: r_internal_customer_locations_index },
   { pattern: "/api/internal/customer-scorecard", handler: r_internal_customer_scorecard_index },
   { pattern: "/api/internal/style-fabric-codes", handler: r_internal_style_fabric_codes_index },

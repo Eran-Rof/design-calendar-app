@@ -27,6 +27,7 @@ import InternalSeasonMaster       from "./tanda/InternalSeasonMaster";
 import InternalFabricMillMaster   from "./tanda/InternalFabricMillMaster";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
+import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
 import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
 import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
 import InternalCarrierMaster      from "./tanda/InternalCarrierMaster";
@@ -200,6 +201,7 @@ type ModuleKey =
   | "fabric_mill_master"
   | "rma_reason_master"
   | "adjustment_type_master"
+  | "adjustment_reason_master"
   | "transfer_reason_master"
   | "warehouse_master"
   | "carrier_master"
@@ -403,6 +405,7 @@ const MODULES: ModuleDef[] = [
   { key: "fabric_mill_master",   label: "Fabric Mill Master",        emoji: "🏭", group: "Master Data" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
+  { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
   { key: "transfer_reason_master", label: "Transfer Reasons Master", emoji: "🔁", group: "Master Data" },
   { key: "warehouse_master",     label: "Warehouses Master",         emoji: "🏬", group: "Master Data" },
   { key: "carrier_master",      label: "Carrier Master",            emoji: "🚚", group: "Master Data" },
@@ -816,6 +819,7 @@ export default function Tangerine() {
         {activeModule === "fabric_mill_master"    && <InternalFabricMillMaster />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
+        {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
         {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
         {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}
         {activeModule === "carrier_master"       && <InternalCarrierMaster />}
