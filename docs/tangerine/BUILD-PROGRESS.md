@@ -21,6 +21,7 @@
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
 > **Recent cross-cutting landings (2026-06-05)** — not tied to a single phase row:
+> - **Inventory Matrix: SO/PO/Invoices row-views + drill-through + ATS inventory filters** (#1040) — a **Matrix / SO / PO / Invoices** view-mode switch on a picked style: SO/PO/Invoices each render a row-driven list (all statuses) of the orders/invoices containing that style, with row-click drill-through to the real Sales Orders / Purchase Orders / AR Invoices module. New read-only endpoint `GET /api/internal/style-orders?style_id=&view=` resolves item ids → header rows with customer/vendor names pre-resolved (no uuids). Also added ATS-style **Gender / Group / Category** multi-select filters that scope the style picker (`src/tanda/InternalInventoryMatrix.tsx`).
 > - **Inventory Matrix: image thumbnails + brand-level view + total-cost fix** (#1022) — per-color 44px thumbnails in each row; brand-selected / no-style shows all brand styles stacked (up to 50, parallel load); `totalCostCents` now recalculated when simple-mean avg fallback fires (was showing "—").
 
 > **Recent cross-cutting landings (2026-06-03/04)** — not tied to a single phase row:
