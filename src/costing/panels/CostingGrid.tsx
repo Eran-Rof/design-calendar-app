@@ -29,7 +29,12 @@ import { usePersistedHiddenColumns } from "../../inventory-planning/panels/whole
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { appConfirm } from "../../utils/theme";
-import { confirmDialog } from "../../shared/ui/warn";
+import { confirmDialog, notify } from "../../shared/ui/warn";
+import { marginTierColor } from "../../techpack/calc";
+import {
+  isDdpProject, lineCostBasis, lineMarginPct, solveCostFromMargin,
+  rowMissingFields, projectHeaderMissing, num as cnum,
+} from "../lib/completeness";
 import type { CostingLine } from "../types";
 import type { StyleHit } from "../services/costingApi";
 
@@ -90,7 +95,6 @@ const COLUMNS: ColumnDef[] = [
   { key: "other_costs",    label: "Other",    width: 70,  align: "right", numeric: true },
   { key: "_landed",        label: "Landed",   width: 80,  align: "right" },
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
-  { key: "sell_price",     label: "Sell",     width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
   // LY comp — qty col dropped, replaced by sales-price (LY Sls Prc).
   // Mgn now computed display-side from (sls_prc - cost) / sls_prc.
@@ -138,11 +142,15 @@ export default function CostingGrid() {
   // Other are not entered separately) and rename "Tgt Cost" → "Trgt DDP".
   // Match /DDP/i against the project's payment_terms_name snapshot so "DDP",
   // "DDP 30", "DDP 60" etc. all trigger it.
-  const isDdp = !!project?.payment_terms_name && /DDP/i.test(project.payment_terms_name);
-  const DDP_HIDDEN = new Set(["fob_cost", "duty_rate", "freight", "insurance", "other_costs", "_landed"]);
+  const isDdp = isDdpProject(project);
+  // The FOB→Landed component columns. Grouped under one "FOB / Landed Target"
+  // band in the header (item 4) and hidden entirely in DDP mode (the vendor
+  // quotes a single delivered price into "Tgt DDP Cost").
+  const FOB_GROUP = ["fob_cost", "duty_rate", "freight", "insurance", "other_costs", "_landed"];
+  const DDP_HIDDEN = new Set(FOB_GROUP);
   const displayColumns = COLUMNS
     .filter((c) => !(isDdp && DDP_HIDDEN.has(c.key)))
-    .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Trgt DDP" } : c));
+    .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Tgt DDP Cost" } : c));
 
   const visibleColumns = displayColumns.filter((c) => !hiddenColumns.has(c.key));
   const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
@@ -183,7 +191,43 @@ export default function CostingGrid() {
       return;
     }
     const projectId = project.id;
-    const lineIds = Array.from(selectedRowIds);
+    let lineIds = Array.from(selectedRowIds);
+
+    // Item 2 — block sending incomplete rows. Offer to fix (cancel) or delete
+    // the incomplete rows and send only the complete ones.
+    const selectedLines = lines.filter((l) => selectedRowIds.has(l.id));
+    const incomplete = selectedLines.filter((l) => rowMissingFields(l, isDdp).length > 0);
+    if (incomplete.length > 0) {
+      const completeIds = selectedLines
+        .filter((l) => rowMissingFields(l, isDdp).length === 0)
+        .map((l) => l.id);
+      const proceed = await confirmDialog(
+        `${incomplete.length} selected row${incomplete.length === 1 ? " is" : "s are"} incomplete and can't be sent. ` +
+          `Fix them, or delete the incomplete row${incomplete.length === 1 ? "" : "s"}` +
+          `${completeIds.length > 0 ? " and send the rest" : ""}?`,
+        {
+          title: "Incomplete rows",
+          danger: true,
+          confirmText: completeIds.length > 0 ? "Delete incomplete & send rest" : "Delete incomplete",
+          cancelText: "Go back & fix",
+          listItems: incomplete.map((l) =>
+            `${l.style_code || "(no style)"} — missing: ${rowMissingFields(l, isDdp).join(", ")}`,
+          ),
+        },
+      );
+      if (!proceed) return; // operator chose to fix
+      for (const l of incomplete) {
+        // eslint-disable-next-line no-await-in-loop
+        await deleteLine(l.id);
+      }
+      setSelectedRowIds(new Set(completeIds));
+      if (completeIds.length === 0) {
+        setNotice("Incomplete rows deleted. Nothing left to send.", "info");
+        return;
+      }
+      lineIds = completeIds;
+    }
+
     setGenerating(true);
     try {
       let res = await generateRfqs(projectId, lineIds);
@@ -317,7 +361,35 @@ export default function CostingGrid() {
   };
 
   const onAdd = async () => {
+    // Item 5 — gate row creation on a complete project header.
+    const missing = projectHeaderMissing(project);
+    if (missing.length > 0) {
+      await confirmDialog(
+        "Fill in the project header before adding rows. Missing:",
+        {
+          title: "Project header incomplete",
+          confirmText: "OK",
+          cancelText: "",
+          listItems: missing,
+        },
+      );
+      return;
+    }
     await addLine({});
+  };
+
+  // Item 9 — operator edits Margin %; back-solve the cost. DDP → Tgt DDP Cost;
+  // otherwise solve FOB so landed hits the implied cost (duty/freight/insur/
+  // other held fixed). Needs a positive Sell Tgt to solve.
+  const onMarginEdit = (line: CostingLine, raw: string) => {
+    const m = Number(String(raw).replace(/[^0-9.\-]/g, ""));
+    if (!isFinite(m)) return;
+    if (!(cnum(line.sell_target) > 0)) {
+      notify("Enter a Sell Tgt first — margin needs a selling price to solve the cost.", "info");
+      return;
+    }
+    const patch = solveCostFromMargin(line, isDdp, m);
+    if (patch) void updateLine(line.id, patch);
   };
 
   // Style pick — prefill + seed target_cost.
@@ -380,11 +452,11 @@ export default function CostingGrid() {
   let totalSales = 0;
   for (const line of lines) {
     const qty = n(line.target_qty);
-    const m = computeLineMath(line);
-    const landed = m.landed_cost > 0 ? m.landed_cost : n(line.target_cost);
+    // Cost basis: DDP → Tgt DDP Cost; otherwise landed (FOB-derived).
+    const cost = lineCostBasis(line, isDdp);
     totalQty += qty;
-    totalCost += qty * landed;
-    totalSales += qty * n(line.sell_price);
+    totalCost += qty * cost;
+    totalSales += qty * n(line.sell_target);
   }
   const weightedMargin = totalSales > 0 ? ((totalSales - totalCost) / totalSales) * 100 : 0;
 
@@ -500,9 +572,36 @@ export default function CostingGrid() {
         border: "1px solid #334155", borderRadius: 6,
         background: "#1E293B", overflowX: "auto",
       }}>
-        {/* Header — cells use flex:0 0 width + box-sizing:border-box so the
-            border doesn't push width outward, matching body + footer exactly. */}
-        <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
+        {/* Header — a sticky 2-tier block: a grouping band over the FOB→Landed
+            columns (item 4), then the column labels. Cells use flex:0 0 width +
+            box-sizing:border-box so borders don't push width, matching body. */}
+        <div style={{ position: "sticky", top: 0, zIndex: 5 }}>
+        {!isDdp && (() => {
+          const grp = visibleColumns.filter((c) => FOB_GROUP.includes(c.key));
+          if (grp.length === 0) return null;
+          const grpWidth = grp.reduce((s, c) => s + c.width, 0);
+          const firstKey = grp[0].key;
+          return (
+            <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A" }}>
+              {visibleColumns.map((c) => {
+                if (c.key === firstKey) {
+                  return (
+                    <div key="_fobband" style={{
+                      flex: `0 0 ${grpWidth}px`, boxSizing: "border-box",
+                      borderRight: "1px solid #475569", borderBottom: "1px solid #334155",
+                      padding: "5px 8px", textAlign: "center",
+                      fontSize: 9, fontWeight: 700, color: "#FBBF24",
+                      textTransform: "uppercase", letterSpacing: ".08em",
+                    }}>FOB / Landed Target</div>
+                  );
+                }
+                if (FOB_GROUP.includes(c.key)) return null; // merged into the band cell
+                return <div key={`band_${c.key}`} style={{ flex: `0 0 ${c.width}px`, boxSizing: "border-box" }} />;
+              })}
+            </div>
+          );
+        })()}
+        <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A" }}>
           {visibleColumns.map((c) => {
             // Select-all checkbox in the _select column header.
             if (c.key === "_select") {
@@ -535,6 +634,7 @@ export default function CostingGrid() {
               }}>{c.label}</div>
             );
           })}
+        </div>
         </div>
 
         {/* Body */}
@@ -748,18 +848,33 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Margin — computed + tier color background
+                // Margin — auto-filled from Sell Tgt vs cost basis (item 8) and
+                // EDITABLE: typing a margin back-solves the cost (item 9).
                 if (c.key === "_margin") {
+                  const marginVal = lineMarginPct(line, isDdp);
+                  const hasMargin = cnum(line.sell_target) > 0 && marginVal !== 0;
+                  const color = marginTierColor(marginVal);
                   return (
                     <div key={c.key} style={{
-                      ...style,
-                      background: math.margin_pct ? math.tierColor + "33" : undefined,
-                      color: math.tierColor,
-                      fontWeight: 700,
-                    }}>
-                      <span style={{ width: "100%", padding: "0 6px" }}>
-                        {math.margin_pct ? fmtPct.format(math.margin_pct) + "%" : "—"}
-                      </span>
+                      ...style, padding: 0,
+                      background: hasMargin ? color + "33" : undefined,
+                    }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        key={`margin_${line.id}_${marginVal.toFixed(2)}`}
+                        defaultValue={hasMargin ? fmtPct.format(marginVal) : ""}
+                        type="text"
+                        title={isDdp
+                          ? "Edit margin → back-solves Tgt DDP Cost (needs a Sell Tgt)"
+                          : "Edit margin → back-solves FOB so Landed hits the target (needs a Sell Tgt)"}
+                        placeholder="—"
+                        onBlur={(e) => onMarginEdit(line, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        style={{
+                          width: "100%", padding: "4px 6px", fontSize: 12, fontWeight: 700,
+                          textAlign: "right", background: "transparent",
+                          border: "1px solid transparent", color, outline: "none",
+                        }}
+                      />
                     </div>
                   );
                 }
@@ -945,16 +1060,18 @@ export default function CostingGrid() {
                   </div>
                 );
               }
-              if (c.key === "_landed") {
+              // Total cost lands under Landed (non-DDP) or Tgt DDP Cost (DDP,
+              // where the Landed column is hidden).
+              if (c.key === "_landed" || (isDdp && c.key === "target_cost")) {
                 return (
-                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total cost = sum of qty × landed">
+                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total cost = Σ qty × cost basis">
                     {fmtMoney.format(totalCost)}
                   </div>
                 );
               }
-              if (c.key === "sell_price") {
+              if (c.key === "sell_target") {
                 return (
-                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total sales = sum of qty × sell">
+                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total sales = Σ qty × Sell Tgt">
                     {fmtMoney.format(totalSales)}
                   </div>
                 );
