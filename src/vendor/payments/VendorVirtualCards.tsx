@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Card {
   id: string;
@@ -60,9 +61,9 @@ export default function VendorVirtualCards() {
   }
 
   async function confirmSpent(cardId: string) {
-    if (!confirm("Mark this card as fully spent? Use this when you've charged the card for the full amount.")) return;
+    if (!await showConfirm({ title: "Mark as fully spent?", message: "Use this when you've charged the card for the full amount.", tone: "warn", confirmLabel: "Mark spent" })) return;
     const r = await api(`/api/vendor/virtual-cards/${cardId}/confirm-spent`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 

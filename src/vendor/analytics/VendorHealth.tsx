@@ -120,11 +120,11 @@ export default function VendorHealth() {
       )}
 
       {/* Tip */}
-      <div style={{ background: "#FFFAF0", border: "1px solid #FED7AA", borderRadius: 10, padding: "16px 18px" }}>
-        <div style={{ color: "#C05621", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.05, marginBottom: 6 }}>
+      <div style={{ background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 10, padding: "16px 18px" }}>
+        <div style={{ color: "#FBBF24", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.05, marginBottom: 6 }}>
           Improvement tip — lowest dimension: {lowest[1]} ({c[lowest[0]] as number}/100)
         </div>
-        <div style={{ color: "#7B341E", fontSize: 13, lineHeight: 1.5 }}>{tip}</div>
+        <div style={{ color: "#FBBF24", fontSize: 13, lineHeight: 1.5 }}>{tip}</div>
       </div>
     </div>
   );

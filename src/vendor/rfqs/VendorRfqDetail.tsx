@@ -5,6 +5,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge from "../StatusBadge";
 import { fmtDate, fmtMoney } from "../utils";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; delivery_required_by: string | null; estimated_quantity: number | null; estimated_budget: number | null; currency: string };
@@ -139,14 +140,14 @@ export default function VendorRfqDetail() {
       });
       if (!r.ok) throw new Error(await r.text());
       await load();
-      alert("Draft saved.");
+      await showAlert({ title: "Saved", message: "Draft saved.", tone: "success" });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 
   async function submitQuote() {
-    if (!confirm("Submit this quote? You can't edit it after submission.")) return;
+    if (!await showConfirm({ title: "Submit quote?", message: "You can't edit it after submission.", tone: "warn", confirmLabel: "Submit" })) return;
     setSaving(true);
     try {
       await saveDraft();
@@ -157,9 +158,9 @@ export default function VendorRfqDetail() {
       });
       if (!r.ok) throw new Error(await r.text());
       await load();
-      alert("Quote submitted.");
+      await showAlert({ title: "Submitted", message: "Quote submitted.", tone: "success" });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 
@@ -167,7 +168,7 @@ export default function VendorRfqDetail() {
   // the quote as a draft (server-side), then reloads so the form is editable
   // again. The vendor then edits + re-submits as the next revision.
   async function reviseQuote() {
-    if (!confirm("Revise this quote? Your current submission is saved as a prior revision, and you can edit and re-submit.")) return;
+    if (!await showConfirm({ title: "Revise quote?", message: "Your current submission is saved as a prior revision, and you can edit and re-submit.", tone: "warn", confirmLabel: "Revise" })) return;
     setSaving(true);
     try {
       const t = await token();
@@ -177,9 +178,9 @@ export default function VendorRfqDetail() {
       });
       if (!r.ok) throw new Error(await r.text());
       await load();
-      alert("Quote reopened for revision — edit your prices and re-submit.");
+      await showAlert({ title: "Reopened", message: "Quote reopened for revision — edit your prices and re-submit.", tone: "success" });
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally { setSaving(false); }
   }
 
@@ -196,7 +197,7 @@ export default function VendorRfqDetail() {
       if (!r.ok) throw new Error(await r.text());
       nav("/vendor/rfqs");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
   }
 
@@ -465,7 +466,7 @@ function RfqMessageThread({ rfqId }: { rfqId: string }) {
           const mine = m.sender_type === "vendor";
           return (
             <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 10 }}>
-              <div style={{ maxWidth: "78%", background: mine ? TH.primary : "#FFFFFF", color: mine ? "#FFFFFF" : TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
+              <div style={{ maxWidth: "78%", background: mine ? TH.primary : TH.bg, color: TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, opacity: 0.85, color: mine ? "rgba(255,255,255,0.9)" : TH.textMuted }}>
                   {m.sender_name} · {m.sender_type === "vendor" ? "You" : "Ring of Fire"}
                 </div>

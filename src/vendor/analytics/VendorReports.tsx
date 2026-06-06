@@ -45,21 +45,21 @@ interface InvHistoryRow {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  submitted:    { bg: "#FEF3C7", fg: "#92400E" },
-  under_review: { bg: "#DBEAFE", fg: "#1E40AF" },
-  approved:     { bg: "#D1FAE5", fg: "#065F46" },
-  paid:         { bg: "#A7F3D0", fg: "#064E3B" },
-  rejected:     { bg: "#FECACA", fg: "#991B1B" },
-  disputed:     { bg: "#FED7AA", fg: "#9A3412" },
-  issued:             { bg: "#E5E7EB", fg: "#374151" },
-  acknowledged:       { bg: "#DBEAFE", fg: "#1E40AF" },
-  partially_received: { bg: "#FEF3C7", fg: "#92400E" },
-  fulfilled:          { bg: "#D1FAE5", fg: "#065F46" },
-  shipped_invoiced:   { bg: "#D1FAE5", fg: "#065F46" },
-  closed:             { bg: "#A7F3D0", fg: "#064E3B" },
-  matched:      { bg: "#D1FAE5", fg: "#065F46" },
-  discrepancy:  { bg: "#FECACA", fg: "#991B1B" },
-  pending:      { bg: "#E5E7EB", fg: "#374151" },
+  submitted:    { bg: "#78350F33", fg: "#FBBF24" },
+  under_review: { bg: "#1E3A8A22", fg: "#60A5FA" },
+  approved:     { bg: "#064E3B33", fg: "#34D399" },
+  paid:         { bg: "#064E3B33", fg: "#10B981" },
+  rejected:     { bg: "#7F1D1D33", fg: "#FCA5A5" },
+  disputed:     { bg: "#7F1D1D33", fg: "#FCA5A5" },
+  issued:             { bg: "#1E293B", fg: "#94A3B8" },
+  acknowledged:       { bg: "#1E3A8A22", fg: "#60A5FA" },
+  partially_received: { bg: "#78350F33", fg: "#FBBF24" },
+  fulfilled:          { bg: "#064E3B33", fg: "#34D399" },
+  shipped_invoiced:   { bg: "#064E3B33", fg: "#34D399" },
+  closed:             { bg: "#064E3B33", fg: "#10B981" },
+  matched:      { bg: "#064E3B33", fg: "#34D399" },
+  discrepancy:  { bg: "#7F1D1D33", fg: "#FCA5A5" },
+  pending:      { bg: "#1E293B", fg: "#94A3B8" },
 };
 
 async function authedFetch(path: string) {
@@ -567,13 +567,13 @@ function POPhaseActivity({ rows }: { rows: Array<{ po_id: string; po_number: str
               </span>
             </div>
             <div style={{ textAlign: "right" }}>
-              {r.pending > 0 ? <span style={{ background: "#FEF3C7", color: "#92400E", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.pending}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+              {r.pending > 0 ? <span style={{ background: "#78350F33", color: "#FBBF24", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.pending}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
             </div>
             <div style={{ textAlign: "right" }}>
-              {r.approved > 0 ? <span style={{ background: "#D1FAE5", color: "#065F46", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.approved}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+              {r.approved > 0 ? <span style={{ background: "#064E3B33", color: "#34D399", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.approved}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
             </div>
             <div style={{ textAlign: "right" }}>
-              {r.rejected > 0 ? <span style={{ background: "#FECACA", color: "#991B1B", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.rejected}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
+              {r.rejected > 0 ? <span style={{ background: "#7F1D1D33", color: "#FCA5A5", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.rejected}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
             </div>
             <div style={{ textAlign: "right", fontSize: 11, color: TH.textMuted }}>
               {r.latest_at ? new Date(r.latest_at).toLocaleDateString() : "—"}
@@ -587,8 +587,8 @@ function POPhaseActivity({ rows }: { rows: Array<{ po_id: string; po_number: str
 }
 
 function PhaseBucketCard({ label, count, to, tone }: { label: string; count: number; to: string; tone?: "danger" | "warn" }) {
-  const accent = tone === "danger" ? "#B91C1C" : tone === "warn" ? "#B45309" : TH.primary;
-  const bg = tone === "danger" ? "#FEE2E2" : tone === "warn" ? "#FEF3C7" : "#DBEAFE";
+  const accent = tone === "danger" ? "#EF4444" : tone === "warn" ? "#F59E0B" : TH.primary;
+  const bg = tone === "danger" ? "#7F1D1D33" : tone === "warn" ? "#78350F33" : TH.accent;
   return (
     <Link
       to={to}

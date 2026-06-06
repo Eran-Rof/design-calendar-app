@@ -5,6 +5,7 @@ import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge, { contractTone } from "../StatusBadge";
 import { fmtDate, fmtMoney } from "../utils";
 import { showFileViewer } from "../../utils/fileViewer";
+import { showAlert } from "../ui/AppDialog";
 import AttachmentsManager from "../ui/AttachmentsManager";
 
 interface Contract {
@@ -70,14 +71,14 @@ export default function VendorContractDetail() {
 
   async function download(path: string) {
     const url = await signedUrl(path);
-    if (!url) { alert("Could not generate download link."); return; }
+    if (!url) { void showAlert({ title: "Error", message: "Could not generate download link.", tone: "danger" }); return; }
     void showFileViewer({ signedUrl: url, filename: path.split("/").pop() || "contract" });
   }
 
   async function submitSign() {
     if (!file || !contract) return;
-    if (file.type !== "application/pdf") { alert("Please upload a PDF."); return; }
-    if (file.size > 20 * 1024 * 1024) { alert("File exceeds 20MB limit."); return; }
+    if (file.type !== "application/pdf") { void showAlert({ title: "Invalid file", message: "Please upload a PDF.", tone: "warn" }); return; }
+    if (file.size > 20 * 1024 * 1024) { void showAlert({ title: "File too large", message: "File exceeds 20MB limit.", tone: "warn" }); return; }
     setSigning(true);
     try {
       const path = `${contract.vendor_id}/${contract.id}/signed_${Date.now()}_${file.name}`;
@@ -95,7 +96,7 @@ export default function VendorContractDetail() {
       setFile(null);
       await load();
     } catch (e: unknown) {
-      alert(`Sign failed: ${e instanceof Error ? e.message : String(e)}`);
+      void showAlert({ title: "Sign failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSigning(false);
     }

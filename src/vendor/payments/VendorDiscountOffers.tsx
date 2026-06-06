@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
-import { showAlert } from "../ui/AppDialog";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Offer {
   id: string;
@@ -54,8 +54,8 @@ export default function VendorDiscountOffers() {
   useEffect(() => { void load(); }, [status]);
 
   async function act(offer: Offer, action: "accept" | "reject") {
-    if (action === "reject" && !confirm("Reject this offer? The invoice will be paid on its original due date.")) return;
-    if (action === "accept" && !confirm(`Accept? You'll receive $${Number(offer.net_payment_amount).toFixed(2)} on ${offer.early_payment_date} (${offer.days_early} days early).`)) return;
+    if (action === "reject" && !await showConfirm({ title: "Reject offer?", message: "The invoice will be paid on its original due date.", tone: "warn", confirmLabel: "Reject" })) return;
+    if (action === "accept" && !await showConfirm({ title: "Accept offer?", message: `You'll receive $${Number(offer.net_payment_amount).toFixed(2)} on ${offer.early_payment_date} (${offer.days_early} days early).`, tone: "info", confirmLabel: "Accept" })) return;
     const r = await api(`/api/vendor/discount-offers/${offer.id}/${action}`, { method: "POST" });
     if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();

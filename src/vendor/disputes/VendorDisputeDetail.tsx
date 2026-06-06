@@ -162,7 +162,7 @@ export default function VendorDisputeDetail() {
             const mine = m.sender_type === "vendor";
             return (
               <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 10 }}>
-                <div style={{ maxWidth: "78%", background: mine ? TH.primary : "#FFFFFF", color: mine ? "#FFFFFF" : TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
+                <div style={{ maxWidth: "78%", background: mine ? TH.primary : TH.bg, color: TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, opacity: 0.85, color: mine ? "rgba(255,255,255,0.9)" : TH.textMuted }}>
                     {m.sender_name} · {mine ? "You" : "Ring of Fire"}
                   </div>

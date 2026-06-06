@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
-import { showAlert } from "../ui/AppDialog";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Eligible {
   invoice: { id: string; invoice_number: string; total: number; due_date: string; currency: string };
@@ -52,7 +52,7 @@ export default function VendorScf() {
   useEffect(() => { void load(); }, []);
 
   async function request(row: Eligible) {
-    if (!confirm(`Request financing on invoice ${row.invoice.invoice_number}? You'll receive ~$${row.est_net_disbursement.toLocaleString()} after a $${row.est_fee_amount.toLocaleString()} fee.`)) return;
+    if (!await showConfirm({ title: "Request financing?", message: `Invoice ${row.invoice.invoice_number}: you'll receive ~$${row.est_net_disbursement.toLocaleString()} after a $${row.est_fee_amount.toLocaleString()} fee.`, tone: "info", confirmLabel: "Request" })) return;
     const r = await api("/api/vendor/scf/request", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ invoice_id: row.invoice.id, program_id: row.program_id }),

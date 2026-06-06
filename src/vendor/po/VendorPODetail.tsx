@@ -6,6 +6,7 @@ import { fmtDate, fmtMoney, errMsg } from "../utils";
 import POMessageThread, { type Sender } from "./POMessageThread";
 import VendorPhasesView from "./VendorPhasesView";
 import VendorPoMatrix from "./VendorPoMatrix";
+import { showAlert } from "../ui/AppDialog";
 
 interface PORow {
   uuid_id: string;
@@ -51,11 +52,11 @@ interface InvoiceRow {
 type Tab = "overview" | "messages" | "shipments" | "invoices" | "phases";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  submitted:    { bg: "#FEF3C7", fg: "#92400E" },
-  under_review: { bg: "#DBEAFE", fg: "#1E40AF" },
-  approved:     { bg: "#D1FAE5", fg: "#065F46" },
-  paid:         { bg: "#A7F3D0", fg: "#064E3B" },
-  rejected:     { bg: "#FECACA", fg: "#991B1B" },
+  submitted:    { bg: "#78350F33", fg: "#FBBF24" },
+  under_review: { bg: "#1E3A8A22", fg: "#60A5FA" },
+  approved:     { bg: "#064E3B33", fg: "#34D399" },
+  paid:         { bg: "#064E3B33", fg: "#10B981" },
+  rejected:     { bg: "#7F1D1D33", fg: "#FCA5A5" },
 };
 
 export default function VendorPODetail() {
@@ -182,7 +183,7 @@ export default function VendorPODetail() {
     const { error } = await supabaseVendor
       .from("po_acknowledgments")
       .upsert({ po_number: po.po_number, vendor_user_id: vendorUserId }, { onConflict: "po_number,vendor_user_id" });
-    if (error) { alert("Could not acknowledge: " + error.message); return; }
+    if (error) { void showAlert({ title: "Error", message: "Could not acknowledge: " + error.message, tone: "danger" }); return; }
     setAcked(true);
   }
 
