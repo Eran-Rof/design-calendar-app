@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-06
+**Last updated:** 2026-06-06 (HTS master + fabric COO/HTS AI suggest)
 
 ## Summary
 
@@ -21,6 +21,7 @@
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
 > **Recent cross-cutting landings (2026-06-05)** — not tied to a single phase row:
+> - **HTS Master + Fabric COO/HTS AI suggest** (#1027) — `hts_master` reference table (operator-managed HTS codes + duty rates); `country_of_origin` text column on `fabric_codes`; **🤖 Suggest** button on fabric edit modal calls Claude Haiku to propose top-3 HTS codes from fabric content + COO; new Master Data → 🛃 HTS Master panel; migration `20260828000000`. User-guide ch15 updated.
 > - **Inventory Matrix: SO/PO/Invoices row-views + drill-through + ATS inventory filters** (#1040) — a **Matrix / SO / PO / Invoices** view-mode switch on a picked style: SO/PO/Invoices each render a row-driven list (all statuses) of the orders/invoices containing that style, with row-click drill-through to the real Sales Orders / Purchase Orders / AR Invoices module. New read-only endpoint `GET /api/internal/style-orders?style_id=&view=` resolves item ids → header rows with customer/vendor names pre-resolved (no uuids). Also added ATS-style **Gender / Group / Category** multi-select filters that scope the style picker (`src/tanda/InternalInventoryMatrix.tsx`).
 > - **Inventory Matrix: image thumbnails + brand-level view + total-cost fix** (#1022) — per-color 44px thumbnails in each row; brand-selected / no-style shows all brand styles stacked (up to 50, parallel load); `totalCostCents` now recalculated when simple-mean avg fallback fires (was showing "—").
 
