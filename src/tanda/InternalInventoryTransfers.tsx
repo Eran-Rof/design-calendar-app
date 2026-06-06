@@ -23,6 +23,7 @@ import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { notify } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Transfer Reason picker (transfer_reason_master, #985). A SearchableSelect
@@ -239,12 +240,7 @@ export default function InternalInventoryTransfers() {
     return sorted.filter((t) => itemLabel(t.item_id).toLowerCase().includes(q));
   }, [sorted, skuFilter, skuById]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function fmtDate(iso: string): string {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toISOString().slice(0, 10);
-  }
+  const fmtDate = fmtDateDisplay;
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.text }}>

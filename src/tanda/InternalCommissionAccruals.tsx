@@ -14,6 +14,7 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import ExportButton from "./exports/ExportButton";
 import { notify } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 const TABLE_KEY = "tanda.commission_accruals";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -115,13 +116,7 @@ const labelStyle: React.CSSProperties = {
   textTransform: "uppercase", letterSpacing: 0.5,
 };
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  } catch { return iso; }
-}
+const fmtDate = fmtDateDisplay;
 function fmtCurrencyFromCents(cents: number | string | null | undefined): string {
   const n = Number(cents || 0);
   const dollars = n / 100;
