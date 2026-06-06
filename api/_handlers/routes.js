@@ -276,6 +276,7 @@ import r_internal_inventory_cycle_counts_id from "./internal/inventory-cycle-cou
 import r_internal_inventory_cycle_counts_finalize from "./internal/inventory-cycle-counts/finalize.js";
 import r_internal_inventory_cycle_counts_index from "./internal/inventory-cycle-counts/index.js";
 import r_internal_inventory_cycle_counts_lines from "./internal/inventory-cycle-counts/lines.js";
+import r_internal_inventory_transfers_id from "./internal/inventory-transfers/[id].js";
 import r_internal_inventory_transfers_index from "./internal/inventory-transfers/index.js";
 import r_internal_ip_ai_demand_index from "./internal/ip-ai-demand/index.js";
 import r_internal_items_index from "./internal/items/index.js";
@@ -932,6 +933,7 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-adjustments/:id", handler: r_internal_inventory_adjustments_id },
   { pattern: "/api/internal/style-classifications/:id", handler: r_internal_style_classifications_id },
   { pattern: "/api/internal/employee-departments/:id", handler: r_internal_employee_departments_id },
+  { pattern: "/api/internal/inventory-transfers/:id", handler: r_internal_inventory_transfers_id },
   { pattern: "/api/internal/workflow-executions/:id", handler: r_internal_workflow_executions_id_index },
   { pattern: "/api/internal/adjustment-reasons/:id", handler: r_internal_adjustment_reasons_id },
   { pattern: "/api/internal/customer-locations/:id", handler: r_internal_customer_locations_id },
