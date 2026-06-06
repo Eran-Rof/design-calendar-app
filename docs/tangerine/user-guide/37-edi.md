@@ -90,3 +90,13 @@ an extra confirmation.
   - **VAN password encryption** — the credential field is plain-text today.
   - Configure partners, VAN settings, and the inbound secret
     (`EDI_INBOUND_SHARED_SECRET`) before any real exchange.
+
+## 3PL warehouse EDI (940 / 945)
+
+Beyond vendor (850/820/997) and customer (850/810/856) EDI, Tangerine also speaks
+**warehouse EDI** to your **3PL providers**: **940 (Warehouse Shipping Order)**
+outbound when you *wave* a sales order, and **945 (Warehouse Shipping Advice)**
+inbound when the 3PL confirms the shipment. These use the same X12 envelope
+engine and the `edi_messages` store (`transaction_set` 940/945). The full
+workflow, plus the per-provider connection settings the operator must enter, is
+documented in **[Chapter 36 — 3PL](36-3pl.md#363-waving-a-sales-order-to-a-3pl-edi-940--945)**.

@@ -63,6 +63,8 @@ import r_external_v1_invoices from "./external/v1/invoices.js";
 import r_external_v1_orders from "./external/v1/orders.js";
 import r_external_v1_ping from "./external/v1/ping.js";
 import r_external_v1_styles from "./external/v1/styles.js";
+import r_internal_adjustment_reasons_id from "./internal/adjustment-reasons/[id].js";
+import r_internal_adjustment_reasons_index from "./internal/adjustment-reasons/index.js";
 import r_internal_adjustment_types_id from "./internal/adjustment-types/[id].js";
 import r_internal_adjustment_types_index from "./internal/adjustment-types/index.js";
 import r_internal_ai_documents from "./internal/ai/documents.js";
@@ -138,6 +140,8 @@ import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/u
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_bulk_process from "./internal/bulk/process.js";
+import r_internal_carriers_id from "./internal/carriers/[id].js";
+import r_internal_carriers_index from "./internal/carriers/index.js";
 import r_internal_cases_id from "./internal/cases/[id].js";
 import r_internal_cases_id_comments from "./internal/cases/[id]/comments.js";
 import r_internal_cases_index from "./internal/cases/index.js";
@@ -222,6 +226,7 @@ import r_internal_edi_vendor_id_send from "./internal/edi/[vendor_id]/send.js";
 import r_internal_edi_customer_partners_id from "./internal/edi/customer-partners/[id].js";
 import r_internal_edi_customer_partners_index from "./internal/edi/customer-partners/index.js";
 import r_internal_edi_settings_index from "./internal/edi/settings/index.js";
+import r_internal_edi_tpl_provider_id_inbound from "./internal/edi/tpl/[provider_id]/inbound.js";
 import r_internal_employee_departments_id from "./internal/employee-departments/[id].js";
 import r_internal_employee_departments_index from "./internal/employee-departments/index.js";
 import r_internal_employee_titles_id from "./internal/employee-titles/[id].js";
@@ -235,6 +240,8 @@ import r_internal_entities_index from "./internal/entities/index.js";
 import r_internal_esg_scores_index from "./internal/esg-scores/index.js";
 import r_internal_fabric_codes_id from "./internal/fabric-codes/[id].js";
 import r_internal_fabric_codes_index from "./internal/fabric-codes/index.js";
+import r_internal_fabric_mills_id from "./internal/fabric-mills/[id].js";
+import r_internal_fabric_mills_index from "./internal/fabric-mills/index.js";
 import r_internal_factors_id from "./internal/factors/[id].js";
 import r_internal_factors_index from "./internal/factors/index.js";
 import r_internal_faire_post_order_id from "./internal/faire/post-order/[id].js";
@@ -263,6 +270,9 @@ import r_internal_gl_periods_close from "./internal/gl-periods/close.js";
 import r_internal_gl_periods_index from "./internal/gl-periods/index.js";
 import r_internal_gl_periods_preflight from "./internal/gl-periods/preflight.js";
 import r_internal_gl_periods_reopen from "./internal/gl-periods/reopen.js";
+import r_internal_hts_codes_id from "./internal/hts-codes/[id].js";
+import r_internal_hts_codes_index from "./internal/hts-codes/index.js";
+import r_internal_hts_suggest from "./internal/hts/suggest.js";
 import r_internal_income_statement_index from "./internal/income-statement/index.js";
 import r_internal_insights_id from "./internal/insights/[id].js";
 import r_internal_insights_index from "./internal/insights/index.js";
@@ -274,6 +284,7 @@ import r_internal_inventory_cycle_counts_id from "./internal/inventory-cycle-cou
 import r_internal_inventory_cycle_counts_finalize from "./internal/inventory-cycle-counts/finalize.js";
 import r_internal_inventory_cycle_counts_index from "./internal/inventory-cycle-counts/index.js";
 import r_internal_inventory_cycle_counts_lines from "./internal/inventory-cycle-counts/lines.js";
+import r_internal_inventory_transfers_id from "./internal/inventory-transfers/[id].js";
 import r_internal_inventory_transfers_index from "./internal/inventory-transfers/index.js";
 import r_internal_ip_ai_demand_index from "./internal/ip-ai-demand/index.js";
 import r_internal_items_index from "./internal/items/index.js";
@@ -378,6 +389,7 @@ import r_internal_sales_orders_create_invoice from "./internal/sales-orders/crea
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
 import r_internal_sales_orders_ship from "./internal/sales-orders/ship.js";
 import r_internal_sales_orders_split from "./internal/sales-orders/split.js";
+import r_internal_sales_orders_wave from "./internal/sales-orders/wave.js";
 import r_internal_sales_reps_id_assignments from "./internal/sales-reps/[id]/assignments.js";
 import r_internal_sales_reps_id_tiers from "./internal/sales-reps/[id]/tiers.js";
 import r_internal_sales_reps_index from "./internal/sales-reps/index.js";
@@ -421,6 +433,7 @@ import r_internal_style_master_index from "./internal/style-master/index.js";
 import r_internal_style_master_notes from "./internal/style-master/notes.js";
 import r_internal_style_matrix_index from "./internal/style-matrix/index.js";
 import r_internal_style_matrix_resolve_sku from "./internal/style-matrix/resolve-sku.js";
+import r_internal_style_orders_index from "./internal/style-orders/index.js";
 import r_internal_sustainability_id_review from "./internal/sustainability/[id]/review.js";
 import r_internal_sustainability_index from "./internal/sustainability/index.js";
 import r_internal_tax_calculations from "./internal/tax/calculations.js";
@@ -630,6 +643,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/quotes", handler: r_internal_costing_lines_line_id_quotes_index },
   { pattern: "/api/internal/costing/lines/:line_id/revise", handler: r_internal_costing_lines_line_id_revise },
   { pattern: "/api/internal/procurement/receipts/:id/post", handler: r_internal_procurement_receipts_post },
+  { pattern: "/api/internal/edi/tpl/:provider_id/inbound", handler: r_internal_edi_tpl_provider_id_inbound },
   { pattern: "/api/internal/crm/opportunities/:id/stage", handler: r_internal_crm_opportunities_id_stage },
   { pattern: "/api/internal/pim/styles/:style_id/images", handler: r_internal_pim_styles_style_id_images_index },
   { pattern: "/api/internal/scanner/sessions/:id/cancel", handler: r_internal_scanner_sessions_cancel },
@@ -732,6 +746,7 @@ export const ROUTES = [
   { pattern: "/api/internal/faire/post-payout/:id", handler: r_internal_faire_post_payout_id },
   { pattern: "/api/internal/gl-periods/:id/reopen", handler: r_internal_gl_periods_reopen },
   { pattern: "/api/internal/sales-orders/:id/ship", handler: r_internal_sales_orders_ship },
+  { pattern: "/api/internal/sales-orders/:id/wave", handler: r_internal_sales_orders_wave },
   { pattern: "/api/internal/shopify/post-cogs/:id", handler: r_internal_shopify_post_cogs_id },
   { pattern: "/api/internal/vendors/:id/anomalies", handler: r_internal_vendors_id_anomalies },
   { pattern: "/api/internal/vendors/:id/preferred", handler: r_internal_vendors_id_preferred_index },
@@ -910,6 +925,7 @@ export const ROUTES = [
   { pattern: "/api/edi/outbound/payment", handler: r_edi_outbound_payment },
   { pattern: "/api/external/v1/invoices", handler: r_external_v1_invoices },
   { pattern: "/api/internal/ai/insights", handler: r_internal_ai_insights },
+  { pattern: "/api/internal/hts/suggest", handler: r_internal_hts_suggest },
   { pattern: "/api/internal/recon/runs", handler: r_internal_recon_runs },
   { pattern: "/api/vendor/scf/requests", handler: r_vendor_scf_requests },
   { pattern: "/api/external/v1/orders", handler: r_external_v1_orders },
@@ -930,7 +946,9 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-adjustments/:id", handler: r_internal_inventory_adjustments_id },
   { pattern: "/api/internal/style-classifications/:id", handler: r_internal_style_classifications_id },
   { pattern: "/api/internal/employee-departments/:id", handler: r_internal_employee_departments_id },
+  { pattern: "/api/internal/inventory-transfers/:id", handler: r_internal_inventory_transfers_id },
   { pattern: "/api/internal/workflow-executions/:id", handler: r_internal_workflow_executions_id_index },
+  { pattern: "/api/internal/adjustment-reasons/:id", handler: r_internal_adjustment_reasons_id },
   { pattern: "/api/internal/customer-locations/:id", handler: r_internal_customer_locations_id },
   { pattern: "/api/internal/style-fabric-codes/:id", handler: r_internal_style_fabric_codes_id },
   { pattern: "/api/internal/approval-requests/:id", handler: r_internal_approval_requests_id },
@@ -955,6 +973,7 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-master/:id", handler: r_internal_vendor_master_id },
   { pattern: "/api/internal/b2b-accounts/:id", handler: r_internal_b2b_accounts_id },
   { pattern: "/api/internal/fabric-codes/:id", handler: r_internal_fabric_codes_id },
+  { pattern: "/api/internal/fabric-mills/:id", handler: r_internal_fabric_mills_id },
   { pattern: "/api/internal/fixed-assets/:id", handler: r_internal_fixed_assets_id },
   { pattern: "/api/internal/sales-orders/:id", handler: r_internal_sales_orders_id },
   { pattern: "/api/internal/scf-programs/:id", handler: r_internal_scf_programs_id },
@@ -977,8 +996,10 @@ export const ROUTES = [
   { pattern: "/api/internal/countries/:id", handler: r_internal_countries_id },
   { pattern: "/api/internal/drop-ship/:id", handler: r_internal_drop_ship_id },
   { pattern: "/api/internal/employees/:id", handler: r_internal_employees_id },
+  { pattern: "/api/internal/hts-codes/:id", handler: r_internal_hts_codes_id },
   { pattern: "/api/vendor/attachments/:id", handler: r_vendor_attachments_id },
   { pattern: "/api/internal/api-keys/:id", handler: r_internal_api_keys_id },
+  { pattern: "/api/internal/carriers/:id", handler: r_internal_carriers_id },
   { pattern: "/api/internal/disputes/:id", handler: r_internal_disputes_id_index },
   { pattern: "/api/internal/insights/:id", handler: r_internal_insights_id },
   { pattern: "/api/internal/payments/:id", handler: r_internal_payments_id_index },
@@ -1013,6 +1034,7 @@ export const ROUTES = [
   { pattern: "/api/cron/crm-tasks-due-tomorrow", handler: r_cron_crm_tasks_due_tomorrow },
   { pattern: "/api/cron/fba-settlements-weekly", handler: r_cron_fba_settlements_weekly },
   { pattern: "/api/cron/walmart-orders-nightly", handler: r_cron_walmart_orders_nightly },
+  { pattern: "/api/internal/adjustment-reasons", handler: r_internal_adjustment_reasons_index },
   { pattern: "/api/internal/customer-locations", handler: r_internal_customer_locations_index },
   { pattern: "/api/internal/customer-scorecard", handler: r_internal_customer_scorecard_index },
   { pattern: "/api/internal/style-fabric-codes", handler: r_internal_style_fabric_codes_index },
@@ -1088,6 +1110,7 @@ export const ROUTES = [
   { pattern: "/api/internal/edi-messages", handler: r_internal_edi_messages_index },
   { pattern: "/api/internal/edi-partners", handler: r_internal_edi_partners_index },
   { pattern: "/api/internal/fabric-codes", handler: r_internal_fabric_codes_index },
+  { pattern: "/api/internal/fabric-mills", handler: r_internal_fabric_mills_index },
   { pattern: "/api/internal/finance-kpis", handler: r_internal_finance_kpis_index },
   { pattern: "/api/internal/fixed-assets", handler: r_internal_fixed_assets_index },
   { pattern: "/api/internal/ip-ai-demand", handler: r_internal_ip_ai_demand_index },
@@ -1096,6 +1119,7 @@ export const ROUTES = [
   { pattern: "/api/internal/scf-programs", handler: r_internal_scf_programs_index },
   { pattern: "/api/internal/style-master", handler: r_internal_style_master_index },
   { pattern: "/api/internal/style-matrix", handler: r_internal_style_matrix_index },
+  { pattern: "/api/internal/style-orders", handler: r_internal_style_orders_index },
   { pattern: "/api/internal/users-access", handler: r_internal_users_access_index },
   { pattern: "/api/planning/sync-on-hand", handler: r_planning_sync_on_hand },
   { pattern: "/api/vendor/sustainability", handler: r_vendor_sustainability_index },
@@ -1138,6 +1162,7 @@ export const ROUTES = [
   { pattern: "/api/internal/employees", handler: r_internal_employees_index },
   { pattern: "/api/internal/form-1099", handler: r_internal_form_1099_index },
   { pattern: "/api/internal/gl-detail", handler: r_internal_gl_detail_index },
+  { pattern: "/api/internal/hts-codes", handler: r_internal_hts_codes_index },
   { pattern: "/api/internal/upc-items", handler: r_internal_upc_items_index },
   { pattern: "/api/vendor/attachments", handler: r_vendor_attachments_index },
   { pattern: "/api/xoro/probe-filters", handler: r_xoro_probe_filters },
@@ -1147,6 +1172,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ap-aging", handler: r_internal_ap_aging_index },
   { pattern: "/api/internal/api-keys", handler: r_internal_api_keys_index },
   { pattern: "/api/internal/ar-aging", handler: r_internal_ar_aging_index },
+  { pattern: "/api/internal/carriers", handler: r_internal_carriers_index },
   { pattern: "/api/internal/channels", handler: r_internal_channels_index },
   { pattern: "/api/internal/disputes", handler: r_internal_disputes_index },
   { pattern: "/api/internal/entities", handler: r_internal_entities_index },

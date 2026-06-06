@@ -14,6 +14,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_OPPS_TABLE_KEY = "tangerine:crmopportunities:columns";
@@ -146,13 +147,7 @@ function fmtDate(iso: string | null | undefined): string {
   } catch { return iso; }
 }
 
-function fmtDateOnly(d: string | null | undefined): string {
-  if (!d) return "—";
-  try {
-    const dt = new Date(`${d}T00:00:00Z`);
-    return dt.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  } catch { return d; }
-}
+const fmtDateOnly = fmtDateDisplay;
 
 function fmtMoney(cents: number | null | undefined): string {
   if (cents == null) return "—";

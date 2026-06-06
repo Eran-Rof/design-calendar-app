@@ -4,6 +4,7 @@ import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS, supabaseClient } from "../utils/supabase";
 import { S } from "../utils/styles";
 import { showFileViewer } from "../utils/fileViewer";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Internal-only compliance document review tab. Reads all documents via
 // the anon key (RLS anon-permissive), approves/rejects with notes.
@@ -42,12 +43,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   superseded:     { bg: "#F3F4F6", fg: "#9CA3AF" },
 };
 
-function fmtDate(d?: string | null) {
-  if (!d) return "—";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return d;
-  return dt.toLocaleDateString();
-}
+const fmtDate = fmtDateDisplay;
 
 export default function ComplianceReview() {
   const [docs, setDocs] = useState<Doc[]>([]);

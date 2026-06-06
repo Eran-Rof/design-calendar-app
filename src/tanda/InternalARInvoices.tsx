@@ -201,8 +201,10 @@ export default function InternalARInvoices() {
   const [customerFilter, setCustomerFilter] = useState(() => readDrillParam("customer"));
   const [sourceFilter, setSourceFilter] = useState<string>("");
   // Wave 5 dynamic search — 200ms debounce drives load(), input updates sync.
+  // Seed from ?q=<invoice_number> so a cross-panel drill-through (e.g. the
+  // Inventory Matrix Invoices view) lands here filtered to that invoice.
   const { value: search, debouncedValue: debouncedSearch, setValue: setSearch } =
-    useDebouncedSearch("", 200);
+    useDebouncedSearch(readDrillParam("q"), 200);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [includeVoid, setIncludeVoid] = useState(false);

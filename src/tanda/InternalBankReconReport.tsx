@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 const TABLE_KEY = "tanda.bank_recon_report";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -306,7 +307,7 @@ export default function InternalBankReconReport() {
                       {isReconciled && (
                         <>
                           <span style={{ fontSize: 11, color: C.textMuted, marginRight: 8 }}>
-                            ✓ {r.reconciled_at ? new Date(r.reconciled_at).toLocaleDateString() : ""}
+                            ✓ {r.reconciled_at ? fmtDateDisplay(r.reconciled_at) : ""}
                           </span>
                           <button style={btnSecondary} onClick={() => void reopenRun(r)}>Reopen</button>
                         </>

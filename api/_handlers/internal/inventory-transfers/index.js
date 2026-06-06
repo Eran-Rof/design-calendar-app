@@ -136,6 +136,36 @@ export default async function handler(req, res) {
     const parsedBody = parseCreateBody(req.body);
     if (parsedBody.error) return res.status(400).json({ error: parsedBody.error });
     const v = parsedBody.value;
+
+    // from_location / to_location are warehouse CODES (e.g. MAIN_WH, WH-00001).
+    // Resolve them to inventory_locations ids so the FIFO move RPC can shift the
+    // actual on-hand layers between the two warehouses.
+    const { data: locs, error: locErr } = await admin
+      .from("inventory_locations")
+      .select("id, code")
+      .eq("entity_id", entityId)
+      .in("code", [v.from_location, v.to_location]);
+    if (locErr) return res.status(500).json({ error: locErr.message });
+    const fromLoc = (locs || []).find((l) => l.code === v.from_location);
+    const toLoc = (locs || []).find((l) => l.code === v.to_location);
+    if (!fromLoc) return res.status(400).json({ error: `Unknown from warehouse "${v.from_location}"` });
+    if (!toLoc) return res.status(400).json({ error: `Unknown to warehouse "${v.to_location}"` });
+
+    // Move the stock FIFO (cost-preserving, conservation-checked in the RPC).
+    // This is the source of truth — only if it succeeds do we log the transfer.
+    const { error: moveErr } = await admin.rpc("transfer_inventory_between_locations", {
+      p_item_id: v.item_id,
+      p_qty: v.qty,
+      p_from_location_id: fromLoc.id,
+      p_to_location_id: toLoc.id,
+      p_user_id: v.created_by_user_id || null,
+      p_notes: v.notes || null,
+    });
+    if (moveErr) {
+      // Insufficient on-hand / bad input surfaces as a Postgres exception.
+      return res.status(400).json({ error: moveErr.message });
+    }
+
     const insertRow = {
       entity_id: entityId,
       item_id: v.item_id,
@@ -152,8 +182,9 @@ export default async function handler(req, res) {
       .insert(insertRow)
       .select("*")
       .single();
-    if (error) return res.status(500).json({ error: error.message });
-    return res.status(201).json(data);
+    // The stock already moved; a failed audit-row insert shouldn't 500 the move.
+    if (error) return res.status(201).json({ moved: v.qty, warning: `Stock moved but audit-log insert failed: ${error.message}` });
+    return res.status(201).json({ ...data, moved: v.qty });
   }
 
   const url = new URL(req.url, `https://${req.headers.host}`);

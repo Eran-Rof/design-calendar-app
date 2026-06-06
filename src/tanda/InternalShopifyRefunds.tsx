@@ -24,6 +24,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SHOPIFY_REFUNDS_TABLE_KEY = "tangerine:shopifyrefunds:columns";
@@ -93,11 +94,7 @@ function fmtCents(c: string | number | null | undefined): string {
   return `${neg ? "-" : ""}$${w}.${frac}`;
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  // YYYY-MM-DD slice — matches the rest of the Tangerine panels.
-  return iso.slice(0, 10);
-}
+const fmtDate = fmtDateDisplay;
 
 function refundTypeColor(t: RefundType): string {
   return t === "full" ? C.danger : C.warn;

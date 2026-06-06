@@ -4,6 +4,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import SearchableSelect from "./components/SearchableSelect";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Card {
   id: string;
@@ -134,7 +135,7 @@ export default function InternalVirtualCards() {
               <div style={{ color: C.warn }}>${Number(c.amount_spent).toLocaleString()}</div>
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "uppercase" }}>{c.provider}</div>
               <div><StatusChip status={c.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(c.issued_at).toLocaleDateString()}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(c.issued_at)}</div>
               <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
                 <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">📎 Docs</button>
                 {c.status === "active" && <button onClick={() => void cancel(c)} style={{ ...btnMini, color: C.danger }}>Cancel</button>}

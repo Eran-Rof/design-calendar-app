@@ -197,7 +197,29 @@ After applying, a **summary popup** reports how many lines were allocated, the u
 - **↩ Undo last** (header, appears after any allocation) reverts the last run — auto-allocate, batch, or a single cell — to the prior allocated quantities. Every allocation snapshots what it changed.
 - **☑ Select all** / per-line checkboxes (in the SO column) → a **batch bar** to **set** the allocation to a value or **Clear allocated** (release) across all checked lines at once, instead of editing line by line.
 
-**Next step after allocating:** allocation only *reserves* stock. To fulfil, open the order in **🛒 Sales Orders**, **🚚 Ship** the allocated quantities (records a carrier shipment; the SO moves to `fulfilling`/`shipped`), then **🧾 Create AR invoice** (which books the revenue + FIFO COGS in AR).
+**Next step after allocating:** allocation only *reserves* stock — but you no longer have to leave the workbench to fulfil. Each SO sub-header now carries the **whole flow** as buttons (see below). The classic path still works: open the order in **🛒 Sales Orders**, **🚚 Ship**, then **🧾 Create AR invoice**.
+
+### Run the whole flow from the sub-header (Allocate · Ship · Invoice · Wave)
+
+Each SO sub-header has, next to **⚡ Auto**, four action buttons so an ops user can drive an order end-to-end without hopping to the Sales Orders panel. Each is **status-gated** — when an action isn't yet valid the button is disabled with a tooltip explaining why (it never hard-blocks the wrong status silently).
+
+| Button | What it does | Enabled when |
+|---|---|---|
+| **⚡ Auto** | Opens the per-SO auto-allocate preview (priority full-fill). | Available stock > 0 and not factor-blocked. |
+| **Allocate** | `POST /sales-orders/:id/allocate` — the greedy per-SO reserve RPC (Surface A). | SO is `confirmed` / `allocated` / `fulfilling` and not factor-blocked. |
+| **🚚 Ship** | Opens a small ship modal (**carrier · service level · tracking · ship date**) → `POST /sales-orders/:id/ship`. Ships the remaining allocated qty on every line; the SO moves to `fulfilling` / `shipped`. | SO is `allocated` / `fulfilling`. |
+| **🧾 Invoice** | `POST /sales-orders/:id/create-invoice` — creates a **draft** AR invoice for the open qty and notifies with the invoice number (`AR-YYYY-NNNNN`). Post it in **AR Invoices** to book the GL. | SO is `confirmed` / `allocated` / `fulfilling` / `shipped`. |
+| **📦 Wave** | Opens a modal to pick a **3PL provider** (from Inventory → 🚚 3PL) → `POST /sales-orders/:id/wave`. Creates a 3PL shipment and transmits an **EDI 940** to that provider; the response message (transmitted / queued) is shown. If the endpoint isn't deployed yet you get a friendly "not yet available" note. | SO is `allocated` / `fulfilling`. |
+
+The factored-customer ship-gate still applies inside **🚚 Ship** (the ship handler refuses an un-approved factored order). All four actions refresh the workbench in place when they complete.
+
+### Show-all-rows when focused on one SO
+
+`v_allocation_demand` intentionally hides **terminal** lines (shipped / invoiced lines, and `shipped` / `invoiced` / `closed` / `cancelled` SOs) so the cross-SO arbitration view stays about *open* contention. That had a side-effect: when you drilled in from a Sales Order via **📊 Allocations** (`?m=sales_allocations&so=<SO#>`), a partly- or fully-shipped order looked **open-only** — its already-shipped lines were simply gone, even with **“Only with open qty” unchecked**.
+
+Fixed: when the workbench is **focused on a single SO** (the search box still equals the deep-linked SO #), the GET sends `?so=<SO#>&include_all=1`, and the server returns **every** line of that one order straight from `sales_order_lines` (bypassing the view's terminal exclusions) — shaped identically to the normal demand rows. You now see the complete order. A violet banner confirms the focus and offers **Show all demand** to drop back to the cross-SO view.
+
+Outside the focused case, the **“Only with open qty”** checkbox is the *only* open-qty filter — when it's **unchecked** the client applies **no** `open_qty > 0` filter of its own; an info note appears whenever it's on, reminding you rows may be hidden.
 
 ### The hard factor-credit gate (workbench)
 
@@ -251,9 +273,9 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 
 ## 27.9 Code map
 
-- **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixBody.tsx` (the size-matrix line body — per-style grids + non-matrix flat lines + save-time SKU resolve), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog).
-- **SO handlers:** `api/_handlers/internal/sales-orders/index.js` (GET list / POST create), `.../[id].js` (GET / PATCH incl. confirm + ship-gate / DELETE), `.../create-invoice.js`, `.../allocate.js`, `.../ship.js`, `.../split.js`.
-- **Allocations handlers:** `api/_handlers/internal/allocations/index.js` (GET demand+availability / POST `apply_allocations`), `.../allocations/preview.js` (fill-mode preview compute).
+- **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixBody.tsx` (the size-matrix line body — per-style grids + non-matrix flat lines + save-time SKU resolve), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog + per-SO Allocate/Ship/Invoice/Wave actions + focused-SO show-all).
+- **SO handlers:** `api/_handlers/internal/sales-orders/index.js` (GET list / POST create), `.../[id].js` (GET / PATCH incl. confirm + ship-gate / DELETE), `.../create-invoice.js`, `.../allocate.js`, `.../ship.js`, `.../split.js`, `.../wave.js` (3PL wave + EDI 940).
+- **Allocations handlers:** `api/_handlers/internal/allocations/index.js` (GET demand+availability — also `?so=&include_all=1` show-all-rows for a focused SO / POST `apply_allocations`), `.../allocations/preview.js` (fill-mode preview compute).
 - **Schema:** `supabase/migrations/20260712110000_p16_m10a_sales_orders_schema.sql` (`sales_orders` + `sales_order_lines`), `20260712120000_p16_m10c_so_invoice_link.sql`, `20260712150000_p16_so_multistore_split.sql`, `20260712200000_p16_m18_allocations.sql` (`v_inventory_available` + `allocate_sales_order()`), `20260714010000_p16_m18_allocations_workbench.sql` (`v_allocation_demand` + `apply_allocations()`), `20260712210000_p16_m44_shipments.sql` (`sales_order_shipments` + `_lines`).
 
 ## Related docs

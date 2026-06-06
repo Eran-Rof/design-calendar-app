@@ -3,6 +3,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Payment {
   id: string;
@@ -134,8 +135,8 @@ export default function InternalPayments() {
               <div><strong>{p.currency} {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "uppercase" }}>{p.method}</div>
               <div><StatusChip status={p.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(p.initiated_at).toLocaleDateString()}</div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{p.completed_at ? new Date(p.completed_at).toLocaleDateString() : "—"}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(p.initiated_at)}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{p.completed_at ? fmtDateDisplay(p.completed_at) : "—"}</div>
               <div style={{ textAlign: "right", display: "flex", gap: 4, justifyContent: "flex-end" }}>
                 {p.status === "initiated" && <>
                   <button onClick={() => void transition(p.id, "cancelled")} style={{ ...btnMini, color: C.danger }}>Cancel</button>
