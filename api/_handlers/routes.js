@@ -263,6 +263,9 @@ import r_internal_gl_periods_close from "./internal/gl-periods/close.js";
 import r_internal_gl_periods_index from "./internal/gl-periods/index.js";
 import r_internal_gl_periods_preflight from "./internal/gl-periods/preflight.js";
 import r_internal_gl_periods_reopen from "./internal/gl-periods/reopen.js";
+import r_internal_hts_codes_id from "./internal/hts-codes/[id].js";
+import r_internal_hts_codes_index from "./internal/hts-codes/index.js";
+import r_internal_hts_suggest from "./internal/hts/suggest.js";
 import r_internal_income_statement_index from "./internal/income-statement/index.js";
 import r_internal_insights_id from "./internal/insights/[id].js";
 import r_internal_insights_index from "./internal/insights/index.js";
@@ -910,6 +913,7 @@ export const ROUTES = [
   { pattern: "/api/edi/outbound/payment", handler: r_edi_outbound_payment },
   { pattern: "/api/external/v1/invoices", handler: r_external_v1_invoices },
   { pattern: "/api/internal/ai/insights", handler: r_internal_ai_insights },
+  { pattern: "/api/internal/hts/suggest", handler: r_internal_hts_suggest },
   { pattern: "/api/internal/recon/runs", handler: r_internal_recon_runs },
   { pattern: "/api/vendor/scf/requests", handler: r_vendor_scf_requests },
   { pattern: "/api/external/v1/orders", handler: r_external_v1_orders },
@@ -977,6 +981,7 @@ export const ROUTES = [
   { pattern: "/api/internal/countries/:id", handler: r_internal_countries_id },
   { pattern: "/api/internal/drop-ship/:id", handler: r_internal_drop_ship_id },
   { pattern: "/api/internal/employees/:id", handler: r_internal_employees_id },
+  { pattern: "/api/internal/hts-codes/:id", handler: r_internal_hts_codes_id },
   { pattern: "/api/vendor/attachments/:id", handler: r_vendor_attachments_id },
   { pattern: "/api/internal/api-keys/:id", handler: r_internal_api_keys_id },
   { pattern: "/api/internal/disputes/:id", handler: r_internal_disputes_id_index },
@@ -1138,6 +1143,7 @@ export const ROUTES = [
   { pattern: "/api/internal/employees", handler: r_internal_employees_index },
   { pattern: "/api/internal/form-1099", handler: r_internal_form_1099_index },
   { pattern: "/api/internal/gl-detail", handler: r_internal_gl_detail_index },
+  { pattern: "/api/internal/hts-codes", handler: r_internal_hts_codes_index },
   { pattern: "/api/internal/upc-items", handler: r_internal_upc_items_index },
   { pattern: "/api/vendor/attachments", handler: r_vendor_attachments_index },
   { pattern: "/api/xoro/probe-filters", handler: r_xoro_probe_filters },
