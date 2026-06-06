@@ -97,9 +97,11 @@ Each AP invoice line that carries an `inventory_item_id` together with **both** 
 
 ## 11.2 GL impact policy
 
-Internal transfers between owned locations within a single entity **do not hit the General Ledger**. The `posted_je_id` column on the underlying table stays NULL for those rows. The inventory simply moves between layers (consume one layer at the source, create a new layer at the destination with the same `unit_cost_cents`).
+Internal transfers between owned locations within a single entity **do not hit the General Ledger**. The `posted_je_id` column on the underlying table stays NULL for those rows. The inventory simply moves between layers (consume the oldest layers at the source, create new layers at the destination with the same `unit_cost_cents`).
 
-Cross-entity transfers — once that scenario is supported — will post via `gl_post_journal_entry` and link the resulting JE in `posted_je_id`. At the P3-7 skeleton stage no such posting path exists.
+**Live since 2026-06-06 (M52):** this is now wired. `POST /api/internal/inventory-transfers` resolves the From/To **warehouse codes** to `inventory_locations` ids and calls the `transfer_inventory_between_locations()` RPC, which FIFO-drains the source warehouse's oldest cost layers and re-creates them at the destination (`source_kind='transfer_in'`). Cost basis and total on-hand are preserved (conservation-checked inside the RPC); it errors if the source warehouse lacks enough on-hand. Each `inventory_layers.location_id` is the authoritative warehouse (re-pointed from the legacy `wh=` notes tag at cutover), and the Inventory Matrix warehouse breakdown reads `location_id`. **Limitation:** deleting a transfer's audit row does NOT reverse the move — record a reverse transfer instead.
+
+Cross-entity transfers — once that scenario is supported — will post via `gl_post_journal_entry` and link the resulting JE in `posted_je_id`.
 
 ---
 
