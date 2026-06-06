@@ -25,6 +25,7 @@ interface HistoryRow {
   qty_ordered: number | null;
   qty_received: number | null;
   unit_price: number | null;
+  qty_per_pack?: number;
   received_date: string | null;
   planned_ddp: string | null;
   status: string | null;
@@ -47,7 +48,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 460, align: "right" });
+  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 620, align: "right" });
 
   useEffect(() => {
     if (!open) return;
@@ -140,44 +141,54 @@ export default function HistoricalCostCell({ lineId }: Props) {
             </div>
           )}
           {rows.length > 0 && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-              <thead style={{ background: "#0F172A" }}>
-                <tr>
-                  <Th>PO#</Th>
-                  <Th>Vendor</Th>
-                  <Th align="right">Qty</Th>
-                  <Th align="right">Recv</Th>
-                  <Th align="right">Unit $</Th>
-                  <Th>Date</Th>
-                  <Th>Status</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const dateLabel = r.received_date
-                    ? `${fmtDateDisplay(r.received_date)} (recv)`
-                    : r.planned_ddp
-                      ? `${fmtDateDisplay(r.planned_ddp)} (plan)`
+            <>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead style={{ background: "#0F172A" }}>
+                  <tr>
+                    <Th>PO#</Th>
+                    <Th>Vendor</Th>
+                    <Th align="right">Qty</Th>
+                    <Th align="right">Recv</Th>
+                    <Th align="right">Pack</Th>
+                    <Th align="right">Unit $</Th>
+                    <Th>Date</Th>
+                    <Th>Status</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const dateLabel = r.received_date
+                      ? `${fmtDateDisplay(r.received_date)} (recv)`
+                      : r.planned_ddp
+                        ? `${fmtDateDisplay(r.planned_ddp)} (plan)`
+                        : "—";
+                    const packLabel = (r.qty_per_pack != null && r.qty_per_pack > 1)
+                      ? String(r.qty_per_pack)
                       : "—";
-                  return (
-                    <tr key={`${r.po_id}_${i}`} style={{ borderTop: "1px solid #334155", opacity: r.archived ? 0.6 : 1 }}>
-                      <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.po_number || "—"}</span></Td>
-                      <Td>{r.vendor_name || "—"}</Td>
-                      <Td align="right">{r.qty_ordered != null ? fmtQty.format(r.qty_ordered) : "—"}</Td>
-                      <Td align="right">{r.qty_received != null ? fmtQty.format(r.qty_received) : "—"}</Td>
-                      <Td align="right">{r.unit_price != null ? `$${fmtMoney.format(r.unit_price)}` : "—"}</Td>
-                      <Td>{dateLabel}</Td>
-                      <Td>
-                        {r.archived && (
-                          <span style={{ background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, marginRight: 4 }}>archived</span>
-                        )}
-                        <span style={{ color: "#94A3B8" }}>{r.status || ""}</span>
-                      </Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={`${r.po_id}_${i}`} style={{ borderTop: "1px solid #334155", opacity: r.archived ? 0.6 : 1 }}>
+                        <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.po_number || "—"}</span></Td>
+                        <Td>{r.vendor_name || "—"}</Td>
+                        <Td align="right">{r.qty_ordered != null ? fmtQty.format(r.qty_ordered) : "—"}</Td>
+                        <Td align="right">{r.qty_received != null ? fmtQty.format(r.qty_received) : "—"}</Td>
+                        <Td align="right"><span style={{ color: packLabel !== "—" ? "#A78BFA" : "#475569" }}>{packLabel}</span></Td>
+                        <Td align="right">{r.unit_price != null ? `$${fmtMoney.format(r.unit_price)}` : "—"}</Td>
+                        <Td>{dateLabel}</Td>
+                        <Td>
+                          {r.archived && (
+                            <span style={{ background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, marginRight: 4 }}>archived</span>
+                          )}
+                          <span style={{ color: "#94A3B8" }}>{r.status || ""}</span>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div style={{ padding: "5px 10px 6px", borderTop: "1px solid #1E3A5F", fontSize: 9, color: "#475569", fontStyle: "italic" }}>
+                Unit $ is per-unit (pack prices exploded by pack size)
+              </div>
+            </>
           )}
         </div>,
         document.body,

@@ -14,11 +14,12 @@
 // with `window.from` + `window.to` (in which case the requested window
 // is shifted back 12 months).
 //
-// PPK guard (per project_ppk_grain_rule_CANONICAL): we filter to
-// `qty_grain = 'unit'` ONLY. Pack-grain rows are silently dropped; styles
-// whose entire LY history was pack-grain return zero qty + the flag
-// `comp_grain_warning: true` so the caller can warn the user that the
-// snapshot is empty by design.
+// PPK explosion: pack-grain rows are EXPLODED to per-unit rather than dropped.
+// Both base style ("RYB059430") and PPK-variant style ("RYB059430PPK24") rows
+// contribute to the comp after normalisation to per-unit qty / cost / price.
+// qty_units (stored at ingest) is used directly; unit_cost_at_sale is already
+// per-unit in the DB. comp_grain_warning is false when explosion succeeds
+// (field kept for back-compat).
 //
 // Response: { [style_code]: {
 //   qty, weighted_unit_cost, total_margin, weighted_margin_pct,
@@ -34,6 +35,7 @@ import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
 import { fetchOpenSoComp } from "./_open-so-helper.js";
 import { todayIsoUTC } from "./_today.js";
+import { ppkMultiplier, baseStyle } from "../../../../_lib/prepack.js";
 
 export const config = { maxDuration: 30 };
 
@@ -113,21 +115,51 @@ export default async function handler(req, res) {
   // 1. Bulk-resolve style_code → sku_id via ip_item_master, optionally
   // narrowed by color (operator may want comp scoped to a specific color
   // when multiple colors exist under the style).
-  let masterQuery = admin
-    .from("ip_item_master")
-    .select("id, style_code, color")
-    .in("style_code", styleCodes)
-    .range(0, 9999);
-  if (colorFilter) masterQuery = masterQuery.ilike("color", colorFilter);
-  const { data: masterRows, error: masterErr } = await masterQuery;
-  if (masterErr) return res.status(500).json({ error: masterErr.message });
+  //
+  // PPK base-style expansion: a costing line typically carries the BASE style
+  // (e.g. "RYB059430") but wholesale sales may be recorded under the PPK
+  // variant style ("RYB059430PPK24", "RYB059430PPK"). We want BOTH to
+  // contribute. Strategy: for each requested style_code also query rows whose
+  // base style (PPK suffix stripped) matches — captured by the ILIKE on
+  // style_code prefix + the baseStyle() normalisation in the map build below.
+  const baseStyleCodes = [...new Set(styleCodes.map(baseStyle))];
+  // Build the full set of style codes to query: original + any PPK variants
+  // that share the same base. We use ilike prefix matching per-code below
+  // instead of an IN so we can catch "RYB059430PPK24" when only "RYB059430"
+  // was requested. For simplicity, fetch all ip_item_master rows whose
+  // style_code starts with any of the base codes (the set is small for a
+  // costing project, so this is safe).
+  let masterRows = [];
+  for (let i = 0; i < baseStyleCodes.length; i += 50) {
+    const slice = baseStyleCodes.slice(i, i + 50);
+    // Fetch all rows whose base style matches (covers both exact and PPK variant).
+    for (const bc of slice) {
+      const safeBase = bc.replace(/[%_]/g, "\\$&");
+      let q = admin
+        .from("ip_item_master")
+        .select("id, style_code, color, size, description")
+        .ilike("style_code", `${safeBase}%`)
+        .range(0, 9999);
+      if (colorFilter) q = q.ilike("color", colorFilter);
+      const { data, error: masterErr } = await q;
+      if (masterErr) return res.status(500).json({ error: masterErr.message });
+      if (data) masterRows.push(...data);
+    }
+  }
 
+  // skuIdToStyle: maps sku uuid → the REQUESTED style_code (base form)
+  // so aggregation slots map back to the caller's key.
   const skuIdToStyle = new Map();
-  const styleSkuCounts = new Map();
-  for (const row of masterRows || []) {
+  // skuMasterMeta: maps sku uuid → {color, size, description} for ppkMultiplier
+  const skuMasterMeta = new Map();
+  for (const row of masterRows) {
     if (!row.style_code) continue;
-    skuIdToStyle.set(row.id, row.style_code);
-    styleSkuCounts.set(row.style_code, (styleSkuCounts.get(row.style_code) || 0) + 1);
+    const rowBase = baseStyle(row.style_code);
+    // Find which requested style_code this row belongs to
+    const requestedStyle = styleCodes.find((sc) => baseStyle(sc) === rowBase) || null;
+    if (!requestedStyle) continue;
+    skuIdToStyle.set(row.id, requestedStyle);
+    skuMasterMeta.set(row.id, { color: row.color, size: row.size, description: row.description, style_code: row.style_code });
   }
   const allSkuIds = Array.from(skuIdToStyle.keys());
 
@@ -153,7 +185,7 @@ export default async function handler(req, res) {
   }
 
   // 2. Bulk-fetch sales rows for those skus in the window. Pull both unit
-  //    and pack rows so we can detect "all-PPK" styles AFTER aggregation.
+  //    and pack rows — pack rows are now EXPLODED rather than dropped.
   //    NOTE: vendor_id filter is accepted for API parity with the caller but
   //    intentionally NOT applied here — ip_sales_history_wholesale has no
   //    vendor_id column (the operator's selected vendor lives in `vendors`,
@@ -173,15 +205,18 @@ export default async function handler(req, res) {
   const { data: salesRows, error: salesErr } = await salesQuery;
   if (salesErr) return res.status(500).json({ error: salesErr.message });
 
-  // 3. Aggregate per-style. PPK guard: only `qty_grain = 'unit'` rows
-  //    contribute to qty / cost / margin. Track per-style whether ANY
-  //    unit-grain rows existed; if not, set comp_grain_warning.
-  const agg = new Map(); // style_code → { qty, costSum, marginSum, netSum, marginPctNum, marginPctDen, txnCount, sawUnitRow, sawAnyRow }
+  // 3. Aggregate per-style. PPK explosion: pack-grain rows are converted to
+  //    unit-grain by resolving the multiplier from the master meta (color, size,
+  //    description, style_code of the sku). Unit-grain rows are unchanged (mult=1).
+  //    This means BOTH base + PPK variant sales contribute per-unit to the comp.
+  //
+  //    comp_grain_warning is now false when explosion succeeds (kept for back-compat).
+  const agg = new Map(); // style_code → { qty, costSum, marginSum, netSum, marginPctNum, txnCount, sawUnitRow, sawAnyRow }
   for (const sc of styleCodes) {
     agg.set(sc, {
       qty: 0,
-      costSum: 0,        // sum of qty * unit_cost_at_sale (for weighted unit_cost)
-      marginSum: 0,      // sum of margin_amount
+      costSum: 0,        // sum of qty_units * unit_cost_at_sale (for weighted unit_cost)
+      marginSum: 0,      // sum of margin_amount (already per-unit in the DB)
       netSum: 0,         // sum of net_amount (for weighted margin_pct denominator)
       marginPctNum: 0,   // sum of net_amount * margin_pct (numerator)
       txnCount: 0,
@@ -196,16 +231,34 @@ export default async function handler(req, res) {
     const slot = agg.get(sc);
     if (!slot) continue;
     slot.sawAnyRow = true;
-    if (r.qty_grain !== "unit") continue; // PPK guard — drop pack rows
-    slot.sawUnitRow = true;
-    const qty = Number(r.qty) || 0;
+
+    // Resolve multiplier for this row's SKU using master meta.
+    const meta = skuMasterMeta.get(r.sku_id);
+    const mult = r.qty_grain === "unit"
+      ? 1
+      : ppkMultiplier(
+          meta?.color ?? null,
+          meta?.size ?? null,
+          meta?.description ?? null,
+          meta?.style_code ?? null,
+          null, // sku_code not stored on meta; style_code carries the PPK token for variant rows
+        );
+    // For pack-grain rows, qty_units = qty × mult; unit_cost and unit_price
+    // stored in ip_sales_history_wholesale are already per-unit (set at ingest
+    // time by deriveSalesGrainFields → resolvePerUnitCost). So we use qty_units
+    // directly when available; otherwise fall back to qty × mult.
+    const explodedQty = r.qty_units != null
+      ? Number(r.qty_units)
+      : (Number(r.qty) || 0) * mult;
+
+    slot.sawUnitRow = true; // explosion always succeeds — no warning needed
     const unitCost = r.unit_cost_at_sale != null ? Number(r.unit_cost_at_sale) : null;
     const net = r.net_amount != null ? Number(r.net_amount) : null;
     const margin = r.margin_amount != null ? Number(r.margin_amount) : null;
     const marginPct = r.margin_pct != null ? Number(r.margin_pct) : null;
-    slot.qty += qty;
+    slot.qty += explodedQty;
     slot.txnCount += 1;
-    if (unitCost != null) slot.costSum += qty * unitCost;
+    if (unitCost != null) slot.costSum += explodedQty * unitCost;
     if (margin != null) slot.marginSum += margin;
     if (net != null && net > 0) {
       slot.netSum += net;
