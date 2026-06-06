@@ -12,6 +12,7 @@
 // Mounted in the Tangerine ERP shell (the brand-reporting surface). Positioned
 // to sit just left of where <EntitySwitcher> renders so they don't collide.
 
+import type React from "react";
 import { useBrandContext } from "../hooks/useBrandContext";
 
 const C = {
@@ -25,7 +26,12 @@ const selStyle: React.CSSProperties = {
   cursor: "pointer", colorScheme: "dark", maxWidth: 150,
 };
 
-export default function BrandChannelSwitcher() {
+interface BrandChannelSwitcherProps {
+  /** When true the outer wrapper is relative/inline instead of position:fixed */
+  inline?: boolean;
+}
+
+export default function BrandChannelSwitcher({ inline = false }: BrandChannelSwitcherProps) {
   const { brands, channels, currentBrandId, currentChannelId, selectBrand, selectChannel, loading } =
     useBrandContext();
 
@@ -36,7 +42,11 @@ export default function BrandChannelSwitcher() {
   return (
     <div
       data-testid="brand-channel-switcher"
-      style={{
+      style={inline ? {
+        position: "relative",
+        display: "flex", gap: 6, alignItems: "center", fontFamily: "inherit",
+        borderRadius: 8,
+      } : {
         position: "fixed", top: 12, right: 16, zIndex: 60,
         display: "flex", gap: 6, alignItems: "center", fontFamily: "inherit",
         boxShadow: "0 4px 12px rgba(0,0,0,0.3)", borderRadius: 8,

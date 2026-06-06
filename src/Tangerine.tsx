@@ -821,10 +821,26 @@ export default function Tangerine() {
         onToggleCollapsed={toggleDrawer}
       />
 
+      {/* Slim top bar — anchored left of the drawer, holds entity/brand pickers.
+          z:150 sits above content but below the sidebar (z:200) and modals. */}
+      <div style={{
+        position: "fixed", top: 0, right: 0,
+        left: drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
+        height: 40, zIndex: 150,
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        gap: 8, padding: "0 16px",
+        background: "#0b1220", borderBottom: "1px solid rgba(255,255,255,0.08)",
+        transition: "left 0.2s ease",
+      }}>
+        <EntitySwitcher inline />
+        <BrandChannelSwitcher inline />
+      </div>
+
       <main style={{
         marginLeft: drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
         transition: "margin-left 0.2s ease",
         padding: "24px 32px",
+        paddingTop: 64,
         minHeight: "100vh",
         boxSizing: "border-box",
       }}>
@@ -963,11 +979,7 @@ export default function Tangerine() {
         {/* M15 — External / Partner API key admin */}
         {activeModule === "api_keys"               && <InternalApiKeys />}
       </main>
-      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
-      <EntitySwitcher />
-      {/* P15 Brand Master C2 — global brand/channel pickers (fixed top-right).
-          Inert until BRAND_SCOPE_MODE turns on per-report filtering (chunk 3). */}
-      <BrandChannelSwitcher />
+      {/* EntitySwitcher + BrandChannelSwitcher moved to the slim top bar above. */}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
           from any module; invisible until the hotkey fires. */}
       <GlobalSearchPaletteAuto />
