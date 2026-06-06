@@ -352,6 +352,7 @@ export default [
   ["/api/external/v1/invoices"                               , "./external/v1/invoices.js"],
   ["/api/internal/style-matrix/resolve-sku"                  , "./internal/style-matrix/resolve-sku.js"],
   ["/api/internal/style-matrix"                              , "./internal/style-matrix/index.js"],
+  ["/api/internal/style-orders"                              , "./internal/style-orders/index.js"],
   ["/api/internal/upc-items"                                 , "./internal/upc-items/index.js"],
   ["/api/internal/planning/buy-plan-to-po"                   , "./internal/planning/buy-plan-to-po.js"],
   ["/api/internal/planning/link-planning-vendor"             , "./internal/planning/link-planning-vendor.js"],
