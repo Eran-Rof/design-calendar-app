@@ -18,6 +18,7 @@ import type { SearchableSelectOption } from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
+import { drillToModule } from "./scorecardDrill";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ type StyleListRow = {
   category_name?: string | null;
   sub_category_name?: string | null;
   brand_id?: string | null;
+  gender_code?: string | null;
 };
 
 type MatrixSku = {
@@ -79,6 +81,30 @@ type ExplodeInfo = {
 type SizeScale = { id: string; name: string };
 
 type Brand = { id: string; code: string | null; name: string | null };
+
+// Which body the panel renders for the picked style.
+type ViewMode = "matrix" | "so" | "po" | "invoices";
+
+// Row shapes returned by GET /api/internal/style-orders?style_id=&view=…
+// (the *_id fields arrive already resolved to names server-side).
+type StyleSoRow = {
+  id: string; so_number: string | null;
+  customer_id: string | null; customer_name: string | null;
+  requested_ship_date: string | null; cancel_date: string | null;
+  status: string | null; total_cents: number | null; qty_for_style: number;
+};
+type StylePoRow = {
+  id: string; po_number: string | null;
+  vendor_id: string | null; vendor_name: string | null;
+  expected_date: string | null; status: string | null;
+  total_cents: number | null; qty_for_style: number;
+};
+type StyleInvoiceRow = {
+  id: string; invoice_number: string | null;
+  customer_id: string | null; customer_name: string | null;
+  invoice_date: string | null; gl_status: string | null;
+  total_amount_cents: number | null; qty_for_style: number;
+};
 
 // PIM composite image row (subset) — shape returned by
 // GET /api/internal/pim/styles/:style_id. We reuse the SAME source the PIM
@@ -251,6 +277,12 @@ const btnToggle = (active: boolean): React.CSSProperties => ({
 // ATS app accent (matches the PLM launcher's ATS card color).
 const ATS_GREEN = "#10B981";
 
+// Gender-code → label (mirrors CustomerScorecard / Style Master). Used by the
+// ATS-style gender filter that scopes the style picker.
+const GENDER_LABELS: Record<string, string> = {
+  M: "Men", W: "Women", WMS: "Women", B: "Boys", C: "Children", G: "Girls", U: "Unisex",
+};
+
 // Cross-app link button → ATS app at /ats (same `<a href>` nav the suite uses
 // for its other app links, e.g. App.tsx T&A → /tanda, Costing → /costing).
 const atsLinkStyle: React.CSSProperties = {
@@ -330,6 +362,22 @@ export default function InternalInventoryMatrix() {
   const [explodePpk, setExplodePpk] = useState(false); // off by default; folds PPK packs → sized eaches
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
+
+  // View-mode switch (Matrix | SO | PO | Invoices). Only meaningful when a
+  // single style is picked; the brand-level view always shows matrices.
+  const [viewMode, setViewMode] = useState<ViewMode>("matrix");
+  const [soRows, setSoRows]           = useState<StyleSoRow[]>([]);
+  const [poRows, setPoRows]           = useState<StylePoRow[]>([]);
+  const [invoiceRows, setInvoiceRows] = useState<StyleInvoiceRow[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listErr, setListErr]         = useState<string | null>(null);
+
+  // ATS-style inventory filters that scope the STYLE picker (mirrors the ATS
+  // filter bar's gender/category/group multi-selects). Brand is already a
+  // separate picker above; these are additive narrowing on top of it.
+  const [genderFilter, setGenderFilter] = useState<string[]>([]); // [] = all
+  const [groupFilter, setGroupFilter]   = useState<string[]>([]); // master group_name
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]); // master category_name
   // Primary product image for the picked style (same source as the PIM
   // Product Catalog) + the enlarge lightbox open flag.
   const [primaryImage, setPrimaryImage] = useState<PrimaryImage>(null);
@@ -442,14 +490,77 @@ export default function InternalInventoryMatrix() {
       .catch(() => {/* non-fatal — matrix still renders without per-row images */});
   }, [styleId]);
 
+  // Reset to the Matrix view whenever the picked style changes, so a new style
+  // always opens on its on-hand matrix (not a stale SO/PO/Invoices list).
+  useEffect(() => { setViewMode("matrix"); }, [styleId]);
+
+  // Fetch the row-driven list for the active non-matrix view. Re-runs when the
+  // style or the view changes. ALL statuses are returned (no status filter).
+  useEffect(() => {
+    if (!styleId || viewMode === "matrix") { setListErr(null); return; }
+    let cancelled = false;
+    setListLoading(true);
+    setListErr(null);
+    setSoRows([]); setPoRows([]); setInvoiceRows([]);
+    fetch(`/api/internal/style-orders?style_id=${encodeURIComponent(styleId)}&view=${viewMode}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const detail = await r.json().catch(() => ({}));
+          throw new Error((detail as { error?: string }).error || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
+      .then((d) => {
+        if (cancelled) return;
+        const rows = Array.isArray(d) ? d : [];
+        if (viewMode === "so") setSoRows(rows as StyleSoRow[]);
+        else if (viewMode === "po") setPoRows(rows as StylePoRow[]);
+        else setInvoiceRows(rows as StyleInvoiceRow[]);
+      })
+      .catch((e: unknown) => { if (!cancelled) setListErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setListLoading(false); });
+    return () => { cancelled = true; };
+  }, [styleId, viewMode]);
+
   // Styles narrowed to the selected brand (brand filter scopes the STYLE picker).
   // brand_id comes straight off the style-master list payload, so the narrowing
   // is purely client-side — no extra fetch. Declared BEFORE the brand-level-view
   // effect below because that effect reads `brandStyles` in its dependency array,
   // which is evaluated during render — referencing it earlier is a TDZ crash.
   const brandStyles = useMemo<StyleListRow[]>(
+    () => {
+      const gSet = genderFilter.length ? new Set(genderFilter) : null;
+      const grpSet = groupFilter.length ? new Set(groupFilter) : null;
+      const catSet = categoryFilter.length ? new Set(categoryFilter) : null;
+      return styles.filter((s) => {
+        if (brandId && s.brand_id !== brandId) return false;
+        if (gSet && !(s.gender_code != null && gSet.has(s.gender_code))) return false;
+        if (grpSet && !(s.group_name != null && grpSet.has(s.group_name))) return false;
+        if (catSet && !(s.category_name != null && catSet.has(s.category_name))) return false;
+        return true;
+      });
+    },
+    [styles, brandId, genderFilter, groupFilter, categoryFilter],
+  );
+
+  // Distinct filter option values derived from the loaded style list (scoped to
+  // the picked brand so the dropdowns only offer values that exist there).
+  const brandScopedStyles = useMemo<StyleListRow[]>(
     () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
     [styles, brandId],
+  );
+  const genderOptions = useMemo<string[]>(
+    () => [...new Set(brandScopedStyles.map((s) => s.gender_code).filter((g): g is string => !!g))]
+      .sort((a, b) => (GENDER_LABELS[a] || a).localeCompare(GENDER_LABELS[b] || b)),
+    [brandScopedStyles],
+  );
+  const groupOptions = useMemo<string[]>(
+    () => [...new Set(brandScopedStyles.map((s) => s.group_name).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles],
+  );
+  const categoryOptions = useMemo<string[]>(
+    () => [...new Set(brandScopedStyles.map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles],
   );
 
   // Brand-level view: when brandId is set but no specific styleId, fetch
@@ -632,6 +743,68 @@ export default function InternalInventoryMatrix() {
   // precedes this cell in the footer row (added PR #1022).
   const colSpanLead = showRise ? 4 : 3;
 
+  // Whether the panel is showing a row-driven list (vs the matrix) for the
+  // picked style. The brand-level view never uses list mode.
+  const isListView = !!styleId && viewMode !== "matrix";
+
+  // Drill-through: navigate to the real module focused on the clicked record,
+  // reusing the canonical scorecard-drill URL contract. SO panel reads `so`,
+  // PO/AR panels read `q` (seeded into their search box on mount).
+  const openSo = (r: StyleSoRow) => drillToModule("sales_orders", { so: r.so_number || "" });
+  const openPo = (r: StylePoRow) => drillToModule("purchase_orders", { q: r.po_number || "" });
+  const openInvoice = (r: StyleInvoiceRow) => drillToModule("ar_invoices", { q: r.invoice_number || "" });
+
+  // Export configs for the three list views.
+  const soExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => soRows.map((r) => ({
+      so_number: r.so_number || "(draft)", customer: r.customer_name || "—",
+      qty_for_style: r.qty_for_style, total_cents: r.total_cents ?? "",
+      ship_date: r.requested_ship_date || "", cancel_date: r.cancel_date || "", status: r.status || "",
+    })),
+    [soRows],
+  );
+  const soExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => [
+    { key: "so_number", header: "SO #" },
+    { key: "customer", header: "Customer" },
+    { key: "qty_for_style", header: "Qty (style)", format: "number" },
+    { key: "total_cents", header: "Order Total", format: "currency_cents" },
+    { key: "ship_date", header: "Ship Date", format: "date" },
+    { key: "cancel_date", header: "Cancel Date", format: "date" },
+    { key: "status", header: "Status" },
+  ], []);
+  const poExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => poRows.map((r) => ({
+      po_number: r.po_number || "(draft)", vendor: r.vendor_name || "—",
+      qty_for_style: r.qty_for_style, total_cents: r.total_cents ?? "",
+      ddp_date: r.expected_date || "", status: r.status || "",
+    })),
+    [poRows],
+  );
+  const poExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => [
+    { key: "po_number", header: "PO #" },
+    { key: "vendor", header: "Vendor" },
+    { key: "qty_for_style", header: "Qty (style)", format: "number" },
+    { key: "total_cents", header: "Order Total", format: "currency_cents" },
+    { key: "ddp_date", header: "DDP Date", format: "date" },
+    { key: "status", header: "Status" },
+  ], []);
+  const invExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => invoiceRows.map((r) => ({
+      invoice_number: r.invoice_number || "—", customer: r.customer_name || "—",
+      qty_for_style: r.qty_for_style, total_cents: r.total_amount_cents ?? "",
+      invoice_date: r.invoice_date || "", status: r.gl_status || "",
+    })),
+    [invoiceRows],
+  );
+  const invExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => [
+    { key: "invoice_number", header: "Invoice #" },
+    { key: "customer", header: "Customer" },
+    { key: "qty_for_style", header: "Qty (style)", format: "number" },
+    { key: "total_cents", header: "Total", format: "currency_cents" },
+    { key: "invoice_date", header: "Invoice Date", format: "date" },
+    { key: "status", header: "Status" },
+  ], []);
+
   return (
     <div style={{ color: C.text }}>
       {/* Header */}
@@ -669,6 +842,62 @@ export default function InternalInventoryMatrix() {
             inputStyle={inputStyle}
           />
         </label>
+
+        {/* ATS-style inventory filters that scope the STYLE picker — gender,
+            group, category multi-selects (mirrors the ATS app's filter bar).
+            Each is hidden when there are no values to offer for the current
+            brand scope. Brand + style remain their own pickers above. */}
+        {genderOptions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Gender
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button type="button" style={chipStyle(genderFilter.length === 0)} onClick={() => setGenderFilter([])}>All</button>
+              {genderOptions.map((g) => {
+                const on = genderFilter.includes(g);
+                return (
+                  <button key={g} type="button" style={chipStyle(on)}
+                    onClick={() => setGenderFilter(on ? genderFilter.filter((x) => x !== g) : [...genderFilter, g])}>
+                    {GENDER_LABELS[g] || g}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {groupOptions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Group
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
+              <button type="button" style={chipStyle(groupFilter.length === 0)} onClick={() => setGroupFilter([])}>All</button>
+              {groupOptions.map((g) => {
+                const on = groupFilter.includes(g);
+                return (
+                  <button key={g} type="button" style={chipStyle(on)}
+                    onClick={() => setGroupFilter(on ? groupFilter.filter((x) => x !== g) : [...groupFilter, g])}>
+                    {g}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {categoryOptions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Category
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
+              <button type="button" style={chipStyle(categoryFilter.length === 0)} onClick={() => setCategoryFilter([])}>All</button>
+              {categoryOptions.map((c) => {
+                const on = categoryFilter.includes(c);
+                return (
+                  <button key={c} type="button" style={chipStyle(on)}
+                    onClick={() => setCategoryFilter(on ? categoryFilter.filter((x) => x !== c) : [...categoryFilter, c])}>
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Metric + cross-app link. On-Hand is the only metric (always active);
             the old "Available" toggle is now a link out to the ATS app, which is
@@ -746,7 +975,7 @@ export default function InternalInventoryMatrix() {
           </div>
         </div>
 
-        {payload && (
+        {payload && viewMode === "matrix" && (
           <div style={{ alignSelf: "flex-end" }}>
             <ExportButton
               rows={exportRows}
@@ -757,6 +986,24 @@ export default function InternalInventoryMatrix() {
           </div>
         )}
       </div>
+
+      {/* View-mode switch — Matrix | SO | PO | Invoices. Only when a single
+          style is picked (the brand-level view is matrix-only). Buttons, not
+          links: they swap the panel body in place. */}
+      {styleId && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          {([
+            ["matrix", "🧮 Matrix"],
+            ["so", "🛒 SO"],
+            ["po", "📦 PO"],
+            ["invoices", "🧾 Invoices"],
+          ] as Array<[ViewMode, string]>).map(([mode, label]) => (
+            <button key={mode} type="button" style={btnToggle(viewMode === mode)} onClick={() => setViewMode(mode)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Rise filter — only when the style spans more than one rise. */}
       {showRise && (
@@ -1021,8 +1268,149 @@ export default function InternalInventoryMatrix() {
         )
       )}
 
+      {/* ── Row-driven list views (SO / PO / Invoices) ───────────────────────
+          Replace the matrix body when a non-matrix view is active for the
+          picked style. Each row is fully clickable and drills to the real
+          module. *_id values arrive pre-resolved to names from the handler. */}
+      {isListView && (
+        <>
+          {/* Export for the active list. */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            {viewMode === "so" && soRows.length > 0 && (
+              <ExportButton rows={soExportRows} filename={`so-for-${payload?.style.style_code || "style"}`} sheetName="Sales Orders" columns={soExportColumns} />
+            )}
+            {viewMode === "po" && poRows.length > 0 && (
+              <ExportButton rows={poExportRows} filename={`po-for-${payload?.style.style_code || "style"}`} sheetName="Purchase Orders" columns={poExportColumns} />
+            )}
+            {viewMode === "invoices" && invoiceRows.length > 0 && (
+              <ExportButton rows={invExportRows} filename={`invoices-for-${payload?.style.style_code || "style"}`} sheetName="Invoices" columns={invExportColumns} />
+            )}
+          </div>
+
+          {listErr && (
+            <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
+              Error: {listErr}
+            </div>
+          )}
+
+          {listLoading ? (
+            <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+          ) : viewMode === "so" ? (
+            soRows.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+                No sales orders contain this style.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.headerBg }}>
+                      <th style={{ ...thBase, textAlign: "left" }}>SO #</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Customer</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Qty (style)</th>
+                      <th style={{ ...thBase, textAlign: "right" }}>Order Total</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Ship Date</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Cancel Date</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {soRows.map((r, ri) => (
+                      <tr key={r.id} onClick={() => openSo(r)} title="Open this sales order"
+                        style={{ cursor: "pointer", borderBottom: ri === soRows.length - 1 ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#162033")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700 }}>{r.so_number || "(draft)"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{r.customer_name || "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.gridText, fontFamily: "monospace" }}>{fmtQty(r.qty_for_style)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{r.total_cents == null ? "—" : fmtCurrency(r.total_cents / 100)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.requested_ship_date ? fmtDate(r.requested_ship_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.cancel_date ? fmtDate(r.cancel_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", color: C.textSub, textTransform: "capitalize" }}>{r.status || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : viewMode === "po" ? (
+            poRows.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+                No purchase orders contain this style.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.headerBg }}>
+                      <th style={{ ...thBase, textAlign: "left" }}>PO #</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Vendor</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Qty (style)</th>
+                      <th style={{ ...thBase, textAlign: "right" }}>Order Total</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>DDP Date</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {poRows.map((r, ri) => (
+                      <tr key={r.id} onClick={() => openPo(r)} title="Open this purchase order"
+                        style={{ cursor: "pointer", borderBottom: ri === poRows.length - 1 ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#162033")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700 }}>{r.po_number || "(draft)"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{r.vendor_name || "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.gridText, fontFamily: "monospace" }}>{fmtQty(r.qty_for_style)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{r.total_cents == null ? "—" : fmtCurrency(r.total_cents / 100)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.expected_date ? fmtDate(r.expected_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", color: C.textSub, textTransform: "capitalize" }}>{(r.status || "—").replace(/_/g, " ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            invoiceRows.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+                No invoices contain this style.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.headerBg }}>
+                      <th style={{ ...thBase, textAlign: "left" }}>Invoice #</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Customer</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Qty (style)</th>
+                      <th style={{ ...thBase, textAlign: "right" }}>Total</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Invoice Date</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceRows.map((r, ri) => (
+                      <tr key={r.id} onClick={() => openInvoice(r)} title="Open this invoice"
+                        style={{ cursor: "pointer", borderBottom: ri === invoiceRows.length - 1 ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#162033")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700 }}>{r.invoice_number || "—"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{r.customer_name || "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.gridText, fontFamily: "monospace" }}>{fmtQty(r.qty_for_style)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{r.total_amount_cents == null ? "—" : fmtCurrency(r.total_amount_cents / 100)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.invoice_date ? fmtDate(r.invoice_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", color: C.textSub, textTransform: "capitalize" }}>{(r.gl_status || "—").replace(/_/g, " ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </>
+      )}
+
       {/* Matrix table — poMatrixTab-style "Item Matrix" look. */}
-      {loading ? (
+      {!isListView && (loading ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
       ) : !styleId && !brandId ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
@@ -1129,7 +1517,7 @@ export default function InternalInventoryMatrix() {
             </tfoot>
           </table>
         </div>
-      )}
+      ))}
     </div>
   );
 }
