@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-05
+**Last updated:** 2026-06-06
 
 ## Summary
 
@@ -77,7 +77,9 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 | ➕ **M51 Payroll Integration (Paycor)** | ⬜ arch (`payroll-paycor-integration-architecture.md`); **integrate, don't build** — Paycor = system-of-record (calc/withholding/e-filing/deposits/W-2); Tangerine posts the run to GL (dual-basis, `source='paycor'`) + reconciles bank draw + optional M50 labor allocation. ~2 chunks. Blocked on Paycor GL-export-vs-API access + pay-code→GL mapping. | #667 |
 | ➕ **M52 Multi-Warehouse** | ⬜ planned (CEO 2026-05-31). Foundation exists: `inventory_locations` table (kinds: warehouse/fba/wfs/3pl/dropship/virtual) + `inventory_transfers`. Gaps: (1) **admin panel** to add/edit warehouses, (2) **per-location stock** — FIFO `inventory_layers` aren't location-scoped (the "advanced multi-warehouse" stretch: per-location on-hand + transfers moving qty). ~2–3 chunks when pulled in. | — |
 | ➕ **Vendor default AP/expense auto-fill** (part of M50 C-2) | 🟡 done — AP-invoice entry auto-fills AP+expense accounts from the vendor's defaults; on change, prompts "set as default for this vendor?" → writes back to vendor master. (Vendor schema fields already existed.) | #672 |
-| ➕ **Fabric Mill Master** | ✅ COMPLETE — `fabric_mill_master` table + full CRUD panel (`InternalFabricMillMaster`) under Master Data → Fabric Mills (`/tangerine?m=fabric_mill_master`). Server-generated `MILL-NNNNN` codes; fields: name, country_code, contact_name, contact_email, website, notes, sort_order, is_active. Column show/hide, xlsx export, row-click-to-edit, responsive modal. Migration `20260827000000`. User-guide ch02. | — |
+| ➕ **M37 Adjustment Reason Master + GL auto-select (#1020)** | ✅ **COMPLETE** — `adjustment_reason_master` table + CRUD panel (`Master Data → 📋 Adjustment Reason Master`) with auto-coded ADJR-NNNNN codes. Inventory Adjustments (single + matrix) now: (1) pick reason from the master via searchable dropdown instead of free-text textarea; (2) GL account auto-resolved server-side to the "Inventory Adjustments Expense" expense account — no picker. Migration `20260825000000`. | #1020 |
+| ➕ **M37 Transfers full build (#1024)** | ✅ **COMPLETE** — Transfers panel upgraded: (1) Style + warehouse SearchableSelect filters (replaces free-text/UUID inputs); (2) Style column resolves to `style_code` — no UUID in table; (3) **Edit** (PATCH qty/notes/date) + **Delete** buttons on unposted rows; (4) `GET|PATCH|DELETE /api/internal/inventory-transfers/:id` handler; (5) migration placeholder `20260826000000`. GL posting for cross-entity moves remains deferred. | #1024 |
+| ➕ **Fabric Mill Master** | ✅ COMPLETE — `fabric_mill_master` table + full CRUD panel (`InternalFabricMillMaster`) under Master Data → Fabric Mills (`/tangerine?m=fabric_mill_master`). Server-generated `MILL-NNNNN` codes; fields: name, country_code, contact_name, contact_email, website, notes, sort_order, is_active. Column show/hide, xlsx export, row-click-to-edit, responsive modal. Migration `20260827000000`. User-guide ch02. | #1028 |
 
 ---
 

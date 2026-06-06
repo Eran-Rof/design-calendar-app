@@ -50,6 +50,7 @@ type Adjustment = {
 
 type Item = { id: string; sku_code: string | null; description?: string | null };
 type GlAccount = { id: string; code: string; name: string; is_postable: boolean; account_type?: string };
+type AdjReason = { id: string; code: string; name: string };
 
 // adjustment_type is now sourced from the configurable Adjustment Type master
 // (adjustment_type_master). A type is a CATEGORY / reason for grouping only — it
@@ -117,6 +118,7 @@ export default function InternalInventoryAdjustments() {
   const [items, setItems] = useState<Item[]>([]);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [adjTypes, setAdjTypes] = useState<AdjType[]>([]);
+  const [adjustmentReasons, setAdjustmentReasons] = useState<AdjReason[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -185,6 +187,14 @@ export default function InternalInventoryAdjustments() {
         if (atRes.ok) {
           const data = await atRes.json();
           if (Array.isArray(data)) setAdjTypes(data as AdjType[]);
+        }
+      } catch { /* non-fatal */ }
+      try {
+        // Adjustment Reason master — drives the reason picker in add/edit modals.
+        const arRes = await fetch(`/api/internal/adjustment-reasons`);
+        if (arRes.ok) {
+          const data = await arRes.json();
+          if (Array.isArray(data)) setAdjustmentReasons(data as AdjReason[]);
         }
       } catch { /* non-fatal */ }
     })();
@@ -413,9 +423,9 @@ export default function InternalInventoryAdjustments() {
 
       {modalOpen && (
         <AdjustmentModal
-          glAccounts={glAccounts}
           items={items}
           adjTypes={adjTypes}
+          adjustmentReasons={adjustmentReasons}
           existing={editingRow}
           onClose={() => { setModalOpen(false); setEditingRow(null); }}
           onSaved={() => { setModalOpen(false); setEditingRow(null); void load(); }}
@@ -424,8 +434,8 @@ export default function InternalInventoryAdjustments() {
 
       {matrixModalOpen && (
         <MatrixAdjustmentModal
-          glAccounts={glAccounts}
           adjTypes={adjTypes}
+          adjustmentReasons={adjustmentReasons}
           onClose={() => setMatrixModalOpen(false)}
           onSaved={() => { setMatrixModalOpen(false); void load(); }}
         />
@@ -476,11 +486,11 @@ function AddModeChooser({
 }
 
 function AdjustmentModal({
-  glAccounts, items, adjTypes, existing, onClose, onSaved,
+  items, adjTypes, adjustmentReasons, existing, onClose, onSaved,
 }: {
-  glAccounts: GlAccount[];
   items: Item[];
   adjTypes: AdjType[];
+  adjustmentReasons: AdjReason[];
   existing: Adjustment | null;
   onClose: () => void;
   onSaved: () => void;
@@ -497,7 +507,6 @@ function AdjustmentModal({
   const [unitCostCents, setUnitCostCents] = useState<string>(
     existing?.unit_cost_cents != null ? String(existing.unit_cost_cents) : ""
   );
-  const [glAccountId, setGlAccountId] = useState(existing?.gl_account_id || "");
   const [reason, setReason] = useState(existing?.reason || "");
   // P15 — for a positive (found/correction-up) adjustment, which brand pool the
   // new layer lands in (WS/EC). Single-pool brands ignore it.
@@ -550,7 +559,6 @@ function AdjustmentModal({
           return;
         }
         if (!itemId) throw new Error("Pick an item first");
-        if (!glAccountId) throw new Error("Pick a counter GL account");
         if (!reason.trim()) throw new Error("Reason required");
         if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("qty_delta must be a non-zero number");
         if (isPositive && !unitCostCents) throw new Error("unit_cost_cents required for positive qty_delta");
@@ -562,7 +570,7 @@ function AdjustmentModal({
           adjustment_type: adjustmentType,
           qty_delta: qtyNum,
           reason,
-          gl_account_id: glAccountId,
+          // gl_account_id is resolved server-side; not sent from client.
         };
         if (isPositive) { body.unit_cost_cents = Number(unitCostCents); body.receiving_channel = receivingChannel; }
         const actorUid = getCachedAuthUserId();
@@ -696,34 +704,20 @@ function AdjustmentModal({
           </>
         )}
 
-        {!isEdit && (
-          <>
-            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
-            <select
-              style={{ ...inputStyle, marginBottom: 12 }}
-              value={glAccountId}
-              onChange={(e) => setGlAccountId(e.target.value)}
-            >
-              <option value="">-- Pick an account --</option>
-              {glAccounts
-                .filter((g) => g.is_postable)
-                .map((g) => (
-                  <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
-                ))}
-            </select>
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
-              Negative adjustments typically post to a shrinkage / damage / write-off expense account. Positive (found) adjustments post to inventory-found income or contra-shrinkage.
-            </div>
-          </>
-        )}
-
         <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Reason</label>
-        <textarea
-          style={{ ...inputStyle, marginBottom: 12, minHeight: 60, resize: "vertical" }}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Operator notes - flows into JE memo"
-        />
+        <div style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            value={reason || null}
+            onChange={(v) => setReason(v || "")}
+            options={adjustmentReasons.map((r) => ({
+              value: r.name,
+              label: `${r.code} — ${r.name}`,
+              searchHaystack: `${r.code} ${r.name}`,
+            }))}
+            placeholder="Search adjustment reason…"
+            emptyText="No adjustment reasons — add some in the Adjustment Reason Master"
+          />
+        </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
@@ -775,16 +769,15 @@ function rowKeyOf(color: string | null, inseam: string | null): string {
 }
 
 function MatrixAdjustmentModal({
-  glAccounts, adjTypes, onClose, onSaved,
+  adjTypes, adjustmentReasons, onClose, onSaved,
 }: {
-  glAccounts: GlAccount[];
   adjTypes: AdjType[];
+  adjustmentReasons: AdjReason[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   // Batch-level fields (applied to every created adjustment).
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(adjTypes[0]?.name || "");
-  const [glAccountId, setGlAccountId] = useState("");
   const [reason, setReason] = useState("");
   // Brand pool for POSITIVE (increase) cells only — mirrors the single "+ Add"
   // modal's receiving_channel. Single-pool brands ignore it server-side.
@@ -906,7 +899,6 @@ function MatrixAdjustmentModal({
     // factored warn UI before any POST (#985).
     if (!adjustmentType.trim()) { notify("Pick an Adjustment Type before creating adjustments (add types in the Adjustment Types master).", "error"); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
-    if (!glAccountId) { setErr("Pick a counter GL account"); return; }
     if (!reason.trim()) { setErr("Reason required"); return; }
     const cells = Object.entries(deltas).filter(([, v]) => Number.isFinite(v) && v !== 0);
     if (cells.length === 0) { setErr("No cells with a non-zero delta. Type a signed qty into a cell."); return; }
@@ -970,7 +962,7 @@ function MatrixAdjustmentModal({
           adjustment_type: adjustmentType,
           qty_delta: qty,
           reason: reason.trim(),
-          gl_account_id: glAccountId,
+          // gl_account_id is resolved server-side; not sent from client.
         };
         if (qty > 0) {
           body.unit_cost_cents = Number((unitCostMap[rowKey] ?? "").trim());
@@ -1017,7 +1009,7 @@ function MatrixAdjustmentModal({
       <div style={{ ...modalCard, width: "min(820px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Adjustment</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
-          Pick type / counter account / reason once, choose a style, then type a signed qty into each cell:
+          Pick type / reason once, choose a style, then type a signed qty into each cell:
           negative = decrease (FIFO-consume), positive = increase (creates a FIFO layer). One draft adjustment is
           created per non-zero cell. Increase rows must carry a per-unit <b>Unit cost (¢)</b> — use the column's
           "set all" header to stamp one cost across every row.
@@ -1044,19 +1036,6 @@ function MatrixAdjustmentModal({
               emptyText="No adjustment types — add some in the Adjustment Types master"
             />
           </div>
-          <div style={{ flex: "2 1 320px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
-            <select
-              style={inputStyle}
-              value={glAccountId}
-              onChange={(e) => setGlAccountId(e.target.value)}
-            >
-              <option value="">-- Pick an account --</option>
-              {glAccounts.filter((g) => g.is_postable).map((g) => (
-                <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
-              ))}
-            </select>
-          </div>
           <div style={{ flex: "1 1 160px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Receive into (increase rows)</label>
             <select
@@ -1071,12 +1050,19 @@ function MatrixAdjustmentModal({
         </div>
 
         <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Reason</label>
-        <input
-          style={{ ...inputStyle, marginBottom: 12 }}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Applies to every adjustment in this batch — flows into each JE memo"
-        />
+        <div style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            value={reason || null}
+            onChange={(v) => setReason(v || "")}
+            options={adjustmentReasons.map((r) => ({
+              value: r.name,
+              label: `${r.code} — ${r.name}`,
+              searchHaystack: `${r.code} ${r.name}`,
+            }))}
+            placeholder="Search adjustment reason…"
+            emptyText="No adjustment reasons — add some in the Adjustment Reason Master"
+          />
+        </div>
 
         <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Style</label>
         <div style={{ marginBottom: 12 }}>

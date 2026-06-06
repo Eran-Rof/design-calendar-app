@@ -7,10 +7,13 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 | Panel | Status | Chunk |
 |---|---|---|
 | 🔁 Inventory Transfers | **Live** (matrix + single-variant entry) | P3-7 (2026-05-27); entry shipped 2026-06-05 |
-| 📐 Inventory Adjustments | **Live** | P3-5 (2026-05-27) |
-| 🧮 Cycle Counts | Not shipped yet | P3-6 (planned) |
-| 🛠️ Inventory Adjustments | In flight | P3-5 (planned) |
+| 📐 Inventory Adjustments | **Live** (GL auto-select + reason master dropdown) | P3-5 (2026-05-27); improved #1020 |
+| 📋 Adjustment Reason Master | **Live** | Master Data → Adjustment Reasons (#1020) |
 | 📋 Cycle Counts | **Shipped** | P3-6 (2026-05-27) |
+
+> **#1020 improvements (2026-08-25):**
+> - **GL account auto-selected** — the server always resolves the "Inventory Adjustments Expense" account from Chart of Accounts automatically. Operators no longer pick a GL account when creating an adjustment.
+> - **Reason from master** — the free-text reason field is replaced by a searchable dropdown sourced from the new **Adjustment Reason Master** (`Master Data → 📋 Adjustment Reasons`). Manage reasons there; they appear in both the single-variant and matrix adjustment modals.
 
 ---
 
@@ -35,13 +38,13 @@ A list view with these columns:
 | **Date** | `transfer_date` — when the move happened |
 | **Notes** | `notes` — free-form operator notes |
 
-Three filter inputs above the table:
+Three filter dropdowns above the table — all are SearchableSelect pickers, no UUID entry:
 
-- **Filter by SKU…** — type any part of a SKU; the table filters in place (client-side) against the resolved SKU labels. No UUID needed.
-- **From location** — exact match on the source location
-- **To location** — exact match on the destination location
+- **All styles** — pick a style from the dropdown to narrow the list to that style's transfers.
+- **From warehouse** — pick a warehouse to filter by source location.
+- **To warehouse** — pick a warehouse to filter by destination location.
 
-Any combination of filters narrows the list. Clear an input to drop that filter.
+Any combination of filters narrows the list. Clearing a dropdown to its "All …" placeholder removes that filter.
 
 ### + Add → Matrix (recommended)
 
@@ -106,7 +109,9 @@ Cross-entity transfers — once that scenario is supported — will post via `gl
 |---|---|---|
 | `GET` | `/api/internal/inventory-transfers` | List (filterable, capped at 500). Default 100 rows ordered by `transfer_date DESC`. |
 | `POST` | `/api/internal/inventory-transfers` | Create one transfer row. Body: `item_id` (uuid), `qty` (>0), `from_location`, `to_location` (must differ), optional `notes`, `transfer_date`, `created_by_user_id`. Returns 201 with the created row. The matrix-transfer UI calls this once per non-zero cell. |
-| `PATCH` / `DELETE` | (any) | **Returns 405 Method Not Allowed.** Transfers are append-only at this stage. |
+| `GET` | `/api/internal/inventory-transfers/:id` | Fetch one transfer by id. 404 if not found. |
+| `PATCH` | `/api/internal/inventory-transfers/:id` | Update mutable fields (`qty`, `notes`, `transfer_date`) on unposted rows only. 409 if posted. `item_id`, `from_location`, `to_location` are locked — delete and recreate. |
+| `DELETE` | `/api/internal/inventory-transfers/:id` | Hard-delete an unposted transfer. 409 if posted. |
 
 Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (text), `limit` (1–500, default 100).
 
@@ -327,5 +332,5 @@ If any single line's variance exceeds **10%** of its `system_qty` (configurable 
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.
 - **P3-5 — Inventory Adjustments:** add `🛠️ Adjustments` panel under this same Inventory group. Posts to GL via M37 / M5 logic per architecture §5.
-- **M37 transfer entry (shipped 2026-06-05):** matrix + single-variant create on Inventory Transfers (`POST /api/internal/inventory-transfers`). Still pending: edit + GL posting for cross-entity moves; the schema doesn't change.
+- **M37 transfer full build (shipped 2026-06-05, #1024):** warehouse-picker filters, edit + delete for unposted rows, `GET|PATCH|DELETE /api/internal/inventory-transfers/:id` handler. Still pending: GL posting for cross-entity moves.
 - **Positive-variance cost capture in UI:** the finalize flow currently relies on `ip_item_avg_cost` for positive variances; a future iteration adds an inline cost prompt for items that have no avg-cost row.
