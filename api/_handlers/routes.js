@@ -140,6 +140,8 @@ import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/u
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_bulk_process from "./internal/bulk/process.js";
+import r_internal_carriers_id from "./internal/carriers/[id].js";
+import r_internal_carriers_index from "./internal/carriers/index.js";
 import r_internal_cases_id from "./internal/cases/[id].js";
 import r_internal_cases_id_comments from "./internal/cases/[id]/comments.js";
 import r_internal_cases_index from "./internal/cases/index.js";
@@ -993,6 +995,7 @@ export const ROUTES = [
   { pattern: "/api/internal/hts-codes/:id", handler: r_internal_hts_codes_id },
   { pattern: "/api/vendor/attachments/:id", handler: r_vendor_attachments_id },
   { pattern: "/api/internal/api-keys/:id", handler: r_internal_api_keys_id },
+  { pattern: "/api/internal/carriers/:id", handler: r_internal_carriers_id },
   { pattern: "/api/internal/disputes/:id", handler: r_internal_disputes_id_index },
   { pattern: "/api/internal/insights/:id", handler: r_internal_insights_id },
   { pattern: "/api/internal/payments/:id", handler: r_internal_payments_id_index },
@@ -1165,6 +1168,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ap-aging", handler: r_internal_ap_aging_index },
   { pattern: "/api/internal/api-keys", handler: r_internal_api_keys_index },
   { pattern: "/api/internal/ar-aging", handler: r_internal_ar_aging_index },
+  { pattern: "/api/internal/carriers", handler: r_internal_carriers_index },
   { pattern: "/api/internal/channels", handler: r_internal_channels_index },
   { pattern: "/api/internal/disputes", handler: r_internal_disputes_index },
   { pattern: "/api/internal/entities", handler: r_internal_entities_index },
