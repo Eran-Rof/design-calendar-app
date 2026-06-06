@@ -67,6 +67,19 @@ function useTransferReasons() {
   return { reasons, addReason };
 }
 
+type Warehouse = { id: string; code: string; name: string };
+
+function useWarehouses() {
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/warehouses")
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => { if (Array.isArray(d)) setWarehouses(d); })
+      .catch(() => {/* non-fatal */});
+  }, []);
+  return warehouses;
+}
+
 function TransferReasonPicker({
   reasons, value, onChange, onAddNew,
 }: {
@@ -523,6 +536,8 @@ function SingleTransferModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { reasons, addReason } = useTransferReasons();
+  const warehouses = useWarehouses();
+  const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
   // SKU picker — load a batch of active items so the operator picks by SKU,
   // never a raw UUID. SearchableSelect filters locally (sku / style / desc).
@@ -618,12 +633,14 @@ function SingleTransferModal({
 
         <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From location</label>
-            <input style={inputStyle} value={fromLoc} onChange={(e) => setFromLoc(e.target.value)} placeholder="e.g. MAIN" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From warehouse</label>
+            <SearchableSelect value={fromLoc || null} onChange={(v) => setFromLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
-            <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To warehouse</label>
+            <SearchableSelect value={toLoc || null} onChange={(v) => setToLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
         </div>
 
@@ -710,6 +727,8 @@ function MatrixTransferModal({
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const { reasons, addReason } = useTransferReasons();
+  const warehouses = useWarehouses();
+  const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
   // Style picker.
   const [styleOpts, setStyleOpts] = useState<StyleOption[]>([]);
@@ -919,12 +938,14 @@ function MatrixTransferModal({
 
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 200px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From location</label>
-            <input style={inputStyle} value={fromLoc} onChange={(e) => setFromLoc(e.target.value)} placeholder="e.g. MAIN" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From warehouse</label>
+            <SearchableSelect value={fromLoc || null} onChange={(v) => setFromLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: "1 1 200px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
-            <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To warehouse</label>
+            <SearchableSelect value={toLoc || null} onChange={(v) => setToLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: "2 1 320px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Notes (optional)</label>
