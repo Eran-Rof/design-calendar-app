@@ -31,6 +31,7 @@ import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
 import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
 import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
 import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
+import InternalCarrierMaster      from "./tanda/InternalCarrierMaster";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
 import InternalPriceLists         from "./tanda/InternalPriceLists";
 import InternalPromotions         from "./tanda/InternalPromotions";
@@ -204,6 +205,7 @@ type ModuleKey =
   | "adjustment_reason_master"
   | "transfer_reason_master"
   | "warehouse_master"
+  | "carrier_master"
   | "hts_master"
   // P18-F — internal B2B admin (buyers + wholesale price list).
   | "b2b_accounts"
@@ -408,6 +410,7 @@ const MODULES: ModuleDef[] = [
   { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
   { key: "transfer_reason_master", label: "Transfer Reasons Master", emoji: "🔁", group: "Master Data" },
   { key: "warehouse_master",     label: "Warehouses Master",         emoji: "🏬", group: "Master Data" },
+  { key: "carrier_master",      label: "Carrier Master",            emoji: "🚚", group: "Master Data" },
   { key: "hts_master",           label: "HTS Master",                emoji: "🛃", group: "Master Data" },
   // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
   { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
@@ -822,6 +825,7 @@ export default function Tangerine() {
         {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
         {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
         {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}
+        {activeModule === "carrier_master"       && <InternalCarrierMaster />}
         {activeModule === "hts_master"           && <InternalHtsMaster />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
         {activeModule === "b2b_price_list"       && <InternalPriceLists />}

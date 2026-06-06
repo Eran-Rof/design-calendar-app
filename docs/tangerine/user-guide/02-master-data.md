@@ -199,6 +199,27 @@ Find it under **Master Data → Fabric Mills** (`/tangerine?m=fabric_mill_master
 
 Deleting a fabric mill is a hard delete with no reference check (no FK from styles or fabric codes points here yet). Toggle **Active** off to retire a mill without losing history. Standard panel features apply: server-side search (code, name, or country), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## 🚚 Carrier Master
+
+Find it under **Master Data → Carriers** (`/tangerine?m=carrier_master`). The Carrier Master stores the shipping carriers your business uses (parcel, LTL, ocean freight, air, etc.). It is **pre-populated with 16 common carriers** (UPS, FedEx, USPS, DHL, OnTrac, ABF, Maersk, etc.) on first migration — deactivate carriers you don't use and add any that are missing.
+
+The carrier list drives the **🚚 Ship** modal on Sales Orders — instead of typing a carrier name free-hand, operators pick from a searchable dropdown. The code (e.g. `UPS`) is stored on the shipment record.
+
+### What a carrier row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | Operator-supplied on create, then **locked** — e.g. `UPS`, `FEDEX`, `USPS`. Unlike auto-coded masters (Warehouses, RMA Reasons), you set the code. |
+| **Name** | The carrier's display name, e.g. `United Parcel Service`. Required. |
+| **Type** | `parcel`, `ltl`, `ocean`, `air`, or `other`. Used for filtering. |
+| **Tracking URL template** | Optional URL with `{tracking}` placeholder, e.g. `https://www.ups.com/track?tracknum={tracking}`. Not yet used for auto-link rendering — reserved for future use. |
+| **Sort order** | Optional integer ordering (low to high), then code as tie-breaker. Controls picker order in the Ship modal. |
+| **Active** | Inactive carriers drop out of the Ship modal picker but stay in the table. Toggle **Show inactive** to see them. |
+
+### Delete behaviour
+
+Hard-delete only. Historical shipments are unaffected because carrier is stored as plain text in shipment records (no FK). Toggle **Active** off to retire a carrier without losing history. Standard panel features apply: server-side search (code or name), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master

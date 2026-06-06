@@ -344,6 +344,8 @@ export default [
   ["/api/internal/transfer-reasons"                          , "./internal/transfer-reasons/index.js"],
   ["/api/internal/warehouses/:id"                            , "./internal/warehouses/[id].js"],
   ["/api/internal/warehouses"                                , "./internal/warehouses/index.js"],
+  ["/api/internal/carriers/:id"                              , "./internal/carriers/[id].js"],
+  ["/api/internal/carriers"                                  , "./internal/carriers/index.js"],
   // M15 — External / Partner API key admin (Admin -> API Keys panel).
   ["/api/internal/api-keys/:id"                              , "./internal/api-keys/[id].js"],
   ["/api/internal/api-keys"                                  , "./internal/api-keys/index.js"],

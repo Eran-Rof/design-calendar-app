@@ -380,6 +380,21 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [shipCarrier, setShipCarrier] = useState("");
   const [shipTracking, setShipTracking] = useState("");
   const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
+  const [carrierOptions, setCarrierOptions] = useState<{ value: string; label: string }[]>([]);
+  async function openShipModal() {
+    setShipOpen(true);
+    // Load carriers for the SearchableSelect on modal open (non-blocking).
+    try {
+      const r = await fetch("/api/internal/carriers");
+      if (r.ok) {
+        const data = await r.json() as { code: string; name: string }[];
+        setCarrierOptions(data.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` })));
+      }
+    } catch {
+      // silently ignore — operator can still type a carrier name manually
+    }
+  }
+
   async function shipOrder() {
     if (!so) return;
     setErr(null); setSubmitting(true);
@@ -563,7 +578,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           <div>
             {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "📦 Allocate stock"}</button>}
             {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">📊 View allocation</button>}
-            {canShip && <button onClick={() => setShipOpen(true)} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
+            {canShip && <button onClick={() => void openShipModal()} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -583,7 +598,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>🚚 Ship sales order</h3>
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Records a carrier shipment and ships each line's allocated quantity. The SO moves to <b>shipped</b> when fully shipped (else fulfilling).</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <Field label="Carrier"><input type="text" value={shipCarrier} onChange={(e) => setShipCarrier(e.target.value)} style={inputStyle} placeholder="UPS, FedEx…" /></Field>
+              <Field label="Carrier">
+                <SearchableSelect
+                  value={shipCarrier || null}
+                  onChange={(v) => setShipCarrier(v || "")}
+                  options={carrierOptions}
+                  placeholder="Search carrier…"
+                  inputStyle={inputStyle}
+                />
+              </Field>
               <Field label="Ship date"><input type="date" value={shipDate} onChange={(e) => setShipDate(e.target.value)} style={inputStyle} /></Field>
             </div>
             <Field label="Tracking #"><input type="text" value={shipTracking} onChange={(e) => setShipTracking(e.target.value)} style={inputStyle} placeholder="optional" /></Field>
