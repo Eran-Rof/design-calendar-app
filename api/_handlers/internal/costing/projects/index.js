@@ -156,7 +156,15 @@ export default async function handler(req, res) {
     };
 
     const { data, error } = await admin.from("costing_projects").insert(insert).select("*").single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (error.code === "23505") {
+        // Unique constraint: an active project with this name already exists.
+        return res.status(409).json({
+          error: `A project named "${insert.project_name}" already exists. Rename or delete/close the existing project first.`,
+        });
+      }
+      return res.status(500).json({ error: error.message });
+    }
     return res.status(201).json(data);
   }
 
