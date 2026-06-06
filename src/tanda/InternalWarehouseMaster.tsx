@@ -16,6 +16,9 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
+
+type Country = { id: string; iso2: string; name: string };
 
 const WAREHOUSES_TABLE_KEY = "tangerine:warehouses:columns";
 const WAREHOUSE_COLUMNS: ColumnDef[] = [
@@ -268,6 +271,15 @@ function WarehouseFormModal({ mode, warehouse, onClose, onSaved }: ModalProps) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [countries, setCountries] = useState<Country[]>([]);
+
+  // Country picker is sourced from the Country Master (country_master / iso2).
+  useEffect(() => {
+    fetch("/api/internal/countries")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { if (Array.isArray(d)) setCountries(d); })
+      .catch(() => {/* non-fatal — picker just stays empty */});
+  }, []);
 
   async function submit() {
     setSubmitting(true);
@@ -345,13 +357,17 @@ function WarehouseFormModal({ mode, warehouse, onClose, onSaved }: ModalProps) {
               placeholder="e.g. 1 Industrial Way, City, ST"
             />
           </Field>
-          <Field label="Country code">
-            <input
-              type="text"
-              value={form.country_code}
-              onChange={(e) => setForm({ ...form, country_code: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. US"
+          <Field label="Country">
+            <SearchableSelect
+              value={form.country_code || null}
+              onChange={(v) => setForm({ ...form, country_code: v || "" })}
+              options={countries.map((c) => ({
+                value: c.iso2,
+                label: `${c.iso2} — ${c.name}`,
+                searchHaystack: `${c.iso2} ${c.name}`,
+              }))}
+              placeholder="Search country…"
+              emptyText="No countries — add them in Country Master"
             />
           </Field>
           <Field label="Sort order">

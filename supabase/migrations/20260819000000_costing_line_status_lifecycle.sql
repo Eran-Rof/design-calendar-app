@@ -5,10 +5,14 @@
 --   draft   — new line, nothing sent yet (default)
 --   sent    — line is on a published RFQ (vendor has been invited)
 --   quoted  — the invited vendor submitted a quote on that RFQ
---   awarded — a vendor quote was selected for the line (selected_vendor_quote_id)
+--   awarded — vendor was formally awarded via the RFQ award flow
 --   lost    — a sibling row (same project + same style) won; this one did not
 --   revised — reserved for Stage B (edit-forks-a-Sent-row mechanic) — not yet set
 --   closed  — manual terminal close (operator)
+--
+-- IMPORTANT: selecting a vendor quote on the line (selected_vendor_quote_id) is
+-- NOT the same as awarding. Vendor selection only tracks the intended vendor for
+-- RFQ generation. Awarded is set by the formal RFQ award handler only.
 --
 -- The two-stage Sent -> Quoted split + Lost ("all other same-style rows in the
 -- project") are operator decisions. Transitions are written server-side by the
@@ -47,10 +51,10 @@ ALTER TABLE costing_line_status_history ENABLE ROW LEVEL SECURITY;
 
 -- ─── 3. Backfill existing lines to their event-derived lifecycle status ────
 -- Only touch rows still at the legacy 'draft'; leave any 'closed' alone.
---   awarded — selected_vendor_quote_id IS NOT NULL
---   sent    — else, the line is on a published RFQ (rfq_line_items ->
---             rfqs that already have an invitation row)
---   draft   — else (left as-is)
+--   sent  — line is on a published RFQ (rfq_line_items -> rfqs with invitation)
+--   draft — all others (including lines with selected_vendor_quote_id set —
+--           vendor selection ≠ award; the operator tracks intended vendor
+--           before the formal award decision)
 
 WITH published_lines AS (
   SELECT DISTINCT rli.costing_line_id
@@ -59,23 +63,15 @@ WITH published_lines AS (
   WHERE rli.costing_line_id IS NOT NULL
 )
 UPDATE costing_lines cl
-SET status = CASE
-               WHEN cl.selected_vendor_quote_id IS NOT NULL THEN 'awarded'
-               WHEN cl.id IN (SELECT costing_line_id FROM published_lines) THEN 'sent'
-               ELSE cl.status
-             END
+SET status = 'sent'
 WHERE cl.status = 'draft'
-  AND (
-    cl.selected_vendor_quote_id IS NOT NULL
-    OR cl.id IN (SELECT costing_line_id FROM published_lines)
-  );
+  AND cl.id IN (SELECT costing_line_id FROM published_lines);
 
--- Seed one history row per line that we just moved off draft, stamped at the
--- line's updated_at so the trail has a defensible origin timestamp.
+-- Seed one history row per line moved to 'sent'.
 INSERT INTO costing_line_status_history (costing_line_id, status, changed_at, changed_by, note)
 SELECT cl.id, cl.status, cl.updated_at, 'system', 'backfill'
 FROM costing_lines cl
-WHERE cl.status IN ('sent','awarded')
+WHERE cl.status = 'sent'
   AND NOT EXISTS (
     SELECT 1 FROM costing_line_status_history h
     WHERE h.costing_line_id = cl.id

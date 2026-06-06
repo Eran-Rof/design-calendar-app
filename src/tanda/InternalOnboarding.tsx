@@ -3,6 +3,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Workflow {
   id: string;
@@ -103,7 +104,7 @@ export default function InternalOnboarding() {
             <div style={{ fontWeight: 600 }}>{w.vendor?.name || "Unknown"}</div>
             <div style={{ color: statusColor(w.status), fontWeight: 600, textTransform: "capitalize" }}>{w.status.replace(/_/g, " ")}</div>
             <div style={{ color: C.textSub }}>{(w.completed_steps || []).length} / 6</div>
-            <div style={{ color: C.textSub }}>{w.started_at ? new Date(w.started_at).toLocaleDateString() : "—"}</div>
+            <div style={{ color: C.textSub }}>{w.started_at ? fmtDateDisplay(w.started_at) : "—"}</div>
             <div style={{ textAlign: "right" }}>
               <button onClick={() => setSelected(w.vendor_id)} style={btnPrimary}>Review →</button>
             </div>
@@ -444,7 +445,7 @@ function ActiveVendorAccess() {
               <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
               <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email || "—"}</div>
               <div style={{ color: C.textSub, textTransform: "capitalize" }}>{row.role || "—"}</div>
-              <div style={{ color: C.textSub }}>{row.last_login ? new Date(row.last_login).toLocaleDateString() : "Never"}</div>
+              <div style={{ color: C.textSub }}>{row.last_login ? fmtDateDisplay(row.last_login) : "Never"}</div>
               <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.fg }}>{badge.label}</span></div>
               <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
                 {row.status === "removed" ? (

@@ -18,6 +18,7 @@ import type { SearchableSelectOption } from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
+import { drillToModule } from "./scorecardDrill";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ type StyleListRow = {
   category_name?: string | null;
   sub_category_name?: string | null;
   brand_id?: string | null;
+  gender_code?: string | null;
 };
 
 type MatrixSku = {
@@ -80,6 +82,30 @@ type SizeScale = { id: string; name: string };
 
 type Brand = { id: string; code: string | null; name: string | null };
 
+// Which body the panel renders for the picked style.
+type ViewMode = "matrix" | "so" | "po" | "invoices";
+
+// Row shapes returned by GET /api/internal/style-orders?style_id=&view=…
+// (the *_id fields arrive already resolved to names server-side).
+type StyleSoRow = {
+  id: string; so_number: string | null;
+  customer_id: string | null; customer_name: string | null;
+  requested_ship_date: string | null; cancel_date: string | null;
+  status: string | null; total_cents: number | null; qty_for_style: number;
+};
+type StylePoRow = {
+  id: string; po_number: string | null;
+  vendor_id: string | null; vendor_name: string | null;
+  expected_date: string | null; status: string | null;
+  total_cents: number | null; qty_for_style: number;
+};
+type StyleInvoiceRow = {
+  id: string; invoice_number: string | null;
+  customer_id: string | null; customer_name: string | null;
+  invoice_date: string | null; gl_status: string | null;
+  total_amount_cents: number | null; qty_for_style: number;
+};
+
 // PIM composite image row (subset) — shape returned by
 // GET /api/internal/pim/styles/:style_id. We reuse the SAME source the PIM
 // Product Catalog uses so the matrix thumbnail matches the catalog image.
@@ -118,6 +144,111 @@ function pickPrimaryImage(images: PimImageRow[]): PrimaryImage {
 
 const ALL_WAREHOUSES = "__all__";
 
+// ── MatrixRow type (shared by single-style and brand-level views) ─────────────
+
+type MatrixRow = {
+  key: string;
+  color: string;
+  rise: string | null;
+  sizes: Record<string, number>;
+  totalQty: number;
+  avgCostCents: number | null; // qty-weighted blended avg, cents
+  totalCostCents: number;
+  costedQty: number; // qty of SKUs that actually carry a cost (blend denominator)
+  lastReceived: string | null;
+};
+
+// Pure helper — builds MatrixRow[] from a payload given a qty accessor.
+// Extracted so both the single-style useMemo and the brand-level renderer can
+// call the same logic without duplication.
+function buildMatrixRows(
+  payload: MatrixPayload,
+  riseFilter: string[],
+  showRise: boolean,
+  skuQtyFn: (s: MatrixSku) => number,
+  cellQtyFn: (c: ExplodeCell) => number,
+): MatrixRow[] {
+  const active = riseFilter.length ? new Set(riseFilter) : null;
+  const map = new Map<string, MatrixRow>();
+  for (const s of payload.skus) {
+    const rise = s.rise ?? null;
+    if (active && !(rise != null && active.has(rise))) continue;
+    const color = s.color ?? "—";
+    const key = showRise ? `${color}|${rise ?? ""}` : color;
+    let row = map.get(key);
+    if (!row) {
+      row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
+      map.set(key, row);
+    }
+    const qty = skuQtyFn(s);
+    if (s.size) row.sizes[s.size] = (row.sizes[s.size] || 0) + qty;
+    row.totalQty += qty;
+    // Only SKUs with a real (non-zero) cost contribute to the weighted blend.
+    if (s.avg_cost_cents != null && s.avg_cost_cents > 0) {
+      row.totalCostCents += Math.round(qty * s.avg_cost_cents);
+      row.costedQty += qty;
+    }
+    if (s.last_received && (!row.lastReceived || s.last_received > row.lastReceived)) {
+      row.lastReceived = s.last_received;
+    }
+  }
+  // Fold exploded PPK eaches (additive, qty/sizes only — no per-each cost).
+  if (payload.explode?.enabled) {
+    for (const c of payload.explode.cells) {
+      const qty = cellQtyFn(c);
+      if (!qty) continue;
+      const color = c.color || "—";
+      const key = showRise ? `${color}|` : color;
+      let row = map.get(key);
+      if (!row) {
+        row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
+        map.set(key, row);
+      }
+      if (c.size) row.sizes[c.size] = (row.sizes[c.size] || 0) + qty;
+      row.totalQty += qty;
+    }
+  }
+  // Blended avg cost = totalCost / costedQty (weighted over costed SKUs only).
+  for (const row of map.values()) {
+    if (row.costedQty > 0 && row.totalCostCents > 0) {
+      row.avgCostCents = Math.round(row.totalCostCents / row.costedQty);
+    }
+  }
+  // Simple-mean fallback for avg cost when no qty-weighted cost is available.
+  const skuByRow = new Map<string, number[]>();
+  for (const s of payload.skus) {
+    const rise = s.rise ?? null;
+    if (active && !(rise != null && active.has(rise))) continue;
+    const color = s.color ?? "—";
+    const key = showRise ? `${color}|${rise ?? ""}` : color;
+    if (s.avg_cost_cents != null) {
+      const arr = skuByRow.get(key) ?? [];
+      arr.push(s.avg_cost_cents);
+      skuByRow.set(key, arr);
+    }
+  }
+  for (const row of map.values()) {
+    if (row.avgCostCents == null) {
+      const arr = skuByRow.get(row.key);
+      if (arr && arr.length) row.avgCostCents = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+    }
+  }
+  // Recalculate totalCostCents for rows where the simple-mean fallback filled
+  // avgCostCents but the primary accumulation produced 0 (no costedQty). Without
+  // this the row's Total Cost cell renders "—" even though the avg is known.
+  for (const row of map.values()) {
+    if (row.totalCostCents === 0 && row.avgCostCents != null && row.avgCostCents > 0 && row.totalQty > 0) {
+      row.totalCostCents = Math.round(row.totalQty * row.avgCostCents);
+    }
+  }
+  // Sort by descending row Total qty (highest first); stable for ties.
+  const ordered = [...map.values()];
+  return ordered
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (b.r.totalQty - a.r.totalQty) || (a.i - b.i))
+    .map((x) => x.r);
+}
+
 // ── palette (mirrors poMatrixTab + other Internal* panels) ───────────────────
 
 const C = {
@@ -145,6 +276,12 @@ const btnToggle = (active: boolean): React.CSSProperties => ({
 
 // ATS app accent (matches the PLM launcher's ATS card color).
 const ATS_GREEN = "#10B981";
+
+// Gender-code → label (mirrors CustomerScorecard / Style Master). Used by the
+// ATS-style gender filter that scopes the style picker.
+const GENDER_LABELS: Record<string, string> = {
+  M: "Men", W: "Women", WMS: "Women", B: "Boys", C: "Children", G: "Girls", U: "Unisex",
+};
 
 // Cross-app link button → ATS app at /ats (same `<a href>` nav the suite uses
 // for its other app links, e.g. App.tsx T&A → /tanda, Costing → /costing).
@@ -225,10 +362,35 @@ export default function InternalInventoryMatrix() {
   const [explodePpk, setExplodePpk] = useState(false); // off by default; folds PPK packs → sized eaches
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
+
+  // View-mode switch (Matrix | SO | PO | Invoices). Only meaningful when a
+  // single style is picked; the brand-level view always shows matrices.
+  const [viewMode, setViewMode] = useState<ViewMode>("matrix");
+  const [soRows, setSoRows]           = useState<StyleSoRow[]>([]);
+  const [poRows, setPoRows]           = useState<StylePoRow[]>([]);
+  const [invoiceRows, setInvoiceRows] = useState<StyleInvoiceRow[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listErr, setListErr]         = useState<string | null>(null);
+
+  // ATS-style inventory filters that scope the STYLE picker (mirrors the ATS
+  // filter bar's gender/category/group multi-selects). Brand is already a
+  // separate picker above; these are additive narrowing on top of it.
+  const [genderFilter, setGenderFilter] = useState<string[]>([]); // [] = all
+  const [groupFilter, setGroupFilter]   = useState<string[]>([]); // master group_name
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]); // master category_name
   // Primary product image for the picked style (same source as the PIM
   // Product Catalog) + the enlarge lightbox open flag.
   const [primaryImage, setPrimaryImage] = useState<PrimaryImage>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  // Per-color thumbnail images for each row in the matrix (fetched from the
+  // PIM style images endpoint). Key = color lowercase-trimmed || "__default__".
+  const [styleImages, setStyleImages] = useState<Map<string, string>>(new Map());
+
+  // Brand-level view: when brandId is set but styleId is empty, load matrices
+  // for up to 50 of the brand's styles and render them all.
+  const [brandPayloads, setBrandPayloads] = useState<Array<{style: StyleListRow; payload: MatrixPayload}>>([]);
+  const [brandLoading, setBrandLoading] = useState(false);
 
   // Style list + size-scale names once on mount. Request the endpoint's max
   // limit so EVERY entity style is reachable in the picker (operator reported
@@ -309,6 +471,125 @@ export default function InternalInventoryMatrix() {
     setWarehouse(ALL_WAREHOUSES);
   }, [styleId]);
 
+  // Fetch per-color thumbnail images for the active style from the PIM endpoint.
+  // Build a Map<color_lowercase, thumbUrl> so each color row can show its image.
+  useEffect(() => {
+    setStyleImages(new Map());
+    if (!styleId) return;
+    fetch(`/api/internal/pim/styles/${encodeURIComponent(styleId)}/images`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((imgs: Array<{color?: string | null; signedUrls?: {thumb?: string}; storage_path_thumb?: string}>) => {
+        const m = new Map<string, string>();
+        for (const img of (Array.isArray(imgs) ? imgs : [])) {
+          const key = (img.color || "").toLowerCase().trim() || "__default__";
+          const url = img.signedUrls?.thumb || img.storage_path_thumb || "";
+          if (url && !m.has(key)) m.set(key, url); // first image per color wins
+        }
+        setStyleImages(m);
+      })
+      .catch(() => {/* non-fatal — matrix still renders without per-row images */});
+  }, [styleId]);
+
+  // Reset to the Matrix view whenever the picked style changes, so a new style
+  // always opens on its on-hand matrix (not a stale SO/PO/Invoices list).
+  useEffect(() => { setViewMode("matrix"); }, [styleId]);
+
+  // Fetch the row-driven list for the active non-matrix view. Re-runs when the
+  // style or the view changes. ALL statuses are returned (no status filter).
+  useEffect(() => {
+    if (!styleId || viewMode === "matrix") { setListErr(null); return; }
+    let cancelled = false;
+    setListLoading(true);
+    setListErr(null);
+    setSoRows([]); setPoRows([]); setInvoiceRows([]);
+    fetch(`/api/internal/style-orders?style_id=${encodeURIComponent(styleId)}&view=${viewMode}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const detail = await r.json().catch(() => ({}));
+          throw new Error((detail as { error?: string }).error || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
+      .then((d) => {
+        if (cancelled) return;
+        const rows = Array.isArray(d) ? d : [];
+        if (viewMode === "so") setSoRows(rows as StyleSoRow[]);
+        else if (viewMode === "po") setPoRows(rows as StylePoRow[]);
+        else setInvoiceRows(rows as StyleInvoiceRow[]);
+      })
+      .catch((e: unknown) => { if (!cancelled) setListErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setListLoading(false); });
+    return () => { cancelled = true; };
+  }, [styleId, viewMode]);
+
+  // Styles narrowed to the selected brand (brand filter scopes the STYLE picker).
+  // brand_id comes straight off the style-master list payload, so the narrowing
+  // is purely client-side — no extra fetch. Declared BEFORE the brand-level-view
+  // effect below because that effect reads `brandStyles` in its dependency array,
+  // which is evaluated during render — referencing it earlier is a TDZ crash.
+  const brandStyles = useMemo<StyleListRow[]>(
+    () => {
+      const gSet = genderFilter.length ? new Set(genderFilter) : null;
+      const grpSet = groupFilter.length ? new Set(groupFilter) : null;
+      const catSet = categoryFilter.length ? new Set(categoryFilter) : null;
+      return styles.filter((s) => {
+        if (brandId && s.brand_id !== brandId) return false;
+        if (gSet && !(s.gender_code != null && gSet.has(s.gender_code))) return false;
+        if (grpSet && !(s.group_name != null && grpSet.has(s.group_name))) return false;
+        if (catSet && !(s.category_name != null && catSet.has(s.category_name))) return false;
+        return true;
+      });
+    },
+    [styles, brandId, genderFilter, groupFilter, categoryFilter],
+  );
+
+  // Distinct filter option values derived from the loaded style list (scoped to
+  // the picked brand so the dropdowns only offer values that exist there).
+  const brandScopedStyles = useMemo<StyleListRow[]>(
+    () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
+    [styles, brandId],
+  );
+  const genderOptions = useMemo<string[]>(
+    () => [...new Set(brandScopedStyles.map((s) => s.gender_code).filter((g): g is string => !!g))]
+      .sort((a, b) => (GENDER_LABELS[a] || a).localeCompare(GENDER_LABELS[b] || b)),
+    [brandScopedStyles],
+  );
+  const groupOptions = useMemo<string[]>(
+    () => [...new Set(brandScopedStyles.map((s) => s.group_name).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles],
+  );
+  const categoryOptions = useMemo<string[]>(
+    () => [...new Set(brandScopedStyles.map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles],
+  );
+
+  // Brand-level view: when brandId is set but no specific styleId, fetch
+  // matrices for up to 50 of the brand's styles in parallel.
+  useEffect(() => {
+    if (!brandId || styleId) { setBrandPayloads([]); return; }
+    const stylesToLoad = brandStyles.slice(0, 50);
+    if (stylesToLoad.length === 0) { setBrandPayloads([]); return; }
+    setBrandLoading(true);
+    setBrandPayloads([]);
+    Promise.all(
+      stylesToLoad.map(async (s) => {
+        try {
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}`);
+          if (!r.ok) return null;
+          const p = await r.json() as MatrixPayload;
+          return { style: s, payload: p };
+        } catch { return null; }
+      })
+    ).then((results) => {
+      const valid = results.filter(
+        (x): x is {style: StyleListRow; payload: MatrixPayload} =>
+          x !== null && (x.payload.skus?.length ?? 0) > 0
+      );
+      setBrandPayloads(valid);
+      setBrandLoading(false);
+    });
+  }, [brandId, styleId, brandStyles]);
+
   // Brand picker options (blank = all brands). Label prefers code, falls back to name.
   const brandOptions = useMemo<SearchableSelectOption[]>(
     () =>
@@ -317,14 +598,6 @@ export default function InternalInventoryMatrix() {
         label: b.code && b.name ? `${b.code} — ${b.name}` : (b.name || b.code || "—"),
       })),
     [brands],
-  );
-
-  // Styles narrowed to the selected brand (brand filter scopes the STYLE picker).
-  // brand_id comes straight off the style-master list payload, so the narrowing
-  // is purely client-side — no extra fetch.
-  const brandStyles = useMemo<StyleListRow[]>(
-    () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
-    [styles, brandId],
   );
 
   // If the currently-picked style isn't in the brand-narrowed set, clear it so
@@ -401,112 +674,12 @@ export default function InternalInventoryMatrix() {
   };
 
   // Group SKUs into matrix rows: one row per color (× rise when the style
-  // spans >1 rise). Each row carries a size→qty map, a blended avg cost
-  // (qty-weighted across the row's SKUs), the row's total qty, total cost,
-  // and the latest received date.
-  type MatrixRow = {
-    key: string;
-    color: string;
-    rise: string | null;
-    sizes: Record<string, number>;
-    totalQty: number;
-    avgCostCents: number | null; // qty-weighted blended avg, cents
-    totalCostCents: number;
-    costedQty: number; // qty of SKUs that actually carry a cost (blend denominator)
-    lastReceived: string | null;
-  };
-
+  // spans >1 rise). Delegates to the pure buildMatrixRows helper above,
+  // capturing the warehouse-aware qty accessors from this closure.
   const rows = useMemo<MatrixRow[]>(() => {
     if (!payload) return [];
-    const active = riseFilter.length ? new Set(riseFilter) : null;
-    const map = new Map<string, MatrixRow>();
-    for (const s of payload.skus) {
-      const rise = s.rise ?? null;
-      if (active && !(rise != null && active.has(rise))) continue;
-      const color = s.color ?? "—";
-      const key = showRise ? `${color}|${rise ?? ""}` : color;
-      let row = map.get(key);
-      if (!row) {
-        row = { key, color, rise, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
-        map.set(key, row);
-      }
-      const qty = skuQty(s);
-      if (s.size) row.sizes[s.size] = (row.sizes[s.size] || 0) + qty;
-      row.totalQty += qty;
-      // Only SKUs with a real (non-zero) cost contribute to the weighted blend
-      // — both numerator AND denominator. Many color/size SKUs have no
-      // ip_item_avg_cost row (sku_code spelling mismatch), so dividing the
-      // cost-weighted sum by total qty would understate the avg (e.g. one
-      // costed size out of five → $0.81 instead of $5.72). Weighting by
-      // costedQty keeps the blend on the same per-unit basis as the data.
-      if (s.avg_cost_cents != null && s.avg_cost_cents > 0) {
-        row.totalCostCents += Math.round(qty * s.avg_cost_cents);
-        row.costedQty += qty;
-      }
-      if (s.last_received && (!row.lastReceived || s.last_received > row.lastReceived)) {
-        row.lastReceived = s.last_received;
-      }
-    }
-
-    // Fold exploded PPK eaches into the matrix (additive). Explode cells carry
-    // no rise dimension (a pack is rise-agnostic), so when the style spans >1
-    // rise they land on a rise-less "(prepack)" row per color rather than being
-    // attributed to a specific rise. When rise filtering is active we still show
-    // them (a rise-less bucket is never excluded by a rise filter). They add to
-    // qty/sizes only — there is no per-each cost on a pack.
-    if (payload.explode?.enabled) {
-      for (const c of payload.explode.cells) {
-        const qty = cellQty(c);
-        if (!qty) continue;
-        const color = c.color || "—";
-        const key = showRise ? `${color}|` : color; // rise-less bucket
-        let row = map.get(key);
-        if (!row) {
-          row = { key, color, rise: showRise ? "(prepack)" : null, sizes: {}, totalQty: 0, avgCostCents: null, totalCostCents: 0, costedQty: 0, lastReceived: null };
-          map.set(key, row);
-        }
-        if (c.size) row.sizes[c.size] = (row.sizes[c.size] || 0) + qty;
-        row.totalQty += qty;
-      }
-    }
-
-    // Blended avg cost = totalCost / costedQty (cents) — weighted only over the
-    // SKUs that actually carry a cost, so partial cost coverage doesn't dilute
-    // the per-unit average. When no SKU in the row has cost, leave avg null and
-    // fall through to the simple-mean fallback below.
-    for (const row of map.values()) {
-      if (row.costedQty > 0 && row.totalCostCents > 0) {
-        row.avgCostCents = Math.round(row.totalCostCents / row.costedQty);
-      }
-    }
-    // Simple-mean fallback for avg cost (covers zero-qty rows) and ensure every
-    // row reflects an avg when any SKU has cost.
-    const skuByRow = new Map<string, number[]>();
-    for (const s of payload.skus) {
-      const rise = s.rise ?? null;
-      if (active && !(rise != null && active.has(rise))) continue;
-      const color = s.color ?? "—";
-      const key = showRise ? `${color}|${rise ?? ""}` : color;
-      if (s.avg_cost_cents != null) {
-        const arr = skuByRow.get(key) ?? [];
-        arr.push(s.avg_cost_cents);
-        skuByRow.set(key, arr);
-      }
-    }
-    for (const row of map.values()) {
-      if (row.avgCostCents == null) {
-        const arr = skuByRow.get(row.key);
-        if (arr && arr.length) row.avgCostCents = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
-      }
-    }
-    // Sort by descending row Total qty (highest first); stable for ties — the
-    // Map preserves first-seen (SKU) order, and we keep that order on equal qty.
-    const ordered = [...map.values()];
-    return ordered
-      .map((r, i) => ({ r, i }))
-      .sort((a, b) => (b.r.totalQty - a.r.totalQty) || (a.i - b.i))
-      .map((x) => x.r);
-  }, [payload, riseFilter, showRise, warehouse]);
+    return buildMatrixRows(payload, riseFilter, showRise, skuQty, cellQty);
+  }, [payload, riseFilter, showRise, warehouse]); // warehouse drives skuQty/cellQty
 
   // Apply the hide-zero-total-rows toggle (default ON). Hides color rows whose
   // row Total under the active metric+warehouse is 0 (e.g. White / Woodland Camo
@@ -564,12 +737,73 @@ export default function InternalInventoryMatrix() {
     return cols;
   }, [sizeOrder, showRise]);
 
-  // The footer's "Grand Total" label must span EVERY leading data column so the
-  // size totals and trailing Total/Total-Cost cells line up under their headers.
-  // Leading data cols = Base Part + Description + Color (= 3), plus Rise when the
-  // style spans >1 rise (= 4). The previous value (2/3) was off by one, which
-  // shifted the whole footer one column left of the data rows.
+  // The footer's "Grand Total" label cell spans the non-image leading data
+  // columns: Base Part + Description + Color (= 3), plus Rise when the style
+  // spans >1 rise (= 4). The Image column is a separate empty <td /> that
+  // precedes this cell in the footer row (added PR #1022).
   const colSpanLead = showRise ? 4 : 3;
+
+  // Whether the panel is showing a row-driven list (vs the matrix) for the
+  // picked style. The brand-level view never uses list mode.
+  const isListView = !!styleId && viewMode !== "matrix";
+
+  // Drill-through: navigate to the real module focused on the clicked record,
+  // reusing the canonical scorecard-drill URL contract. SO panel reads `so`,
+  // PO/AR panels read `q` (seeded into their search box on mount).
+  const openSo = (r: StyleSoRow) => drillToModule("sales_orders", { so: r.so_number || "" });
+  const openPo = (r: StylePoRow) => drillToModule("purchase_orders", { q: r.po_number || "" });
+  const openInvoice = (r: StyleInvoiceRow) => drillToModule("ar_invoices", { q: r.invoice_number || "" });
+
+  // Export configs for the three list views.
+  const soExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => soRows.map((r) => ({
+      so_number: r.so_number || "(draft)", customer: r.customer_name || "—",
+      qty_for_style: r.qty_for_style, total_cents: r.total_cents ?? "",
+      ship_date: r.requested_ship_date || "", cancel_date: r.cancel_date || "", status: r.status || "",
+    })),
+    [soRows],
+  );
+  const soExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => [
+    { key: "so_number", header: "SO #" },
+    { key: "customer", header: "Customer" },
+    { key: "qty_for_style", header: "Qty (style)", format: "number" },
+    { key: "total_cents", header: "Order Total", format: "currency_cents" },
+    { key: "ship_date", header: "Ship Date", format: "date" },
+    { key: "cancel_date", header: "Cancel Date", format: "date" },
+    { key: "status", header: "Status" },
+  ], []);
+  const poExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => poRows.map((r) => ({
+      po_number: r.po_number || "(draft)", vendor: r.vendor_name || "—",
+      qty_for_style: r.qty_for_style, total_cents: r.total_cents ?? "",
+      ddp_date: r.expected_date || "", status: r.status || "",
+    })),
+    [poRows],
+  );
+  const poExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => [
+    { key: "po_number", header: "PO #" },
+    { key: "vendor", header: "Vendor" },
+    { key: "qty_for_style", header: "Qty (style)", format: "number" },
+    { key: "total_cents", header: "Order Total", format: "currency_cents" },
+    { key: "ddp_date", header: "DDP Date", format: "date" },
+    { key: "status", header: "Status" },
+  ], []);
+  const invExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => invoiceRows.map((r) => ({
+      invoice_number: r.invoice_number || "—", customer: r.customer_name || "—",
+      qty_for_style: r.qty_for_style, total_cents: r.total_amount_cents ?? "",
+      invoice_date: r.invoice_date || "", status: r.gl_status || "",
+    })),
+    [invoiceRows],
+  );
+  const invExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => [
+    { key: "invoice_number", header: "Invoice #" },
+    { key: "customer", header: "Customer" },
+    { key: "qty_for_style", header: "Qty (style)", format: "number" },
+    { key: "total_cents", header: "Total", format: "currency_cents" },
+    { key: "invoice_date", header: "Invoice Date", format: "date" },
+    { key: "status", header: "Status" },
+  ], []);
 
   return (
     <div style={{ color: C.text }}>
@@ -608,6 +842,62 @@ export default function InternalInventoryMatrix() {
             inputStyle={inputStyle}
           />
         </label>
+
+        {/* ATS-style inventory filters that scope the STYLE picker — gender,
+            group, category multi-selects (mirrors the ATS app's filter bar).
+            Each is hidden when there are no values to offer for the current
+            brand scope. Brand + style remain their own pickers above. */}
+        {genderOptions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Gender
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button type="button" style={chipStyle(genderFilter.length === 0)} onClick={() => setGenderFilter([])}>All</button>
+              {genderOptions.map((g) => {
+                const on = genderFilter.includes(g);
+                return (
+                  <button key={g} type="button" style={chipStyle(on)}
+                    onClick={() => setGenderFilter(on ? genderFilter.filter((x) => x !== g) : [...genderFilter, g])}>
+                    {GENDER_LABELS[g] || g}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {groupOptions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Group
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
+              <button type="button" style={chipStyle(groupFilter.length === 0)} onClick={() => setGroupFilter([])}>All</button>
+              {groupOptions.map((g) => {
+                const on = groupFilter.includes(g);
+                return (
+                  <button key={g} type="button" style={chipStyle(on)}
+                    onClick={() => setGroupFilter(on ? groupFilter.filter((x) => x !== g) : [...groupFilter, g])}>
+                    {g}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {categoryOptions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Category
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
+              <button type="button" style={chipStyle(categoryFilter.length === 0)} onClick={() => setCategoryFilter([])}>All</button>
+              {categoryOptions.map((c) => {
+                const on = categoryFilter.includes(c);
+                return (
+                  <button key={c} type="button" style={chipStyle(on)}
+                    onClick={() => setCategoryFilter(on ? categoryFilter.filter((x) => x !== c) : [...categoryFilter, c])}>
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Metric + cross-app link. On-Hand is the only metric (always active);
             the old "Available" toggle is now a link out to the ATS app, which is
@@ -685,7 +975,7 @@ export default function InternalInventoryMatrix() {
           </div>
         </div>
 
-        {payload && (
+        {payload && viewMode === "matrix" && (
           <div style={{ alignSelf: "flex-end" }}>
             <ExportButton
               rows={exportRows}
@@ -696,6 +986,24 @@ export default function InternalInventoryMatrix() {
           </div>
         )}
       </div>
+
+      {/* View-mode switch — Matrix | SO | PO | Invoices. Only when a single
+          style is picked (the brand-level view is matrix-only). Buttons, not
+          links: they swap the panel body in place. */}
+      {styleId && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          {([
+            ["matrix", "🧮 Matrix"],
+            ["so", "🛒 SO"],
+            ["po", "📦 PO"],
+            ["invoices", "🧾 Invoices"],
+          ] as Array<[ViewMode, string]>).map(([mode, label]) => (
+            <button key={mode} type="button" style={btnToggle(viewMode === mode)} onClick={() => setViewMode(mode)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Rise filter — only when the style spans more than one rise. */}
       {showRise && (
@@ -857,14 +1165,259 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
+      {/* Brand-level view — brand selected but no specific style: render all
+          brand styles' matrices stacked, each with a style header bar. */}
+      {!styleId && brandId && (
+        brandLoading ? (
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+            Loading brand inventory…
+          </div>
+        ) : brandPayloads.length === 0 ? (
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+            No styles with inventory for this brand.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {brandPayloads.map(({ style: bStyle, payload: bPayload }) => {
+              const bRises = bPayload.rises ?? [];
+              const bShowRise = bRises.length > 1;
+              const bSizeOrder = bPayload.sizes.length ? bPayload.sizes :
+                (() => { const s: string[] = []; for (const sk of bPayload.skus) if (sk.size && !s.includes(sk.size)) s.push(sk.size); return s; })();
+              const bSkuQty = (s: MatrixSku) => {
+                if (warehouse !== ALL_WAREHOUSES) return num((s.on_hand_by_wh || {})[warehouse]);
+                return num(s.on_hand_qty);
+              };
+              const bCellQty = (c: ExplodeCell) => {
+                if (warehouse !== ALL_WAREHOUSES) return num((c.by_wh || {})[warehouse]);
+                return num(c.qty);
+              };
+              const bRows = buildMatrixRows(bPayload, [], bShowRise, bSkuQty, bCellQty)
+                .filter((r) => !hideZeros || r.totalQty !== 0);
+              if (bRows.length === 0) return null;
+              const bColSpan = bShowRise ? 3 : 2; // Image + Color [+ Rise]
+              const bColTotals: Record<string, number> = {};
+              for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+              const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
+              const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
+              return (
+                <div key={bStyle.id}>
+                  <div style={{ padding: "6px 12px", background: C.card, borderRadius: "8px 8px 0 0", border: `1px solid ${C.sectionBdr}`, borderBottom: "none", fontSize: 13, fontWeight: 700, color: C.base, fontFamily: "monospace" }}>
+                    {bStyle.style_code}{bStyle.style_name ? ` — ${bStyle.style_name}` : ""}
+                  </div>
+                  <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: "0 0 8px 8px", border: `1px solid ${C.sectionBdr}` }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: C.headerBg }}>
+                          <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
+                          <th style={{ ...thBase, textAlign: "left" }}>Color</th>
+                          {bShowRise && <th style={{ ...thBase, textAlign: "left" }}>Rise</th>}
+                          {bSizeOrder.map((sz) => (
+                            <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
+                          ))}
+                          <th style={{ ...thBase, textAlign: "center" }}>Total</th>
+                          <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
+                          <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>
+                          <th style={{ ...thBase, textAlign: "center" }}>Last Rcvd</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bRows.map((row, ri) => {
+                          const isLast = ri === bRows.length - 1;
+                          // Use brand-level styleImages map doesn't apply here (we'd need per-style
+                          // maps). Render an empty placeholder so layout is consistent.
+                          return (
+                            <tr key={row.key} style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
+                              <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
+                                <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />
+                              </td>
+                              <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                              {bShowRise && <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>}
+                              {bSizeOrder.map((sz) => (
+                                <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
+                                  {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
+                                </td>
+                              ))}
+                              <td style={{ padding: "6px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>{fmtQty(row.totalQty)}</td>
+                              <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{row.avgCostCents == null ? "—" : fmtCurrency(row.avgCostCents / 100)}</td>
+                              <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontWeight: 600, fontFamily: "monospace" }}>{row.totalCostCents > 0 ? fmtCurrency(row.totalCostCents / 100) : "—"}</td>
+                              <td style={{ padding: "6px 12px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{row.lastReceived ? fmtDate(row.lastReceived.slice(0, 10)) : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
+                          <td colSpan={bColSpan} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
+                          {bSizeOrder.map((sz) => (
+                            <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
+                              {bColTotals[sz] ? fmtQty(bColTotals[sz]) : "—"}
+                            </td>
+                          ))}
+                          <td style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>{fmtQty(bGrandQty)}</td>
+                          <td style={{ padding: "10px 12px" }} />
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: C.green, fontWeight: 800, fontFamily: "monospace" }}>{bGrandCost > 0 ? fmtCurrency(bGrandCost / 100) : "—"}</td>
+                          <td style={{ padding: "10px 12px" }} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* ── Row-driven list views (SO / PO / Invoices) ───────────────────────
+          Replace the matrix body when a non-matrix view is active for the
+          picked style. Each row is fully clickable and drills to the real
+          module. *_id values arrive pre-resolved to names from the handler. */}
+      {isListView && (
+        <>
+          {/* Export for the active list. */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            {viewMode === "so" && soRows.length > 0 && (
+              <ExportButton rows={soExportRows} filename={`so-for-${payload?.style.style_code || "style"}`} sheetName="Sales Orders" columns={soExportColumns} />
+            )}
+            {viewMode === "po" && poRows.length > 0 && (
+              <ExportButton rows={poExportRows} filename={`po-for-${payload?.style.style_code || "style"}`} sheetName="Purchase Orders" columns={poExportColumns} />
+            )}
+            {viewMode === "invoices" && invoiceRows.length > 0 && (
+              <ExportButton rows={invExportRows} filename={`invoices-for-${payload?.style.style_code || "style"}`} sheetName="Invoices" columns={invExportColumns} />
+            )}
+          </div>
+
+          {listErr && (
+            <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
+              Error: {listErr}
+            </div>
+          )}
+
+          {listLoading ? (
+            <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+          ) : viewMode === "so" ? (
+            soRows.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+                No sales orders contain this style.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.headerBg }}>
+                      <th style={{ ...thBase, textAlign: "left" }}>SO #</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Customer</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Qty (style)</th>
+                      <th style={{ ...thBase, textAlign: "right" }}>Order Total</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Ship Date</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Cancel Date</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {soRows.map((r, ri) => (
+                      <tr key={r.id} onClick={() => openSo(r)} title="Open this sales order"
+                        style={{ cursor: "pointer", borderBottom: ri === soRows.length - 1 ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#162033")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700 }}>{r.so_number || "(draft)"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{r.customer_name || "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.gridText, fontFamily: "monospace" }}>{fmtQty(r.qty_for_style)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{r.total_cents == null ? "—" : fmtCurrency(r.total_cents / 100)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.requested_ship_date ? fmtDate(r.requested_ship_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.cancel_date ? fmtDate(r.cancel_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", color: C.textSub, textTransform: "capitalize" }}>{r.status || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : viewMode === "po" ? (
+            poRows.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+                No purchase orders contain this style.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.headerBg }}>
+                      <th style={{ ...thBase, textAlign: "left" }}>PO #</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Vendor</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Qty (style)</th>
+                      <th style={{ ...thBase, textAlign: "right" }}>Order Total</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>DDP Date</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {poRows.map((r, ri) => (
+                      <tr key={r.id} onClick={() => openPo(r)} title="Open this purchase order"
+                        style={{ cursor: "pointer", borderBottom: ri === poRows.length - 1 ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#162033")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700 }}>{r.po_number || "(draft)"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{r.vendor_name || "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.gridText, fontFamily: "monospace" }}>{fmtQty(r.qty_for_style)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{r.total_cents == null ? "—" : fmtCurrency(r.total_cents / 100)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.expected_date ? fmtDate(r.expected_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", color: C.textSub, textTransform: "capitalize" }}>{(r.status || "—").replace(/_/g, " ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            invoiceRows.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
+                No invoices contain this style.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.headerBg }}>
+                      <th style={{ ...thBase, textAlign: "left" }}>Invoice #</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Customer</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Qty (style)</th>
+                      <th style={{ ...thBase, textAlign: "right" }}>Total</th>
+                      <th style={{ ...thBase, textAlign: "center" }}>Invoice Date</th>
+                      <th style={{ ...thBase, textAlign: "left" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceRows.map((r, ri) => (
+                      <tr key={r.id} onClick={() => openInvoice(r)} title="Open this invoice"
+                        style={{ cursor: "pointer", borderBottom: ri === invoiceRows.length - 1 ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#162033")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700 }}>{r.invoice_number || "—"}</td>
+                        <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{r.customer_name || "—"}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.gridText, fontFamily: "monospace" }}>{fmtQty(r.qty_for_style)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{r.total_amount_cents == null ? "—" : fmtCurrency(r.total_amount_cents / 100)}</td>
+                        <td style={{ padding: "8px 14px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{r.invoice_date ? fmtDate(r.invoice_date.slice(0, 10)) : "—"}</td>
+                        <td style={{ padding: "8px 14px", color: C.textSub, textTransform: "capitalize" }}>{(r.gl_status || "—").replace(/_/g, " ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </>
+      )}
+
       {/* Matrix table — poMatrixTab-style "Item Matrix" look. */}
-      {loading ? (
+      {!isListView && (loading ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-      ) : !styleId ? (
+      ) : !styleId && !brandId ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
           Pick a style to view its inventory matrix.
         </div>
-      ) : !payload || rows.length === 0 ? (
+      ) : !styleId ? null /* brand-level view rendered above */
+      : !payload || rows.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
           No SKUs found for this style{showRise && riseFilter.length ? " at the selected rise." : "."}
         </div>
@@ -877,6 +1430,7 @@ export default function InternalInventoryMatrix() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.headerBg }}>
+                <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Base Part</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Description</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Color</th>
@@ -898,6 +1452,19 @@ export default function InternalInventoryMatrix() {
                     key={row.key}
                     style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}
                   >
+                    <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
+                      {(() => {
+                        const key = row.color.toLowerCase().trim();
+                        const url = styleImages.get(key) || styleImages.get("__default__") || "";
+                        return url ? (
+                          <img
+                            src={url}
+                            alt={row.color}
+                            style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155" }}
+                          />
+                        ) : <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />;
+                      })()}
+                    </td>
                     <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700, borderRight: `1px solid ${C.sectionBdr}` }}>
                       {payload.style.style_code}
                     </td>
@@ -931,6 +1498,7 @@ export default function InternalInventoryMatrix() {
             </tbody>
             <tfoot>
               <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
+                <td style={{ padding: "12px 14px" }} />
                 <td colSpan={colSpanLead} style={{ padding: "12px 14px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
                 {sizeOrder.map((sz) => (
                   <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
@@ -949,7 +1517,7 @@ export default function InternalInventoryMatrix() {
             </tfoot>
           </table>
         </div>
-      )}
+      ))}
     </div>
   );
 }

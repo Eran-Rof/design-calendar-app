@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Inquiry {
   id: string;
@@ -98,7 +99,7 @@ export default function InternalMarketplaceInquiries() {
               <div style={{ fontSize: 12, color: C.textSub, marginTop: 8, padding: 8, background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 6 }}>{q.message}</div>
               {q.response && (
                 <div style={{ fontSize: 12, color: C.text, marginTop: 8, padding: 8, background: "rgba(16,185,129,0.08)", border: `1px solid ${C.success}`, borderRadius: 6 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: C.success, marginBottom: 4, textTransform: "uppercase" }}>Vendor response · {q.responded_at ? new Date(q.responded_at).toLocaleDateString() : ""}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.success, marginBottom: 4, textTransform: "uppercase" }}>Vendor response · {q.responded_at ? fmtDateDisplay(q.responded_at) : ""}</div>
                   {q.response}
                 </div>
               )}

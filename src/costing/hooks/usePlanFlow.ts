@@ -4,30 +4,27 @@
 //   draft   — new line, nothing sent
 //   sent    — line is on a published RFQ (vendor invited)        [publish.js]
 //   quoted  — the invited vendor submitted a quote                [submit.js]
-//   awarded — a vendor quote was selected for the line            [award/[vendor].js]
+//   awarded — formally awarded via the RFQ award flow             [award/[vendor].js]
 //   lost    — a sibling row (same project+style) won              [award/[vendor].js]
-//   revised — reserved for Stage B (edit-forks-a-Sent-row)
+//   revised — Stage B (edit-forks-a-Sent-row mechanic)
 //   closed  — manual terminal close (operator)
-// effectiveLineStatus returns the STORED status when present, falling back to
-// the legacy derivation (selected_vendor_quote_id / _on_rfq) for null rows.
-// The strip rolls these up into per-status counts + $ totals.
+//
+// NOTE: selecting a vendor quote on a line (selected_vendor_quote_id) is NOT
+// the same as awarding. Vendor selection tracks the intended vendor for RFQ
+// generation; awarded is set only by the formal RFQ award handler.
 
 import { useMemo } from "react";
 import { useCostingStore } from "../store/costingStore";
-import type { CostingLine, CostingLineEffectiveStatus } from "../types";
+import type { CostingLine, CostingLineStatus } from "../types";
 
-export type PlanFlowStage = CostingLineEffectiveStatus;
+export type PlanFlowStage = CostingLineStatus;
 
-// Lifecycle stages shown in the Plan Flow strip / used as grid buckets, in flow
-// order. ('on_rfq' is a legacy derived value kept in the union + color map for
-// the projects-list buckets, but it is NOT a lifecycle stage chip.)
 export const PLAN_FLOW_STAGES: PlanFlowStage[] = [
   "draft", "sent", "quoted", "awarded", "lost", "revised", "closed",
 ];
 
 const STAGE_LABEL: Record<PlanFlowStage, string> = {
   draft:   "Draft",
-  on_rfq:  "On RFQ",
   sent:    "Sent",
   quoted:  "Quoted",
   awarded: "Awarded",
@@ -38,7 +35,6 @@ const STAGE_LABEL: Record<PlanFlowStage, string> = {
 
 const STAGE_ICON: Record<PlanFlowStage, string> = {
   draft:   "✏️",
-  on_rfq:  "📤",
   sent:    "📤",
   quoted:  "💬",
   awarded: "🏆",
@@ -47,12 +43,10 @@ const STAGE_ICON: Record<PlanFlowStage, string> = {
   closed:  "🔒",
 };
 
-// GREEN is reserved for `awarded` only. Other stages use distinct hues so the
-// grid reads at a glance: draft gray, sent blue, quoted amber, lost red,
-// revised muted slate, closed indigo.
+// GREEN reserved for awarded. Other stages: draft gray, sent blue, quoted amber,
+// lost red, revised muted slate, closed indigo.
 const STAGE_COLOR: Record<PlanFlowStage, { bg: string; fg: string; bar: string }> = {
   draft:   { bg: "#33415533", fg: "#CBD5E1", bar: "#64748B" },
-  on_rfq:  { bg: "#78350F33", fg: "#FBBF24", bar: "#F59E0B" },
   sent:    { bg: "#1E3A8A33", fg: "#93C5FD", bar: "#3B82F6" },
   quoted:  { bg: "#78350F33", fg: "#FBBF24", bar: "#F59E0B" },
   awarded: { bg: "#064E3B33", fg: "#34D399", bar: "#10B981" },
@@ -61,28 +55,18 @@ const STAGE_COLOR: Record<PlanFlowStage, { bg: string; fg: string; bar: string }
   closed:  { bg: "#3730A333", fg: "#A5B4FC", bar: "#6366F1" },
 };
 
-export function stageLabel(s: PlanFlowStage): string { return STAGE_LABEL[s]; }
-export function stageIcon(s: PlanFlowStage): string  { return STAGE_ICON[s]; }
-export function stageColor(s: PlanFlowStage)         { return STAGE_COLOR[s]; }
+export function stageLabel(s: PlanFlowStage): string { return STAGE_LABEL[s] ?? s; }
+export function stageIcon(s: PlanFlowStage): string  { return STAGE_ICON[s] ?? ""; }
+export function stageColor(s: PlanFlowStage)         { return STAGE_COLOR[s] ?? STAGE_COLOR.draft; }
 
-// Lifecycle values that may appear stored in costing_lines.status.
-const LIFECYCLE_STORED = new Set<string>([
-  "draft", "sent", "quoted", "awarded", "lost", "revised", "closed",
-]);
+const KNOWN_STAGES = new Set<string>(PLAN_FLOW_STAGES);
 
-// Effective per-line status. Status is stored + event-driven now, so we RETURN
-// the stored value when it's a recognized lifecycle state. 'closed' keeps manual
-// precedence. The legacy derivation (awarded via selected_vendor_quote_id, on_rfq
-// via _on_rfq) is only a fallback for null / unrecognized rows.
+// Effective per-line status reads directly from the stored DB column.
+// Vendor selection (selected_vendor_quote_id) is NOT treated as awarded;
+// only a formal RFQ award sets status='awarded'.
 export function effectiveLineStatus(line: CostingLine): PlanFlowStage {
-  const stored = line.status as string | null | undefined;
-  if (stored === "closed") return "closed";
-  if (stored && LIFECYCLE_STORED.has(stored) && stored !== "draft") {
-    return stored as PlanFlowStage;
-  }
-  // Fallback for legacy rows with null / bare-'draft' status.
-  if (line.selected_vendor_quote_id) return "awarded";
-  if (line._on_rfq) return "sent";
+  const s = line.status;
+  if (s && KNOWN_STAGES.has(s)) return s as PlanFlowStage;
   return "draft";
 }
 
@@ -112,24 +96,20 @@ function lineSalesTotal(line: CostingLine): number {
   return qty * unit;
 }
 
-function emptyBucket(stage: PlanFlowStage): PlanFlowBucket {
-  return { stage, count: 0, totalCost: 0, totalSales: 0, lineIds: [] };
-}
-
 export function usePlanFlow(): PlanFlowSummary {
   const lines = useCostingStore((s) => s.lines);
 
   return useMemo(() => {
     const lineStageById: Record<string, PlanFlowStage> = {};
     const buckets = {} as Record<PlanFlowStage, PlanFlowBucket>;
-    for (const stage of PLAN_FLOW_STAGES) buckets[stage] = emptyBucket(stage);
-    // on_rfq is not a strip stage but keep a bucket so any stray reference is safe.
-    if (!buckets.on_rfq) buckets.on_rfq = emptyBucket("on_rfq");
+    for (const stage of PLAN_FLOW_STAGES) {
+      buckets[stage] = { stage, count: 0, totalCost: 0, totalSales: 0, lineIds: [] };
+    }
 
     for (const line of lines) {
       const stage = effectiveLineStatus(line);
       lineStageById[line.id] = stage;
-      const b = buckets[stage] || (buckets[stage] = emptyBucket(stage));
+      const b = buckets[stage];
       b.count++;
       b.totalCost  += lineCostTotal(line);
       b.totalSales += lineSalesTotal(line);

@@ -22,6 +22,39 @@
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope } from "../../../_lib/brandContext.js";
 
+// GL account lookup for inventory adjustments. Queries by account_type=expense
+// and name matching "inventory adjust" (primary), falling back to "adjust" only.
+// Returns { id } or { error }.
+async function lookupAdjustmentGlAccount(admin, entityId) {
+  // Primary: expense account whose name contains "inventory" AND "adjust".
+  const { data: primary, error: e1 } = await admin
+    .from("gl_accounts")
+    .select("id")
+    .eq("entity_id", entityId)
+    .eq("account_type", "expense")
+    .eq("is_postable", true)
+    .ilike("name", "%inventory%adjust%")
+    .limit(1)
+    .maybeSingle();
+  if (e1) return { error: e1.message };
+  if (primary) return { id: primary.id };
+
+  // Fallback: any postable expense account whose name contains "adjust".
+  const { data: fallback, error: e2 } = await admin
+    .from("gl_accounts")
+    .select("id")
+    .eq("entity_id", entityId)
+    .eq("account_type", "expense")
+    .eq("is_postable", true)
+    .ilike("name", "%adjust%")
+    .limit(1)
+    .maybeSingle();
+  if (e2) return { error: e2.message };
+  if (fallback) return { id: fallback.id };
+
+  return { error: "Inventory Adjustments Expense GL account not found. Create one in Chart of Accounts." };
+}
+
 export const config = { maxDuration: 15 };
 
 // adjustment_type is now a CONFIGURABLE category sourced from the
@@ -128,9 +161,8 @@ export function validateInsert(body) {
   if (!body.reason || !String(body.reason).trim()) {
     return { error: "reason (non-empty) required" };
   }
-  if (!body.gl_account_id || !isUuid(String(body.gl_account_id))) {
-    return { error: "gl_account_id (uuid) required" };
-  }
+  // gl_account_id is OPTIONAL from client — server fills it via lookupAdjustmentGlAccount.
+  // If the client supplies it for backward compat, validate but don't require.
 
   let unitCost = null;
   if (qty > 0) {
@@ -159,7 +191,7 @@ export function validateInsert(body) {
       qty_delta: qty,
       unit_cost_cents: unitCost,
       reason: String(body.reason).trim(),
-      gl_account_id: String(body.gl_account_id),
+      // gl_account_id is resolved server-side; not taken from body.
       receiving_channel,
     },
   };
@@ -211,12 +243,17 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
+    // Server always resolves the GL account — client never picks it.
+    const glLookup = await lookupAdjustmentGlAccount(admin, entityId);
+    if (glLookup.error) return res.status(400).json({ error: glLookup.error });
+
     const created_by_user_id = body && typeof body.created_by_user_id === "string" && isUuid(body.created_by_user_id)
       ? body.created_by_user_id
       : null;
 
     const insertRow = {
       ...v.data,
+      gl_account_id: glLookup.id,
       entity_id: entityId,
       created_by_user_id,
     };
