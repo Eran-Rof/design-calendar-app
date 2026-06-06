@@ -22,10 +22,8 @@ async function resolveVendor(admin, authHeader) {
   try {
     const { data, error } = await admin.auth.getUser(jwt);
     if (error || !data?.user) return null;
-    const { data: vu } = await admin.from("vendor_users").select("id, vendor_id, status").eq("auth_id", data.user.id).maybeSingle();
-    if (!vu) return null;
-    if (vu.status && vu.status !== "active") return null;
-    return { ...vu, auth_id: data.user.id, email: data.user.email };
+    const { data: vu } = await admin.from("vendor_users").select("id, vendor_id").eq("auth_id", data.user.id).maybeSingle();
+    return vu ? { ...vu, auth_id: data.user.id, email: data.user.email } : null;
   } catch { return null; }
 }
 

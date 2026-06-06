@@ -65,8 +65,9 @@ export default async function handler(req, res) {
   // (the invite created the link as 'pending'). This is what promotes them into
   // the "Active vendor access" list.
   const { data: existing } = await admin.from("vendor_users").select("id").eq("auth_id", authId).maybeSingle();
+  const nowIso = new Date().toISOString();
   if (existing) {
-    await admin.from("vendor_users").update({ status: "active" }).eq("id", existing.id);
+    await admin.from("vendor_users").update({ status: "active", last_login: nowIso }).eq("id", existing.id);
   } else {
     await admin.from("vendor_users").insert({
       auth_id: authId,
@@ -74,6 +75,7 @@ export default async function handler(req, res) {
       display_name: row.display_name || null,
       role: "primary",
       status: "active",
+      last_login: nowIso,
     });
   }
 
