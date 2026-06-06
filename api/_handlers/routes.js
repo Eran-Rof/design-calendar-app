@@ -235,6 +235,8 @@ import r_internal_entities_index from "./internal/entities/index.js";
 import r_internal_esg_scores_index from "./internal/esg-scores/index.js";
 import r_internal_fabric_codes_id from "./internal/fabric-codes/[id].js";
 import r_internal_fabric_codes_index from "./internal/fabric-codes/index.js";
+import r_internal_fabric_mills_id from "./internal/fabric-mills/[id].js";
+import r_internal_fabric_mills_index from "./internal/fabric-mills/index.js";
 import r_internal_factors_id from "./internal/factors/[id].js";
 import r_internal_factors_index from "./internal/factors/index.js";
 import r_internal_faire_post_order_id from "./internal/faire/post-order/[id].js";
@@ -955,6 +957,7 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-master/:id", handler: r_internal_vendor_master_id },
   { pattern: "/api/internal/b2b-accounts/:id", handler: r_internal_b2b_accounts_id },
   { pattern: "/api/internal/fabric-codes/:id", handler: r_internal_fabric_codes_id },
+  { pattern: "/api/internal/fabric-mills/:id", handler: r_internal_fabric_mills_id },
   { pattern: "/api/internal/fixed-assets/:id", handler: r_internal_fixed_assets_id },
   { pattern: "/api/internal/sales-orders/:id", handler: r_internal_sales_orders_id },
   { pattern: "/api/internal/scf-programs/:id", handler: r_internal_scf_programs_id },
@@ -1088,6 +1091,7 @@ export const ROUTES = [
   { pattern: "/api/internal/edi-messages", handler: r_internal_edi_messages_index },
   { pattern: "/api/internal/edi-partners", handler: r_internal_edi_partners_index },
   { pattern: "/api/internal/fabric-codes", handler: r_internal_fabric_codes_index },
+  { pattern: "/api/internal/fabric-mills", handler: r_internal_fabric_mills_index },
   { pattern: "/api/internal/finance-kpis", handler: r_internal_finance_kpis_index },
   { pattern: "/api/internal/fixed-assets", handler: r_internal_fixed_assets_index },
   { pattern: "/api/internal/ip-ai-demand", handler: r_internal_ip_ai_demand_index },
