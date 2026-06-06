@@ -111,6 +111,86 @@ export function build850({ sender, receiver, controlNumber, po }) {
   return wrapEnvelope(sender, receiver, controlNumber, "PO", txnContent);
 }
 
+// 940 Warehouse Shipping Order — instructs a 3PL/warehouse to ship goods.
+// Sent OUTBOUND when a sales order is waved to the 3PL that holds our stock.
+//
+// order: {
+//   shipment_number,             // our reference (W05 BSN-equivalent)
+//   order_date,
+//   po_number?,                  // customer PO if any
+//   carrier?,                    // SCAC / carrier name (W66)
+//   ship_to: { name, address?, city?, state?, zip?, country? },
+//   ship_from: { name },         // the warehouse / 3PL
+//   line_items: [{ line, sku, qty, unit, description }],
+// }
+export function build940({ sender, receiver, controlNumber, order }) {
+  const d = fmtDate(order.order_date || new Date());
+  const txnId = "0001";
+  const segs = [];
+  segs.push(seg("ST", "940", txnId));
+  // W05 — Shipping Order Identification: order type 'N' (new), depositor order number.
+  segs.push(seg("W05", "N", order.shipment_number || "", order.po_number || ""));
+  // N1 loops — ship-to (ST) and warehouse/from (WH).
+  const st = order.ship_to || {};
+  segs.push(seg("N1", "ST", st.name || ""));
+  if (st.address) segs.push(seg("N3", st.address));
+  if (st.city || st.state || st.zip) segs.push(seg("N4", st.city || "", st.state || "", st.zip || "", st.country || "US"));
+  const wh = order.ship_from || {};
+  segs.push(seg("N1", "WH", wh.name || ""));
+  // W66 — Warehouse Carrier Information (carrier detail), if a carrier is set.
+  if (order.carrier) segs.push(seg("W66", "", "", "", "", order.carrier));
+  // Line items: LX (line number) + W01 (line item detail: qty, unit, sku).
+  let lineCount = 0;
+  let totalQty = 0;
+  for (const li of order.line_items || []) {
+    lineCount++;
+    totalQty += Number(li.qty) || 0;
+    segs.push(seg("LX", String(li.line || lineCount)));
+    segs.push(seg("W01", String(li.qty || 0), li.unit || "EA", "", "", "", "VN", li.sku || ""));
+    if (li.description) segs.push(seg("G69", li.description));
+  }
+  // W76 — Total Shipping Order: total line items + total quantity.
+  segs.push(seg("W76", String(lineCount), String(totalQty)));
+  const segCount = segs.length + 1; // incl SE
+  segs.push(se(segCount, txnId));
+  const txnContent = segs.map((s) => s + SEG).join("");
+  // 940 functional group identifier code is OW (Warehouse Shipping Order).
+  return wrapEnvelope(sender, receiver, controlNumber, "OW", txnContent);
+}
+
+// 945 Warehouse Shipping Advice — INBOUND from the 3PL confirming what shipped.
+// Returns a parsed summary (qty shipped per line + carrier/tracking) from raw
+// X12 segments. Lightweight, structured parse — enough to advance the shipment.
+//   segments: [["ST","945",..], ["W06",..], ["LX",..], ["W12",qty,..], ...]
+export function parse945(segments) {
+  const out = { shipment_number: null, carrier: null, tracking_number: null, lines: [] };
+  let cur = null;
+  for (const s of segments || []) {
+    const tag = (s[0] || "").toUpperCase();
+    if (tag === "W06") {
+      // W06 — Warehouse Shipment Identification: depositor order number in elem 2.
+      out.shipment_number = s[2] || s[1] || null;
+    } else if (tag === "W27") {
+      // W27 — Carrier Detail: routing in elem 2, carrier (SCAC) in elem 3.
+      out.carrier = s[3] || s[2] || null;
+    } else if (tag === "W12") {
+      // W12 — Warehouse Item Detail: status, qty ordered, qty shipped, unit, ... sku.
+      cur = {
+        qty_shipped: Number(s[3] ?? s[2] ?? 0) || 0,
+        unit: s[4] || "EA",
+        sku: s[8] || s[7] || null,
+      };
+      out.lines.push(cur);
+    } else if (tag === "REF" && (s[1] === "CN" || s[1] === "2I") && cur) {
+      // Carrier tracking / pro number on a REF segment.
+      out.tracking_number = s[2] || out.tracking_number;
+    } else if (tag === "REF" && (s[1] === "CN" || s[1] === "2I")) {
+      out.tracking_number = s[2] || out.tracking_number;
+    }
+  }
+  return out;
+}
+
 // 820 Payment Order/Remittance — single-invoice payment envelope.
 // payment: { amount, currency, effective_date, vendor_id, invoices: [{invoice_number, amount}] }
 export function build820({ sender, receiver, controlNumber, payment }) {

@@ -899,7 +899,7 @@ function MatrixAdjustmentModal({
     // factored warn UI before any POST (#985).
     if (!adjustmentType.trim()) { notify("Pick an Adjustment Type before creating adjustments (add types in the Adjustment Types master).", "error"); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
-    if (!reason.trim()) { setErr("Reason required"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Reason before creating adjustments."); return; }
     const cells = Object.entries(deltas).filter(([, v]) => Number.isFinite(v) && v !== 0);
     if (cells.length === 0) { setErr("No cells with a non-zero delta. Type a signed qty into a cell."); return; }
 
@@ -1116,7 +1116,7 @@ function MatrixAdjustmentModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", position: "sticky", bottom: 0, background: C.card, paddingTop: 12, marginTop: 8, borderTop: `1px solid ${C.cardBdr}` }}>
           {progress && <span style={{ color: C.textMuted, fontSize: 12, marginRight: "auto" }}>{progress}</span>}
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" style={btnPrimary} onClick={() => void createAll()} disabled={saving || enteredCount === 0}>

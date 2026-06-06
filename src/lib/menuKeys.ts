@@ -178,7 +178,9 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/adjustment-reasons", label: "Adjustment Reason Master", app: "tanda", route: "/tangerine?m=adjustment_reason_master", group: "Master Data", icon: "📋" },
   { key: "tanda/master/transfer-reasons", label: "Transfer Reasons Master", app: "tanda", route: "/tangerine?m=transfer_reason_master", group: "Master Data", icon: "🔁" },
   { key: "tanda/master/warehouses",    label: "Warehouses Master",         app: "tanda", route: "/tangerine?m=warehouse_master",  group: "Master Data", icon: "🏬" },
+  { key: "tanda/master/hts-master",   label: "HTS Master",                app: "tanda", route: "/tangerine?m=hts_master",        group: "Master Data", icon: "🛃" },
   { key: "tanda/master/fabric-mills", label: "Fabric Mill Master",        app: "tanda", route: "/tangerine?m=fabric_mill_master", group: "Master Data", icon: "🏭" },
+  { key: "tanda/master/carriers",     label: "Carrier Master",            app: "tanda", route: "/tangerine?m=carrier_master",     group: "Master Data", icon: "🚚" },
   // P18-F — internal B2B admin (buyers + wholesale price list).
   { key: "tanda/b2b/accounts",         label: "B2B Buyers",         app: "tanda", route: "/tangerine?m=b2b_accounts",     group: "Customers", icon: "🛍️" },
   { key: "tanda/b2b/price-list",       label: "Price Lists",        app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Pricing", icon: "🏷️" },
@@ -356,4 +358,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 19;
+export const MENU_KEYS_VERSION = 20;

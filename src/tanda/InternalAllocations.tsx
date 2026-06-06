@@ -76,7 +76,7 @@ const n = (v: number | string | null | undefined) => Number(v ?? 0);
 type SoGroup = {
   so_id: string; so_number: string | null; customer_name: string | null;
   requested_ship_date: string | null; cancel_date: string | null; order_date: string | null;
-  tier: number; lines: Demand[]; available: number; demand: number;
+  so_status: string; tier: number; lines: Demand[]; available: number; demand: number;
 };
 
 export default function InternalAllocations() {
@@ -129,13 +129,103 @@ export default function InternalAllocations() {
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(TABLE_KEY, COLUMNS);
   const isVisible = (k: string) => visibleColumns.has(k);
 
+  // Per-SO flow actions (run the whole order without leaving the workbench):
+  // Allocate · Ship · Invoice · Wave (3PL). actionBusy gates a single SO at a time.
+  const [actionBusy, setActionBusy] = useState<string | null>(null); // so_id in flight
+  const [tplProviders, setTplProviders] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/tpl-providers").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (Array.isArray(j?.providers)) setTplProviders(j.providers.filter((p: { is_active?: boolean }) => p.is_active !== false));
+    }).catch(() => {});
+  }, []);
+  // Carriers for the Ship modal — sourced from the Carrier Master (#1032).
+  const [carriers, setCarriers] = useState<{ code: string; name: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/carriers").then((r) => (r.ok ? r.json() : [])).then((d) => {
+      if (Array.isArray(d)) setCarriers(d);
+    }).catch(() => {});
+  }, []);
+
+  // Ship modal — carrier / service / tracking / date for the SO in scope.
+  const [shipFor, setShipFor] = useState<SoGroup | null>(null);
+  const [shipCarrier, setShipCarrier] = useState("");
+  const [shipService, setShipService] = useState("");
+  const [shipTracking, setShipTracking] = useState("");
+  const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
+  // Wave modal — pick a 3PL provider, POST the (parallel-built) wave endpoint.
+  const [waveFor, setWaveFor] = useState<SoGroup | null>(null);
+  const [waveProviderId, setWaveProviderId] = useState("");
+
+  async function allocateSo(g: SoGroup) {
+    if (!g.so_id) return;
+    setActionBusy(g.so_id);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${g.so_id}/allocate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
+      notify(j.message || "Allocation run complete.", j.fully_allocated ? "success" : "info");
+      await load();
+    } finally { setActionBusy(null); }
+  }
+  function openShip(g: SoGroup) { setShipFor(g); setShipCarrier(""); setShipService(""); setShipTracking(""); setShipDate(new Date().toISOString().slice(0, 10)); }
+  async function shipSo() {
+    const g = shipFor; if (!g?.so_id) return;
+    setActionBusy(g.so_id);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${g.so_id}/ship`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ carrier: shipCarrier.trim() || null, service_level: shipService.trim() || null, tracking_number: shipTracking.trim() || null, ship_date: shipDate }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
+      notify(j.message || "Shipment recorded.", j.sales_order_status === "shipped" ? "success" : "info");
+      setShipFor(null); await load();
+    } finally { setActionBusy(null); }
+  }
+  async function invoiceSo(g: SoGroup) {
+    if (!g.so_id) return;
+    setActionBusy(g.so_id);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${g.so_id}/create-invoice`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
+      notify(j.message || (j.invoice_number ? `Draft AR invoice ${j.invoice_number} created.` : "Draft invoice created."), "success");
+      await load();
+    } finally { setActionBusy(null); }
+  }
+  function openWave(g: SoGroup) { setWaveFor(g); setWaveProviderId(tplProviders[0]?.id || ""); }
+  async function waveSo() {
+    const g = waveFor; if (!g?.so_id) return;
+    if (!waveProviderId) { notify("Pick a 3PL provider to wave this order.", "error"); return; }
+    setActionBusy(g.so_id);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${g.so_id}/wave`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tpl_provider_id: waveProviderId, actor_user_id: null }),
+      });
+      if (r.status === 404) { notify("Wave endpoint not yet available — try again shortly (deploy in progress).", "info"); setWaveFor(null); return; }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(j.error || `HTTP ${r.status}`, "error"); return; }
+      const msg = j.message || (j.transmitted ? "Waved to 3PL — EDI 940 transmitted." : "Waved to 3PL (940 queued).");
+      notify(msg, "success");
+      setWaveFor(null); await load();
+    } finally { setActionBusy(null); }
+  }
+
   async function load() {
     setLoading(true); setErr(null);
     try {
       const p = new URLSearchParams();
       if (customerId) p.set("customer_id", customerId);
       if (onlyShort) p.set("only_short", "1");
-      if (dSearch.trim()) p.set("q", dSearch.trim());
+      // Show-all-rows: when focused on a single SO (opened from Sales Orders and
+      // the search still equals that SO #), ask the server for ALL of that SO's
+      // lines — including shipped / invoiced ones the demand view hides — so the
+      // operator sees the complete order, not just open-qty rows. Otherwise the
+      // search term is a normal multi-field filter (q).
+      const focused = !!focusSo && dSearch.trim() === focusSo;
+      if (focused) { p.set("so", focusSo); p.set("include_all", "1"); }
+      else if (dSearch.trim()) p.set("q", dSearch.trim());
       const r = await fetch(`/api/internal/allocations?${p.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const j = await r.json() as { demand: Demand[]; availability: Avail[] };
@@ -366,8 +456,15 @@ export default function InternalAllocations() {
           that SO (its number seeded into the search). Show + offer to clear it. */}
       {focusSo && search === focusSo && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1e1b4b", border: `1px solid ${C.violet}`, borderRadius: 6, padding: "6px 12px", marginBottom: 10, fontSize: 13 }}>
-          <span>Focused on sales order <b style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{focusSo}</b> (opened from Sales Orders).</span>
+          <span>Focused on sales order <b style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{focusSo}</b> (opened from Sales Orders) — showing <b>all</b> its lines{onlyShort ? ", restricted to open qty by the filter below" : ", including shipped / invoiced lines"}.</span>
           <button style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12 }} onClick={() => setSearch("")}>Show all demand</button>
+        </div>
+      )}
+
+      {/* When the "Only with open qty" filter is on, some lines may be hidden. */}
+      {onlyShort && (
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+          ⓘ Showing only lines with open qty. Uncheck <b>“Only with open qty”</b> to see every line (including fully-allocated / shipped).
         </div>
       )}
 
@@ -438,9 +535,34 @@ export default function InternalAllocations() {
                           <span style={{ color: g.available > 0 ? C.success : C.textMuted }}>avail {g.available}</span> · demand {g.demand}
                         </span>
                         <div style={{ flex: 1 }} />
-                        <button style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12, color: C.violet, borderColor: "#5b21b6" }}
-                          disabled={previewBusy || g.available <= 0 || g.tier === 9}
-                          onClick={() => void runAutoAllocate(itemIds, `${g.so_number || "(draft)"} · ${g.customer_name || ""}`)} title="Priority full-fill this sales order">⚡ Auto</button>
+                        {(() => {
+                          const busy = actionBusy === g.so_id;
+                          const st = g.so_status;
+                          const canAllocate = ["confirmed", "allocated", "fulfilling"].includes(st) && g.tier !== 9;
+                          const canShip = ["allocated", "fulfilling"].includes(st);
+                          const canInvoice = ["confirmed", "allocated", "fulfilling", "shipped"].includes(st);
+                          const canWave = ["allocated", "fulfilling"].includes(st);
+                          const aBtn: React.CSSProperties = { ...btnSecondary, padding: "3px 10px", fontSize: 12 };
+                          return (
+                            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <button style={{ ...aBtn, color: C.violet, borderColor: "#5b21b6" }}
+                                disabled={previewBusy || g.available <= 0 || g.tier === 9}
+                                onClick={() => void runAutoAllocate(itemIds, `${g.so_number || "(draft)"} · ${g.customer_name || ""}`)} title="Preview + apply a priority full-fill for this sales order">⚡ Auto</button>
+                              <button style={{ ...aBtn, color: canAllocate ? C.primary : C.textMuted, borderColor: canAllocate ? C.primary : C.cardBdr }}
+                                disabled={busy || !canAllocate} onClick={() => void allocateSo(g)}
+                                title={canAllocate ? "Reserve available stock to this order's lines" : g.tier === 9 ? "Factored SO not approved — cannot allocate" : `Cannot allocate a ${st} order`}>{busy ? "…" : "Allocate"}</button>
+                              <button style={{ ...aBtn, color: canShip ? C.success : C.textMuted, borderColor: canShip ? C.success : C.cardBdr }}
+                                disabled={busy || !canShip} onClick={() => openShip(g)}
+                                title={canShip ? "Record a carrier shipment for the allocated qty" : `Allocate the order first (status: ${st})`}>🚚 Ship</button>
+                              <button style={{ ...aBtn, color: canInvoice ? C.warn : C.textMuted, borderColor: canInvoice ? C.warn : C.cardBdr }}
+                                disabled={busy || !canInvoice} onClick={() => void invoiceSo(g)}
+                                title={canInvoice ? "Create a draft AR invoice for the open qty" : `Cannot invoice a ${st} order`}>🧾 Invoice</button>
+                              <button style={{ ...aBtn, color: canWave ? C.violet : C.textMuted, borderColor: canWave ? "#5b21b6" : C.cardBdr }}
+                                disabled={busy || !canWave} onClick={() => openWave(g)}
+                                title={canWave ? "Wave this order to a 3PL provider (EDI 940)" : `Allocate the order first (status: ${st})`}>📦 Wave</button>
+                            </span>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>
@@ -620,6 +742,58 @@ export default function InternalAllocations() {
           </div>
         </div>
       )}
+
+      {/* Ship modal — carrier / service / tracking / date, then POST :id/ship. */}
+      {shipFor && (
+        <div onClick={() => actionBusy !== shipFor.so_id && setShipFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(480px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 18 }}>🚚 Ship {shipFor.so_number || "(draft)"}</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>{shipFor.customer_name || "—"} — ships the remaining allocated qty on every line.</div>
+            <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: C.textSub }}>Carrier
+                <div style={{ marginTop: 4 }}>
+                  <SearchableSelect value={shipCarrier || null} onChange={(v) => setShipCarrier(v || "")}
+                    options={carriers.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` }))}
+                    placeholder="Search carrier…" />
+                </div></label>
+              <label style={{ fontSize: 12, color: C.textSub }}>Service level
+                <input type="text" value={shipService} onChange={(e) => setShipService(e.target.value)} placeholder="e.g. Ground, 2-Day" style={{ ...inputStyle, width: "100%", marginTop: 4 }} /></label>
+              <label style={{ fontSize: 12, color: C.textSub }}>Tracking number
+                <input type="text" value={shipTracking} onChange={(e) => setShipTracking(e.target.value)} placeholder="(optional)" style={{ ...inputStyle, width: "100%", marginTop: 4 }} /></label>
+              <label style={{ fontSize: 12, color: C.textSub }}>Ship date
+                <input type="date" value={shipDate} onChange={(e) => setShipDate(e.target.value)} style={{ ...inputStyle, width: "100%", marginTop: 4 }} /></label>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={btnSecondary} disabled={actionBusy === shipFor.so_id} onClick={() => setShipFor(null)}>Cancel</button>
+              <button style={{ ...btnPrimary, background: C.success }} disabled={actionBusy === shipFor.so_id} onClick={() => void shipSo()}>{actionBusy === shipFor.so_id ? "Shipping…" : "Record shipment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wave modal — pick a 3PL provider, POST :id/wave (built in parallel). */}
+      {waveFor && (
+        <div onClick={() => actionBusy !== waveFor.so_id && setWaveFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(480px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 18 }}>📦 Wave {waveFor.so_number || "(draft)"} to a 3PL</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>{waveFor.customer_name || "—"} — creates a 3PL shipment and transmits an EDI 940 to the chosen provider.</div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: C.textSub, marginBottom: 4 }}>3PL provider</div>
+              {tplProviders.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.warn }}>No 3PL providers configured. Add one in Inventory → 🚚 3PL first.</div>
+              ) : (
+                <SearchableSelect value={waveProviderId || null} onChange={(v) => setWaveProviderId(v || "")}
+                  options={tplProviders.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name, searchHaystack: `${p.name} ${p.code || ""}` }))}
+                  placeholder="(pick a 3PL provider…)" />
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={btnSecondary} disabled={actionBusy === waveFor.so_id} onClick={() => setWaveFor(null)}>Cancel</button>
+              <button style={{ ...btnPrimary, background: C.violet }} disabled={actionBusy === waveFor.so_id || !waveProviderId} onClick={() => void waveSo()}>{actionBusy === waveFor.so_id ? "Waving…" : "Wave to 3PL"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -634,7 +808,7 @@ function bySo_get(map: Map<string, SoGroup>, d: Demand): SoGroup {
     g = {
       so_id: d.so_id, so_number: d.so_number, customer_name: d.customer_name,
       requested_ship_date: d.requested_ship_date, cancel_date: d.cancel_date, order_date: d.order_date,
-      tier: tierOf(d), lines: [], available: 0, demand: 0,
+      so_status: d.so_status, tier: tierOf(d), lines: [], available: 0, demand: 0,
     };
     map.set(d.so_id, g);
   }

@@ -67,6 +67,19 @@ function useTransferReasons() {
   return { reasons, addReason };
 }
 
+type Warehouse = { id: string; code: string; name: string };
+
+function useWarehouses() {
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/warehouses")
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => { if (Array.isArray(d)) setWarehouses(d); })
+      .catch(() => {/* non-fatal */});
+  }, []);
+  return warehouses;
+}
+
 function TransferReasonPicker({
   reasons, value, onChange, onAddNew,
 }: {
@@ -523,6 +536,8 @@ function SingleTransferModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { reasons, addReason } = useTransferReasons();
+  const warehouses = useWarehouses();
+  const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
   // SKU picker — load a batch of active items so the operator picks by SKU,
   // never a raw UUID. SearchableSelect filters locally (sku / style / desc).
@@ -542,7 +557,7 @@ function SingleTransferModal({
     setErr(null);
     const qtyNum = Number(qty);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
-    if (!reason.trim()) { notify("Pick a Transfer Reason before saving (or add a new one).", "error"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Transfer Reason before saving."); return; }
     if (!itemId.trim()) { setErr("Pick a SKU"); return; }
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) { setErr("Qty must be a positive number"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
@@ -618,12 +633,14 @@ function SingleTransferModal({
 
         <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From location</label>
-            <input style={inputStyle} value={fromLoc} onChange={(e) => setFromLoc(e.target.value)} placeholder="e.g. MAIN" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From warehouse</label>
+            <SearchableSelect value={fromLoc || null} onChange={(v) => setFromLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
-            <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To warehouse</label>
+            <SearchableSelect value={toLoc || null} onChange={(v) => setToLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
         </div>
 
@@ -710,6 +727,8 @@ function MatrixTransferModal({
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const { reasons, addReason } = useTransferReasons();
+  const warehouses = useWarehouses();
+  const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
   // Style picker.
   const [styleOpts, setStyleOpts] = useState<StyleOption[]>([]);
@@ -821,7 +840,7 @@ function MatrixTransferModal({
   async function createAll() {
     setErr(null);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
-    if (!reason.trim()) { notify("Pick a Transfer Reason before creating transfers (or add a new one).", "error"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Transfer Reason before creating transfers."); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
     if (!toLoc.trim()) { setErr("To location is required"); return; }
@@ -919,12 +938,14 @@ function MatrixTransferModal({
 
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 200px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From location</label>
-            <input style={inputStyle} value={fromLoc} onChange={(e) => setFromLoc(e.target.value)} placeholder="e.g. MAIN" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>From warehouse</label>
+            <SearchableSelect value={fromLoc || null} onChange={(v) => setFromLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: "1 1 200px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To location</label>
-            <input style={inputStyle} value={toLoc} onChange={(e) => setToLoc(e.target.value)} placeholder="e.g. RETAIL" />
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>To warehouse</label>
+            <SearchableSelect value={toLoc || null} onChange={(v) => setToLoc(v || "")}
+              options={whOpts} placeholder="Search warehouse…" inputStyle={inputStyle} />
           </div>
           <div style={{ flex: "2 1 320px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Notes (optional)</label>
@@ -994,7 +1015,7 @@ function MatrixTransferModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", position: "sticky", bottom: 0, background: C.card, paddingTop: 12, marginTop: 8, borderTop: `1px solid ${C.cardBdr}` }}>
           {progress && <span style={{ color: C.textMuted, fontSize: 12, marginRight: "auto" }}>{progress}</span>}
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" style={btnPrimary} onClick={() => void createAll()} disabled={saving || enteredCount === 0}>

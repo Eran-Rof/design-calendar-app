@@ -311,6 +311,8 @@ interface ModalProps {
   onSaved: () => void;
 }
 
+type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
+
 function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     code:                   fabric?.code                   ?? "",
@@ -323,6 +325,34 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
     default_vendor_id:      fabric?.default_vendor_id      ?? "",
     is_active:              fabric?.is_active              ?? true,
   });
+  const [htsSuggestions, setHtsSuggestions] = useState<HtsSuggestion[]>([]);
+  const [htsSuggestLoading, setHtsSuggestLoading] = useState(false);
+  const [htsSuggestErr, setHtsSuggestErr] = useState<string | null>(null);
+
+  async function fetchHtsSuggestions() {
+    setHtsSuggestLoading(true);
+    setHtsSuggestErr(null);
+    setHtsSuggestions([]);
+    try {
+      const r = await fetch("/api/internal/hts/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fabric_content: form.composition_text.trim() || form.name.trim(),
+          country_of_origin: countries.find((c) => c.iso2 === form.country_of_origin_iso2)?.name ?? form.country_of_origin_iso2,
+          category: "",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setHtsSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+      if (data.note) setHtsSuggestErr(data.note);
+    } catch (e: unknown) {
+      setHtsSuggestErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setHtsSuggestLoading(false);
+    }
+  }
 
   // Chunk J item 7 — COO picker options ("<iso2> — <name>", value = iso2).
   // The stored value remains the 2-letter ISO code. If the row already holds
@@ -445,13 +475,50 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
             />
           </Field>
           <Field label="HTS code">
-            <input
-              type="text"
-              value={form.hts_code}
-              onChange={(e) => setForm({ ...form, hts_code: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. 5208.32"
-            />
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="text"
+                value={form.hts_code}
+                onChange={(e) => { setForm({ ...form, hts_code: e.target.value }); setHtsSuggestions([]); }}
+                style={{ ...inputStyle, flex: 1 }}
+                placeholder="e.g. 5208.32"
+              />
+              <button
+                type="button"
+                onClick={() => void fetchHtsSuggestions()}
+                disabled={htsSuggestLoading}
+                style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
+                title="Use Claude AI to suggest HTS codes based on fabric content and COO"
+              >
+                {htsSuggestLoading ? "…" : "🤖 Suggest"}
+              </button>
+            </div>
+            {htsSuggestErr && (
+              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{htsSuggestErr}</div>
+            )}
+            {htsSuggestions.length > 0 && (
+              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 4, marginTop: 4, overflow: "hidden" }}>
+                {htsSuggestions.map((s, i) => (
+                  <div
+                    key={i}
+                    onClick={() => { setForm({ ...form, hts_code: s.code }); setHtsSuggestions([]); }}
+                    style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < htsSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.card; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, fontSize: 13 }}>{s.code}</span>
+                      <span style={{ fontSize: 11, color: s.confidence === "high" ? C.success : s.confidence === "medium" ? C.warn : C.textMuted }}>{s.confidence}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{s.description}</div>
+                    {s.duty_rate_pct != null && (
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>Duty: {s.duty_rate_pct}%</div>
+                    )}
+                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, fontStyle: "italic" }}>{s.reasoning}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Field>
           <Field label="Default vendor">
             <select
