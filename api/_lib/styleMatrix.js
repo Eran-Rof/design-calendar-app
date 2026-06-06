@@ -128,17 +128,30 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   const whSeen = new Set();
   const avail = new Map();
   const lastReceived = new Map();
+  // location_id → warehouse name. Since the multi-warehouse cutover, each layer's
+  // location_id is the authoritative warehouse (re-pointed from the legacy `wh=`
+  // notes tag). We resolve the name from inventory_locations and fall back to the
+  // notes tag only when a layer has no location_id (defensive).
+  const locNameById = new Map();
+  {
+    const { data: locRows } = await admin
+      .from("inventory_locations")
+      .select("id, name")
+      .eq("entity_id", entityId);
+    for (const lr of locRows || []) locNameById.set(lr.id, lr.name);
+  }
   if (ids.length > 0) {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, received_at, notes")
+      .select("item_id, remaining_qty, received_at, notes, location_id")
       .in("item_id", ids);
     for (const l of layers || []) {
       const q = Number(l.remaining_qty);
       if (q > 0) {
         onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + q);
+        const locName = l.location_id ? locNameById.get(l.location_id) : null;
         const m = (l.notes || "").match(/wh=(.+)$/);
-        const wh = m ? m[1].trim() : WH_UNASSIGNED;
+        const wh = locName || (m ? m[1].trim() : WH_UNASSIGNED);
         whSeen.add(wh);
         let byWh = onHandByWh.get(l.item_id);
         if (!byWh) { byWh = {}; onHandByWh.set(l.item_id, byWh); }
@@ -287,13 +300,23 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
   );
   if (ppkSkus.length === 0) return empty;
 
-  // Pack on-hand per PPK SKU, broken down by warehouse (same notes `wh=` parse).
+  // Pack on-hand per PPK SKU, broken down by warehouse. Prefer the layer's
+  // location_id (authoritative since the multi-warehouse cutover); fall back to
+  // the legacy `wh=` notes tag for any layer without a location_id.
   const ppkIds = ppkSkus.map((s) => s.id);
+  const locNameById = new Map();
+  {
+    const { data: locRows } = await admin
+      .from("inventory_locations")
+      .select("id, name")
+      .eq("entity_id", entityId);
+    for (const lr of locRows || []) locNameById.set(lr.id, lr.name);
+  }
   const packOnHand = new Map();    // ppk item_id → { total, byWh:{wh:qty} }
   {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, notes")
+      .select("item_id, remaining_qty, notes, location_id")
       .in("item_id", ppkIds);
     for (const l of layers || []) {
       const q = Number(l.remaining_qty);
@@ -301,8 +324,9 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
       let rec = packOnHand.get(l.item_id);
       if (!rec) { rec = { total: 0, byWh: {} }; packOnHand.set(l.item_id, rec); }
       rec.total += q;
+      const locName = l.location_id ? locNameById.get(l.location_id) : null;
       const m = (l.notes || "").match(/wh=(.+)$/);
-      const wh = m ? m[1].trim() : WH_UNASSIGNED;
+      const wh = locName || (m ? m[1].trim() : WH_UNASSIGNED);
       rec.byWh[wh] = (rec.byWh[wh] || 0) + q;
     }
   }
