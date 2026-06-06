@@ -94,7 +94,17 @@ export default function RfqListView() {
     },
   });
 
-  const onOpen = (id: string) => navigate("rfq-edit", id);
+  // Row click: open the source costing project in a new tab when available
+  // (so the operator can edit lines + regenerate the RFQ from the project).
+  // Falls back to the RFQ edit view for rows without a linked project.
+  const onOpenProject = (r: RfqListRow) => {
+    if (r.source_costing_project_id) {
+      window.open(`/costing?project=${r.source_costing_project_id}`, "_blank", "noopener");
+    } else {
+      navigate("rfq-edit", r.id);
+    }
+  };
+  const onOpenRfq = (id: string) => navigate("rfq-edit", id);
   const setNotice = useCostingStore((s) => s.setNotice);
   const onDelete = (r: RfqListRow) => {
     const label = r.title || r.vendor_name || r.id;
@@ -331,11 +341,11 @@ export default function RfqListView() {
               return (
                 <tr
                   key={r.id}
-                  onClick={() => onOpen(r.id)}
+                  onClick={() => onOpenProject(r)}
                   style={{ borderTop: "1px solid #334155", cursor: "pointer" }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "#334155"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  title="Click to view + edit"
+                  title={r.source_costing_project_id ? "Open source project in new tab" : "Click to view + edit RFQ"}
                 >
                   <Td align="center">
                     <input
@@ -347,8 +357,29 @@ export default function RfqListView() {
                       style={{ cursor: "pointer", accentColor: "#60A5FA" }}
                     />
                   </Td>
-                  <Td><span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap" }}>{r.code || "—"}</span></Td>
-                  <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.title || "(untitled)"}</span></Td>
+                  <Td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onOpenRfq(r.id); }}
+                      title="Open RFQ"
+                      style={{
+                        background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap",
+                        textDecoration: "underline", textDecorationColor: "#475569",
+                      }}
+                    >{r.code || "—"}</button>
+                  </Td>
+                  <Td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onOpenRfq(r.id); }}
+                      title="Open RFQ"
+                      style={{
+                        background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                        color: "#60A5FA", fontWeight: 600, textAlign: "left",
+                        textDecoration: "underline", textDecorationColor: "#3B82F6",
+                      }}
+                    >{r.title || "(untitled)"}</button>
+                  </Td>
                   <Td>{r.vendor_name || "—"}</Td>
                   <Td>{stripExcelPrefix(r.customer_name) || "—"}</Td>
                   <Td>{r.project_name || "—"}</Td>

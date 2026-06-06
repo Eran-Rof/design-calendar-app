@@ -284,6 +284,10 @@ export interface RfqLineItem {
   specifications: string | null;
   /** Mirror of costing_lines.fabric_code at generate-rfqs time. NULL on legacy rows. */
   fabric_code: string | null;
+  /** Server-resolved label: "CODE — Description" (or "CODE1 — Desc1, CODE2 — Desc2" for
+   *  multi-fabric lines). Falls back to the bare code when fabric_codes has no matching row.
+   *  NULL when fabric_code is NULL. Added by api/internal/costing/rfqs/:id GET. */
+  fabric_label?: string | null;
   /** Mirror of costing_lines.fit. NULL on legacy rows. */
   fit: string | null;
   /** Mirror of costing_lines.bottom_closure. NULL on legacy rows. */

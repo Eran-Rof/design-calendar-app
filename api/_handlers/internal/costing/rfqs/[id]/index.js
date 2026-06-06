@@ -59,13 +59,48 @@ export default async function handler(req, res) {
   if (!id) return res.status(400).json({ error: "Missing RFQ id" });
 
   if (req.method === "GET") {
-    const [{ data: rfq, error: rfqErr }, { data: items }, { data: invitations }] = await Promise.all([
+    const [{ data: rfq, error: rfqErr }, { data: rawItems }, { data: invitations }] = await Promise.all([
       admin.from("rfqs").select("*").eq("id", id).maybeSingle(),
       admin.from("rfq_line_items").select("*").eq("rfq_id", id).order("line_index", { ascending: true }),
       admin.from("rfq_invitations").select("id, vendor_id, status, vendors(id, code, name, legal_name, country, default_currency)").eq("rfq_id", id),
     ]);
     if (rfqErr) return res.status(500).json({ error: rfqErr.message });
     if (!rfq) return res.status(404).json({ error: "RFQ not found" });
+
+    // Enrich line items with fabric_label = "CODE — Description" by looking up
+    // each fabric_code in the fabric_codes master. Multiple codes stored in the
+    // fabric_code column (comma-separated from FabricPickerCell) are resolved
+    // individually and joined back with ", ". Falls back to bare code when the
+    // master has no matching row.
+    const items = rawItems || [];
+    const allFabricCodes = Array.from(new Set(
+      items.flatMap((li) => {
+        if (!li.fabric_code) return [];
+        return li.fabric_code.split(",").map((c) => c.trim()).filter(Boolean);
+      }),
+    ));
+    let nameByCode = new Map();
+    if (allFabricCodes.length > 0) {
+      try {
+        const { data: fcs } = await admin.from("fabric_codes").select("code, name").in("code", allFabricCodes);
+        nameByCode = new Map((fcs || []).map((f) => [f.code, f.name]));
+      } catch (e) {
+        console.warn("[costing/rfqs/:id] fabric_codes enrichment failed:", e.message);
+      }
+    }
+    for (const li of items) {
+      if (!li.fabric_code) {
+        li.fabric_label = null;
+      } else {
+        const parts = li.fabric_code.split(",").map((c) => c.trim()).filter(Boolean);
+        li.fabric_label = parts
+          .map((code) => {
+            const desc = nameByCode.get(code);
+            return desc ? `${code} — ${desc}` : code;
+          })
+          .join(", ");
+      }
+    }
 
     // Joined source project + customer for the edit view header strip.
     let project = null;
@@ -103,7 +138,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       rfq,
-      line_items: items || [],
+      line_items: items,
       invitations: invitations || [],
       intended_vendor: intendedVendor,
       source_project: project,

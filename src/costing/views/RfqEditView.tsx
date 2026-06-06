@@ -458,7 +458,7 @@ export default function RfqEditView() {
                     <tr key={it.id} style={{ borderTop: "1px solid #334155" }}>
                       <Td>{it.line_index}</Td>
                       <Td>{it.description}</Td>
-                      <Td>{it.fabric_code || "—"}</Td>
+                      <Td title={it.fabric_label && it.fabric_label !== it.fabric_code ? it.fabric_label : undefined}>{it.fabric_label || it.fabric_code || "—"}</Td>
                       <Td>{it.fit || "—"}</Td>
                       <Td>{it.bottom_closure || "—"}</Td>
                       <Td>{it.size_scale_label || "—"}</Td>

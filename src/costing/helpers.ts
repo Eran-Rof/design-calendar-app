@@ -41,7 +41,11 @@ export type CostingViewName = "list" | "edit" | "settings" | "rfq-list" | "rfq-e
 
 export function getView(): CostingViewName {
   if (typeof window === "undefined") return "list";
-  const v = new URLSearchParams(window.location.search).get("view");
+  const sp = new URLSearchParams(window.location.search);
+  // ?project=<id> is a deep-link into a specific project's edit view.
+  // Row clicks on the RFQ list open the source project this way in a new tab.
+  if (sp.get("project")) return "edit";
+  const v = sp.get("view");
   if (v === "edit") return "edit";
   if (v === "settings") return "settings";
   if (v === "rfq-list") return "rfq-list";
@@ -53,7 +57,9 @@ export function getView(): CostingViewName {
 
 export function getEditId(): string | null {
   if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get("id");
+  const sp = new URLSearchParams(window.location.search);
+  // ?project=<id> deep-link: treat the project id as the edit id.
+  return sp.get("project") || sp.get("id");
 }
 
 export function navigate(view: CostingViewName, id?: string | null) {
