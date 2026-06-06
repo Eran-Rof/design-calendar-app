@@ -17,13 +17,14 @@ import SortableTh from "../../tanda/components/SortableTh";
 import type { RfqListRow, RfqStatus } from "../types";
 
 const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
-  draft:     { bg: "#F3F4F6", fg: "#6B7280" },
-  published: { bg: "#DBEAFE", fg: "#1E40AF" },
-  closed:    { bg: "#E5E7EB", fg: "#374151" },
-  awarded:   { bg: "#DCFCE7", fg: "#166534" },
+  draft:     { bg: "#33415533", fg: "#CBD5E1" },
+  published: { bg: "#1E3A8A33", fg: "#93C5FD" },
+  quoted:    { bg: "#78350F33", fg: "#FBBF24" },
+  closed:    { bg: "#3730A333", fg: "#A5B4FC" },
+  awarded:   { bg: "#064E3B33", fg: "#34D399" },
 };
 
-const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "closed", "awarded"];
+const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "quoted", "closed", "awarded"];
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 // Per-unit target cost is a unit price → 2 decimals (e.g. 6.75), unlike the
@@ -351,7 +352,15 @@ export default function RfqListView() {
                   <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.title || "(untitled)"}</span></Td>
                   <Td>{r.vendor_name || "—"}</Td>
                   <Td>{stripExcelPrefix(r.customer_name) || "—"}</Td>
-                  <Td>{r.project_name || "—"}</Td>
+                  <Td>
+                    {r.source_costing_project_id ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/costing?project=${r.source_costing_project_id}`); }}
+                        title="Open costing project"
+                        style={{ background: "transparent", border: "none", color: "#60A5FA", cursor: "pointer", fontSize: 13, padding: 0, fontFamily: "inherit", textDecoration: "underline", textDecorationStyle: "dotted" }}
+                      >{r.project_name || "Open Project"}</button>
+                    ) : (r.project_name || "—")}
+                  </Td>
                   <Td align="right">{r.line_count}</Td>
                   <Td align="right">{typeof r.estimated_quantity === "number" ? fmtQty.format(r.estimated_quantity) : "—"}</Td>
                   <Td align="right">{typeof r.estimated_budget === "number" ? `${r.currency || "USD"} ${fmtMoney.format(r.estimated_budget)}` : "—"}</Td>
@@ -383,7 +392,7 @@ export default function RfqListView() {
                           }}
                         >{sending.has(r.id) ? "Sending…" : r.status === "draft" ? "Send" : "Re-send"}</button>
                       )}
-                      {r.status === "published" && (
+                      {(r.status === "published" || r.status === "quoted") && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onAward(r); }}
                           disabled={awarding.has(r.id)}

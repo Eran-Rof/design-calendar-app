@@ -230,7 +230,7 @@ export interface CompWindow {
 // procurement tables (phase8 schema). source_costing_project_id is the
 // back-pointer that lets the list view join through to the customer.
 
-export type RfqStatus = "draft" | "published" | "closed" | "awarded";
+export type RfqStatus = "draft" | "published" | "quoted" | "closed" | "awarded";
 
 export interface RfqListRow {
   id: string;

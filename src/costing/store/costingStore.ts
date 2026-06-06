@@ -299,13 +299,15 @@ export const useCostingStore = create<State>((set, get) => ({
     // Copy ALL fields except the ones that must not carry over:
     //  - id          → omitted so the server INSERTs a fresh row
     //  - created_at/updated_at → server-managed timestamps
-    //  - selected_vendor_quote_id → VENDOR reset; the duplicate starts with
-    //    no awarded vendor so the operator must pick a new one.
+    //  - selected_vendor_quote_id → VENDOR reset; the duplicate starts fresh
+    //  - status → always reset to null (DB default 'draft'); the duplicate
+    //    has never been sent/quoted/awarded regardless of the source's state
     const {
       id: _omitId,
       created_at: _omitCreated,
       updated_at: _omitUpdated,
       selected_vendor_quote_id: _omitVendor,
+      status: _omitStatus,
       ...rest
     } = source as CostingLine & { created_at?: unknown; updated_at?: unknown };
 
@@ -320,6 +322,7 @@ export const useCostingStore = create<State>((set, get) => ({
 
     const copy = {
       ...rest,
+      status: null,
       selected_vendor_quote_id: null,
       sort_order: newSortOrder,
     } as Partial<CostingLine>;

@@ -66,6 +66,13 @@ export default async function handler(req, res) {
   // Flip the invitation to 'submitted' so the internal view can see it clearly
   await admin.from("rfq_invitations").update({ status: "submitted" }).eq("rfq_id", rfqId).eq("vendor_id", caller.vendor_id);
 
+  // Advance the RFQ itself to 'quoted' once a vendor submits — only forward,
+  // never downgrade an already-awarded/closed RFQ.
+  await admin.from("rfqs")
+    .update({ status: "quoted", updated_at: nowIso })
+    .eq("id", rfqId)
+    .in("status", ["published"]);
+
   // Costing line lifecycle: promote every linked costing line sent -> quoted.
   // Terminal states (awarded/lost/closed) are never downgraded; a line still in
   // draft (publish ran pre-migration) is left for a later transition. Best-
