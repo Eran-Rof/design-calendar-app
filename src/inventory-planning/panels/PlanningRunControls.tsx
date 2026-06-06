@@ -13,6 +13,7 @@ import { scenarioRepo } from "../scenarios/services/scenarioRepo";
 import { cloneBaseIntoSavedBuild, deleteSavedBuild, type SaveBuildProgress } from "../scenarios/services/scenarioService";
 import type { IpScenario } from "../scenarios/types/scenarios";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import { confirmDialog } from "../../shared/ui/warn";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
@@ -172,6 +173,37 @@ export default function PlanningRunControls({
     await onChange();
   }
 
+  // Permanently delete a planning run. CASCADE wipes all of its data
+  // (forecasts / recommendations / projected / scenarios / approvals /
+  // exports); a run with execution batches is RESTRICTed by the DB, which we
+  // translate into a clear message.
+  async function deleteRun() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      `Permanently DELETE planning run "${selected.name}"?\n\n` +
+      `This also deletes ALL of its data — forecasts, recommendations, projected inventory, ` +
+      `scenarios, approvals and exports tied to this run. It cannot be undone.\n\n` +
+      `(A run that already has execution batches can't be deleted — remove those in the Execution screen first.)`,
+      { title: "Delete planning run", confirmText: "Delete run", icon: "🗑" },
+    );
+    if (!ok) return;
+    try {
+      await wholesaleRepo.deletePlanningRun(selected.id);
+      onToast({ text: `Deleted planning run "${selected.name}"`, kind: "info" });
+      if (selectedRunId === selected.id) onSelect("");
+      await refreshSavedBuilds();
+      await onChange();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      onToast({
+        text: /23503|foreign key|violates/i.test(msg)
+          ? "Can't delete — this run has execution batches. Delete them in the Execution screen first."
+          : "Delete failed — " + msg,
+        kind: "error",
+      });
+    }
+  }
+
   // Load the saved-build list once on mount and again after any
   // mutation (save / fork / delete). Filtered to scenario_type
   // 'saved_build' so what-if/promo scenarios stay on their own page.
@@ -308,6 +340,10 @@ export default function PlanningRunControls({
             ))}
         </select>
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
+        {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
+          <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
+                  title="Permanently delete this planning run and all its data">🗑 Delete run</button>
+        )}
         {selected && (
           <>
             {showBuild && (
