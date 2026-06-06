@@ -429,6 +429,7 @@ import r_internal_style_master_index from "./internal/style-master/index.js";
 import r_internal_style_master_notes from "./internal/style-master/notes.js";
 import r_internal_style_matrix_index from "./internal/style-matrix/index.js";
 import r_internal_style_matrix_resolve_sku from "./internal/style-matrix/resolve-sku.js";
+import r_internal_style_orders_index from "./internal/style-orders/index.js";
 import r_internal_sustainability_id_review from "./internal/sustainability/[id]/review.js";
 import r_internal_sustainability_index from "./internal/sustainability/index.js";
 import r_internal_tax_calculations from "./internal/tax/calculations.js";
@@ -1111,6 +1112,7 @@ export const ROUTES = [
   { pattern: "/api/internal/scf-programs", handler: r_internal_scf_programs_index },
   { pattern: "/api/internal/style-master", handler: r_internal_style_master_index },
   { pattern: "/api/internal/style-matrix", handler: r_internal_style_matrix_index },
+  { pattern: "/api/internal/style-orders", handler: r_internal_style_orders_index },
   { pattern: "/api/internal/users-access", handler: r_internal_users_access_index },
   { pattern: "/api/planning/sync-on-hand", handler: r_planning_sync_on_hand },
   { pattern: "/api/vendor/sustainability", handler: r_vendor_sustainability_index },
