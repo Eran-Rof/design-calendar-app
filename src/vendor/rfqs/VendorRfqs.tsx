@@ -41,21 +41,30 @@ export default function VendorRfqs() {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
 
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const t = await token();
+      const r = await fetch("/api/vendor/rfqs", { headers: { Authorization: `Bearer ${t}` } });
+      if (!r.ok) throw new Error(await r.text());
+      setRows(await r.json() as RfqRow[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Initial fetch.
+  useEffect(() => { void load(); }, []);
+
+  // Re-fetch whenever this tab regains visibility — picks up any RFQs
+  // deleted or changed by the operator while the vendor had the tab open.
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const t = await token();
-        const r = await fetch("/api/vendor/rfqs", { headers: { Authorization: `Bearer ${t}` } });
-        if (!r.ok) throw new Error(await r.text());
-        setRows(await r.json() as RfqRow[]);
-      } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
   if (loading) return <div style={{ color: "rgba(255,255,255,0.85)" }}>Loading RFQs…</div>;
