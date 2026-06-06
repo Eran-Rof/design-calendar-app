@@ -15,6 +15,7 @@ import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/Ta
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_TASKS_TABLE_KEY = "tangerine:crmtasks:columns";
@@ -122,13 +123,7 @@ function fmtDate(iso: string | null | undefined): string {
   } catch { return iso; }
 }
 
-function fmtDateOnly(d: string | null | undefined): string {
-  if (!d) return "—";
-  try {
-    const dt = new Date(`${d}T00:00:00Z`);
-    return dt.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  } catch { return d; }
-}
+const fmtDateOnly = fmtDateDisplay;
 
 function truncate(s: string | null | undefined, n: number): string {
   if (!s) return "";

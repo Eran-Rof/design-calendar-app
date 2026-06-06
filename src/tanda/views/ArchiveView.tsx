@@ -1,5 +1,5 @@
 import React from "react";
-import { type XoroPO, STATUS_COLORS } from "../../utils/tandaTypes";
+import { type XoroPO, STATUS_COLORS, fmtDateDisplay } from "../../utils/tandaTypes";
 import S from "../styles";
 
 export interface ArchiveViewProps {
@@ -120,7 +120,7 @@ export function ArchiveView({
                 <div style={{ fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, fontSize: 14 }}>{poNum}</div>
                 <div style={{ color: "#D1D5DB", fontSize: 13 }}>{po.VendorName ?? ""}</div>
                 <div><span style={{ ...S.badge, background: statusColor + "22", color: statusColor, border: `1px solid ${statusColor}44` }}>{po.StatusName ?? ""}</span></div>
-                <div style={{ color: "#6B7280", fontSize: 12, fontFamily: "monospace" }}>{(po as any)._archivedAt ? new Date((po as any)._archivedAt).toLocaleDateString() : "—"}</div>
+                <div style={{ color: "#6B7280", fontSize: 12, fontFamily: "monospace" }}>{(po as any)._archivedAt ? fmtDateDisplay((po as any)._archivedAt) : "—"}</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => unarchivePO(poNum)} title="Restore" style={{ background: "none", border: "1px solid #10B98144", color: "#10B981", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>↩</button>
                   <button onClick={() => {

@@ -103,7 +103,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "_docs",          label: "Docs",     width: 56, align: "center" },
-  { key: "_actions",       label: "",         width: 90, align: "center" },
+  { key: "_actions",       label: "",         width: 140, align: "center" },
 ];
 
 const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
@@ -783,6 +783,11 @@ export default function CostingGrid() {
                 if (c.key === "_actions") {
                   return (
                     <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => onDuplicateRow(line.id)}
+                        title="Duplicate this row — starts as Draft, pick a new vendor"
+                        style={ACTION_BTN_STYLE("transparent", "#94A3B8", "#475569")}
+                      >⎘ Copy</button>
                       <button
                         onClick={() => appConfirm(
                           `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor + compliance data.`,

@@ -177,6 +177,28 @@ Under the hood this builds **over the existing `inventory_locations` table** (th
 
 Deleting a warehouse is a hard delete, but it is **rejected (409)** if any inventory layer still points at it (FK) **or** any inventory transfer references its code as a from/to location — move that stock first, or just toggle **Active** off to retire it without losing history. Standard panel features apply: server-side search (code, name, or address), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## 🏭 Fabric Mill Master
+
+Find it under **Master Data → Fabric Mills** (`/tangerine?m=fabric_mill_master`). A fabric mill is a manufacturer or supplier of raw fabric. Operators use this panel to track which mills they source fabric from — name, country, contact, website, and notes.
+
+### What a fabric mill row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | Server-generated, read-only `MILL-NNNNN`. Allocated on save; you never type it. |
+| **Name** | The mill's display name, e.g. `Hengfeng Textile`. Required. |
+| **Country code** | Optional ISO country code, e.g. `CN`, `TW`, `IN`. |
+| **Contact name** | Optional name of the primary contact at the mill. |
+| **Contact email** | Optional contact email address. |
+| **Website** | Optional URL (renders as a clickable link in the list). |
+| **Notes** | Any additional free-text notes about the mill. |
+| **Sort order** | Optional integer ordering (low to high), then code as a tie-breaker. |
+| **Active** | Inactive mills drop out of pickers but stay in the table (toggle **Show inactive** to see them). |
+
+### Delete behaviour
+
+Deleting a fabric mill is a hard delete with no reference check (no FK from styles or fabric codes points here yet). Toggle **Active** off to retire a mill without losing history. Standard panel features apply: server-side search (code, name, or country), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master

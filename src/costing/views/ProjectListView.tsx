@@ -14,7 +14,8 @@ import { tabStyle } from "./tabStyle";
 import { stageColor, stageLabel, stageIcon } from "../hooks/usePlanFlow";
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
-import type { CostingProject, CostingLineEffectiveStatus } from "../types";
+import type { CostingProject, CostingLineStatus } from "../types";
+import { PLAN_FLOW_STAGES } from "../hooks/usePlanFlow";
 
 // Canonical dark-slate palette (matches the Tangerine Internal* modals).
 const C = {
@@ -23,21 +24,26 @@ const C = {
   primary: "#3B82F6", inputBg: "#0b1220",
 };
 
-// Status is per LINE now — the list buckets/filters by line status presence.
-const LINE_STATUSES: CostingLineEffectiveStatus[] = ["draft", "on_rfq", "awarded", "closed"];
-type TabKey = "all" | CostingLineEffectiveStatus;
+// Status is per LINE — list tabs bucket by lifecycle status.
+// Use the authoritative PLAN_FLOW_STAGES order so tabs and the Plan Flow
+// strip always match.
+const LINE_STATUSES: CostingLineStatus[] = PLAN_FLOW_STAGES;
+type TabKey = "all" | CostingLineStatus;
 const TABS: { key: TabKey; label: string }[] = [
   { key: "all",     label: "All" },
   { key: "draft",   label: "Draft" },
-  { key: "on_rfq",  label: "On RFQ" },
+  { key: "sent",    label: "Sent" },
+  { key: "quoted",  label: "Quoted" },
   { key: "awarded", label: "Awarded" },
+  { key: "lost",    label: "Lost" },
+  { key: "revised", label: "Revised" },
   { key: "closed",  label: "Closed" },
 ];
 
 // A project matches a status tab if it has ≥1 line in that status.
 function projectHasStatus(p: CostingProject, key: TabKey): boolean {
   if (key === "all") return true;
-  return (p._status_counts?.[key] || 0) > 0;
+  return (p._status_counts?.[key as CostingLineStatus] || 0) > 0;
 }
 
 export default function ProjectListView() {
@@ -62,7 +68,7 @@ export default function ProjectListView() {
   // Per-tab counts (number of PROJECTS having ≥1 line in that status) + the
   // rows the active tab shows.
   const tabCounts = React.useMemo(() => {
-    const counts: Record<TabKey, number> = { all: 0, draft: 0, on_rfq: 0, awarded: 0, closed: 0 };
+    const counts = {} as Record<TabKey, number>;
     for (const t of TABS) counts[t.key] = projects.filter((p) => projectHasStatus(p, t.key)).length;
     return counts;
   }, [projects]);

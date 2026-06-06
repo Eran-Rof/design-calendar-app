@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 
 const TABLE_KEY = "gs1.packing_list_upload";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -301,7 +302,7 @@ export default function PackingListUploadPanel() {
                       <td style={TD_STYLE} hidden={!visibleColumns.has("status")}><StatusBadge status={u.parse_status} /></td>
                       <td style={TD_STYLE} hidden={!visibleColumns.has("blocks")}>{u.parse_summary?.blocks_found ?? "—"}</td>
                       <td style={TD_STYLE} hidden={!visibleColumns.has("labels")}>{u.parse_summary?.total_labels?.toLocaleString() ?? "—"}</td>
-                      <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("date")}>{new Date(u.uploaded_at).toLocaleDateString()}</td>
+                      <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("date")}>{fmtDateDisplay(u.uploaded_at)}</td>
                       <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                         <button onClick={e => { e.stopPropagation(); selectUpload(u); }}
                           style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 5, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>

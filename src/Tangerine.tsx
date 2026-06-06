@@ -24,6 +24,7 @@ import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalSizeScales         from "./tanda/InternalSizeScales";
 import InternalSeasonMaster       from "./tanda/InternalSeasonMaster";
+import InternalFabricMillMaster   from "./tanda/InternalFabricMillMaster";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
 import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
@@ -196,6 +197,7 @@ type ModuleKey =
   | "factors"
   | "size_scales"
   | "season_master"
+  | "fabric_mill_master"
   | "rma_reason_master"
   | "adjustment_type_master"
   | "adjustment_reason_master"
@@ -398,6 +400,7 @@ const MODULES: ModuleDef[] = [
   { key: "factors",              label: "Factors/Insurance Master",  emoji: "🏦", group: "Master Data" },
   { key: "size_scales",          label: "Size Scales Master",        emoji: "📏", group: "Master Data" },
   { key: "season_master",        label: "Seasons Master",            emoji: "🍂", group: "Master Data" },
+  { key: "fabric_mill_master",   label: "Fabric Mill Master",        emoji: "🏭", group: "Master Data" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
   { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
@@ -810,6 +813,7 @@ export default function Tangerine() {
         {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "size_scales"          && <InternalSizeScales />}
         {activeModule === "season_master"        && <InternalSeasonMaster />}
+        {activeModule === "fabric_mill_master"    && <InternalFabricMillMaster />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
         {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}

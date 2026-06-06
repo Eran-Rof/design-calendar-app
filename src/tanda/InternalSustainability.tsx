@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Report {
   id: string;
@@ -123,7 +124,7 @@ export default function InternalSustainability() {
               <div style={{ fontWeight: 600 }}>{r.vendor?.name || r.vendor_id}</div>
               <div style={{ color: C.textSub }}>{r.reporting_period_start} → {r.reporting_period_end}</div>
               <div><StatusChip status={r.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(r.submitted_at).toLocaleDateString()}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(r.submitted_at)}</div>
               <div style={{ textAlign: "right" }}>
                 <button onClick={() => setSelected(r)} style={btnSecondary}>Review</button>
               </div>

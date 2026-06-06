@@ -24,6 +24,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 const PIM_CATALOG_TABLE_KEY = "tanda.pim_product_catalog";
 const PIM_CATALOG_COLUMNS: ColumnDef[] = [
@@ -203,13 +204,7 @@ function pickPrimaryThumb(images: ImageRow[]): string | null {
   return top.signed_urls?.thumb || top.signed_urls?.web || top.signed_urls?.print || null;
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  } catch { return iso; }
-}
+const fmtDate = fmtDateDisplay;
 
 export default function InternalPimProductCatalog() {
   const [styles, setStyles] = useState<Style[]>([]);

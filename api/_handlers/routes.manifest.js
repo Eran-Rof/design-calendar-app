@@ -329,6 +329,8 @@ export default [
   ["/api/internal/size-scales"                               , "./internal/size-scales/index.js"],
   ["/api/internal/seasons/:id"                               , "./internal/seasons/[id].js"],
   ["/api/internal/seasons"                                   , "./internal/seasons/index.js"],
+  ["/api/internal/fabric-mills/:id"                           , "./internal/fabric-mills/[id].js"],
+  ["/api/internal/fabric-mills"                               , "./internal/fabric-mills/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],

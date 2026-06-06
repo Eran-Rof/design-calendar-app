@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Offer {
   id: string;
@@ -172,7 +173,7 @@ export default function InternalDiscountOffers() {
               <div>${Number(o.net_payment_amount).toLocaleString()}</div>
               <div style={{ color: C.warn, fontWeight: 600 }}>{o.annualized_return_pct != null ? `${o.annualized_return_pct.toFixed(1)}%` : "—"}</div>
               <div><StatusChip status={o.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(o.expires_at).toLocaleDateString()}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(o.expires_at)}</div>
             </div>
           ))}
         </div>

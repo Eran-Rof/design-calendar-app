@@ -3,6 +3,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -120,7 +121,7 @@ export default function InternalWorkspaces() {
               <div style={{ display: "flex", gap: 8, fontSize: 11, color: C.textMuted, marginTop: 10 }}>
                 <span>📌 {w.pin_count || 0}</span>
                 <span>✅ {w.open_task_count || 0} open / {w.task_count || 0}</span>
-                <span style={{ marginLeft: "auto" }}>{new Date(w.created_at).toLocaleDateString()}</span>
+                <span style={{ marginLeft: "auto" }}>{fmtDateDisplay(w.created_at)}</span>
               </div>
             </button>
           ))}

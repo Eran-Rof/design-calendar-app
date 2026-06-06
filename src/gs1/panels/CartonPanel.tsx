@@ -4,6 +4,7 @@ import { useGS1Store } from "../store/gs1Store";
 import { formatSscc18Display } from "../services/gtinService";
 import { exportSsccCsv } from "../services/labelExport";
 import type { ManualCartonInput } from "../types";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -245,7 +246,7 @@ export default function CartonPanel() {
                             </span>
                           </td>
                           <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 11 }}>
-                            {new Date(c.created_at).toLocaleDateString()}
+                            {fmtDateDisplay(c.created_at)}
                           </td>
                         </tr>
                       ))}

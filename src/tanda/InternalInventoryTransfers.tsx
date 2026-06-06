@@ -23,6 +23,7 @@ import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Transfer Reason picker (transfer_reason_master, #985). A SearchableSelect
@@ -263,12 +264,7 @@ export default function InternalInventoryTransfers() {
   // No extra client-side filter — filtering is server-side via query params.
   const displayRows = useMemo(() => sorted, [sorted]);
 
-  function fmtDate(iso: string): string {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toISOString().slice(0, 10);
-  }
+  const fmtDate = fmtDateDisplay;
 
   // Filter dropdown options.
   const styleOpts = useMemo(() => [

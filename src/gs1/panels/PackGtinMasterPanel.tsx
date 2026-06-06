@@ -8,6 +8,7 @@ import * as db from "../services/supabaseGs1";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 
 const TABLE_KEY = "gs1.pack_gtin_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -362,7 +363,7 @@ export default function PackGtinMasterPanel() {
                       const isBuilding = buildingId === g.id;
                       const missingUpcs = (g.bom_issue_summary?.missing_upcs as number | undefined) ?? 0;
                       const lastBuilt = g.bom_last_built_at
-                        ? new Date(g.bom_last_built_at).toLocaleDateString()
+                        ? fmtDateDisplay(g.bom_last_built_at)
                         : "—";
                       const hasExistingBom = g.bom_status !== "not_built";
                       return (
