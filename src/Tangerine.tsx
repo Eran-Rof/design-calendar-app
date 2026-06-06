@@ -29,6 +29,7 @@ import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
 import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
 import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
+import InternalCarrierMaster      from "./tanda/InternalCarrierMaster";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
 import InternalPriceLists         from "./tanda/InternalPriceLists";
 import InternalPromotions         from "./tanda/InternalPromotions";
@@ -201,6 +202,7 @@ type ModuleKey =
   | "adjustment_type_master"
   | "transfer_reason_master"
   | "warehouse_master"
+  | "carrier_master"
   // P18-F — internal B2B admin (buyers + wholesale price list).
   | "b2b_accounts"
   | "b2b_price_list"
@@ -403,6 +405,7 @@ const MODULES: ModuleDef[] = [
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
   { key: "transfer_reason_master", label: "Transfer Reasons Master", emoji: "🔁", group: "Master Data" },
   { key: "warehouse_master",     label: "Warehouses Master",         emoji: "🏬", group: "Master Data" },
+  { key: "carrier_master",      label: "Carrier Master",            emoji: "🚚", group: "Master Data" },
   // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
   { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
   // M43 — Pricing Engine admin (price lists supersede the interim B2B price list).
@@ -815,6 +818,7 @@ export default function Tangerine() {
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
         {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
         {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}
+        {activeModule === "carrier_master"       && <InternalCarrierMaster />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
         {activeModule === "b2b_price_list"       && <InternalPriceLists />}
         {activeModule === "pricing_promotions"   && <InternalPromotions />}

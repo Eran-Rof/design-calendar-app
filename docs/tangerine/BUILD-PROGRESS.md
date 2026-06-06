@@ -21,6 +21,7 @@
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
 > **Recent cross-cutting landings (2026-06-05)** — not tied to a single phase row:
+> - **Carrier Master + Ship modal SearchableSelect** — `carrier_master` table pre-populated with 16 carriers (UPS/FedEx/USPS/DHL/OnTrac/LSO/Spee-Dee/Amazon/ABF/XPO/Estes/ODFL/R+L/Maersk/Evergreen/COSCO); CRUD panel under Master Data → Carriers (`/tangerine?m=carrier_master`); Ship modal carrier input replaced with SearchableSelect backed by `/api/internal/carriers`. Menu key `tanda/master/carriers`, migration `20260830000000`. User-guide ch02.
 > - **Inventory Matrix: image thumbnails + brand-level view + total-cost fix** (#1022) — per-color 44px thumbnails in each row; brand-selected / no-style shows all brand styles stacked (up to 50, parallel load); `totalCostCents` now recalculated when simple-mean avg fallback fires (was showing "—").
 
 > **Recent cross-cutting landings (2026-06-03/04)** — not tied to a single phase row:
@@ -78,6 +79,7 @@ These were prioritized by the operator and built out-of-sequence; they occupy th
 | ➕ **M52 Multi-Warehouse** | ⬜ planned (CEO 2026-05-31). Foundation exists: `inventory_locations` table (kinds: warehouse/fba/wfs/3pl/dropship/virtual) + `inventory_transfers`. Gaps: (1) **admin panel** to add/edit warehouses, (2) **per-location stock** — FIFO `inventory_layers` aren't location-scoped (the "advanced multi-warehouse" stretch: per-location on-hand + transfers moving qty). ~2–3 chunks when pulled in. | — |
 | ➕ **Vendor default AP/expense auto-fill** (part of M50 C-2) | 🟡 done — AP-invoice entry auto-fills AP+expense accounts from the vendor's defaults; on change, prompts "set as default for this vendor?" → writes back to vendor master. (Vendor schema fields already existed.) | #672 |
 | ➕ **Fabric Mill Master** | ✅ COMPLETE — `fabric_mill_master` table + full CRUD panel (`InternalFabricMillMaster`) under Master Data → Fabric Mills (`/tangerine?m=fabric_mill_master`). Server-generated `MILL-NNNNN` codes; fields: name, country_code, contact_name, contact_email, website, notes, sort_order, is_active. Column show/hide, xlsx export, row-click-to-edit, responsive modal. Migration `20260827000000`. User-guide ch02. | — |
+| ➕ **Carrier Master + Ship modal SearchableSelect** | ✅ COMPLETE — `carrier_master` table pre-populated with 16 carriers (parcel: UPS, FedEx, USPS, DHL, OnTrac, LSO, Spee-Dee, Amazon Logistics; LTL: ABF, XPO, Estes, ODFL, R+L Carriers; ocean: Maersk, Evergreen, COSCO). CRUD panel `InternalCarrierMaster` under Master Data → Carriers (`/tangerine?m=carrier_master`); operator-supplied codes (not auto-generated); fields: code (locked on edit), name, carrier_type (parcel/ltl/ocean/air/other), tracking_url_template, sort_order, is_active. **Ship modal upgraded:** carrier free-text → `<SearchableSelect>` backed by `/api/internal/carriers` (loaded on modal open; falls back to manual entry). Menu key `tanda/master/carriers`. Migration `20260830000000`. User-guide ch02. | — |
 
 ---
 

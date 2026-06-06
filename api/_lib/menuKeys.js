@@ -106,6 +106,7 @@ const KEYS = [
   "tanda/master/transfer-reasons",
   "tanda/master/warehouses",
   "tanda/master/fabric-mills",
+  "tanda/master/carriers",
   // P18-F — internal B2B admin (buyers + wholesale price list).
   "tanda/b2b/accounts",
   "tanda/b2b/price-list",
