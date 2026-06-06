@@ -17,6 +17,8 @@ import ExportButton from "../../tanda/exports/ExportButton";
 import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
+import { confirmDialog } from "../../shared/ui/warn";
+import { isDdpProject, rowMissingFields } from "../lib/completeness";
 
 // Same vocab as the rest of the suite (utils/constants.ts GENDERS) + Child.
 const GENDER_OPTIONS = ["Men's", "Women's", "Boys", "Girls", "Child"];
@@ -43,7 +45,51 @@ export default function ProjectEditView() {
   const load    = useCostingStore((s) => s.loadProject);
   const update  = useCostingStore((s) => s.updateProject);
   const clear   = useCostingStore((s) => s.clearActive);
+  const deleteLine = useCostingStore((s) => s.deleteLine);
   const setStageFilter = useCostingStore((s) => s.setStageFilter);
+
+  // Item 2 — incomplete-row guard. Rows missing style/color/vendor/qty/cost/
+  // sell can't be sent; warn when leaving the project (or switching away from
+  // the grid). Returns true when it's OK to proceed (none incomplete, or the
+  // operator chose to delete them), false to stay and fix.
+  const guardIncompleteRows = React.useCallback(async (): Promise<boolean> => {
+    const ddp = isDdpProject(project);
+    const incomplete = lines.filter((l) => rowMissingFields(l, ddp).length > 0);
+    if (incomplete.length === 0) return true;
+    const proceed = await confirmDialog(
+      `${incomplete.length} row${incomplete.length === 1 ? " is" : "s are"} incomplete. ` +
+        `Delete the incomplete row${incomplete.length === 1 ? "" : "s"} and continue, or go back and fix?`,
+      {
+        title: "Incomplete rows",
+        danger: true,
+        confirmText: "Delete incomplete & continue",
+        cancelText: "Go back & fix",
+        listItems: incomplete.map((l) =>
+          `${l.style_code || "(no style)"} — missing: ${rowMissingFields(l, ddp).join(", ")}`,
+        ),
+      },
+    );
+    if (!proceed) return false;
+    for (const l of incomplete) {
+      // eslint-disable-next-line no-await-in-loop
+      await deleteLine(l.id);
+    }
+    return true;
+  }, [project, lines, deleteLine]);
+
+  // Warn on hard page exit (browser navigation / close) while rows are incomplete.
+  useEffect(() => {
+    const ddp = isDdpProject(project);
+    const hasIncomplete = lines.some((l) => rowMissingFields(l, ddp).length > 0);
+    if (!hasIncomplete) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [project, lines]);
+
+  const onBackToList = async () => {
+    if (await guardIncompleteRows()) navigate("list");
+  };
 
   const exportRows = React.useMemo(
     () => buildExportRows(lines, vendorQuotes),
@@ -164,6 +210,15 @@ export default function ProjectEditView() {
   return (
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button
+          onClick={onBackToList}
+          title="Back to project list"
+          style={{
+            background: "transparent", color: "#60A5FA",
+            border: "1px solid #334155", borderRadius: 4,
+            padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+          }}
+        >← Projects</button>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {project?.project_name || "Loading…"}
         </h2>
