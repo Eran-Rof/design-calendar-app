@@ -135,6 +135,17 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  try {
+    return await _handleSync(req, res);
+  } catch (e) {
+    // Catch uncaught exceptions and return structured JSON so the nightly
+    // log captures the real error message rather than Vercel's opaque 500 page.
+    return res.status(500).json({ error: "handler_uncaught", details: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+async function _handleSync(req, res) {
+
   const auth = authenticateDesignCalendarCaller(req);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
@@ -335,3 +346,4 @@ export default async function handler(req, res) {
 
   return res.status(200).json({ processed: true, ...counts });
 }
+// (closing brace for _handleSync)
