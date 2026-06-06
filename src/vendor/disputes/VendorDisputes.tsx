@@ -244,7 +244,7 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
           )}
         </Row>
         {mismatch && (
-          <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, fontSize: 12, color: "#92400E" }}>
+          <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, fontSize: 12, color: "#FBBF24" }}>
             ⚠ The selected invoice belongs to a different PO. Clear one before opening the dispute.
           </div>
         )}

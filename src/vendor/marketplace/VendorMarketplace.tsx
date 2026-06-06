@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Listing {
   id: string;
@@ -72,7 +73,7 @@ export default function VendorMarketplace() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ publish: next }),
     });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 
@@ -124,7 +125,7 @@ function ListingEditor({ listing, onSaved, onPublish }: { listing: Listing | nul
   }, [listing?.id]);
 
   async function save() {
-    if (!title.trim()) { alert("Title is required."); return; }
+    if (!title.trim()) { await showAlert({ title: "Missing field", message: "Title is required.", tone: "warn" }); return; }
     setSaving(true);
     try {
       const r = await api("/api/vendor/marketplace/listing", {
@@ -140,7 +141,7 @@ function ListingEditor({ listing, onSaved, onPublish }: { listing: Listing | nul
       });
       if (!r.ok) throw new Error(await r.text());
       onSaved();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" }); }
     finally { setSaving(false); }
   }
 
@@ -182,7 +183,7 @@ function InquiryCard({ inquiry, onResponded }: { inquiry: Inquiry; onResponded: 
   const canRespond = inquiry.status !== "converted_to_rfq";
 
   async function send() {
-    if (!responseText.trim()) { alert("Write a response first."); return; }
+    if (!responseText.trim()) { await showAlert({ title: "Missing response", message: "Write a response first.", tone: "warn" }); return; }
     setSaving(true);
     try {
       const r = await api(`/api/vendor/marketplace/inquiries/${inquiry.id}/respond`, {
@@ -191,7 +192,7 @@ function InquiryCard({ inquiry, onResponded }: { inquiry: Inquiry; onResponded: 
       });
       if (!r.ok) throw new Error(await r.text());
       onResponded();
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e: unknown) { await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" }); }
     finally { setSaving(false); }
   }
 

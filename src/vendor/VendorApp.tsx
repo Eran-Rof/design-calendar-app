@@ -311,6 +311,75 @@ function MoreMenu({ activePath }: { activePath: string }) {
   );
 }
 
+function MessagesTabLink() {
+  const { session } = useVendorSession();
+  const loc = useLocation();
+  const active = loc.pathname.startsWith("/vendor/messages");
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const tok = (await supabaseVendor.auth.getSession()).data.session?.access_token || "";
+        const headers = { Authorization: `Bearer ${tok}` };
+        const [r1, r2] = await Promise.all([
+          fetch("/api/vendor/messages/unread-count", { headers }),
+          fetch("/api/vendor/rfqs/messages-inbox", { headers }),
+        ]);
+        let total = 0;
+        if (r1.ok) {
+          const d = await r1.json() as { count?: number };
+          total += Number(d.count || 0);
+        }
+        if (r2.ok) {
+          const arr = await r2.json() as { unread?: number }[];
+          total += arr.reduce((s, x) => s + Number(x.unread || 0), 0);
+        }
+        if (!cancelled) setUnread(total);
+      } catch {
+        // silently ignore — badge stays at last value
+      }
+    }
+    void load();
+    const i = window.setInterval(load, 60_000);
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(i);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [session]);
+
+  if (!session) return null;
+  return (
+    <Link
+      to="/vendor/messages"
+      style={{
+        position: "relative",
+        padding: "10px 18px",
+        fontSize: 13, fontWeight: 600,
+        color: active ? "#FFFFFF" : "rgba(255,255,255,0.65)",
+        textDecoration: "none",
+        borderBottom: `3px solid ${active ? TH.primary : "transparent"}`,
+        marginBottom: -1,
+        display: "inline-flex", alignItems: "center", gap: 6,
+      }}
+    >
+      <span>Messages</span>
+      {unread > 0 && (
+        <span style={{
+          minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+          background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+        }}>{unread > 9 ? "9+" : unread}</span>
+      )}
+    </Link>
+  );
+}
+
 function NotificationsTabLink() {
   const { session } = useVendorSession();
   const loc = useLocation();
@@ -380,7 +449,7 @@ function TabNav() {
       <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>
       <TabLink to="/vendor/payments" active={p.startsWith("/vendor/payments")}>Payments</TabLink>
-      <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
+      <MessagesTabLink />
       <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 2 }}>
         <MoreMenu activePath={p} />

@@ -134,7 +134,7 @@ export default function NotificationBell() {
                     padding: "12px 14px",
                     borderBottom: `1px solid ${TH.border}`,
                     cursor: n.link ? "pointer" : "default",
-                    background: n.read_at ? "#FFFFFF" : "#FFFBEB",
+                    background: n.read_at ? TH.surface : TH.surfaceHi,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { showAlert } from "../ui/AppDialog";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface ApiKey {
   id: string;
@@ -69,7 +69,7 @@ export default function VendorApiKeys() {
   useEffect(() => { void load(); }, []);
 
   async function revoke(id: string) {
-    if (!confirm("Revoke this key? Existing integrations using it will stop working.")) return;
+    if (!await showConfirm({ title: "Revoke key?", message: "Existing integrations using it will stop working.", tone: "danger", confirmLabel: "Revoke" })) return;
     const t = await token();
     const r = await fetch(`/api/vendor/api-keys/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
     if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
@@ -195,7 +195,7 @@ function OneTimeKeyModal({ name, value, onClose }: { name: string; value: string
     <div style={overlay}>
       <div style={{ ...modalBox, width: 560 }}>
         <h3 style={{ margin: "0 0 10px", color: TH.text, fontSize: 16 }}>Key '{name}' created</h3>
-        <div style={{ padding: "10px 12px", background: "#FFFAF0", border: "1px solid #FED7AA", borderRadius: 6, color: "#C05621", fontSize: 13, marginBottom: 12 }}>
+        <div style={{ padding: "10px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, color: "#FBBF24", fontSize: 13, marginBottom: 12 }}>
           <b>Save this key now.</b> It will not be shown again. If you lose it, revoke it and create a new one.
         </div>
         <div style={{ padding: "10px 12px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12, wordBreak: "break-all", marginBottom: 12 }}>

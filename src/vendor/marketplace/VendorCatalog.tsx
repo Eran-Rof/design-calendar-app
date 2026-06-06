@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtMoney } from "../utils";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface CatalogItem {
   id: string;
@@ -65,9 +66,9 @@ export default function VendorCatalog() {
   }, [items, filter]);
 
   async function discontinue(id: string) {
-    if (!confirm("Mark this SKU as discontinued? It can be re-activated later.")) return;
+    if (!await showConfirm({ title: "Discontinue SKU?", message: "Mark this SKU as discontinued? It can be re-activated later.", tone: "warn", confirmLabel: "Discontinue" })) return;
     const { error } = await supabaseVendor.from("catalog_items").update({ status: "discontinued" }).eq("id", id);
-    if (error) { alert(error.message); return; }
+    if (error) { await showAlert({ title: "Error", message: error.message, tone: "danger" }); return; }
     await load();
   }
 
@@ -146,7 +147,7 @@ function CatalogEditModal({ vendorId, item, onClose, onSaved }: { vendorId: stri
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!sku.trim() || !name.trim()) { alert("SKU and name are required."); return; }
+    if (!sku.trim() || !name.trim()) { await showAlert({ title: "Missing fields", message: "SKU and name are required.", tone: "warn" }); return; }
     setSaving(true);
     const payload = {
       vendor_id: vendorId,
@@ -162,7 +163,7 @@ function CatalogEditModal({ vendorId, item, onClose, onSaved }: { vendorId: stri
       ? await supabaseVendor.from("catalog_items").update(payload).eq("id", item.id)
       : await supabaseVendor.from("catalog_items").insert(payload);
     setSaving(false);
-    if (res.error) { alert(res.error.message); return; }
+    if (res.error) { await showAlert({ title: "Error", message: res.error.message, tone: "danger" }); return; }
     onSaved();
   }
 
@@ -214,10 +215,10 @@ function BulkUploadModal({ vendorId, onClose }: { vendorId: string; onClose: () 
         body: JSON.stringify({ type: "catalog_update", input_file_url: path, filename: file.name, total_rows: Math.max(rowCount, 0) }),
       });
       if (!r.ok) throw new Error(await r.text());
-      alert("Upload queued. Check Bulk operations for progress.");
+      await showAlert({ title: "Queued", message: "Upload queued. Check Bulk operations for progress.", tone: "success" });
       onClose();
     } catch (e: unknown) {
-      alert(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Upload failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setUploading(false);
     }

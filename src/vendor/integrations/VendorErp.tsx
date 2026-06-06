@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge from "../StatusBadge";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Integration {
   id: string;
@@ -79,10 +80,10 @@ export default function VendorErp() {
   useEffect(() => { void load(); }, []);
 
   async function disconnect(id: string) {
-    if (!confirm("Pause this integration? Inbound EDI will stop being mapped until you reactivate.")) return;
+    if (!await showConfirm({ title: "Pause integration?", message: "Inbound EDI will stop being mapped until you reactivate.", tone: "warn", confirmLabel: "Pause" })) return;
     const t = await token();
     const r = await fetch(`/api/vendor/erp?id=${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 
@@ -99,7 +100,7 @@ export default function VendorErp() {
       });
       if (!r.ok) throw new Error("Manual sync isn't wired up for vendor callers — contact your account team.");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
   }
 
@@ -204,7 +205,7 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!partnerId.trim()) { alert("Partner ID is required."); return; }
+    if (!partnerId.trim()) { await showAlert({ title: "Missing field", message: "Partner ID is required.", tone: "warn" }); return; }
     setSaving(true);
     try {
       const t = await token();
@@ -223,7 +224,7 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
       if (!r.ok) throw new Error(await r.text());
       onSaved();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSaving(false);
     }

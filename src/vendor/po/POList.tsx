@@ -296,7 +296,7 @@ export default function POList() {
               </div>
               <div style={{ textAlign: "center" }}>
                 {shippedPoIds.has(r.uuid_id) ? (
-                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#D1FAE5", border: `1px solid #A7F3D0`, color: "#065F46", whiteSpace: "nowrap", fontWeight: 700 }}>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#064E3B33", border: "1px solid #10B981", color: "#34D399", whiteSpace: "nowrap", fontWeight: 700 }}>
                     Shipped/Invoiced
                   </span>
                 ) : (

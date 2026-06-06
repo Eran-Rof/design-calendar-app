@@ -619,7 +619,7 @@ function DocSlot({
           <button type="button" onClick={onRemove} style={docDanger}>Delete</button>
         </div>
         {awaitingEditedUpload && (
-          <div style={{ marginTop: 8, padding: "10px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 6, fontSize: 12, color: "#92400E" }}>
+          <div style={{ marginTop: 8, padding: "10px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, fontSize: 12, color: "#FBBF24" }}>
             <div style={{ marginBottom: 6 }}>
               📥 File downloaded. Open it in your PDF/Excel app, edit, save it locally, then upload the edited copy:
             </div>
