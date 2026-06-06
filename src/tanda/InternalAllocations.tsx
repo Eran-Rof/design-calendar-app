@@ -138,6 +138,13 @@ export default function InternalAllocations() {
       if (Array.isArray(j?.providers)) setTplProviders(j.providers.filter((p: { is_active?: boolean }) => p.is_active !== false));
     }).catch(() => {});
   }, []);
+  // Carriers for the Ship modal — sourced from the Carrier Master (#1032).
+  const [carriers, setCarriers] = useState<{ code: string; name: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/carriers").then((r) => (r.ok ? r.json() : [])).then((d) => {
+      if (Array.isArray(d)) setCarriers(d);
+    }).catch(() => {});
+  }, []);
 
   // Ship modal — carrier / service / tracking / date for the SO in scope.
   const [shipFor, setShipFor] = useState<SoGroup | null>(null);
@@ -744,7 +751,11 @@ export default function InternalAllocations() {
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>{shipFor.customer_name || "—"} — ships the remaining allocated qty on every line.</div>
             <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
               <label style={{ fontSize: 12, color: C.textSub }}>Carrier
-                <input type="text" value={shipCarrier} onChange={(e) => setShipCarrier(e.target.value)} placeholder="e.g. UPS, FedEx" style={{ ...inputStyle, width: "100%", marginTop: 4 }} /></label>
+                <div style={{ marginTop: 4 }}>
+                  <SearchableSelect value={shipCarrier || null} onChange={(v) => setShipCarrier(v || "")}
+                    options={carriers.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` }))}
+                    placeholder="Search carrier…" />
+                </div></label>
               <label style={{ fontSize: 12, color: C.textSub }}>Service level
                 <input type="text" value={shipService} onChange={(e) => setShipService(e.target.value)} placeholder="e.g. Ground, 2-Day" style={{ ...inputStyle, width: "100%", marginTop: 4 }} /></label>
               <label style={{ fontSize: 12, color: C.textSub }}>Tracking number
