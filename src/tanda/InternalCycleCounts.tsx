@@ -22,6 +22,7 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CYCLE_COUNTS_TABLE_KEY = "tangerine:cyclecounts:columns";
@@ -112,12 +113,7 @@ function statusBadge(s: Status): React.CSSProperties {
   };
 }
 
-function fmtDate(iso: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toISOString().slice(0, 10);
-}
+const fmtDate = fmtDateDisplay;
 
 function fmtVariance(v: number | null): { text: string; color: string } {
   if (v == null) return { text: "—", color: C.textMuted };

@@ -68,10 +68,13 @@ describe("validateInsert", () => {
       item_id: UUID, adjustment_type: "damage", qty_delta: -5, reason: "   ", gl_account_id: UUID2,
     }).error).toMatch(/reason/);
   });
-  it("rejects bad gl_account_id", () => {
-    expect(validateInsert({
-      item_id: UUID, adjustment_type: "damage", qty_delta: -5, reason: "r", gl_account_id: "bad",
-    }).error).toMatch(/gl_account_id/);
+  it("accepts call without gl_account_id (server fills it)", () => {
+    // gl_account_id is now server-filled (Inventory Adjustments Expense account).
+    // Client may omit it or pass any value — both are accepted.
+    const r = validateInsert({
+      item_id: UUID, adjustment_type: "damage", qty_delta: -5, reason: "r",
+    });
+    expect(r.error).toBeUndefined();
   });
   it("accepts a valid negative draft", () => {
     const v = validateInsert({

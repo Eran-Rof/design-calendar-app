@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Insight {
   id: string;
@@ -153,7 +154,7 @@ export default function InternalInsights() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: typeColor(r.type), textTransform: "uppercase", letterSpacing: 0.5 }}>{TYPE_LABEL[r.type] || r.type}</div>
                 <div style={{ fontSize: 10, color: C.textMuted }}>
                   {r.confidence_pct != null && `${Math.round(r.confidence_pct)}% confidence · `}
-                  {new Date(r.generated_at).toLocaleDateString()}
+                  {fmtDateDisplay(r.generated_at)}
                 </div>
               </div>
               <div style={{ fontSize: 14, fontWeight: 700, margin: "6px 0 4px" }}>{r.title}</div>

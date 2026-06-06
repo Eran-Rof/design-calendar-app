@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { S } from "../utils/styles";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Internal-only (TandA) cross-vendor shipments view. Uses the anon key
 // directly (anon-permissive RLS policy lets us see everything — same
@@ -31,12 +32,7 @@ interface VendorLookup {
   name: string;
 }
 
-function fmtDateShort(d?: string | null): string {
-  if (!d) return "—";
-  const t = new Date(d);
-  if (Number.isNaN(t.getTime())) return d;
-  return t.toLocaleDateString();
-}
+const fmtDateShort = fmtDateDisplay;
 
 export default function ShipmentsView() {
   const [rows, setRows] = useState<ShipmentRow[]>([]);
@@ -174,7 +170,7 @@ export default function ShipmentsView() {
                   ) : "—"}
                 </div>
                 <div style={{ textAlign: "right", color: TH.textMuted, fontSize: 12 }}>
-                  {r.last_tracked_at ? new Date(r.last_tracked_at).toLocaleDateString() : "—"}
+                  {r.last_tracked_at ? fmtDateDisplay(r.last_tracked_at) : "—"}
                 </div>
               </div>
             ))

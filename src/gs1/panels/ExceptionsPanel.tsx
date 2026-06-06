@@ -3,6 +3,7 @@ import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { DataQualityIssue, DQSeverity, ExceptionGroup } from "../types";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 
 // Column visibility applies to the Audit Trail table (the only static-column
 // table in this panel — exception groups and resolved issues render as cards/rows).
@@ -72,7 +73,7 @@ function ExceptionCard({ group, issues, onNavigate, onResolveAll }: {
           <div style={{ fontSize: 12, color: TH.textMuted, marginTop: 2 }}>{group.description}</div>
           {group.newest_at && (
             <div style={{ fontSize: 11, color: TH.textSub2, marginTop: 2 }}>
-              Latest: {new Date(group.newest_at).toLocaleDateString()}
+              Latest: {fmtDateDisplay(group.newest_at)}
             </div>
           )}
         </div>
@@ -138,7 +139,7 @@ function IssueRow({ issue }: { issue: DataQualityIssue }) {
         )}
       </div>
       <div style={{ fontSize: 11, color: TH.textSub2, flexShrink: 0 }}>
-        {new Date(issue.created_at).toLocaleDateString()}
+        {fmtDateDisplay(issue.created_at)}
       </div>
     </div>
   );
@@ -155,7 +156,7 @@ function ResolvedIssueRow({ issue }: { issue: DataQualityIssue }) {
         <div style={{ color: TH.textSub2, fontStyle: "italic", maxWidth: 200 }}>{issue.resolution_note}</div>
       )}
       <div style={{ color: TH.textSub2, whiteSpace: "nowrap" }}>
-        {issue.resolved_at ? new Date(issue.resolved_at).toLocaleDateString() : ""}
+        {issue.resolved_at ? fmtDateDisplay(issue.resolved_at) : ""}
       </div>
     </div>
   );

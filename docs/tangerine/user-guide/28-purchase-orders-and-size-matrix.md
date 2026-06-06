@@ -180,6 +180,29 @@ The **Avg Cost** column is a qty-weighted blended average across the row's SKUs 
 
 > **Blend note (PR #20).** `ip_item_avg_cost` is keyed by `sku_code`, and many color/size SKUs have no matching cost row (the master's `sku_code` spelling — e.g. `RYB0412-CREAM-TONAL-GRIZZLY-CAMO-32` — doesn't match the cost table's `RYB0412-CREAMTONALGRIZZLYCAMO-32`). The blend therefore weights **only the qty of SKUs that actually carry a cost** (`costedQty`), not the row's total qty. Weighting by total qty understated the average whenever cost coverage was partial — e.g. RYB0412 "Cream Tonal Grizzly Camo" / "Wither Fade Ashen Camo" showed **$0.81** (one costed size out of five) instead of the real **~$5.72**. The fix keeps the average on the same per-unit basis as the data; zero/near-zero costs are ignored.
 
+### View-mode switch — Matrix / SO / PO / Invoices (PR #1040)
+
+When a single style is picked, a row of **view-mode buttons** appears under the controls: **🧮 Matrix · 🛒 SO · 📦 PO · 🧾 Invoices**. These are buttons (not links) — they swap the panel body in place:
+
+- **Matrix** (default) — the on-hand size matrix described above.
+- **SO** — every **Sales Order that contains the style** (across **all statuses**, not just open), one row each: **SO #**, **Customer** (resolved name — no uuid), **Qty (style)** (units of this style on the order), **Order Total**, **Ship Date** (`requested_ship_date`), **Cancel Date**, and **Status**. **Click any row** to drill through to that sales order in the **Sales Orders** module (it opens filtered to that SO #).
+- **PO** — every **Purchase Order that contains the style**: **PO #**, **Vendor**, **Qty (style)**, **Order Total**, **DDP Date** (`expected_date`), **Status**. Row-click drills to the **Purchase Orders** module filtered to that PO #.
+- **Invoices** — every **AR customer invoice that contains the style**: **Invoice #**, **Customer**, **Qty (style)**, **Total**, **Invoice Date**, **Status** (`gl_status`). Row-click drills to the **AR Invoices** module filtered to that invoice #.
+
+The lists are powered by `GET /api/internal/style-orders?style_id=<uuid>&view=so|po|invoices`, which resolves the style's inventory item ids (`ip_item_master.style_id`), finds the headers whose lines reference one of those items, and returns the rows with all `*_id` fields **already resolved to human labels** (customer/vendor name) server-side. Each list has its own **Export** button. Drill-through reuses the canonical scorecard-drill URL contract (`drillToModule`), so it lands in the real record's module with the panel's search seeded.
+
+### ATS-style inventory filters that scope the style picker (PR #1040)
+
+Mirroring the **ATS app's filter bar**, the controls now include **Gender**, **Group**, and **Category** multi-select chip filters (in addition to the existing **Brand** picker). Each narrows the **style picker** to styles matching the selected values (`style_master.gender_code / group_name / category_name`), so you can browse a brand's Men's tops (etc.) without knowing the exact style code. The filters are derived from the loaded style list and only render when there are values to offer for the current brand scope. They are additive on top of the Brand filter; Brand and Style remain their own pickers (no duplication).
+
+### Per-color image thumbnails (PR #1022)
+
+Each color row now shows a **44 × 44 px thumbnail** in the first column ("Img"). The image for each row comes from the style's PIM images filtered to that color (first image per color wins; falls back to the style's default image if no color-specific image is found). Styles or colors with no PIM image show a dark placeholder square. Image loading is non-fatal — the matrix renders immediately and fills in thumbnails asynchronously.
+
+### Brand-level view (PR #1022)
+
+**Pick a brand but leave the Style picker empty.** Instead of the "Pick a style…" prompt, the panel loads matrices for up to **50 of the brand's styles in parallel** and renders them stacked, each with a header bar showing the style code and name. The active Warehouse and Hide-Zero-Rows filters apply to all sub-matrices. Styles that return no SKUs (or whose every row is zero under the active filters) are omitted. This view gives the operator a quick brand-wide on-hand snapshot without clicking through styles one by one.
+
 ### By-size on-hand cutover status
 
 This is the financially-material part. **By default the Inventory Matrix is COLOR-grain**, because planning (ATS) deliberately collapses Xoro REST on-hand to color grain in `scripts/rest_to_ats_inventory.py` + `api/_lib/planning-sync.js` (writing `ip_inventory_snapshot` at color grain). Per-size on-hand needs a size-grain source.
