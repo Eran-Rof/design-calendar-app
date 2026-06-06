@@ -442,6 +442,16 @@ export default function InternalInventoryMatrix() {
       .catch(() => {/* non-fatal — matrix still renders without per-row images */});
   }, [styleId]);
 
+  // Styles narrowed to the selected brand (brand filter scopes the STYLE picker).
+  // brand_id comes straight off the style-master list payload, so the narrowing
+  // is purely client-side — no extra fetch. Declared BEFORE the brand-level-view
+  // effect below because that effect reads `brandStyles` in its dependency array,
+  // which is evaluated during render — referencing it earlier is a TDZ crash.
+  const brandStyles = useMemo<StyleListRow[]>(
+    () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
+    [styles, brandId],
+  );
+
   // Brand-level view: when brandId is set but no specific styleId, fetch
   // matrices for up to 50 of the brand's styles in parallel.
   useEffect(() => {
@@ -477,14 +487,6 @@ export default function InternalInventoryMatrix() {
         label: b.code && b.name ? `${b.code} — ${b.name}` : (b.name || b.code || "—"),
       })),
     [brands],
-  );
-
-  // Styles narrowed to the selected brand (brand filter scopes the STYLE picker).
-  // brand_id comes straight off the style-master list payload, so the narrowing
-  // is purely client-side — no extra fetch.
-  const brandStyles = useMemo<StyleListRow[]>(
-    () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
-    [styles, brandId],
   );
 
   // If the currently-picked style isn't in the brand-narrowed set, clear it so
