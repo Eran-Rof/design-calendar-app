@@ -116,8 +116,10 @@ import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
 // M31 — surface the standalone Planning app inside the Tangerine shell; gate by
 // the shared PLM per-app permission (`permissions.planning.access`, default-true).
 import { canAccessAppFromSession } from "./permissions";
-// Cross-cutter T4-3 — Personalization favorites drawer.
+// Cross-cutter T4-3 — Personalization favorites drawer (legacy, kept for other apps).
 import FavoritesMenu from "./components/FavoritesMenu";
+// Navigation drawer — replaces the horizontal TopNav.
+import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
 import EntitySwitcher from "./components/EntitySwitcher";
 import BrandChannelSwitcher from "./components/BrandChannelSwitcher";
@@ -602,6 +604,19 @@ export default function Tangerine() {
   // Read on initial mount; subsequent navigation uses goToModule() below.
   const [aiOpen, setAiOpen] = useState(false);
 
+  // Navigation drawer collapsed state (persisted in localStorage).
+  const [drawerCollapsed, setDrawerCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("tangerine:nav:collapsed:v1") === "1"; }
+    catch { return false; }
+  });
+  const toggleDrawer = () => {
+    setDrawerCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem("tangerine:nav:collapsed:v1", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
+
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -792,20 +807,27 @@ export default function Tangerine() {
   return (
     <div style={{ background: C.bg, color: C.text, minHeight: "100vh" }}>
       <WarnHost />
-      <TopNav
+      <NavDrawer
         activeModule={activeModule}
-        onSelectModule={goToModule}
-        appsOpen={appsOpen}
-        onToggleApps={() => setAppsOpen((v) => !v)}
-        onCloseApps={() => setAppsOpen(false)}
-        onGoHome={() => goToModule(null)}
+        onSelectModule={(k) => goToModule(k as ModuleKey | null)}
         userEmail={userEmail}
         userName={userName}
         userPhotoUrl={userPhotoUrl}
         onSignOut={handleSignOut}
+        modules={MODULES}
+        sections={NAV_SECTIONS}
+        canPlanning={canAccessAppFromSession("planning")}
+        collapsed={drawerCollapsed}
+        onToggleCollapsed={toggleDrawer}
       />
 
-      <main style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
+      <main style={{
+        marginLeft: drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
+        transition: "margin-left 0.2s ease",
+        padding: "24px 32px",
+        minHeight: "100vh",
+        boxSizing: "border-box",
+      }}>
         {activeModule === null && <HomeLanding onSelectModule={goToModule} />}
         {activeModule === "style_master"    && <InternalStyleMaster />}
         {activeModule === "pim_catalog"     && <InternalPimProductCatalog />}
