@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-06 (HTS master + fabric COO/HTS AI suggest)
+**Last updated:** 2026-06-06 (Costing batch: DDP cost mode + editable Sell-Tgt margin, PPK-exploded PO history/comp, RFQ fabric+project link, vendor unread badge + dark warnings — #1045–#1048; user-guide ch.42)
 
 ## Summary
 
