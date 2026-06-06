@@ -25,6 +25,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
+import { ppkMultiplier } from "../../../../../_lib/prepack.js";
 
 export const config = { maxDuration: 15 };
 
@@ -74,7 +75,7 @@ export default async function handler(req, res) {
   const items = [];
   for (let from = 0; ; from += PAGE) {
     const { data: page, error: itemsErr } = await admin.from("po_line_items")
-      .select("po_id, item_number, qty_ordered, qty_received, unit_price, date_expected_delivery")
+      .select("po_id, item_number, description, qty_ordered, qty_received, unit_price, date_expected_delivery")
       .ilike("item_number", `${safeStyle}%`)
       .range(from, from + PAGE - 1);
     if (itemsErr) return res.status(500).json({ error: itemsErr.message });
@@ -110,6 +111,14 @@ export default async function handler(req, res) {
   }
 
   // 4. Aggregate line items → ONE row per PO.
+  // PPK explosion: for pack-grain line items the unit_price stored in
+  // po_line_items is the PACK price and qty_ordered is in PACKS.
+  // We detect the pack multiplier from the item_number (SKU) + description,
+  // then:
+  //   • qty_ordered_units  = qty_ordered × mult   (true selling units)
+  //   • unit_price_per_unit = unit_price  / mult   (per-unit cost)
+  // The weighted avg (Σ unit_price_per_unit × qty_units) / Σ qty_units
+  // is therefore always in per-unit terms regardless of grain.
   const byPo = new Map(); // po_id → accumulator
   for (const it of items) {
     const po = poByUuid.get(it.po_id);
@@ -123,29 +132,50 @@ export default async function handler(req, res) {
         status: po.status || null,
         archived: !!(po.data && (po.data._archived === true || po.data._archived === "true")),
         po_date_expected: po.date_expected || null,
-        qty_ordered: 0,
-        qty_received: 0,
-        priceQtySum: 0,   // Σ(unit_price · qty)  for weighted avg
-        priceQtyWeight: 0, // Σ qty (where both price & qty present)
-        priceSum: 0,      // Σ unit_price          for fallback simple avg
-        priceCount: 0,    // # of lines with a price
+        qty_ordered: 0,      // unit-exploded ordered qty
+        qty_received: 0,     // unit-exploded received qty
+        priceQtySum: 0,      // Σ(per_unit_price · qty_units) for weighted avg
+        priceQtyWeight: 0,   // Σ qty_units (where both price & qty present)
+        priceSum: 0,         // Σ per_unit_price for fallback simple avg
+        priceCount: 0,       // # of lines with a price
         maxPlannedDdp: null,
         anyReceived: false,
+        // qty_per_pack: the multiplier of the FIRST pack line encountered
+        // (most POs are single-style, so this is representative).
+        qty_per_pack: 1,
       };
       byPo.set(it.po_id, acc);
     }
-    const qtyOrd = typeof it.qty_ordered === "number" ? it.qty_ordered : 0;
-    const qtyRec = typeof it.qty_received === "number" ? it.qty_received : 0;
+
+    // Resolve PPK multiplier from SKU (item_number) + description.
+    // item_number IS the full SKU (e.g. "RCB1868-CHARCOAL-PPK24-M").
+    // color/size are embedded in it but we don't need them separately —
+    // ppkMultiplier's identity gate (sku/style/size must contain "PPK")
+    // uses the sku param (item_number) which covers all cases here.
+    const mult = ppkMultiplier(
+      null,              // color — embedded in item_number; not a separate column in po_line_items
+      null,              // size  — same
+      it.description,    // description
+      null,              // style — not a separate column; style is the ILIKE prefix we already filtered on
+      it.item_number,    // sku   — the canonical identity signal
+    );
+    if (mult > 1) acc.qty_per_pack = mult;
+
+    const rawQtyOrd = typeof it.qty_ordered === "number" ? it.qty_ordered : 0;
+    const rawQtyRec = typeof it.qty_received === "number" ? it.qty_received : 0;
+    const qtyOrd = rawQtyOrd * mult;  // exploded to units
+    const qtyRec = rawQtyRec * mult;  // exploded to units
     acc.qty_ordered += qtyOrd;
     acc.qty_received += qtyRec;
     if (qtyRec > 0) acc.anyReceived = true;
 
     if (typeof it.unit_price === "number") {
-      acc.priceSum += it.unit_price;
+      const perUnitPrice = it.unit_price / mult; // divide pack price → per-unit
+      acc.priceSum += perUnitPrice;
       acc.priceCount += 1;
       const w = qtyOrd > 0 ? qtyOrd : 0;
       if (w > 0) {
-        acc.priceQtySum += it.unit_price * w;
+        acc.priceQtySum += perUnitPrice * w;
         acc.priceQtyWeight += w;
       }
     }
@@ -172,6 +202,7 @@ export default async function handler(req, res) {
       qty_ordered: acc.qty_ordered,
       qty_received: acc.qty_received,
       unit_price,
+      qty_per_pack: acc.qty_per_pack,
       received_date,
       planned_ddp,
       status: acc.status,
