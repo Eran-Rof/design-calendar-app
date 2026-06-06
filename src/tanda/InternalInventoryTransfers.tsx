@@ -557,7 +557,7 @@ function SingleTransferModal({
     setErr(null);
     const qtyNum = Number(qty);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
-    if (!reason.trim()) { notify("Pick a Transfer Reason before saving (or add a new one).", "error"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Transfer Reason before saving."); return; }
     if (!itemId.trim()) { setErr("Pick a SKU"); return; }
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) { setErr("Qty must be a positive number"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
@@ -840,7 +840,7 @@ function MatrixTransferModal({
   async function createAll() {
     setErr(null);
     // A transfer reason is REQUIRED — block + warn via the factored warn UI.
-    if (!reason.trim()) { notify("Pick a Transfer Reason before creating transfers (or add a new one).", "error"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Transfer Reason before creating transfers."); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
     if (!fromLoc.trim()) { setErr("From location is required"); return; }
     if (!toLoc.trim()) { setErr("To location is required"); return; }
@@ -1015,7 +1015,7 @@ function MatrixTransferModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", position: "sticky", bottom: 0, background: C.card, paddingTop: 12, marginTop: 8, borderTop: `1px solid ${C.cardBdr}` }}>
           {progress && <span style={{ color: C.textMuted, fontSize: 12, marginRight: "auto" }}>{progress}</span>}
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" style={btnPrimary} onClick={() => void createAll()} disabled={saving || enteredCount === 0}>
