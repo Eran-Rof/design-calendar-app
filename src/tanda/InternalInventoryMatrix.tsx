@@ -566,10 +566,10 @@ export default function InternalInventoryMatrix() {
     [brandScopedStyles],
   );
 
-  // Brand-level view: when brandId is set but no specific styleId, fetch
-  // matrices for up to 50 of the brand's styles in parallel.
+  // Multi-style view: when no specific styleId is selected, fetch matrices for
+  // up to 50 styles in parallel (scoped to selected brand, or all brands).
   useEffect(() => {
-    if (!brandId || styleId) { setBrandPayloads([]); return; }
+    if (styleId) { setBrandPayloads([]); return; }
     const stylesToLoad = brandStyles.slice(0, 50);
     if (stylesToLoad.length === 0) { setBrandPayloads([]); return; }
     setBrandLoading(true);
@@ -841,7 +841,7 @@ export default function InternalInventoryMatrix() {
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 320 }}>
           Style
           <SearchableSelect
-            value={styleId ? styleId : (brandId ? ALL_STYLES_SENTINEL : null)}
+            value={styleId || ALL_STYLES_SENTINEL}
             onChange={(v) => {
               if (!v || v === ALL_STYLES_SENTINEL) setStyleId("");
               else setStyleId(v);
@@ -1173,16 +1173,17 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
-      {/* Brand-level view — brand selected but no specific style: render all
-          brand styles' matrices stacked, each with a style header bar. */}
-      {!styleId && brandId && (
+      {/* Multi-style view — no specific style selected: render all styles in
+          the current scope (selected brand or all brands), stacked with a
+          style header bar each. Capped at 50 styles per load. */}
+      {!styleId && (
         brandLoading ? (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-            Loading brand inventory…
+            Loading inventory…
           </div>
         ) : brandPayloads.length === 0 ? (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-            No styles with inventory for this brand.
+            No styles with inventory{brandId ? " for this brand" : ""}.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -1420,11 +1421,7 @@ export default function InternalInventoryMatrix() {
       {/* Matrix table — poMatrixTab-style "Item Matrix" look. */}
       {!isListView && (loading ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-      ) : !styleId && !brandId ? (
-        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-          Pick a style to view its inventory matrix.
-        </div>
-      ) : !styleId ? null /* brand-level view rendered above */
+      ) : !styleId ? null /* multi-style view rendered above */
       : !payload || rows.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
           No SKUs found for this style{showRise && riseFilter.length ? " at the selected rise." : "."}
