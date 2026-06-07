@@ -25,11 +25,11 @@ export const PLAN_FLOW_STAGES: PlanFlowStage[] = [
 
 const STAGE_LABEL: Record<PlanFlowStage, string> = {
   draft:   "Draft",
-  sent:    "Sent",
+  sent:    "RFQ",
   quoted:  "Quoted",
   awarded: "Awarded",
   lost:    "Lost",
-  revised: "Revised",
+  revised: "Rvsd RFQ",
   closed:  "Closed",
 };
 

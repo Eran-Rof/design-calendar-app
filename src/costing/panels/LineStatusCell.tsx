@@ -106,11 +106,11 @@ export default function LineStatusCell({ line, onChange }: Props) {
           {isAuto && (
             <div style={{ fontSize: 10, color: "#94A3B8", padding: "6px 8px", borderTop: "1px solid #334155", lineHeight: 1.4 }}>
               Currently <strong style={{ color: sc.fg }}>{stageLabel(eff)}</strong> — set automatically
-              {eff === "awarded" ? " (vendor awarded)."
+              {eff === "awarded" ? " (vendor formally awarded via RFQ)."
                 : eff === "lost" ? " (another vendor won this style)."
                 : eff === "quoted" ? " (vendor submitted a quote)."
-                : eff === "revised" ? " (superseded by a revised line)."
-                : " (line is on a sent RFQ)."}
+                : eff === "revised" ? " (revision sent to vendor)."
+                : " (line is on an active RFQ)."}
             </div>
           )}
         </div>,
