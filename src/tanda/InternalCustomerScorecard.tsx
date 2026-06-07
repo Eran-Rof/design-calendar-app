@@ -1,4 +1,4 @@
-// src/tanda/InternalCustomerScorecard.tsx
+﻿// src/tanda/InternalCustomerScorecard.tsx
 //
 // Nav-reachable wrapper around the existing <CustomerScorecard> drill-through
 // modal. The scorecard requires a customer to be selected, so this panel
@@ -35,7 +35,7 @@ export default function InternalCustomerScorecard() {
     (async () => {
       try {
         setLoading(true);
-        const r = await fetch("/api/internal/customer-master?limit=500");
+        const r = await fetch("/api/internal/customer-master?limit=5000");
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         const data = (await r.json()) as Customer[];
         if (!cancelled) setCustomers(data);

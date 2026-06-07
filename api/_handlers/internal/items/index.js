@@ -58,9 +58,9 @@ export default async function handler(req, res) {
     return res.status(200).json(data || []);
   }
 
-  let limit = parseInt(url.searchParams.get("limit") || "200", 10);
-  if (!Number.isFinite(limit) || limit <= 0) limit = 200;
-  limit = Math.min(limit, 500);
+  let limit = parseInt(url.searchParams.get("limit") || "1000", 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 1000;
+  limit = Math.min(limit, 5000);
 
   let query = admin
     .from("ip_item_master")

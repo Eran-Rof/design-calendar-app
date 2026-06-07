@@ -1,4 +1,4 @@
-// src/tanda/InternalInventoryTransfers.tsx
+﻿// src/tanda/InternalInventoryTransfers.tsx
 //
 // Tangerine P3 Chunk 7 - M37 Inventory Transfers.
 //
@@ -545,7 +545,7 @@ function SingleTransferModal({
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`/api/internal/items?limit=500`);
+        const r = await fetch(`/api/internal/items?limit=5000`);
         if (!r.ok) return;
         const data = await r.json();
         if (Array.isArray(data)) setItemOpts(data);

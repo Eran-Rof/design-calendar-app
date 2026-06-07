@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmActivities.tsx
+﻿// src/tanda/InternalCrmActivities.tsx
 //
 // Tangerine P8-3 — CRM Activities admin panel (M25, arch §3 + §4).
 // Append-only activity log. Filters + add-modal for manual note/call/meeting.
@@ -190,7 +190,7 @@ export default function InternalCrmActivities() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data) ? data : (data?.rows ?? []);

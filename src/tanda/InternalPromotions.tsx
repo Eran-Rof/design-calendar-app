@@ -1,4 +1,4 @@
-// src/tanda/InternalPromotions.tsx
+﻿// src/tanda/InternalPromotions.tsx
 //
 // M43 — Promotions admin. Time-boxed percent/amount discounts layered on the
 // resolved list price by the engine. Optional match filters (style / brand /
@@ -71,8 +71,8 @@ export default function InternalPromotions() {
   }
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [qDebounced, includeInactive]);
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
-    fetch("/api/internal/style-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
+    fetch("/api/internal/customer-master?limit=5000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
+    fetch("/api/internal/style-master?limit=10000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
   }, []);
 

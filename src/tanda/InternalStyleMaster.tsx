@@ -1,4 +1,4 @@
-// src/tanda/InternalStyleMaster.tsx
+﻿// src/tanda/InternalStyleMaster.tsx
 //
 // Tangerine P1 Chunk 7 — internal admin panel for style_master CRUD.
 // List + search + create + edit + soft-delete (and a toggle to view deleted).
@@ -679,7 +679,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(`/api/internal/fabric-codes?limit=500`);
+        const r = await fetch(`/api/internal/fabric-codes?limit=5000`);
         if (!r.ok) return;
         const data = await r.json();
         if (!cancelled && Array.isArray(data)) setFabrics(data as FabricCodeLite[]);
@@ -1297,7 +1297,7 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
 
   async function loadFabrics() {
     try {
-      const r = await fetch(`/api/internal/fabric-codes?limit=500`);
+      const r = await fetch(`/api/internal/fabric-codes?limit=5000`);
       if (!r.ok) return;
       const data = await r.json();
       if (Array.isArray(data)) setFabrics(data as FabricCodeLite[]);

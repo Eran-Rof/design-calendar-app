@@ -1,4 +1,4 @@
-// src/tanda/InternalB2BPriceList.tsx
+﻿// src/tanda/InternalB2BPriceList.tsx
 //
 // Tangerine P18-F — internal B2B Price List admin panel.
 // Manage wholesale prices for the B2B portal. A row is keyed by
@@ -140,11 +140,11 @@ export default function InternalB2BPriceList() {
   useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500")
+    fetch("/api/internal/customer-master?limit=5000")
       .then((r) => r.json())
       .then((arr: unknown) => { if (Array.isArray(arr)) setCustomers(arr as Customer[]); })
       .catch(() => {});
-    fetch("/api/internal/style-master?limit=500")
+    fetch("/api/internal/style-master?limit=10000")
       .then((r) => r.json())
       .then((data: unknown) => {
         if (Array.isArray(data)) {
