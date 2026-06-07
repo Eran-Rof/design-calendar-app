@@ -73,7 +73,7 @@ export default async function handler(req, res) {
     // shown to the inviting vendor so nothing is silently lost.
     const { data: messages, error } = await admin
       .from("rfq_messages")
-      .select("id, rfq_id, vendor_id, sender_type, sender_name, body, read_by_vendor, read_by_internal, created_at")
+      .select("id, rfq_id, vendor_id, sender_type, sender_name, body, read_by_vendor, read_by_internal, created_at, attachments")
       .eq("rfq_id", rfqId)
       .or(`vendor_id.eq.${caller.vendor_id},vendor_id.is.null`)
       .order("created_at", { ascending: true });
@@ -93,8 +93,30 @@ export default async function handler(req, res) {
     let body = req.body;
     if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
     const messageBody = body?.body;
-    if (!messageBody || typeof messageBody !== "string" || !messageBody.trim()) {
-      return res.status(400).json({ error: "body is required" });
+    const rawAttachments = Array.isArray(body?.attachments) ? body.attachments : [];
+    const hasBody = messageBody && typeof messageBody === "string" && messageBody.trim();
+    if (!hasBody && rawAttachments.length === 0) {
+      return res.status(400).json({ error: "body or attachments is required" });
+    }
+
+    if (rawAttachments.length > 5) return res.status(400).json({ error: "Maximum 5 attachments per message" });
+
+    // Upload attachments to storage and collect signed URLs.
+    const attachments = [];
+    for (const att of rawAttachments) {
+      const { name, type, size, data } = att;
+      if (!name || !data) continue;
+      if (size > 3145728) return res.status(400).json({ error: `Attachment ${name} exceeds 3 MB limit` });
+      const base64Match = String(data).match(/^data:[^;]+;base64,(.+)$/);
+      if (!base64Match) return res.status(400).json({ error: `Invalid data URL for attachment ${name}` });
+      const buffer = Buffer.from(base64Match[1], "base64");
+      const sanitisedName = String(name).replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `rfq/${rfqId}/${caller.vendor_id}/${Date.now()}_${sanitisedName}`;
+      const { error: upErr } = await admin.storage.from("rfq-attachments").upload(path, buffer, { contentType: type, upsert: false });
+      if (upErr) return res.status(500).json({ error: `Upload failed for ${name}: ${upErr.message}` });
+      const { data: signedData, error: signErr } = await admin.storage.from("rfq-attachments").createSignedUrl(path, 31536000);
+      if (signErr) return res.status(500).json({ error: `Signed URL failed for ${name}: ${signErr.message}` });
+      attachments.push({ name, type, size, url: signedData.signedUrl });
     }
 
     const { data: msg, error: msgErr } = await admin.from("rfq_messages").insert({
@@ -103,9 +125,10 @@ export default async function handler(req, res) {
       sender_type: "vendor",
       sender_auth_id: caller.auth_id,
       sender_name: caller.display_name || caller.email || "Vendor",
-      body: messageBody.trim(),
+      body: hasBody ? messageBody.trim() : "",
       read_by_vendor: true,
       read_by_internal: false,
+      attachments,
     }).select("*").single();
     if (msgErr) return res.status(500).json({ error: msgErr.message });
 
