@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 import { showAlert, showConfirm } from "../ui/AppDialog";
 
@@ -111,7 +111,7 @@ export default function VendorDiscountOffers() {
                 <Mini label="You receive" value={`$${Number(o.net_payment_amount).toLocaleString()}`} />
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10 }}>
-                Original due: {o.original_due_date} · Discount {Number(o.discount_pct).toFixed(2)}% · Expires {new Date(o.expires_at).toLocaleDateString()}
+                Original due: {o.original_due_date} · Discount {Number(o.discount_pct).toFixed(2)}% · Expires {new Date(o.expires_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
               </div>
               {o.status === "offered" && (
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>

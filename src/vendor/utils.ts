@@ -1,4 +1,4 @@
-// Vendor portal utility functions. Kept framework-agnostic so they're easy
+﻿// Vendor portal utility functions. Kept framework-agnostic so they're easy
 // to unit-test.
 
 /**
@@ -24,7 +24,7 @@ export function errMsg(e: unknown): string {
  *
  * Why: `new Date("2026-05-15")` is spec'd to parse as UTC midnight. In
  * negative-offset timezones (US), that becomes the previous local day —
- * so `toLocaleDateString()` shows the wrong day, and day-diff math
+ * so `toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })` shows the wrong day, and day-diff math
  * computes the wrong "overdue" flag. Splitting the string and constructing
  * with `new Date(y, m-1, d)` anchors to local midnight and fixes both.
  */
@@ -65,7 +65,7 @@ export function fmtDate(d?: string | null): string {
   if (!d) return "—";
   const dt = parseLocalDate(d);
   if (!dt) return d;
-  return dt.toLocaleDateString();
+  return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
 export function fmtMoney(n?: number | null): string {

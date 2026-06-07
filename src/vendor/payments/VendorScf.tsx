@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 import { showAlert, showConfirm } from "../ui/AppDialog";
 
@@ -106,7 +106,7 @@ export default function VendorScf() {
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 110px 110px 110px 100px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{r.invoice?.invoice_number || "—"}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>{new Date(r.requested_at).toLocaleDateString()}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>{new Date(r.requested_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || "—"}</div>
               <div>${Number(r.requested_amount).toLocaleString()}</div>

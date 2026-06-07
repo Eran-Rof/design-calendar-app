@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -237,7 +237,7 @@ function OutstandingInvites({ refreshKey, onResent }: { refreshKey: number; onRe
               <div style={{ fontWeight: 600 }}>{row.vendor_name || "Unknown"}</div>
               <div style={{ color: C.textSub, overflow: "hidden", textOverflow: "ellipsis" }}>{row.email}</div>
               <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: expired ? "#7F1D1D" : "#1E3A8A", color: expired ? "#FCA5A5" : "#BFDBFE" }}>{expired ? "Expired" : "Pending"}</span></div>
-              <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString()} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+              <div style={{ color: C.textSub }}>{new Date(row.expires_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} {new Date(row.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                 <button onClick={(e) => { e.stopPropagation(); setEditInvite(row); }} style={btnSecondary}>Edit</button>
                 <button onClick={(e) => { e.stopPropagation(); void copyLink(row); }} disabled={acting === row.id} title="Copy a fresh invite link to send manually" style={{ ...btnSecondary, opacity: acting === row.id ? 0.6 : 1 }}>{acting === row.id ? "…" : "Copy link"}</button>
@@ -275,7 +275,7 @@ function EditInviteModal({ invite, onClose, onSaved }: { invite: InviteRow; onCl
   const fmtDateTime = (s: string | null) => {
     if (!s) return "—";
     const d = new Date(s);
-    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    return `${d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   };
 
   async function save() {

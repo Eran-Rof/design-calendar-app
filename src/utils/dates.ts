@@ -24,15 +24,13 @@ export function getDaysUntil(d: string): number {
 export function formatDate(d: string): string {
   if (!d) return "";
   const x = parseLocalDate(d);
-  return `${MONTHS[x.getMonth()]} ${x.getDate()}, ${x.getFullYear()}`;
+  return `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()}`;
 }
 
 export function formatDT(d: string): string {
   if (!d) return "";
   const x = new Date(d);
-  return `${MONTHS[x.getMonth()]} ${x.getDate()} ${x.getHours()}:${String(
-    x.getMinutes()
-  ).padStart(2, "0")}`;
+  return `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`;
 }
 
 export function addDays(ds: string, n: number): string {
