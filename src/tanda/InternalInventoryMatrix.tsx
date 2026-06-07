@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
@@ -276,7 +277,6 @@ function fmtQty(v: number): string {
 
 
 const ALL_BRANDS_SENTINEL     = "__ALL_BRANDS__";
-const ALL_STYLES_SENTINEL     = "__ALL_STYLES__";
 const ALL_GENDER_SENTINEL     = "__ALL_GENDER__";
 const ALL_GROUP_SENTINEL      = "__ALL_GROUP__";
 const ALL_CATEGORY_SENTINEL   = "__ALL_CATEGORY__";
@@ -291,6 +291,10 @@ export default function InternalInventoryMatrix() {
   const [brands, setBrands]     = useState<Brand[]>([]);
   const [brandId, setBrandId]   = useState<string>(""); // "" = all brands
   const [styleId, setStyleId]   = useState<string>("");
+  // Dynamic style search (mirrors Style Master): the matrix loads ALL styles on
+  // open and this debounced text filters the multi-style view live (e.g. "ppk"
+  // → every PPK style). Replaces the old style-picker dropdown.
+  const { value: styleSearch, debouncedValue: styleSearchDeb, setValue: setStyleSearch } = useDebouncedSearch("", 200);
   const [payload, setPayload]   = useState<MatrixPayload | null>(null);
   // On-Hand is the only metric. The old "Available" toggle was replaced by an
   // ATS app link (see the Show/ATS controls below).
@@ -462,15 +466,25 @@ export default function InternalInventoryMatrix() {
   // effect below because that effect reads `brandStyles` in its dependency array,
   // which is evaluated during render — referencing it earlier is a TDZ crash.
   const brandStyles = useMemo<StyleListRow[]>(
-    () => styles.filter((s) => {
-      if (brandId && s.brand_id !== brandId) return false;
-      if (genderFilter && s.gender_code !== genderFilter) return false;
-      if (groupFilter && s.group_name !== groupFilter) return false;
-      if (categoryFilter && s.category_name !== categoryFilter) return false;
-      if (subCategoryFilter && s.sub_category_name !== subCategoryFilter) return false;
-      return true;
-    }),
-    [styles, brandId, genderFilter, groupFilter, categoryFilter, subCategoryFilter],
+    () => {
+      const q = styleSearchDeb.trim().toLowerCase();
+      return styles.filter((s) => {
+        if (brandId && s.brand_id !== brandId) return false;
+        if (genderFilter && s.gender_code !== genderFilter) return false;
+        if (groupFilter && s.group_name !== groupFilter) return false;
+        if (categoryFilter && s.category_name !== categoryFilter) return false;
+        if (subCategoryFilter && s.sub_category_name !== subCategoryFilter) return false;
+        if (q) {
+          const hay = [
+            s.style_code, s.style_name, s.description,
+            s.group_name, s.category_name, s.sub_category_name,
+          ].filter(Boolean).join(" ").toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    },
+    [styles, brandId, genderFilter, groupFilter, categoryFilter, subCategoryFilter, styleSearchDeb],
   );
 
   // Distinct filter option values derived from the loaded style list (scoped to
@@ -559,26 +573,6 @@ export default function InternalInventoryMatrix() {
   // into the Style picker) resolves that brand's styles. Without this the brand
   // never reaches the style haystack below, so a brand-alone search matched
   // nothing even though every style carries a brand_id.
-  const brandLabelById = useMemo<Map<string, string>>(
-    () => new Map(brands.map((b) => [b.id, [b.code, b.name].filter(Boolean).join(" ")])),
-    [brands],
-  );
-
-  // Style picker options. First entry is "All Styles" sentinel, then individual styles.
-  // Search across code + name + description + group/category/sub + brand name.
-  const styleOptions = useMemo<SearchableSelectOption[]>(() => {
-    const individual = brandStyles.map((s) => {
-      const name = s.style_name || s.description || "";
-      const label = name ? `${s.style_code} — ${name}` : s.style_code;
-      const searchHaystack = [
-        s.style_code, s.style_name, s.description,
-        s.group_name, s.category_name, s.sub_category_name,
-        s.brand_id ? brandLabelById.get(s.brand_id) : null,
-      ].filter(Boolean).join(" ");
-      return { value: s.id, label, searchHaystack };
-    });
-    return [{ value: ALL_STYLES_SENTINEL, label: "(All Styles)", searchHaystack: "all styles" }, ...individual];
-  }, [brandStyles, brandLabelById]);
 
   // Dropdown options for filter pickers (all include an "All" sentinel first).
   const genderDropdownOptions = useMemo<SearchableSelectOption[]>(
@@ -824,16 +818,13 @@ export default function InternalInventoryMatrix() {
           </label>
 
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 280 }}>
-            Style
-            <SearchableSelect
-              value={styleId || ALL_STYLES_SENTINEL}
-              onChange={(v) => {
-                if (!v || v === ALL_STYLES_SENTINEL) setStyleId("");
-                else setStyleId(v);
-              }}
-              options={styleOptions}
-              placeholder="Search style code or name…"
-              inputStyle={inputStyle}
+            Search styles
+            <input
+              type="text"
+              value={styleSearch}
+              onChange={(e) => { setStyleSearch(e.target.value); if (styleId) setStyleId(""); }}
+              placeholder="Type to filter — e.g. PPK, code, name…"
+              style={{ ...inputStyle, minWidth: 280 }}
             />
           </label>
 
@@ -954,6 +945,14 @@ export default function InternalInventoryMatrix() {
           links: they swap the panel body in place. */}
       {styleId && (
         <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => { setStyleId(""); setViewMode("matrix"); }}
+            style={{ ...btnToggle(false), marginRight: 4 }}
+            title="Back to the searchable all-styles view"
+          >
+            ← All styles
+          </button>
           {([
             ["matrix", "🧮 Matrix"],
             ["so", "🛒 SO"],
@@ -1084,7 +1083,11 @@ export default function InternalInventoryMatrix() {
               const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
               return (
                 <div key={bStyle.id}>
-                  <div style={{ padding: "6px 12px", background: C.card, borderRadius: "8px 8px 0 0", border: `1px solid ${C.sectionBdr}`, borderBottom: "none", fontSize: 13, fontWeight: 700, color: C.base, fontFamily: "monospace" }}>
+                  <div
+                    onClick={() => setStyleId(bStyle.id)}
+                    title="Open this style (SO / PO / Invoice tabs)"
+                    style={{ padding: "6px 12px", background: C.card, borderRadius: "8px 8px 0 0", border: `1px solid ${C.sectionBdr}`, borderBottom: "none", fontSize: 13, fontWeight: 700, color: C.base, fontFamily: "monospace", cursor: "pointer" }}
+                  >
                     {bStyle.style_code}{bStyle.style_name ? ` — ${bStyle.style_name}` : ""}
                   </div>
                   <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: "0 0 8px 8px", border: `1px solid ${C.sectionBdr}` }}>
