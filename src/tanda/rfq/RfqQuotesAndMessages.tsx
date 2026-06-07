@@ -371,7 +371,8 @@ export function RfqMessageThread({ rfqId, vendorId, theme, onPosted }: { rfqId: 
     try {
       const r = await fetch(`/api/internal/rfqs/${rfqId}/messages?vendor_id=${encodeURIComponent(vendorId)}`);
       if (!r.ok) throw new Error(await r.text());
-      setMessages((await r.json()) as RfqMessage[]);
+      const raw = await r.json();
+      setMessages(Array.isArray(raw) ? raw as RfqMessage[] : []);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setLoading(false); }
