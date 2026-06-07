@@ -295,6 +295,10 @@ export default function InternalInventoryMatrix() {
   // On-Hand is the only metric. The old "Available" toggle was replaced by an
   // ATS app link (see the Show/ATS controls below).
   const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
+  // Global warehouse names (inventory_locations kind='warehouse') — these match
+  // the keys in each SKU's on_hand_by_wh map, so the dropdown works even in the
+  // multi-style view where no single-style payload (with its own list) exists.
+  const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
   const [explodePpk, setExplodePpk] = useState(false); // off by default; folds PPK packs → sized eaches
@@ -355,6 +359,17 @@ export default function InternalInventoryMatrix() {
         })));
       })
       .catch(() => {/* non-fatal; brand filter just stays empty */});
+    // Warehouse names for the Store dropdown (keys match on_hand_by_wh).
+    fetch("/api/internal/warehouses")
+      .then((r) => r.json())
+      .then((d) => {
+        const rows = Array.isArray(d) ? d : (d.rows || d.warehouses || []);
+        setAllWarehouses(
+          rows.map((w: { name?: string | null; code?: string | null }) => w.name || w.code || "")
+            .filter((n: string) => !!n),
+        );
+      })
+      .catch(() => {/* non-fatal; falls back to payload-derived list */});
   }, []);
 
   // Fetch the matrix payload when a style is picked (or the explode toggle
@@ -608,15 +623,26 @@ export default function InternalInventoryMatrix() {
     return seen;
   }, [payload]);
 
-  // Warehouses available for the filter — prefer the payload's list; fall back
-  // to deriving from the SKUs' on_hand_by_wh maps for older payload shapes.
+  // Warehouses available for the filter — prefer the global master list (always
+  // present, works in multi-style view), then the payload's list, then derive
+  // from the SKUs' on_hand_by_wh maps for older payload shapes.
   const warehouseList = useMemo<string[]>(() => {
+    if (allWarehouses.length) return [...allWarehouses].sort((a, b) => a.localeCompare(b));
     if (payload?.warehouses && payload.warehouses.length) return payload.warehouses;
     if (!payload) return [];
     const seen = new Set<string>();
     for (const s of payload.skus) for (const w of Object.keys(s.on_hand_by_wh || {})) seen.add(w);
     return [...seen].sort((a, b) => a.localeCompare(b));
-  }, [payload]);
+  }, [allWarehouses, payload]);
+
+  // Store dropdown options — "All Stores" + every warehouse name.
+  const warehouseDropdownOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      { value: ALL_WAREHOUSES, label: "All Stores", searchHaystack: "all stores warehouses" },
+      ...warehouseList.map((w) => ({ value: w, label: w, searchHaystack: w })),
+    ],
+    [warehouseList],
+  );
 
   // The warehouse filter narrows on-hand (the breakdown is on-hand-only).
   // "All" sums every warehouse; a specific warehouse narrows to its column.
@@ -862,34 +888,21 @@ export default function InternalInventoryMatrix() {
               />
             </label>
           )}
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 160 }}>
+            Store
+            <SearchableSelect
+              value={warehouse}
+              onChange={(v) => setWarehouse(!v ? ALL_WAREHOUSES : v)}
+              options={warehouseDropdownOptions}
+              placeholder="Search store…"
+              inputStyle={inputStyle}
+            />
+          </label>
         </div>
 
         {/* Row 2 — display controls */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {/* Store filter */}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginRight: 4 }}>
-            <button
-              type="button"
-              style={btnToggle(warehouse === ALL_WAREHOUSES)}
-              onClick={() => setWarehouse(ALL_WAREHOUSES)}
-            >
-              All Stores
-            </button>
-            {warehouseList.map((wh) => (
-              <button
-                key={wh}
-                type="button"
-                style={btnToggle(warehouse === wh)}
-                onClick={() => setWarehouse(wh)}
-              >
-                {wh}
-              </button>
-            ))}
-          </div>
-
-          {/* Divider */}
-          <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
-
           {/* Hide Zeros toggle — blue = active (zeros hidden) */}
           <button
             type="button"
@@ -1291,7 +1304,7 @@ export default function InternalInventoryMatrix() {
         </div>
       ) : visibleRows.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Switch “Rows” to <strong>Show All</strong>{whActive ? " or pick a different warehouse" : ""} to see them.
+          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Turn off <strong>Hide Zeros</strong>{whActive ? " or pick a different store" : ""} to see them.
         </div>
       ) : (
         <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
