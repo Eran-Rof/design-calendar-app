@@ -342,7 +342,7 @@ export default function VendorRfqDetail() {
               <div style={{ textAlign: "right", color: TH.textSub2 }}>{fmtQty(li.quantity)}</div>
               <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
               {/* Half-size input, centered under its header. */}
-              <div style={{ textAlign: "center" }}><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, width: "50%", textAlign: "right" }} /></div>
+              <div style={{ textAlign: "center" }}><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, width: "calc(50% + 2ch)", textAlign: "right" }} /></div>
               <div><input disabled={!canEdit} value={lineQtys[li.id] || ""} onChange={(e) => setLineQtys({ ...lineQtys, [li.id]: qtyInput(e.target.value) })} inputMode="numeric" style={{ ...inp, textAlign: "right" }} placeholder={fmtQty(li.quantity)} /></div>
               <div><input disabled={!canEdit} value={lineNotes[li.id] || ""} onChange={(e) => setLineNotes({ ...lineNotes, [li.id]: e.target.value })} style={inp} /></div>
             </div>
