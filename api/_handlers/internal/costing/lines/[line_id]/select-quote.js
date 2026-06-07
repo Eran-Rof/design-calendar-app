@@ -24,7 +24,6 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
-import { markLinesAwardedAndSiblingsLost } from "../../../../../_lib/costingLineStatus.js";
 
 export const config = { maxDuration: 15 };
 
@@ -191,21 +190,9 @@ export default async function handler(req, res) {
     .eq("id", lineId).select("*").maybeSingle();
   if (lineErr) return res.status(500).json({ error: lineErr.message });
 
-  // Picking a vendor directly on the line = the line is awarded. Set the stored
-  // status (and mark same-style siblings 'lost'), the same as the RFQ award flow
-  // — direct selection bypasses that handler, so without this the line would
-  // stay 'draft'. Best-effort; reflect it on the returned line for the UI.
-  try {
-    await markLinesAwardedAndSiblingsLost(
-      admin,
-      [{ id: lineId, project_id: line?.project_id, style_code: line?.style_code }],
-      { note: "vendor_selected" },
-    );
-    if (line) line.status = "awarded";
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn(`[costing-status] select-quote award status failed: ${e && e.message ? e.message : String(e)}`);
-  }
+  // Vendor selection records the intended vendor for RFQ generation only.
+  // Awarded status is set exclusively by the formal RFQ award handler
+  // (api/_handlers/internal/rfqs/:id/award/:vendor_id.js). Do NOT auto-award here.
 
   const response = {
     line,

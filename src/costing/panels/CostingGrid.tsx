@@ -106,18 +106,57 @@ export default function CostingGrid() {
   const duplicateLine = useCostingStore((s) => s.duplicateLine);
   const updateLine = useCostingStore((s) => s.updateLine);
 
-  // Wrap updateLine: if the line is "quoted", show a confirmation before saving.
+  // Track pending revision prompts: after editing a sent/quoted line, wait 30 s
+  // (to allow multiple rapid edits) then ask the operator whether to notify the
+  // vendor of a revised RFQ. Key = lineId, value = setTimeout handle.
+  const revisionTimers = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const scheduleRevisionPrompt = React.useCallback((lineId: string) => {
+    // Clear any existing timer for this line — user is still editing.
+    const existing = revisionTimers.current.get(lineId);
+    if (existing !== undefined) clearTimeout(existing);
+
+    const handle = setTimeout(async () => {
+      revisionTimers.current.delete(lineId);
+      const ok = await confirmDialog(
+        "This line is on an active RFQ. Do you want to send the vendor an updated RFQ with these changes?",
+        { title: "Vendor data revised", confirmText: "Yes, send revision", cancelText: "Cancel" },
+      );
+      if (ok) {
+        // Mark the line as revised so the status shows "Rvsd RFQ".
+        // The vendor will see the updated costing data on their next RFQ view.
+        void updateLine(lineId, { status: "revised" as Parameters<typeof updateLine>[1]["status"] });
+      }
+    }, 30_000);
+
+    revisionTimers.current.set(lineId, handle);
+  }, [updateLine]);
+
+  // Wrap updateLine: quoted lines get an immediate confirm before saving;
+  // sent/quoted lines get a 30-second debounced revision prompt after saving.
   const updateLineGuarded = React.useCallback(async (id: string, patch: Parameters<typeof updateLine>[1]) => {
     const line = useCostingStore.getState().lines.find((l) => l.id === id);
-    if (line?.status === "quoted") {
+    const statusBefore = line?.status;
+
+    if (statusBefore === "quoted") {
       const ok = await confirmDialog(
         "This line has an active vendor quote. Saving will overwrite the quoted values.",
         { title: "Line has been quoted", confirmText: "Save changes", cancelText: "Cancel" },
       );
       if (!ok) return;
     }
-    return updateLine(id, patch);
-  }, [updateLine]);
+
+    const result = await updateLine(id, patch);
+
+    // After saving, schedule a revision prompt for sent/quoted lines (but not
+    // if the patch itself is only a status change — no data to revise).
+    const isStatusOnlyPatch = Object.keys(patch).length === 1 && "status" in patch;
+    if (!isStatusOnlyPatch && (statusBefore === "sent" || statusBefore === "quoted")) {
+      scheduleRevisionPrompt(id);
+    }
+
+    return result;
+  }, [updateLine, scheduleRevisionPrompt]);
 
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
