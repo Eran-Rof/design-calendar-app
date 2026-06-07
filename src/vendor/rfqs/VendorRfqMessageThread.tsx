@@ -58,7 +58,7 @@ export default function VendorRfqMessageThread({ rfqId, height = 320, onChanged 
 
   function pickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files || []);
-    const valid = picked.filter(f => f.size <= 3_145_728);
+    const valid = picked.filter(f => f.size <= 15_728_640);
     setPendingFiles(p => [...p, ...valid].slice(0, 5));
     e.target.value = "";
   }

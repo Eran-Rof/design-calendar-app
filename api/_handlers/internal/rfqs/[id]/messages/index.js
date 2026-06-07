@@ -101,7 +101,7 @@ export default async function handler(req, res) {
     for (const att of rawAttachments) {
       const { name, type, size, data } = att;
       if (!name || !data) continue;
-      if (size > 3145728) return res.status(400).json({ error: `Attachment ${name} exceeds 3 MB limit` });
+      if (size > 15728640) return res.status(400).json({ error: `Attachment ${name} exceeds 15 MB limit` });
       const base64Match = String(data).match(/^data:[^;]+;base64,(.+)$/);
       if (!base64Match) return res.status(400).json({ error: `Invalid data URL for attachment ${name}` });
       const buffer = Buffer.from(base64Match[1], "base64");
