@@ -345,6 +345,9 @@ async function downloadImage(url: string, filename: string): Promise<void> {
   }
 }
 
+const ALL_BRANDS_SENTINEL = "__ALL_BRANDS__";
+const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
+
 // ── component ────────────────────────────────────────────────────────────────
 
 export default function InternalInventoryMatrix() {
@@ -617,10 +620,6 @@ export default function InternalInventoryMatrix() {
     () => new Map(brands.map((b) => [b.id, [b.code, b.name].filter(Boolean).join(" ")])),
     [brands],
   );
-
-  const ALL_BRANDS_SENTINEL = "__ALL_BRANDS__";
-  // Sentinel value for "show all styles" (brand-level view, no single style drill-in).
-  const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
 
   // Style picker options. First entry is "All Styles" sentinel, then individual styles.
   // Search across code + name + description + group/category/sub + brand name.
