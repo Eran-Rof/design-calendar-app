@@ -3,7 +3,7 @@
 // GET    — fetch a single fabric_codes row.
 // PATCH  — update mutable fields. `code` is locked post-creation; allows
 //          name / composition_text / composition_json / fabric_weight_gsm /
-//          country_of_origin_iso2 / hts_code / care_instructions /
+//          country_of_origin_iso2 / care_instructions /
 //          default_vendor_id / is_active.
 // DELETE — hard delete. Returns 409 if any style_fabric_codes row references
 //          this fabric (RESTRICT FK on junction).
@@ -18,7 +18,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const MUTABLE_FIELDS = new Set([
   "name", "composition_text", "composition_json", "fabric_weight_gsm",
-  "country_of_origin_iso2", "hts_code", "care_instructions",
+  "country_of_origin_iso2", "care_instructions",
   "default_vendor_id", "is_active",
 ]);
 
@@ -168,10 +168,6 @@ export function validatePatch(body) {
       }
       out.country_of_origin_iso2 = c;
     }
-  }
-  if (Object.prototype.hasOwnProperty.call(out, "hts_code")) {
-    if (out.hts_code === "" || out.hts_code == null) out.hts_code = null;
-    else out.hts_code = String(out.hts_code).trim();
   }
   if (Object.prototype.hasOwnProperty.call(out, "care_instructions")) {
     if (out.care_instructions === "" || out.care_instructions == null) out.care_instructions = null;

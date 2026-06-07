@@ -86,6 +86,7 @@ const STYLE_MASTER_COLUMNS: ColumnDef[] = [
   { key: "brand_name",        label: "Brand" },
   { key: "size_scale_code",   label: "Size Scale" },
   { key: "base_fabric",       label: "Base Fabric" },
+  { key: "hts_code",          label: "HTS" },
   { key: "season",            label: "Season" },
   { key: "design_year",       label: "Year" },
   { key: "lifecycle_status",  label: "Lifecycle" },
@@ -115,6 +116,7 @@ type Style = {
   brand_id: string | null;
   size_scale_id: string | null;
   rise: string | null;
+  hts_code: string | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -519,6 +521,7 @@ export default function InternalStyleMaster() {
             { key: "base_fabric_code",  header: "Base Fabric Code" },
             { key: "base_fabric_name",  header: "Base Fabric Name" },
             { key: "base_fabric_legacy", header: "Base Fabric (legacy text)" },
+            { key: "hts_code",          header: "HTS Code" },
             { key: "launch_date",       header: "Launch Date", format: "date" },
             { key: "created_at",        header: "Created", format: "datetime" },
             { key: "updated_at",        header: "Updated", format: "datetime" },
@@ -552,6 +555,7 @@ export default function InternalStyleMaster() {
                 <th style={th} hidden={!isVisible("brand_name")}>Brand</th>
                 <th style={th} hidden={!isVisible("size_scale_code")}>Size Scale</th>
                 <th style={th} hidden={!isVisible("base_fabric")}>Base Fabric</th>
+                <th style={th} hidden={!isVisible("hts_code")}>HTS</th>
                 <th style={th} hidden={!isVisible("season")}>Season</th>
                 <th style={th} hidden={!isVisible("design_year")}>Year</th>
                 <th style={th} hidden={!isVisible("lifecycle_status")}>Lifecycle</th>
@@ -586,6 +590,7 @@ export default function InternalStyleMaster() {
                         ? <span style={{ color: C.warn }} title="Legacy free-text — re-pick in edit modal">{r.base_fabric_legacy}</span>
                         : "—"}
                   </td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("hts_code")}>{r.hts_code || "—"}</td>
                   <td style={td} hidden={!isVisible("season")}>{r.season || "—"}</td>
                   <td style={td} hidden={!isVisible("design_year")}>{r.design_year ?? "—"}</td>
                   <td style={td} hidden={!isVisible("lifecycle_status")}>{r.lifecycle_status}</td>
@@ -661,7 +666,13 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     brand_id:             style?.brand_id              ?? "",
     size_scale_id:        style?.size_scale_id         ?? "",
     rise:                 style?.rise                  ?? "",
+    hts_code:             style?.hts_code              ?? "",
   });
+  // AI HTS classification state (Claude Haiku via /api/internal/hts/suggest).
+  type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
+  const [htsSuggestions, setHtsSuggestions] = useState<HtsSuggestion[]>([]);
+  const [htsLoading, setHtsLoading] = useState(false);
+  const [htsErr, setHtsErr] = useState<string | null>(null);
   const [fabrics, setFabrics] = useState<FabricCodeLite[]>([]);
   const [sizeScales, setSizeScales] = useState<SizeScaleLite[]>([]);
   const [seasons, setSeasons] = useState<SeasonLite[]>([]);
@@ -865,6 +876,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         brand_id:             form.brand_id || null,
         size_scale_id:        form.size_scale_id || null,
         rise:                 form.rise.trim() || null,
+        hts_code:             form.hts_code.trim() || null,
       };
       let url: string;
       let method: string;
@@ -901,6 +913,62 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // AI HTS suggestion — HTS is STYLE-specific (same fabric → different code for
+  // a pant vs a jacket), so we classify from the style's Group (top/bottom/
+  // accessory) + the linked base fabric's composition.
+  async function fetchHtsSuggestions() {
+    const fabric = fabrics.find((f) => f.id === form.base_fabric_code_id);
+    const fabricContent = (fabric?.composition_text || "").trim();
+    if (!form.group_name.trim() && !fabricContent) {
+      setHtsErr("Pick a Group and a Base fabric (with composition) first.");
+      return;
+    }
+    setHtsLoading(true);
+    setHtsErr(null);
+    setHtsSuggestions([]);
+    try {
+      const r = await fetch("/api/internal/hts/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fabric_content: fabricContent,
+          category: form.group_name.trim(),       // top / bottom / accessory
+          country_of_origin: "",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setHtsSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+      if (data.note) setHtsErr(data.note);
+    } catch (e: unknown) {
+      setHtsErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setHtsLoading(false);
+    }
+  }
+
+  // Pick a suggestion → set the style's hts_code AND auto-fill the HTS Master
+  // reference table (best-effort; a 409/dup or error never blocks).
+  async function pickHtsSuggestion(s: HtsSuggestion) {
+    setForm((f) => ({ ...f, hts_code: s.code }));
+    setHtsSuggestions([]);
+    const digits = String(s.code).replace(/\D/g, "");
+    try {
+      await fetch("/api/internal/hts-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: s.code,
+          description: s.description || s.code,
+          chapter: digits.slice(0, 2) || null,
+          heading: digits.slice(0, 4) || null,
+          duty_rate_pct: s.duty_rate_pct ?? null,
+          notes: "Auto-added from AI HTS classification (Style Master)",
+        }),
+      });
+    } catch { /* non-fatal */ }
   }
 
   const title =
@@ -1068,6 +1136,51 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             {!form.base_fabric_code_id && style?.base_fabric_legacy && (
               <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>
                 Legacy text: <em>{style.base_fabric_legacy}</em> — pick a fabric above to replace it.
+              </div>
+            )}
+          </Field>
+          <Field label="HTS code">
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="text"
+                value={form.hts_code}
+                onChange={(e) => { setForm({ ...form, hts_code: e.target.value }); setHtsSuggestions([]); }}
+                style={{ ...inputStyle, flex: 1 }}
+                placeholder="e.g. 6203.42.4011"
+              />
+              <button
+                type="button"
+                onClick={() => void fetchHtsSuggestions()}
+                disabled={htsLoading}
+                style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
+                title="Use Claude AI to suggest an HTS code from this style's Group + base fabric composition"
+              >
+                {htsLoading ? "…" : "🤖 Suggest HTS"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+              AI uses Group (top/bottom/accessory) + the base fabric's composition.
+            </div>
+            {htsErr && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{htsErr}</div>}
+            {htsSuggestions.length > 0 && (
+              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 4, marginTop: 4, overflow: "hidden" }}>
+                {htsSuggestions.map((s, i) => (
+                  <div
+                    key={i}
+                    onClick={() => void pickHtsSuggestion(s)}
+                    style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < htsSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.card; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, fontSize: 13 }}>{s.code}</span>
+                      <span style={{ fontSize: 11, color: s.confidence === "high" ? C.success : s.confidence === "medium" ? C.warn : C.textMuted }}>{s.confidence}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{s.description}</div>
+                    {s.duty_rate_pct != null && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>Duty: {s.duty_rate_pct}%</div>}
+                    {s.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, fontStyle: "italic" }}>{s.reasoning}</div>}
+                  </div>
+                ))}
               </div>
             )}
           </Field>

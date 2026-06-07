@@ -19,10 +19,10 @@ const UUID_RE          = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const MUTABLE_FIELDS = new Set([
   "style_name", "description", "category_id", "gender_code", "season", "design_year",
   "is_apparel", "launch_date", "lifecycle_status", "planning_class",
-  "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "rise", "attributes",
+  "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "rise", "hts_code", "attributes",
 ]);
 
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -153,10 +153,10 @@ export function validatePatch(body) {
   // Normalize empty strings to null for nullable text fields.
   for (const k of [
     "style_name", "gender_code", "season", "planning_class",
-    "category_id", "group_name", "category_name", "sub_category_name", "rise",
+    "category_id", "group_name", "category_name", "sub_category_name", "rise", "hts_code",
   ]) {
     if (out[k] === "") out[k] = null;
-    else if (typeof out[k] === "string" && ["group_name","category_name","sub_category_name","style_name","season","rise"].includes(k)) {
+    else if (typeof out[k] === "string" && ["group_name","category_name","sub_category_name","style_name","season","rise","hts_code"].includes(k)) {
       const trimmed = out[k].trim();
       out[k] = trimmed === "" ? null : trimmed;
     }
