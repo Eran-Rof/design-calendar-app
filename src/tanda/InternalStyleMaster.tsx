@@ -925,6 +925,13 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       setHtsErr("Pick a Group and a Base fabric (with composition) first.");
       return;
     }
+    // Gender is decisive for apparel HTS (men's/boys' vs women's/girls' classify
+    // differently) — resolve the code to its descriptive label for the prompt.
+    const genderLabel = form.gender_code
+      ? (genders.find((g) => g.code === form.gender_code)?.label
+         || GENDER_FALLBACK.find((o) => o.value === form.gender_code)?.label
+         || form.gender_code)
+      : "";
     setHtsLoading(true);
     setHtsErr(null);
     setHtsSuggestions([]);
@@ -935,6 +942,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         body: JSON.stringify({
           fabric_content: fabricContent,
           category: form.group_name.trim(),       // top / bottom / accessory
+          gender: genderLabel,                     // Mens / Womens / Boys / Girls / …
           country_of_origin: "",
         }),
       });
@@ -1159,7 +1167,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </button>
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              AI uses Group (top/bottom/accessory) + the base fabric's composition.
+              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition.
             </div>
             {htsErr && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{htsErr}</div>}
             {htsSuggestions.length > 0 && (
