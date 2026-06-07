@@ -26,7 +26,7 @@ import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
 import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
-import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
+import { fetchStyleSeedSku, generateRfqs, reviseLineRfq } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { confirmDialog, notify } from "../../shared/ui/warn";
 import { marginTierColor } from "../../techpack/calc";
@@ -123,14 +123,25 @@ export default function CostingGrid() {
         { title: "Vendor data revised", confirmText: "Yes, send revision", cancelText: "Cancel" },
       );
       if (ok) {
-        // Mark the line as revised so the status shows "Rvsd RFQ".
-        // The vendor will see the updated costing data on their next RFQ view.
-        void updateLine(lineId, { status: "revised" as Parameters<typeof updateLine>[1]["status"] });
+        // Call the revise endpoint: sets line status → 'revised' (Rvsd RFQ)
+        // AND sends rfq_revised notification to every vendor on the linked RFQ(s)
+        // so they know to review the revision while keeping their original quote.
+        try {
+          const result = await reviseLineRfq(lineId);
+          // Reflect the status change locally without a full reload.
+          void updateLine(lineId, { status: "revised" as Parameters<typeof updateLine>[1]["status"] });
+          const msg = result.vendors_notified > 0
+            ? `Revision sent to ${result.vendors_notified} vendor${result.vendors_notified === 1 ? "" : "s"}.`
+            : "Line marked as revised. No vendor notifications sent (no linked RFQ found).";
+          setNotice(msg, "info");
+        } catch (e) {
+          setNotice(`Revision failed: ${(e as Error).message}`, "error");
+        }
       }
     }, 30_000);
 
     revisionTimers.current.set(lineId, handle);
-  }, [updateLine]);
+  }, [updateLine, setNotice]);
 
   // Wrap updateLine: quoted lines get an immediate confirm before saving;
   // sent/quoted lines get a 30-second debounced revision prompt after saving.
