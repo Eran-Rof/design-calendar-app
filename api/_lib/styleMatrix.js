@@ -57,6 +57,13 @@ export function sizeVariantsOf(raw) {
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
 const WH_UNASSIGNED = "(unassigned)";
 
+// "Loose" SKU key — uppercase, strip every non-alphanumeric. Used ONLY to
+// reconcile the avg-cost grain mismatch (master "NAVY-CAMO" vs costing
+// "NAVYCAMO"); both collapse to "NAVYCAMO" here. Never used to write data.
+function looseKey(s) {
+  return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 // PPK stem: strip a trailing PPK token (optionally dash-prefixed, optional
 // trailing digits) from a style_code so a SIZED style and its PPK sibling land
 // on the same stem. Mirrors src/ats/salesCompsGrain.ts siblingKeyFor().
@@ -168,16 +175,30 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
 
   // Avg cost: ip_item_avg_cost is keyed by sku_code, storing dollars in avg_cost.
   // Convert to integer cents (×100 round). Degrade silently if table absent.
-  const avgCostCentsBySku = new Map();
-  const skuCodes = [...new Set(skus.map((s) => s.sku_code).filter(Boolean))];
-  if (skuCodes.length > 0) {
+  //
+  // GRAIN MISMATCH (fixed here): the costing sync canonicalizes Xoro item
+  // numbers with canonSku (uppercase + spaces REMOVED), so a multi-word color
+  // "Navy Camo" becomes "NAVYCAMO" → "RYB0412-NAVYCAMO-30". But ip_item_master
+  // stores the same SKU with the space turned into a HYPHEN →
+  // "RYB0412-NAVY-CAMO-30". An exact .in() join therefore drops EVERY
+  // multi-word-color SKU (~3,660 active SKUs in prod). We fetch the whole
+  // style's cost set by style_code prefix and index it BOTH exactly and by a
+  // "loose" key (all non-alphanumerics stripped) so those SKUs resolve. Loose
+  // collisions were verified non-ambiguous in prod (same cost when keys clash).
+  const avgCostCentsBySku   = new Map(); // exact sku_code → cents
+  const avgCostCentsByLoose = new Map(); // looseKey(sku_code) → cents
+  if (style.style_code) {
     const { data: avgRows, error: avgErr } = await admin
       .from("ip_item_avg_cost")
       .select("sku_code, avg_cost")
-      .in("sku_code", skuCodes);
+      .like("sku_code", `${style.style_code}-%`);
     if (!avgErr) {
       for (const r of avgRows || []) {
-        if (r.avg_cost != null) avgCostCentsBySku.set(r.sku_code, Math.round(Number(r.avg_cost) * 100));
+        if (r.avg_cost == null) continue;
+        const cents = Math.round(Number(r.avg_cost) * 100);
+        avgCostCentsBySku.set(r.sku_code, cents);
+        const lk = looseKey(r.sku_code);
+        if (!avgCostCentsByLoose.has(lk)) avgCostCentsByLoose.set(lk, cents);
       }
     }
   }
@@ -231,7 +252,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       packs_unmatched: explode.unmatched,    // [{ ppk_style_code, color, pack_token, qty }]
       ppk_styles: explode.ppkStyles,         // distinct PPK sibling style_codes found
     } : (explodePpk ? { enabled: true, cells: [], packs_exploded: 0, packs_unmatched: [], ppk_styles: [] } : undefined),
-    skus: mergeSkusByCell(skus, { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku }),
+    skus: mergeSkusByCell(skus, { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku, avgCostCentsByLoose }),
   };
 }
 
@@ -246,14 +267,23 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
 // canonical scale label so cells line up with the scale-driven columns.
 // Non-destructive: ip_item_master rows are untouched.
 function mergeSkusByCell(skus, maps) {
-  const { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku } = maps;
+  const { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku, avgCostCentsByLoose } = maps;
   const cells = new Map(); // `${color}|${size}|${inseam}` → merged sku (+ _primaryOnHand)
   for (const s of skus) {
     const size = normalizeSize(s.size);
     const key = `${s.color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
     const oh = onHand.get(s.id) || 0;
     const av = avail.has(s.id) ? avail.get(s.id) : null;
-    const avgC = s.sku_code && avgCostCentsBySku.has(s.sku_code) ? avgCostCentsBySku.get(s.sku_code) : null;
+    // Exact sku_code match first; fall back to the loose key so multi-word-color
+    // SKUs (master "NAVY-CAMO" vs costing "NAVYCAMO") still resolve their cost.
+    let avgC = null;
+    if (s.sku_code) {
+      if (avgCostCentsBySku.has(s.sku_code)) avgC = avgCostCentsBySku.get(s.sku_code);
+      else if (avgCostCentsByLoose) {
+        const lk = looseKey(s.sku_code);
+        if (avgCostCentsByLoose.has(lk)) avgC = avgCostCentsByLoose.get(lk);
+      }
+    }
     const lr = lastReceived.has(s.id) ? lastReceived.get(s.id) : null;
     let cell = cells.get(key);
     if (!cell) {
