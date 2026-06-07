@@ -455,7 +455,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
           <tfoot>
             <tr style={{ borderTop: `2px solid ${C.borderStrong}`, background: C.bandBg }}>
               <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.bandBg, fontWeight: 700, textAlign: "left" }}>
-                Total (Σ extended)
+                Total
               </td>
               {quotes.map((q, i) => (
                 <td
