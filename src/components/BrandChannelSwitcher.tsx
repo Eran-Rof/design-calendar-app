@@ -52,8 +52,7 @@ export default function BrandChannelSwitcher({ inline = false }: BrandChannelSwi
         boxShadow: "0 4px 12px rgba(0,0,0,0.3)", borderRadius: 8,
       }}
     >
-      <label title="Filter by brand" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <span aria-hidden style={{ color: C.accent, fontSize: 12 }}>🏷️</span>
+      <label title="Filter by brand">
         <select
           data-testid="brand-select"
           aria-label="Brand filter"
@@ -68,8 +67,7 @@ export default function BrandChannelSwitcher({ inline = false }: BrandChannelSwi
         </select>
       </label>
 
-      <label title="Filter by channel" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <span aria-hidden style={{ color: C.accent, fontSize: 12 }}>🛒</span>
+      <label title="Filter by channel">
         <select
           data-testid="channel-select"
           aria-label="Channel filter"
