@@ -309,14 +309,11 @@ export const useCostingStore = create<State>((set, get) => ({
       ...rest
     } = source as CostingLine & { created_at?: unknown; updated_at?: unknown };
 
-    // Position the copy immediately after the source. Use a fractional
-    // sort_order between the source and the next row so the GET (ordered by
-    // sort_order) renders it directly below; we re-normalize to clean
-    // integers afterwards.
-    const next = lines[srcIdx + 1];
-    const newSortOrder = next
-      ? (source.sort_order + next.sort_order) / 2
-      : source.sort_order + 1;
+    // sort_order is an integer column — fractional midpoints aren't valid.
+    // Append at max+1 temporarily; reorderLines normalises to 0,1,2,…
+    // immediately after the INSERT so the visual order is always correct.
+    const maxOrder = lines.reduce((m, l) => Math.max(m, l.sort_order ?? 0), 0);
+    const newSortOrder = maxOrder + 1;
 
     const copy = {
       ...rest,
