@@ -346,53 +346,8 @@ export const useCostingStore = create<State>((set, get) => ({
   },
 
   async updateLine(id, patch) {
-    const keys = Object.keys(patch);
-    // The manual Status picker (draft/closed) is always allowed — it sends only
-    // { status }. Everything else is a field edit subject to lifecycle gating.
-    const isStatusOnly = keys.length === 1 && keys[0] === "status";
-    const line = get().lines.find((l) => l.id === id);
-    const st = line?.status as string | undefined;
-
-    if (line && !isStatusOnly && (st === "awarded" || st === "lost" || st === "revised")) {
-      // Terminal-for-editing: locked. Ignore the field edit (the optimistic copy
-      // would otherwise diverge from the server).
-      set({ error: `This row is ${st} and is locked for editing.` });
-      return;
-    }
-
-    if (line && !isStatusOnly && (st === "sent" || st === "quoted")) {
-      // FORK: a Sent/Quoted row can't be mutated in place. Server freezes the
-      // source → 'revised' (and closes its superseded RFQ); we then create a new
-      // Draft copy carrying the edit and select it.
-      const project = get().project;
-      if (!project) return;
-      try {
-        await api.reviseLine(id);
-        const { id: _id, created_at: _c, updated_at: _u, sort_order: _so, ...rest } =
-          line as unknown as Record<string, unknown>;
-        const copy = {
-          ...rest,
-          ...patch,
-          status: "draft",
-          selected_vendor_quote_id: null,
-          sort_order: (typeof line.sort_order === "number" ? line.sort_order : 0) + 0.5,
-        } as Partial<CostingLine>;
-        const created = await api.upsertLines(project.id, [copy]);
-        const newLine = created[0];
-        set((s) => {
-          const arr = s.lines.map((l) => (l.id === id ? ({ ...l, status: "revised" } as CostingLine) : l));
-          const i = arr.findIndex((l) => l.id === id);
-          if (newLine) arr.splice(i < 0 ? arr.length : i + 1, 0, newLine);
-          return { lines: arr, selectedLineId: newLine ? newLine.id : s.selectedLineId };
-        });
-        if (newLine) void get().reorderLines(get().lines.map((l) => l.id));
-      } catch (e) {
-        set({ error: (e as Error).message });
-      }
-      return;
-    }
-
-    // Normal optimistic update (draft/closed field edits + manual status picks).
+    // All statuses are editable. The UI layer handles quoted-status confirmation
+    // before calling here. This path is a direct optimistic update for all states.
     set((s) => ({
       lines: s.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)),
     }));

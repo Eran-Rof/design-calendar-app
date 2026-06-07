@@ -105,6 +105,20 @@ export default function CostingGrid() {
   const addLine = useCostingStore((s) => s.addLine);
   const duplicateLine = useCostingStore((s) => s.duplicateLine);
   const updateLine = useCostingStore((s) => s.updateLine);
+
+  // Wrap updateLine: if the line is "quoted", show a confirmation before saving.
+  const updateLineGuarded = React.useCallback(async (id: string, patch: Parameters<typeof updateLine>[1]) => {
+    const line = useCostingStore.getState().lines.find((l) => l.id === id);
+    if (line?.status === "quoted") {
+      const ok = await confirmDialog(
+        "This line has an active vendor quote. Saving will overwrite the quoted values.",
+        { title: "Line has been quoted", confirmText: "Save changes", cancelText: "Cancel" },
+      );
+      if (!ok) return;
+    }
+    return updateLine(id, patch);
+  }, [updateLine]);
+
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
@@ -373,7 +387,7 @@ export default function CostingGrid() {
       return;
     }
     const patch = solveCostFromMargin(line, isDdp, m);
-    if (patch) void updateLine(line.id, patch);
+    if (patch) void updateLineGuarded(line.id, patch);
   };
 
   // Style pick — prefill + seed target_cost.
@@ -407,7 +421,7 @@ export default function CostingGrid() {
         }
       }
     }
-    await updateLine(line.id, patch);
+    await updateLineGuarded(line.id, patch);
   };
 
   const onDragStart = (id: string) => (e: React.DragEvent) => {
@@ -780,7 +794,7 @@ export default function CostingGrid() {
                       <StylePickerCell
                         value={line.style_code}
                         onPick={(s) => onStylePick(line, s)}
-                        onChange={(v) => updateLine(line.id, { style_code: v })}
+                        onChange={(v) => updateLineGuarded(line.id, { style_code: v })}
                         cellStyle={{ padding: "4px 6px" }}
                       />
                     </div>
@@ -951,7 +965,7 @@ export default function CostingGrid() {
                         onBlur={(e) => {
                           const raw = e.target.value.replace(/[^0-9.\-]/g, "");
                           const num = raw === "" ? null : Number(raw);
-                          updateLine(line.id, { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>);
+                          void updateLineGuarded(line.id, { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>);
                         }}
                         style={{
                           width: "100%", padding: "4px 6px", fontSize: 12,
@@ -971,7 +985,7 @@ export default function CostingGrid() {
                       <MasterPickerCell
                         kind={kind as "fit" | "closure" | "waist" | "comment"}
                         value={(line[c.key as keyof CostingLine] as string | null) ?? null}
-                        onChange={(v) => updateLine(line.id, { [c.key]: v } as Partial<CostingLine>)}
+                        onChange={(v) => updateLineGuarded(line.id, { [c.key]: v } as Partial<CostingLine>)}
                       />
                     </div>
                   );
@@ -983,7 +997,7 @@ export default function CostingGrid() {
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <ScalePickerCell
                         value={line.size_scale_label}
-                        onChange={(v) => updateLine(line.id, { size_scale_label: v })}
+                        onChange={(v) => updateLineGuarded(line.id, { size_scale_label: v })}
                       />
                     </div>
                   );
@@ -1001,7 +1015,7 @@ export default function CostingGrid() {
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <FabricPickerCell
                         value={codes}
-                        onChange={(next) => updateLine(line.id, {
+                        onChange={(next) => updateLineGuarded(line.id, {
                           fabric_codes: next,
                           fabric_code: next.length > 0 ? next[0] : null,
                         })}
@@ -1020,7 +1034,7 @@ export default function CostingGrid() {
                       <ColorPickerCell
                         value={line.color}
                         styleCode={line.style_code}
-                        onChange={(v) => updateLine(line.id, { color: v })}
+                        onChange={(v) => updateLineGuarded(line.id, { color: v })}
                       />
                     </div>
                   );
@@ -1034,7 +1048,7 @@ export default function CostingGrid() {
                     <input
                       defaultValue={(v as string | null) ?? ""}
                       type="text"
-                      onBlur={(e) => updateLine(line.id, { [key]: e.target.value || null } as Partial<CostingLine>)}
+                      onBlur={(e) => void updateLineGuarded(line.id, { [key]: e.target.value || null } as Partial<CostingLine>)}
                       style={{
                         width: "100%", padding: "4px 6px", fontSize: 12,
                         background: "transparent", border: "1px solid transparent",
