@@ -28,7 +28,6 @@ import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
-import { appConfirm } from "../../utils/theme";
 import { confirmDialog, notify } from "../../shared/ui/warn";
 import { marginTierColor } from "../../techpack/calc";
 import {
@@ -46,20 +45,6 @@ function n(v: number | null | undefined): number {
   if (v == null) return 0;
   const x = typeof v === "number" ? v : Number(v);
   return isFinite(x) ? x : 0;
-}
-
-// Per-row action button — same height + padding for $ Qts and × so the
-// end-of-row doesn't look ragged. minWidth so the × button isn't a tiny
-// square wedged against $ Qts.
-function ACTION_BTN_STYLE(bg: string, fg: string, border: string): React.CSSProperties {
-  return {
-    background: bg, color: fg,
-    border: `1px solid ${border}`, borderRadius: 3,
-    padding: "3px 8px", fontSize: 10, fontWeight: 600,
-    cursor: "pointer", lineHeight: 1.4,
-    minWidth: 30, height: 22,
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-  };
 }
 
 interface ColumnDef {
@@ -107,7 +92,6 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "_docs",          label: "Docs",     width: 56, align: "center" },
-  { key: "_actions",       label: "",         width: 90,  align: "center" },
 ];
 
 const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
@@ -497,6 +481,36 @@ export default function CostingGrid() {
             fontSize: 12, fontWeight: 600,
           }}
         >⎘ Copy{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
+        <button
+          onClick={async () => {
+            const ids = Array.from(selectedRowIds);
+            const selectedLines = lines.filter((l) => ids.includes(l.id));
+            const ok = await confirmDialog(
+              `Delete ${ids.length} selected row${ids.length === 1 ? "" : "s"}? This also removes their vendor + compliance data.`,
+              {
+                title: "Delete rows",
+                danger: true,
+                confirmText: `Delete ${ids.length} row${ids.length === 1 ? "" : "s"}`,
+                cancelText: "Cancel",
+                listItems: selectedLines.map((l) => l.style_code || "(no style)"),
+              },
+            );
+            if (!ok) return;
+            for (const id of ids) await deleteLine(id);
+            setSelectedRowIds(new Set());
+            setNotice(`${ids.length} row${ids.length === 1 ? "" : "s"} deleted.`, "info");
+          }}
+          disabled={selectedRowIds.size === 0}
+          title={selectedRowIds.size === 0 ? "Select rows to delete" : `Delete ${selectedRowIds.size} selected row${selectedRowIds.size === 1 ? "" : "s"}`}
+          style={{
+            background: selectedRowIds.size > 0 ? "#EF4444" : "transparent",
+            color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
+            border: `1px solid ${selectedRowIds.size > 0 ? "#EF4444" : "#334155"}`,
+            padding: "5px 14px", borderRadius: 4,
+            cursor: selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            fontSize: 12, fontWeight: 600,
+          }}
+        >✕ Delete{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
         <button
           onClick={onGenerateRfqs}
           disabled={generating}
@@ -905,26 +919,6 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={{ ...style, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
                       <RowAttachmentsCell lineId={line.id} styleCode={line.style_code} />
-                    </div>
-                  );
-                }
-
-                // Row actions — only delete now (vendor quotes side panel
-                // removed in favour of the toolbar Vendor RFQ flow). Kept the
-                // shared button style helper so width/height stays aligned
-                // with any future additions.
-                if (c.key === "_actions") {
-                  return (
-                    <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => appConfirm(
-                          `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor + compliance data.`,
-                          "Delete",
-                          () => deleteLine(line.id),
-                        )}
-                        title="Delete row"
-                        style={ACTION_BTN_STYLE("transparent", "#F87171", "#7F1D1D")}
-                      >× Delete</button>
                     </div>
                   );
                 }
