@@ -195,6 +195,24 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLUListElement>(null);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelLeave = useCallback(() => {
+    if (leaveTimerRef.current !== null) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    cancelLeave();
+    leaveTimerRef.current = setTimeout(() => {
+      setOpen(false);
+      setQuery("");
+      setAddNewHighlighted(false);
+    }, 200);
+  }, [cancelLeave]);
+
   // The options panel renders in a portal with fixed positioning so it escapes
   // any scrollable/overflow-clipped ancestor (e.g. a modal with overflow:auto —
   // otherwise the dropdown gets "buried"/clipped). We track the anchor rect.
@@ -430,6 +448,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       aria-haspopup="listbox"
       aria-controls={listboxId}
       style={{ position: "relative", width: "100%" }}
+      onMouseEnter={cancelLeave}
+      onMouseLeave={scheduleClose}
     >
       <input
         ref={inputRef}
@@ -453,6 +473,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           ref={panelRef}
           id={listboxId}
           role="listbox"
+          onMouseEnter={cancelLeave}
+          onMouseLeave={scheduleClose}
           style={{
             ...PANEL_STYLE,
             position: "fixed",

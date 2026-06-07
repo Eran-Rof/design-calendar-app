@@ -592,12 +592,14 @@ export default function InternalInventoryMatrix() {
 
   // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      brands.map((b) => ({
+    () => [
+      { value: ALL_BRANDS_SENTINEL, label: "(All Brands)", searchHaystack: "all brands" },
+      ...brands.map((b) => ({
         value: b.id,
         label: b.name || b.code || "—",
         searchHaystack: [b.name, b.code].filter(Boolean).join(" "),
       })),
+    ],
     [brands],
   );
 
@@ -616,6 +618,7 @@ export default function InternalInventoryMatrix() {
     [brands],
   );
 
+  const ALL_BRANDS_SENTINEL = "__ALL_BRANDS__";
   // Sentinel value for "show all styles" (brand-level view, no single style drill-in).
   const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
 
@@ -824,10 +827,13 @@ export default function InternalInventoryMatrix() {
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 200 }}>
           Brand
           <SearchableSelect
-            value={brandId || null}
-            onChange={(v) => setBrandId(v || "")}
+            value={brandId ? brandId : ALL_BRANDS_SENTINEL}
+            onChange={(v) => {
+              if (!v || v === ALL_BRANDS_SENTINEL) { setBrandId(""); setStyleId(""); }
+              else setBrandId(v);
+            }}
             options={brandOptions}
-            placeholder="(all brands)"
+            placeholder="Search brand…"
             inputStyle={inputStyle}
           />
         </label>
