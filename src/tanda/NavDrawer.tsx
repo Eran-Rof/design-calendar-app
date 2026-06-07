@@ -237,14 +237,15 @@ export function NavDrawer({
     >
       {/* ── Logo / collapse ───────────────────────────────────────── */}
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 8px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
-        <button
-          onClick={e => { e.stopPropagation(); onToggleCollapsed(); }}
-          title={collapsed ? "Expand menu" : "Collapse menu"}
-          style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:15, padding:"3px 5px", lineHeight:1, flexShrink:0, borderRadius:4 }}
-          onMouseEnter={e => { e.currentTarget.style.color = C.text; }}
-          onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; }}
-        >{collapsed ? "▶" : "◀"}</button>
-        {!collapsed && (
+        {collapsed ? (
+          <button
+            onClick={e => { e.stopPropagation(); onToggleCollapsed(); }}
+            title="Expand menu"
+            style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:15, padding:"3px 5px", lineHeight:1, flexShrink:0, borderRadius:4, width:"100%", textAlign:"center" }}
+            onMouseEnter={e => { e.currentTarget.style.color = C.text; }}
+            onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; }}
+          >▶</button>
+        ) : (
           <>
             <div
               onClick={e => { e.stopPropagation(); onSelectModule(null); }}
@@ -252,9 +253,16 @@ export function NavDrawer({
               style={{ width:26, height:26, borderRadius:6, background:C.logo, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13, color:"#fff", flexShrink:0, cursor:"pointer" }}
             >T</div>
             <span
-              style={{ fontWeight:700, fontSize:14, letterSpacing:0.3, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}
+              style={{ fontWeight:700, fontSize:14, letterSpacing:0.3, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}
               onClick={e => { e.stopPropagation(); onSelectModule(null); }}
             >Tangerine</span>
+            <button
+              onClick={e => { e.stopPropagation(); onToggleCollapsed(); }}
+              title="Collapse menu"
+              style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:15, padding:"3px 5px", lineHeight:1, flexShrink:0, borderRadius:4, marginLeft:"auto" }}
+              onMouseEnter={e => { e.currentTarget.style.color = C.text; }}
+              onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; }}
+            >◀</button>
           </>
         )}
       </div>
