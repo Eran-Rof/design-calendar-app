@@ -455,14 +455,23 @@ export default function CostingGrid() {
           Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
           {stageFilter && <span style={{ color: "#F59E0B", marginLeft: 8, fontSize: 11 }}>(filtered: {stageFilter})</span>}
         </h3>
-        <button
-          onClick={onAdd}
-          style={{
-            background: "#10B981", color: "#fff", border: "none",
-            padding: "5px 14px", borderRadius: 4, cursor: "pointer",
-            fontSize: 12, fontWeight: 600,
-          }}
-        >+ Add row</button>
+        {(() => {
+          const headerOk = projectHeaderMissing(project).length === 0;
+          return (
+            <button
+              onClick={onAdd}
+              title={headerOk ? "Add a new costing row" : "Complete the project header first"}
+              style={{
+                background: headerOk ? "#10B981" : "#334155",
+                color: headerOk ? "#fff" : "#64748B",
+                border: headerOk ? "none" : "1px solid #475569",
+                padding: "5px 14px", borderRadius: 4,
+                cursor: "pointer",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >+ Add row</button>
+          );
+        })()}
         <button
           onClick={async () => {
             const ids = Array.from(selectedRowIds);
