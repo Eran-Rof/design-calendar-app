@@ -24,6 +24,7 @@ import { readDrillParam } from "./scorecardDrill";
 
 const TABLE_KEY = "tanda.journal_entry";
 const ALL_COLUMNS: ColumnDef[] = [
+  { key: "je_number",    label: "JE #" },
   { key: "posting_date", label: "Posting Date" },
   { key: "type",         label: "Type" },
   { key: "basis",        label: "Basis" },
@@ -55,6 +56,7 @@ type JELine = {
 
 type JE = {
   id: string;
+  je_number: string | null;
   basis: "ACCRUAL" | "CASH";
   journal_type: string;
   posting_date: string;
@@ -168,7 +170,7 @@ export default function InternalJournalEntry() {
     const needle = searchDebounced.trim().toLowerCase();
     if (!needle) return rows;
     return rows.filter((je) =>
-      `${je.description || ""} ${je.source_table || ""} ${je.source_id || ""}`
+      `${je.je_number || ""} ${je.description || ""} ${je.source_table || ""} ${je.source_id || ""}`
         .toLowerCase()
         .includes(needle),
     );
@@ -223,7 +225,7 @@ export default function InternalJournalEntry() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search description / source…"
+          placeholder="Search JE # / description / source…"
           style={{ ...inputStyle, width: 220 }}
         />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
@@ -235,6 +237,7 @@ export default function InternalJournalEntry() {
           filename="journal-entries"
           sheetName="Journal Entries"
           columns={[
+            { key: "je_number",         header: "JE #" },
             { key: "posting_date",      header: "Posting Date", format: "date" },
             { key: "journal_type",      header: "Type" },
             { key: "basis",             header: "Basis" },
@@ -278,6 +281,7 @@ export default function InternalJournalEntry() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={th} hidden={!visibleColumns.has("je_number")}>JE #</th>
                 <th style={th} hidden={!visibleColumns.has("posting_date")}>Posting Date</th>
                 <th style={th} hidden={!visibleColumns.has("type")}>Type</th>
                 <th style={th} hidden={!visibleColumns.has("basis")}>Basis</th>
@@ -300,6 +304,7 @@ export default function InternalJournalEntry() {
                   }}
                   title="Click to view details"
                 >
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap", fontWeight: 600 }} hidden={!visibleColumns.has("je_number")}>{je.je_number || "—"}</td>
                   <td style={td} hidden={!visibleColumns.has("posting_date")}>{fmtDateDisplay(je.posting_date)}</td>
                   <td style={td} hidden={!visibleColumns.has("type")}>{je.journal_type}</td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!visibleColumns.has("basis")}>{je.basis}</td>

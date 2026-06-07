@@ -35,6 +35,7 @@ type Account = {
 type Row = {
   posting_date: string;
   je_id: string;
+  je_number: string | null;
   description: string | null;
   debit_cents: number | string;
   credit_cents: number | string;
@@ -246,7 +247,7 @@ export default function InternalGLDetail() {
           sheetName="GL Detail"
           columns={[
             { key: "posting_date",  header: "Date",          format: "date" },
-            { key: "je_id",         header: "JE" },
+            { key: "je_number",     header: "JE" },
             { key: "description",   header: "Description" },
             { key: "debit_cents",   header: "Debit",         format: "currency_cents" },
             { key: "credit_cents",  header: "Credit",        format: "currency_cents" },
@@ -292,6 +293,7 @@ export default function InternalGLDetail() {
             <thead>
               <tr>
                 <th style={th}>Date</th>
+                <th style={th}>JE #</th>
                 <th style={th}>Description</th>
                 <th style={th}>Source</th>
                 <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("debit")}>Debit</th>
@@ -303,6 +305,7 @@ export default function InternalGLDetail() {
               {rows.map((r) => (
                 <tr key={`${r.je_id}-${r.posting_date}`}>
                   <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>{r.je_number || "—"}</td>
                   <td style={td}>{r.description || "—"}</td>
                   <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>
                     {r.source_module || "—"}
@@ -315,7 +318,7 @@ export default function InternalGLDetail() {
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
-                <td style={{ ...td, fontWeight: 700, color: C.textSub }} colSpan={3}>TOTAL ({rows.length})</td>
+                <td style={{ ...td, fontWeight: 700, color: C.textSub }} colSpan={4}>TOTAL ({rows.length})</td>
                 <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("debit")}>{fmtCents(totals.debit)}</td>
                 <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("credit")}>{fmtCents(totals.credit)}</td>
                 <td style={{ ...tdNum, fontWeight: 700, color: netCents !== 0 ? C.text : C.textMuted }} hidden={!visibleColumns.has("balance")}>{fmtBalanceCents(netCents)}</td>
