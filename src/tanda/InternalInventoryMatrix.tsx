@@ -590,12 +590,13 @@ export default function InternalInventoryMatrix() {
     });
   }, [brandId, styleId, brandStyles]);
 
-  // Brand picker options (blank = all brands). Label prefers code, falls back to name.
+  // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
     () =>
       brands.map((b) => ({
         value: b.id,
-        label: b.code && b.name ? `${b.code} — ${b.name}` : (b.name || b.code || "—"),
+        label: b.name || b.code || "—",
+        searchHaystack: [b.name, b.code].filter(Boolean).join(" "),
       })),
     [brands],
   );
@@ -615,24 +616,24 @@ export default function InternalInventoryMatrix() {
     [brands],
   );
 
-  // Style picker options "<style_code> — <style_name>".
-  const styleOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      brandStyles.map((s) => {
-        const name = s.style_name || s.description || "";
-        const label = name ? `${s.style_code} — ${name}` : s.style_code;
-        // Search across code + name + description + group/category/sub + brand
-        // so a style is reachable by any of them (not just code/name) — including
-        // a brand-alone search where the operator types just the brand code/name.
-        const searchHaystack = [
-          s.style_code, s.style_name, s.description,
-          s.group_name, s.category_name, s.sub_category_name,
-          s.brand_id ? brandLabelById.get(s.brand_id) : null,
-        ].filter(Boolean).join(" ");
-        return { value: s.id, label, searchHaystack };
-      }),
-    [brandStyles, brandLabelById],
-  );
+  // Sentinel value for "show all styles" (brand-level view, no single style drill-in).
+  const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
+
+  // Style picker options. First entry is "All Styles" sentinel, then individual styles.
+  // Search across code + name + description + group/category/sub + brand name.
+  const styleOptions = useMemo<SearchableSelectOption[]>(() => {
+    const individual = brandStyles.map((s) => {
+      const name = s.style_name || s.description || "";
+      const label = name ? `${s.style_code} — ${name}` : s.style_code;
+      const searchHaystack = [
+        s.style_code, s.style_name, s.description,
+        s.group_name, s.category_name, s.sub_category_name,
+        s.brand_id ? brandLabelById.get(s.brand_id) : null,
+      ].filter(Boolean).join(" ");
+      return { value: s.id, label, searchHaystack };
+    });
+    return [{ value: ALL_STYLES_SENTINEL, label: "(All Styles)", searchHaystack: "all styles" }, ...individual];
+  }, [brandStyles, brandLabelById]);
 
   const rises = payload?.rises ?? [];
   const showRise = rises.length > 1;
@@ -831,12 +832,15 @@ export default function InternalInventoryMatrix() {
           />
         </label>
 
-        {/* Style picker */}
+        {/* Style picker — "(All Styles)" shows the brand-level matrix view. */}
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 320 }}>
           Style
           <SearchableSelect
-            value={styleId || null}
-            onChange={(v) => setStyleId(v)}
+            value={styleId ? styleId : (brandId ? ALL_STYLES_SENTINEL : null)}
+            onChange={(v) => {
+              if (!v || v === ALL_STYLES_SENTINEL) setStyleId("");
+              else setStyleId(v);
+            }}
             options={styleOptions}
             placeholder="Search style code or name…"
             inputStyle={inputStyle}
@@ -922,17 +926,16 @@ export default function InternalInventoryMatrix() {
           </div>
         </div>
 
-        {/* Warehouse filter — on-hand-only; "All" sums every warehouse (today's
-            number). Always enabled now that On-Hand is the only metric. */}
+        {/* Store filter — on-hand-only; "All Stores" sums every location. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Warehouse
+          Store
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button
               type="button"
               style={btnToggle(warehouse === ALL_WAREHOUSES)}
               onClick={() => setWarehouse(ALL_WAREHOUSES)}
             >
-              All
+              All Stores
             </button>
             {warehouseList.map((wh) => (
               <button
