@@ -391,7 +391,9 @@ export function RfqMessageThread({ rfqId, vendorId, theme, onPosted }: { rfqId: 
 
   function pickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files || []);
+    const tooBig = picked.filter(f => f.size > 15_728_640);
     const valid = picked.filter(f => f.size <= 15_728_640);
+    if (tooBig.length > 0) setErr(`${tooBig.map(f => f.name).join(", ")} exceed${tooBig.length === 1 ? "s" : ""} the 15 MB limit and ${tooBig.length === 1 ? "was" : "were"} not attached.`);
     setPendingFiles(p => [...p, ...valid].slice(0, 5));
     e.target.value = "";
   }
