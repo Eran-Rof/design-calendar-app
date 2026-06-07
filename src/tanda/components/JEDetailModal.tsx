@@ -240,7 +240,7 @@ export default function JEDetailModal({
           <>
             {/* Header section */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, fontSize: 13 }}>
-              <DetailRow label="Posting date" value={data.posting_date} />
+              <DetailRow label="Posting date" value={fmtDateDisplay(data.posting_date)} />
               <DetailRow label="Journal type" value={data.journal_type} />
               <DetailRow label="Basis" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.basis}</span>} />
               <DetailRow label="Source module" value={data.source_module || "—"} />

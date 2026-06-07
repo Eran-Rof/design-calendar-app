@@ -14,6 +14,7 @@
 // JE numbers / memos are resolved by the gl-detail RPC — no raw UUIDs surface.
 
 import { useCallback, useEffect, useState } from "react";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
 import ExportButton from "../exports/ExportButton";
 import JEDetailModal, { type JEDetailSeed } from "./JEDetailModal";
 import { notify } from "../../shared/ui/warn";
@@ -251,7 +252,7 @@ export default function GLDetailModal({
                     style={{ cursor: "pointer" }}
                     title="Double-click to open the full journal entry"
                   >
-                    <td style={td}>{r.posting_date}</td>
+                    <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
                     <td style={td}>{r.description || "—"}</td>
                     <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.source_module || "—"}</td>
                     <td style={tdNum}>{fmtCents(r.debit_cents)}</td>

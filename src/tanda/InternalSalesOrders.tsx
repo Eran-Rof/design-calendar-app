@@ -5,6 +5,7 @@
 // SearchableSelect, supporting docs). SO number is system-assigned on Confirm.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import { readDrillParam } from "./scorecardDrill";
@@ -159,8 +160,8 @@ export default function InternalSalesOrders() {
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("customer")}>{customerName[so.customer_id] || "—"}</td>
-                <td style={td} hidden={!isVisible("order_date")}>{so.order_date}</td>
-                <td style={td} hidden={!isVisible("start_ship")}>{so.requested_ship_date || "—"}</td>
+                <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(so.order_date)}</td>
+                <td style={td} hidden={!isVisible("start_ship")}>{so.requested_ship_date ? fmtDateDisplay(so.requested_ship_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
                 <td style={td} hidden={!isVisible("factor")}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
                   ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: FACTOR_COLORS[so.factor_approval_status] || C.text, border: `1px solid ${FACTOR_COLORS[so.factor_approval_status] || C.cardBdr}` }}>{so.factor_approval_status}</span>

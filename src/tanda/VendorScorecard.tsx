@@ -19,6 +19,7 @@
 // server's "needs X" caption — never fabricated.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 
 // Deep-link a single transaction into its Tangerine module in a NEW TAB.
@@ -255,7 +256,7 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
                     {(data.invoices || []).map((i) => (
                       <DrillRow key={i.id} title={`Open invoice ${i.invoice_number} in a new tab`} onOpen={() => openRecordInNewTab("ap_invoices", i.invoice_number)}>
                         <td style={td}>{i.invoice_number} <span style={drillArrow}>↗</span></td>
-                        <td style={td}>{i.posting_date}</td>
+                        <td style={td}>{fmtDateDisplay(i.posting_date)}</td>
                         <td style={td}>{i.gl_status}</td>
                         <td style={tdR}>{fmtCents(i.total_amount_cents)}</td>
                         <td style={tdR}>{fmtCents(i.paid_amount_cents)}</td>

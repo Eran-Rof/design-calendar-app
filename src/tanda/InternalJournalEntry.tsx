@@ -6,6 +6,7 @@
 // selector (ACCRUAL | CASH | BOTH), and inline subledger entry per line.
 
 import React, { useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
@@ -299,7 +300,7 @@ export default function InternalJournalEntry() {
                   }}
                   title="Click to view details"
                 >
-                  <td style={td} hidden={!visibleColumns.has("posting_date")}>{je.posting_date}</td>
+                  <td style={td} hidden={!visibleColumns.has("posting_date")}>{fmtDateDisplay(je.posting_date)}</td>
                   <td style={td} hidden={!visibleColumns.has("type")}>{je.journal_type}</td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!visibleColumns.has("basis")}>{je.basis}</td>
                   <td style={td} hidden={!visibleColumns.has("description")}>

@@ -13,6 +13,7 @@
 // styles, SearchableSelect, notify/confirmDialog, Field helper, ExportButton).
 
 import { useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
@@ -138,7 +139,7 @@ export default function InternalBrokerInvoices() {
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(r); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.broker_invoice_number}</td>
                 <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>—</span>}</td>
-                <td style={td}>{r.invoice_date}</td>
+                <td style={td}>{fmtDateDisplay(r.invoice_date)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.freight_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.brokerage_fee_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.duty_advance_cents)}</td>

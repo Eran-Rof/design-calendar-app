@@ -13,6 +13,7 @@
 // styles, SearchableSelect, notify/confirmDialog, mandatory ExportButton, Field).
 
 import { useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
@@ -134,7 +135,7 @@ export default function InternalThreeWayMatch() {
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setCreating(false); setEditingId(r.id); setModalOpen(true); }}>
                 <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>(vendor)</span>}</td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.vendor_invoice_number}</td>
-                <td style={td}>{r.invoice_date}</td>
+                <td style={td}>{fmtDateDisplay(r.invoice_date)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.total_cents)}</td>
                 <td style={td}><span style={{ color: STATUS_COLORS[r.three_way_match_status] || C.text, fontWeight: 600 }}>● {r.three_way_match_status}</span></td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: Number(r.variance_cents) !== 0 ? C.warn : C.textSub }}>{fmtCents(r.variance_cents)}</td>
@@ -305,7 +306,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
       {draft && (
         <div style={{ marginBottom: 16, fontSize: 13, color: C.textSub }}>
           <span style={{ color: STATUS_COLORS[status] || C.text, fontWeight: 600 }}>● {status}</span>
-          {" · "}{draft.invoice_date}{draft.due_date ? ` · due ${draft.due_date}` : ""}
+          {" · "}{fmtDateDisplay(draft.invoice_date)}{draft.due_date ? ` · due ${fmtDateDisplay(draft.due_date)}` : ""}
         </div>
       )}
 
