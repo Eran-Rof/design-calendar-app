@@ -6,6 +6,7 @@
 // flat-amount lines. Post / Void actions wired to dedicated handlers.
 
 import { useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
@@ -492,7 +493,7 @@ export default function InternalARInvoices() {
                       {inv.invoice_number}
                       <SourceBadge source={inv.source} />
                     </td>
-                    <td style={td} hidden={!isVisible("invoice_date")}>{inv.invoice_date}</td>
+                    <td style={td} hidden={!isVisible("invoice_date")}>{fmtDateDisplay(inv.invoice_date)}</td>
                     <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}

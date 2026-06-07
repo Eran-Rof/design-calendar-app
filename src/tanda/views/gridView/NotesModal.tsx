@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import type { XoroPO, Milestone } from "../../../utils/tandaTypes";
+import { fmtDateDisplay } from "../../../utils/tandaTypes";
 
 export interface NotesModalProps {
   po: XoroPO;
@@ -161,7 +162,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                                   >✕</button>
                                 </div>
                               </div>
-                              <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {ne.date}</div>
+                              <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {fmtDateDisplay(ne.date)}</div>
                             </>
                           )}
                         </div>
@@ -186,7 +187,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                     <div style={{ color: "#E5E7EB", fontSize: 12, flex: 1 }}>{vn.text}</div>
                   </div>
                   <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>
-                    <span style={{ color: "#60A5FA" }}>{vn.variant}</span> · {vn.phase} · {vn.user} · {vn.date}
+                    <span style={{ color: "#60A5FA" }}>{vn.variant}</span> · {vn.phase} · {vn.user} · {fmtDateDisplay(vn.date)}
                   </div>
                 </div>
               ))}

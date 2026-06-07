@@ -20,6 +20,7 @@
 //     can grow past 7 postable bank entries).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
@@ -429,8 +430,8 @@ export default function InternalAPInvoices() {
                     {...rowProps}
                     style={{ ...(rowProps.style || {}), ...(isVoid ? { opacity: 0.5 } : {}) }}
                   >
-                    <td style={td} hidden={!isVisible("posting_date")}>{inv.posting_date}</td>
-                    <td style={td} hidden={!isVisible("due_date")}>{inv.due_date || "—"}</td>
+                    <td style={td} hidden={!isVisible("posting_date")}>{fmtDateDisplay(inv.posting_date)}</td>
+                    <td style={td} hidden={!isVisible("due_date")}>{fmtDateDisplay(inv.due_date) || "—"}</td>
                     <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}

@@ -8,6 +8,7 @@
 // later).
 
 import { useEffect, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -301,7 +302,7 @@ export default function InternalGLDetail() {
             <tbody>
               {rows.map((r) => (
                 <tr key={`${r.je_id}-${r.posting_date}`}>
-                  <td style={td}>{r.posting_date}</td>
+                  <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
                   <td style={td}>{r.description || "—"}</td>
                   <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>
                     {r.source_module || "—"}

@@ -279,7 +279,7 @@ function WorkspaceDetail({ workspace, onBack }: { workspace: Workspace; onBack: 
                     </div>
                     {t.description && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{t.description}</div>}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, fontSize: 10, color: C.textMuted }}>
-                      <div>{t.due_date ? `Due ${t.due_date}` : "No due date"}{t.assigned_to ? ` · @${t.assigned_to}` : ""}</div>
+                      <div>{t.due_date ? `Due ${fmtDateDisplay(t.due_date)}` : "No due date"}{t.assigned_to ? ` · @${t.assigned_to}` : ""}</div>
                       <div style={{ display: "flex", gap: 4 }}>
                         {t.status !== "in_progress" && t.status !== "complete" && <button onClick={() => void setTaskStatus(t.id, "in_progress")} style={miniBtn}>Start</button>}
                         {t.status !== "complete" && <button onClick={() => void setTaskStatus(t.id, "complete")} style={{ ...miniBtn, color: C.success }}>Done</button>}

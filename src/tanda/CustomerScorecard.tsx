@@ -16,6 +16,7 @@
 // from the server's `notes` map ("needs X"); we never fabricate a number.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
@@ -377,7 +378,7 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                     {filteredInvoices.map((i) => (
                       <tr key={i.id}>
                         <td style={td}>{i.invoice_number}</td>
-                        <td style={td}>{i.invoice_date}</td>
+                        <td style={td}>{fmtDateDisplay(i.invoice_date)}</td>
                         <td style={td}>{i.gl_status}</td>
                         <td style={tdR}>{fmtCents(i.total_amount_cents)}</td>
                         <td style={tdR}>{fmtCents(i.paid_amount_cents)}</td>
@@ -409,8 +410,8 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                     {(data.sales_orders || []).map((s) => (
                       <tr key={s.id}>
                         <td style={td}>{s.so_number || "—"}</td>
-                        <td style={td}>{s.order_date}</td>
-                        <td style={td}>{s.requested_ship_date || "—"}</td>
+                        <td style={td}>{fmtDateDisplay(s.order_date)}</td>
+                        <td style={td}>{s.requested_ship_date ? fmtDateDisplay(s.requested_ship_date) : "—"}</td>
                         <td style={td}>{s.status}</td>
                         <td style={tdR}>{fmtCents(s.total_cents)}</td>
                       </tr>
@@ -438,7 +439,7 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                   <tbody>
                     {(data.journal_entries || []).map((j) => (
                       <tr key={j.id}>
-                        <td style={td}>{j.posting_date}</td>
+                        <td style={td}>{fmtDateDisplay(j.posting_date)}</td>
                         <td style={td}>{j.journal_type}</td>
                         <td style={td}>{j.basis}</td>
                         <td style={td}>{j.status}</td>

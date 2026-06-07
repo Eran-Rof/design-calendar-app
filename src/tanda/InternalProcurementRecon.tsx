@@ -6,6 +6,7 @@
 // failed QC. Reads GET /api/internal/procurement/recon-inbox.
 
 import { useEffect, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -93,7 +94,7 @@ export default function InternalProcurementRecon() {
               <tbody>
                 {data.three_way_issues.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>None.</td></tr>}
                 {data.three_way_issues.map((t) => (
-                  <tr key={t.id}><td style={td}>{t.vendor?.name || "—"}</td><td style={td}>{t.vendor_invoice_number}</td><td style={td}>{t.invoice_date}</td><td style={{ ...td, textAlign: "right" }}>{fmt(t.total_cents)}</td><td style={{ ...td, textAlign: "right", color: C.warn }}>{fmt(t.variance_cents)}</td><td style={td}>{t.three_way_match_status}</td></tr>
+                  <tr key={t.id}><td style={td}>{t.vendor?.name || "—"}</td><td style={td}>{t.vendor_invoice_number}</td><td style={td}>{fmtDateDisplay(t.invoice_date)}</td><td style={{ ...td, textAlign: "right" }}>{fmt(t.total_cents)}</td><td style={{ ...td, textAlign: "right", color: C.warn }}>{fmt(t.variance_cents)}</td><td style={td}>{t.three_way_match_status}</td></tr>
                 ))}
               </tbody>
             </table>
