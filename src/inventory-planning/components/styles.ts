@@ -155,6 +155,8 @@ export function formatDateTime(iso: string | null | undefined): string {
   return `${date} ${hh}:${mi}`;
 }
 
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 // "2026-04" period code → "Apr 2026".
 export function formatPeriodCode(code: string | null | undefined): string {
   if (!code) return "–";
