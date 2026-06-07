@@ -73,7 +73,8 @@ export default function RfqMessagesInbox() {
         try { const b = await r.json(); if (b?.error) msg = b.error; } catch { /* noop */ }
         throw new Error(msg);
       }
-      const data = (await r.json()) as InboxRow[];
+      const raw = await r.json();
+      const data: InboxRow[] = Array.isArray(raw) ? raw : [];
       setRows(data);
       // Keep the current selection if still present; otherwise pick the first
       // conversation so the right pane isn't blank on first open.
@@ -99,16 +100,18 @@ export default function RfqMessagesInbox() {
     return () => window.clearTimeout(t);
   }, [selected, load]);
 
+  const safeRows: InboxRow[] = Array.isArray(rows) ? rows : [];
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+    if (!q) return safeRows;
+    return safeRows.filter((r) =>
       [r.project_name, r.rfq_title, r.vendor_name].some((v) => (v || "").toLowerCase().includes(q))
     );
-  }, [rows, search]);
+  }, [safeRows, search]);
 
-  const selectedRow = rows.find((x) => convKey(x) === selected) || null;
-  const unreadTotal = rows.reduce((n, r) => n + (r.unread_internal > 0 ? 1 : 0), 0);
+  const selectedRow = safeRows.find((x) => convKey(x) === selected) || null;
+  const unreadTotal = safeRows.reduce((n, r) => n + (r.unread_internal > 0 ? 1 : 0), 0);
 
   return (
     <div style={{ display: "flex", height: "100%", background: "#0F172A", color: "#E2E8F0" }}>
@@ -118,7 +121,7 @@ export default function RfqMessagesInbox() {
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Messages</h2>
             <span style={{ color: "#94A3B8", fontSize: 12 }}>
-              {rows.length} {rows.length === 1 ? "conversation" : "conversations"}
+              {safeRows.length} {safeRows.length === 1 ? "conversation" : "conversations"}
               {unreadTotal > 0 && <> · {unreadTotal} unread</>}
             </span>
             <button
@@ -139,9 +142,9 @@ export default function RfqMessagesInbox() {
 
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {error && <div style={{ padding: 14, color: "#F87171", fontSize: 13 }}>Error: {error}</div>}
-          {loading && rows.length === 0 ? (
+          {loading && safeRows.length === 0 ? (
             <div style={{ padding: 24, color: "#94A3B8", fontSize: 13 }}>Loading…</div>
-          ) : rows.length === 0 ? (
+          ) : safeRows.length === 0 ? (
             <div style={{ padding: "30px 18px", color: "#64748B", fontSize: 13, lineHeight: 1.5 }}>
               No sent RFQs yet. Once you send an RFQ to a vendor, the conversation appears here — select it to message them.
             </div>
@@ -228,7 +231,7 @@ export default function RfqMessagesInbox() {
           </>
         ) : (
           <div style={{ color: "#64748B", fontSize: 14, padding: "60px 0", textAlign: "center" }}>
-            {rows.length === 0 ? "No sent RFQs yet." : "Select a conversation on the left to read and reply."}
+            {safeRows.length === 0 ? "No sent RFQs yet." : "Select a conversation on the left to read and reply."}
           </div>
         )}
       </div>
