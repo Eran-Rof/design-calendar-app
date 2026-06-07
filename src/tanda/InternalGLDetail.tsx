@@ -49,10 +49,6 @@ const C = {
   primary: "#3B82F6", danger: "#EF4444",
 };
 
-const btnPrimary: React.CSSProperties = {
-  background: C.primary, color: "white", border: `1px solid ${C.primary}`,
-  padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
-};
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
@@ -152,15 +148,14 @@ export default function InternalGLDetail() {
       .catch(() => {});
   }, []);
 
-  // Auto-load when arriving via deep link (COA balance click-through).
-  // Fires once on mount only — operator interactions go through the Load
-  // button as before so we don't surprise them with mid-edit refetches.
+  // Auto-load whenever an account is picked or the date range changes — no
+  // separate "Load" click. (Deep links via COA balance click-through arrive with
+  // initial.account_id already set, so they load on mount too.)
   useEffect(() => {
-    if (initial.account_id) {
-      void load();
-    }
+    if (accountId) void load();
+    else setRows([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [accountId, fromDate, toDate]);
 
   async function load() {
     if (!accountId) {
@@ -235,9 +230,6 @@ export default function InternalGLDetail() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <button onClick={() => void load()} style={btnPrimary} disabled={loading || !accountId}>
-          {loading ? "Loading…" : "Load"}
-        </button>
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename={selectedAccount
@@ -282,7 +274,7 @@ export default function InternalGLDetail() {
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : !accountId ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Pick an account and click Load.</div>
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Pick an account to view its ledger.</div>
         ) : rows.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
             No ACCRUAL posted activity for this account between {fromDate} and {toDate}.
