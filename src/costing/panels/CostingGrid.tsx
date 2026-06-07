@@ -107,7 +107,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "_docs",          label: "Docs",     width: 56, align: "center" },
-  { key: "_actions",       label: "",         width: 140, align: "center" },
+  { key: "_actions",       label: "",         width: 90,  align: "center" },
 ];
 
 const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
@@ -479,6 +479,24 @@ export default function CostingGrid() {
             fontSize: 12, fontWeight: 600,
           }}
         >+ Add row</button>
+        <button
+          onClick={async () => {
+            const ids = Array.from(selectedRowIds);
+            for (const id of ids) await duplicateLine(id);
+            setSelectedRowIds(new Set());
+            setNotice(`${ids.length} row${ids.length === 1 ? "" : "s"} copied below — update vendor for each new line.`, "info");
+          }}
+          disabled={selectedRowIds.size === 0}
+          title={selectedRowIds.size === 0 ? "Select a row first to copy it" : `Copy ${selectedRowIds.size} selected row${selectedRowIds.size === 1 ? "" : "s"}`}
+          style={{
+            background: selectedRowIds.size > 0 ? "#6366F1" : "transparent",
+            color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
+            border: `1px solid ${selectedRowIds.size > 0 ? "#6366F1" : "#334155"}`,
+            padding: "5px 14px", borderRadius: 4,
+            cursor: selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            fontSize: 12, fontWeight: 600,
+          }}
+        >⎘ Copy{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
         <button
           onClick={onGenerateRfqs}
           disabled={generating}
@@ -898,11 +916,6 @@ export default function CostingGrid() {
                 if (c.key === "_actions") {
                   return (
                     <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => onDuplicateRow(line.id)}
-                        title="Duplicate this row — starts as Draft, pick a new vendor"
-                        style={ACTION_BTN_STYLE("transparent", "#94A3B8", "#475569")}
-                      >⎘ Copy</button>
                       <button
                         onClick={() => appConfirm(
                           `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor + compliance data.`,
