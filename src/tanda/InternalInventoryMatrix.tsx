@@ -240,7 +240,6 @@ const btnToggle = (active: boolean): React.CSSProperties => ({
 });
 
 // ATS app accent (matches the PLM launcher's ATS card color).
-const ATS_GREEN = "#10B981";
 
 // Gender-code → label (mirrors CustomerScorecard / Style Master). Used by the
 // ATS-style gender filter that scopes the style picker.
@@ -250,15 +249,6 @@ const GENDER_LABELS: Record<string, string> = {
 
 // Cross-app link button → ATS app at /ats (same `<a href>` nav the suite uses
 // for its other app links, e.g. App.tsx T&A → /tanda, Costing → /costing).
-const atsLinkStyle: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 6,
-  background: ATS_GREEN, color: "white",
-  border: `1px solid ${ATS_GREEN}`,
-  padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-  fontSize: 12, fontWeight: 600, textDecoration: "none",
-  whiteSpace: "nowrap",
-};
-
 const chipStyle = (active: boolean): React.CSSProperties => ({
   padding: "4px 10px", borderRadius: 12,
   border: `1px solid ${active ? C.primary : C.cardBdr}`,
@@ -836,29 +826,6 @@ export default function InternalInventoryMatrix() {
             </div>
           </div>
         )}
-
-        {/* Metric + cross-app link. On-Hand is the only metric (always active);
-            the old "Available" toggle is now a link out to the ATS app, which is
-            the suite's source of truth for available-to-sell. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Show
-          <div style={{ display: "flex", gap: 6 }}>
-            <button type="button" style={btnToggle(true)} disabled>
-              On-Hand
-            </button>
-            <a
-              href={`/ats${payload?.style.style_code ? `?style=${encodeURIComponent(payload.style.style_code)}` : ""}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={atsLinkStyle}
-              title={payload?.style.style_code
-                ? `Open the ATS app filtered to ${payload.style.style_code}`
-                : "Open the ATS app for available-to-sell"}
-            >
-              ATS ↗
-            </a>
-          </div>
-        </div>
 
         {/* Store filter — on-hand-only; "All Stores" sums every location. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
