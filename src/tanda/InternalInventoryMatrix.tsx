@@ -106,41 +106,6 @@ type StyleInvoiceRow = {
   total_amount_cents: number | null; qty_for_style: number;
 };
 
-// PIM composite image row (subset) — shape returned by
-// GET /api/internal/pim/styles/:style_id. We reuse the SAME source the PIM
-// Product Catalog uses so the matrix thumbnail matches the catalog image.
-// The handler signs the bucket-relative storage_path* derivatives and returns
-// the usable URLs under `signed_urls` (the raw storage_path* are NOT URLs).
-type PimImageRow = {
-  id: string;
-  storage_path: string | null;
-  storage_path_thumb: string | null;
-  storage_path_web: string | null;
-  is_primary: boolean;
-  sort_order: number;
-  signed_urls?: { thumb: string | null; web: string | null; print: string | null } | null;
-};
-
-// Resolved primary image for the picked style: a small thumb URL for the
-// header and a larger URL for the enlarge lightbox.
-type PrimaryImage = { thumb: string; full: string } | null;
-
-// Pick the style's primary image the SAME way InternalPimProductCatalog does:
-// prefer is_primary, then lowest sort_order. URLs come from the handler's
-// signed_urls (thumb for the header; web → print → thumb for the lightbox).
-function pickPrimaryImage(images: PimImageRow[]): PrimaryImage {
-  if (!images || images.length === 0) return null;
-  const sorted = [...images].sort((a, b) => {
-    if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
-    return a.sort_order - b.sort_order;
-  });
-  const top = sorted[0];
-  const s = top.signed_urls || { thumb: null, web: null, print: null };
-  const thumb = s.thumb || s.web || s.print || null;
-  const full = s.web || s.print || s.thumb || null;
-  if (!thumb || !full) return null;
-  return { thumb, full };
-}
 
 const ALL_WAREHOUSES = "__all__";
 
@@ -319,31 +284,6 @@ function fmtQty(v: number): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
-// Download an image URL to a file. Fetch → blob → object-URL so the browser
-// saves the bytes (a plain <a download> to a cross-origin/storage URL often
-// just navigates); falls back to a direct link if the fetch is blocked.
-async function downloadImage(url: string, filename: string): Promise<void> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    const objUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = objUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
-  } catch {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.click();
-  }
-}
 
 const ALL_BRANDS_SENTINEL = "__ALL_BRANDS__";
 const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
@@ -384,8 +324,6 @@ export default function InternalInventoryMatrix() {
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]); // master category_name
   // Primary product image for the picked style (same source as the PIM
   // Product Catalog) + the enlarge lightbox open flag.
-  const [primaryImage, setPrimaryImage] = useState<PrimaryImage>(null);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   // Per-color thumbnail images for each row in the matrix (fetched from the
   // PIM style images endpoint). Key = color lowercase-trimmed || "__default__".
@@ -452,23 +390,6 @@ export default function InternalInventoryMatrix() {
     return () => { cancelled = true; };
   }, [styleId, explodePpk]);
 
-  // Fetch the picked style's primary product image from the PIM composite —
-  // the SAME endpoint/field the PIM Product Catalog uses, so the matrix
-  // thumbnail matches the catalog. Single style in view → one fetch, no N+1.
-  useEffect(() => {
-    if (!styleId) { setPrimaryImage(null); setLightboxOpen(false); return; }
-    let cancelled = false;
-    setPrimaryImage(null);
-    setLightboxOpen(false);
-    fetch(`/api/internal/pim/styles/${encodeURIComponent(styleId)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { images?: PimImageRow[] } | null) => {
-        if (cancelled || !d) return;
-        setPrimaryImage(pickPrimaryImage(d.images || []));
-      })
-      .catch(() => {/* non-fatal; header just shows the placeholder */});
-    return () => { cancelled = true; };
-  }, [styleId]);
 
   // Reset rise + warehouse filters on a STYLE change only (not on explode toggle).
   useEffect(() => {
@@ -1042,110 +963,6 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
-      {/* Style meta — the product image sits BEFORE the style number. Clicking
-          the thumbnail opens the enlarge lightbox (with a Download button). */}
-      {payload && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-          {/* Primary product image (same source as the PIM Product Catalog). */}
-          {primaryImage ? (
-            <img
-              src={primaryImage.thumb}
-              alt={payload.style.style_code}
-              onClick={() => setLightboxOpen(true)}
-              title="Click to enlarge"
-              style={{
-                width: 48, height: 48, objectFit: "cover", borderRadius: 6,
-                border: `1px solid ${C.cardBdr}`, background: "#0b1220",
-                cursor: "zoom-in", flexShrink: 0,
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: 48, height: 48, borderRadius: 6,
-                border: `1px dashed ${C.cardBdr}`, background: "#0b1220",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, color: C.textMuted, flexShrink: 0,
-              }}
-              title="No product image"
-            >
-              🖼️
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: C.textSub }}>
-            <span style={{ fontWeight: 600 }}>{payload.style.style_code}</span>
-            {payload.style.style_name ? <span> — {payload.style.style_name}</span> : null}
-            <span style={{ color: C.textMuted }}>
-              {"  ·  Size scale: "}{scaleName || (payload.style.size_scale_id ? "—" : "none")}
-              {"  ·  On-hand qty"}
-              {whActive ? `  ·  Warehouse: ${warehouse}` : "  ·  All warehouses"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Enlarge lightbox — full image + Download button. Self-contained so the
-          matrix doesn't pull in the heavier multi-image ImageGalleryModal. */}
-      {lightboxOpen && primaryImage && payload && (
-        <div
-          onClick={() => setLightboxOpen(false)}
-          style={{
-            position: "fixed", inset: 0, zIndex: 10000,
-            background: "rgba(0,0,0,0.9)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: 24, cursor: "zoom-out",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              display: "flex", flexDirection: "column", alignItems: "center",
-              gap: 16, maxWidth: "90vw", maxHeight: "92vh", cursor: "default",
-            }}
-          >
-            <img
-              src={primaryImage.full}
-              alt={payload.style.style_code}
-              style={{
-                maxWidth: "90vw", maxHeight: "78vh", objectFit: "contain",
-                borderRadius: 10, boxShadow: "0 20px 60px rgba(0,0,0,0.8)",
-              }}
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
-                {payload.style.style_code}
-                {payload.style.style_name ? ` — ${payload.style.style_name}` : ""}
-              </span>
-              <button
-                type="button"
-                onClick={() => void downloadImage(
-                  primaryImage.full,
-                  `${payload.style.style_code}.jpg`,
-                )}
-                style={{
-                  background: C.primary, color: "white", border: 0,
-                  padding: "8px 16px", borderRadius: 6, cursor: "pointer",
-                  fontSize: 13, fontWeight: 600,
-                }}
-              >
-                ⬇ Download
-              </button>
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(false)}
-                style={{
-                  background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)",
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  padding: "8px 16px", borderRadius: 6, cursor: "pointer",
-                  fontSize: 13, fontWeight: 600,
-                }}
-              >
-                ✕ Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Explode-PPK indicator — shown only when the toggle is ON and a style is
           loaded. Reports how many packs were exploded and any PPK styles that
