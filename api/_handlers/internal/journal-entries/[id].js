@@ -71,7 +71,27 @@ export default async function handler(req, res, params) {
       } catch { /* non-fatal — omit names */ }
     }
 
-    return res.status(200).json({ ...je, lines: lines || [], posted_by_name, created_by_name });
+    // Resolve linked JE uuids (sibling / reverses / reversed-by) to their
+    // human-readable je_number so the modal shows numbers, not uuids.
+    let sibling_je_number = null, reverses_je_number = null, reversed_by_je_number = null;
+    const linkedIds = [je.sibling_je_id, je.reverses_je_id, je.reversed_by_je_id].filter(Boolean);
+    if (linkedIds.length > 0) {
+      try {
+        const { data: linked } = await admin
+          .from("journal_entries")
+          .select("id, je_number")
+          .in("id", Array.from(new Set(linkedIds)));
+        const numById = Object.fromEntries((linked || []).map((r) => [r.id, r.je_number]));
+        sibling_je_number     = je.sibling_je_id     ? (numById[je.sibling_je_id]     || null) : null;
+        reverses_je_number    = je.reverses_je_id    ? (numById[je.reverses_je_id]    || null) : null;
+        reversed_by_je_number = je.reversed_by_je_id ? (numById[je.reversed_by_je_id] || null) : null;
+      } catch { /* non-fatal — fall back to uuids */ }
+    }
+
+    return res.status(200).json({
+      ...je, lines: lines || [], posted_by_name, created_by_name,
+      sibling_je_number, reverses_je_number, reversed_by_je_number,
+    });
   }
 
   if (req.method === "PATCH" || req.method === "DELETE") {

@@ -32,6 +32,7 @@ export type GLDetailTarget = {
 type Row = {
   posting_date: string;
   je_id: string;
+  je_number: string | null;
   description: string | null;
   debit_cents: number | string;
   credit_cents: number | string;
@@ -207,7 +208,7 @@ export default function GLDetailModal({
             sheetName="GL Detail"
             columns={[
               { key: "posting_date",  header: "Date",    format: "date" },
-              { key: "je_id",         header: "JE" },
+              { key: "je_number",     header: "JE" },
               { key: "description",   header: "Description" },
               { key: "debit_cents",   header: "Debit",   format: "currency_cents" },
               { key: "credit_cents",  header: "Credit",  format: "currency_cents" },
@@ -236,6 +237,7 @@ export default function GLDetailModal({
               <thead>
                 <tr>
                   <th style={th}>Date</th>
+                  <th style={th}>JE #</th>
                   <th style={th}>Description</th>
                   <th style={th}>Source</th>
                   <th style={{ ...th, textAlign: "right" }}>Debit</th>
@@ -248,11 +250,12 @@ export default function GLDetailModal({
                 {rows.map((r) => (
                   <tr
                     key={`${r.je_id}-${r.posting_date}`}
-                    onDoubleClick={() => setJeSeed({ id: r.je_id, description: r.description })}
+                    onDoubleClick={() => setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
                     style={{ cursor: "pointer" }}
                     title="Double-click to open the full journal entry"
                   >
                     <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>{r.je_number || "—"}</td>
                     <td style={td}>{r.description || "—"}</td>
                     <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.source_module || "—"}</td>
                     <td style={tdNum}>{fmtCents(r.debit_cents)}</td>
@@ -261,7 +264,7 @@ export default function GLDetailModal({
                     <td style={{ ...td, textAlign: "center", padding: "4px 6px" }}>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); setJeSeed({ id: r.je_id, description: r.description }); }}
+                        onClick={(e) => { e.stopPropagation(); setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description }); }}
                         title="Open the full journal entry"
                         aria-label="Open the full journal entry"
                         style={{
@@ -277,7 +280,7 @@ export default function GLDetailModal({
               </tbody>
               <tfoot>
                 <tr style={{ background: "#111827" }}>
-                  <td style={{ ...td, fontWeight: 700, color: C.textSub }} colSpan={3}>TOTAL ({rows.length})</td>
+                  <td style={{ ...td, fontWeight: 700, color: C.textSub }} colSpan={4}>TOTAL ({rows.length})</td>
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.debit)}</td>
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.credit)}</td>
                   <td style={{ ...tdNum, fontWeight: 700, color: netCents !== 0 ? C.text : C.textMuted }}>{fmtBalanceCents(netCents)}</td>

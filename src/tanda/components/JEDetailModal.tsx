@@ -28,6 +28,7 @@ import { fmtDateDisplay } from "../../utils/tandaTypes";
 // (full JE row) and the GL-detail line (je_id + description) can satisfy this.
 export type JEDetailSeed = {
   id: string;
+  je_number?: string | null;
   description?: string | null;
   status?: "draft" | "posted" | "reversed" | null;
 };
@@ -53,6 +54,7 @@ type JELineRow = {
 
 type JEFull = {
   id: string;
+  je_number: string | null;
   basis: "ACCRUAL" | "CASH";
   journal_type: string;
   posting_date: string;
@@ -65,6 +67,9 @@ type JEFull = {
   sibling_je_id: string | null;
   reverses_je_id: string | null;
   reversed_by_je_id: string | null;
+  sibling_je_number?: string | null;
+  reverses_je_number?: string | null;
+  reversed_by_je_number?: string | null;
   created_at: string;
   posted_by_name?: string | null;
   created_by_name?: string | null;
@@ -218,7 +223,9 @@ export default function JEDetailModal({
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 18 }}>
-            Journal entry detail
+            {(data?.je_number || je.je_number)
+              ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data?.je_number || je.je_number}</span>
+              : "Journal entry detail"}
             <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>
               {data?.description || je.description || "—"}
             </span>
@@ -262,14 +269,16 @@ export default function JEDetailModal({
               />
               <DetailRow
                 label="Sibling JE"
-                value={data.sibling_je_id ? "Yes" : "—"}
+                value={data.sibling_je_id
+                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.sibling_je_number || "Yes"}</span>
+                  : "—"}
               />
               <DetailRow
                 label="Reverses / reversed by"
                 value={data.reverses_je_id
-                  ? "Reverses another entry"
+                  ? <>Reverses <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.reverses_je_number || "another entry"}</span></>
                   : data.reversed_by_je_id
-                    ? "Reversed by another entry"
+                    ? <>Reversed by <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.reversed_by_je_number || "another entry"}</span></>
                     : "—"}
               />
             </div>

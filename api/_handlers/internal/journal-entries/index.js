@@ -78,7 +78,7 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("journal_entries")
-      .select("id, entity_id, period_id, basis, journal_type, posting_date, source_module, source_table, source_id, source, description, status, posted_at, sibling_je_id, reversed_by_je_id, reverses_je_id, created_at, posted_by_user_id, created_by_user_id")
+      .select("id, je_number, entity_id, period_id, basis, journal_type, posting_date, source_module, source_table, source_id, source, description, status, posted_at, sibling_je_id, reversed_by_je_id, reverses_je_id, created_at, posted_by_user_id, created_by_user_id")
       .eq("entity_id", entityId)
       .order("posting_date", { ascending: false })
       .order("created_at", { ascending: false })
