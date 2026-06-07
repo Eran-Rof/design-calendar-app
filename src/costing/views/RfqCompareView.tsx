@@ -97,11 +97,17 @@ export default function RfqCompareView() {
   const [error, setError] = useState<string | null>(null);
 
   // Load projects for the picker — only those with RFQs that have vendor quotes.
+  // Auto-select the first (newest) project so the comparison loads immediately.
   useEffect(() => {
     let alive = true;
     setProjLoading(true);
     compareEligibleProjects()
-      .then((rows) => { if (alive) { setProjects(rows); setProjErr(null); } })
+      .then((rows) => {
+        if (!alive) return;
+        setProjects(rows);
+        setProjErr(null);
+        if (rows.length > 0) setPicked((prev) => prev || rows[0].id);
+      })
       .catch((e) => { if (alive) setProjErr((e as Error).message); })
       .finally(() => { if (alive) setProjLoading(false); });
     return () => { alive = false; };
@@ -249,6 +255,23 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
   const quotes = rfq.quotes;
   const hasQuotes = quotes.length > 0;
 
+  // Per-line sell-price overrides — seeded from server data, editable inline.
+  const [sellOverrides, setSellOverrides] = useState<Map<string, number>>(() => {
+    const m = new Map<string, number>();
+    for (const li of rfq.line_items) {
+      if (typeof li.sell_price === "number" && li.sell_price > 0) m.set(li.id, li.sell_price);
+    }
+    return m;
+  });
+  // Draft strings for the controlled sell-price inputs (one per line item).
+  const [sellDrafts, setSellDrafts] = useState<Map<string, string>>(() => {
+    const m = new Map<string, string>();
+    for (const li of rfq.line_items) {
+      if (typeof li.sell_price === "number" && li.sell_price > 0) m.set(li.id, fmtUnit.format(li.sell_price));
+    }
+    return m;
+  });
+
   // unit price lookup: vendorIdx → (rfq_line_item_id → {unit, qty, notes})
   const priceByVendorLine = useMemo(() => {
     return quotes.map((q) => {
@@ -273,22 +296,22 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
     return best;
   }, [extendedTotals]);
 
-  // Per-vendor WEIGHTED margin across the lines the vendor quoted, using the
-  // reference sell_price from each RFQ line:
-  //   (Σ sell·qty − Σ quoted·qty) / Σ sell·qty   (only lines with a known sell)
-  const sellByItem = useMemo(() => {
+  // Effective sell prices: user override if set, else server value.
+  const effectiveSellByItem = useMemo(() => {
     const m = new Map<string, number | null>();
     for (const li of rfq.line_items) m.set(li.id, typeof li.sell_price === "number" ? li.sell_price : null);
+    for (const [id, v] of sellOverrides) m.set(id, v);
     return m;
-  }, [rfq.line_items]);
+  }, [rfq.line_items, sellOverrides]);
 
+  // Per-vendor WEIGHTED margin — recalculates whenever sell prices change.
   const vendorMargins = useMemo(() => {
     return quotes.map((q) => {
       const qtyByItem = new Map<string, number>();
       for (const li of rfq.line_items) qtyByItem.set(li.id, typeof li.quantity === "number" ? li.quantity : 0);
       let sumSell = 0; let sumQuoted = 0; let any = false;
       for (const ql of q.lines) {
-        const sell = sellByItem.get(ql.rfq_line_item_id) ?? null;
+        const sell = effectiveSellByItem.get(ql.rfq_line_item_id) ?? null;
         if (typeof sell !== "number" || sell <= 0 || typeof ql.unit_price !== "number") continue;
         const qty = typeof ql.quantity === "number" ? ql.quantity : (qtyByItem.get(ql.rfq_line_item_id) ?? 0);
         if (qty <= 0) continue;
@@ -298,7 +321,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
       }
       return any && sumSell > 0 ? (sumSell - sumQuoted) / sumSell : null;
     });
-  }, [quotes, rfq.line_items, sellByItem]);
+  }, [quotes, rfq.line_items, effectiveSellByItem]);
 
   // Vendor with the BEST overall margin (may differ from cheapest total).
   const bestMarginVendorIdx = useMemo(() => {
@@ -404,6 +427,29 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                     <div style={{ fontSize: 11, color: C.subtle }}>
                       qty {typeof li.quantity === "number" ? fmtMoney.format(li.quantity) : "—"}
                     </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3 }}>
+                      <span style={{ fontSize: 10, color: C.subtle, whiteSpace: "nowrap" }}>Sell $</span>
+                      <input
+                        value={sellDrafts.get(li.id) ?? ""}
+                        onChange={(e) => setSellDrafts((p) => new Map(p).set(li.id, e.target.value))}
+                        onBlur={() => {
+                          const raw = (sellDrafts.get(li.id) ?? "").replace(/[^0-9.]/g, "");
+                          const val = parseFloat(raw);
+                          setSellOverrides((p) => {
+                            const next = new Map(p);
+                            if (!isNaN(val) && val > 0) next.set(li.id, val);
+                            else next.delete(li.id);
+                            return next;
+                          });
+                        }}
+                        placeholder="—"
+                        style={{
+                          width: 60, padding: "2px 4px", fontSize: 11,
+                          background: "#0F172A", border: `1px solid ${C.borderStrong}`,
+                          borderRadius: 3, color: C.text, outline: "none",
+                        }}
+                      />
+                    </div>
                   </td>
                   {cells.map((c, i) => {
                     const isMin = min !== null && typeof c?.unit === "number" && c.unit === min;
@@ -414,7 +460,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                         : 0;
                     const qty = typeof c?.qty === "number" ? c.qty : (typeof li.quantity === "number" ? li.quantity : null);
                     const ext = typeof c?.unit === "number" && typeof qty === "number" ? c.unit * qty : null;
-                    const mgn = margin(li.sell_price, c?.unit);
+                    const mgn = margin(effectiveSellByItem.get(li.id), c?.unit);
                     return (
                       <td
                         key={i}
