@@ -347,6 +347,7 @@ async function downloadImage(url: string, filename: string): Promise<void> {
 
 const ALL_BRANDS_SENTINEL = "__ALL_BRANDS__";
 const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
+const MULTI_PAGE_SIZE = 25;
 
 // ── component ────────────────────────────────────────────────────────────────
 
@@ -394,6 +395,7 @@ export default function InternalInventoryMatrix() {
   // for up to 50 of the brand's styles and render them all.
   const [brandPayloads, setBrandPayloads] = useState<Array<{style: StyleListRow; payload: MatrixPayload}>>([]);
   const [brandLoading, setBrandLoading] = useState(false);
+  const [multiPage, setMultiPage] = useState(0); // 0-indexed page for multi-style view
 
   // Style list + size-scale names once on mount. Request the endpoint's max
   // limit so EVERY entity style is reachable in the picker (operator reported
@@ -566,18 +568,23 @@ export default function InternalInventoryMatrix() {
     [brandScopedStyles],
   );
 
-  // Multi-style view: when no specific styleId is selected, fetch matrices for
-  // up to 50 styles in parallel (scoped to selected brand, or all brands).
+  // Reset to page 0 whenever the style list scope changes (brand/filter change).
+  useEffect(() => { setMultiPage(0); }, [brandStyles]);
+
+  // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
+  // Cancelled via AbortController when page/scope changes before the fetch completes.
   useEffect(() => {
     if (styleId) { setBrandPayloads([]); return; }
-    const stylesToLoad = brandStyles.slice(0, 50);
+    const start = multiPage * MULTI_PAGE_SIZE;
+    const stylesToLoad = brandStyles.slice(start, start + MULTI_PAGE_SIZE);
     if (stylesToLoad.length === 0) { setBrandPayloads([]); return; }
     setBrandLoading(true);
     setBrandPayloads([]);
+    const controller = new AbortController();
     Promise.all(
       stylesToLoad.map(async (s) => {
         try {
-          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}`);
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}`, { signal: controller.signal });
           if (!r.ok) return null;
           const p = await r.json() as MatrixPayload;
           return { style: s, payload: p };
@@ -591,7 +598,8 @@ export default function InternalInventoryMatrix() {
       setBrandPayloads(valid);
       setBrandLoading(false);
     });
-  }, [brandId, styleId, brandStyles]);
+    return () => controller.abort();
+  }, [styleId, brandStyles, multiPage]);
 
   // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
@@ -1173,9 +1181,9 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
-      {/* Multi-style view — no specific style selected: render all styles in
-          the current scope (selected brand or all brands), stacked with a
-          style header bar each. Capped at 50 styles per load. */}
+      {/* Multi-style view — no specific style selected: render one page of styles
+          (MULTI_PAGE_SIZE each) in the current scope (selected brand or all brands),
+          stacked with a style header bar each. Paginated via prev/next controls. */}
       {!styleId && (
         brandLoading ? (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
@@ -1185,8 +1193,32 @@ export default function InternalInventoryMatrix() {
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
             No styles with inventory{brandId ? " for this brand" : ""}.
           </div>
-        ) : (
+        ) : (() => {
+          const totalStyles = brandStyles.length;
+          const totalPages = Math.ceil(totalStyles / MULTI_PAGE_SIZE);
+          const pageStart = multiPage * MULTI_PAGE_SIZE + 1;
+          const pageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, totalStyles);
+          const pagBtnBase: React.CSSProperties = {
+            background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4,
+            padding: "4px 14px", fontSize: 13, cursor: "pointer", color: C.text,
+          };
+          const PagBar = () => (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13 }}>
+              <span style={{ color: C.textMuted }}>Styles {pageStart}–{pageEnd} of {totalStyles}</span>
+              {totalPages > 1 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button onClick={() => setMultiPage(p => Math.max(0, p - 1))} disabled={multiPage === 0}
+                    style={{ ...pagBtnBase, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {totalPages}</span>
+                  <button onClick={() => setMultiPage(p => Math.min(totalPages - 1, p + 1))} disabled={multiPage >= totalPages - 1}
+                    style={{ ...pagBtnBase, opacity: multiPage >= totalPages - 1 ? 0.4 : 1, cursor: multiPage >= totalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
+                </div>
+              )}
+            </div>
+          );
+          return (
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            <PagBar />
             {brandPayloads.map(({ style: bStyle, payload: bPayload }) => {
               const bRises = bPayload.rises ?? [];
               const bShowRise = bRises.length > 1;
@@ -1273,8 +1305,10 @@ export default function InternalInventoryMatrix() {
                 </div>
               );
             })}
+            <PagBar />
           </div>
-        )
+          );
+        })()
       )}
 
       {/* ── Row-driven list views (SO / PO / Invoices) ───────────────────────
