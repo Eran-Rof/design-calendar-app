@@ -145,6 +145,12 @@ export default function ProjectListView() {
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Costing Projects</h2>
+        <button
+          onClick={onNew}
+          style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#3B82F6", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+        >
+          + Add New
+        </button>
         <div style={{ marginLeft: "auto" }}>
           <ExportButton rows={exportRows} filename="costing-projects" sheetName="Projects" />
         </div>
@@ -185,7 +191,7 @@ export default function ProjectListView() {
             {visible.length === 0 && !loading && (
               <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
                 {projects.length === 0
-                  ? 'No projects yet — click "+ New" in the top nav to get started.'
+                  ? 'No projects yet — click "+ Add New" above to get started.'
                   : `No ${activeTab.label.toLowerCase()} projects.`}
               </td></tr>
             )}
