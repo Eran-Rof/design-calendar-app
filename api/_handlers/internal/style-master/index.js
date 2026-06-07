@@ -26,7 +26,7 @@ const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 // `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
 // fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -177,6 +177,7 @@ export default async function handler(req, res) {
       brand_id: v.data.brand_id || null,
       size_scale_id: v.data.size_scale_id || null,
       rise: v.data.rise || null,
+      hts_code: v.data.hts_code || null,
       attributes: v.data.attributes || {},
     };
 
@@ -269,7 +270,7 @@ export function validateInsert(body) {
   body.generate_upcs = body.generate_upcs === true || body.generate_upcs === "true";
   // Optional classifier fields — coerce empty strings to null so the
   // handler doesn't persist empty text.
-  for (const k of ["group_name", "category_name", "sub_category_name", "rise"]) {
+  for (const k of ["group_name", "category_name", "sub_category_name", "rise", "hts_code"]) {
     if (body[k] != null) {
       const trimmed = String(body[k]).trim();
       body[k] = trimmed === "" ? null : trimmed;

@@ -23,7 +23,6 @@ const FABRIC_CODE_COLUMNS: ColumnDef[] = [
   { key: "composition_text",  label: "Composition" },
   { key: "fabric_weight_gsm", label: "GSM" },
   { key: "country_of_origin", label: "COO" },
-  { key: "hts_code",          label: "HTS" },
   { key: "is_active",         label: "Active" },
 ];
 
@@ -35,7 +34,6 @@ type FabricCode = {
   composition_json: unknown;
   fabric_weight_gsm: number | null;
   country_of_origin_iso2: string | null;
-  hts_code: string | null;
   care_instructions: string | null;
   default_vendor_id: string | null;
   is_active: boolean;
@@ -208,7 +206,6 @@ export default function InternalFabricCodes() {
             { key: "composition_text",       header: "Composition" },
             { key: "fabric_weight_gsm",      header: "GSM", format: "number" },
             { key: "country_of_origin_iso2", header: "COO" },
-            { key: "hts_code",               header: "HTS" },
             { key: "care_instructions",      header: "Care Instructions" },
             { key: "default_vendor_id",      header: "Default Vendor ID" },
             { key: "is_active",              header: "Active" },
@@ -245,7 +242,6 @@ export default function InternalFabricCodes() {
                 <SortableTh label="Composition" sortKey="composition_text" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("composition_text")} />
                 <SortableTh label="GSM" sortKey="fabric_weight_gsm" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("fabric_weight_gsm")} />
                 <SortableTh label="COO" sortKey="country_of_origin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("country_of_origin")} />
-                <SortableTh label="HTS" sortKey="hts_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("hts_code")} />
                 <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
@@ -266,7 +262,6 @@ export default function InternalFabricCodes() {
                   <td style={td} hidden={!isVisible("composition_text")}>{r.composition_text}</td>
                   <td style={td} hidden={!isVisible("fabric_weight_gsm")}>{r.fabric_weight_gsm ?? "—"}</td>
                   <td style={td} hidden={!isVisible("country_of_origin")}>{r.country_of_origin_iso2 ?? "—"}</td>
-                  <td style={td} hidden={!isVisible("hts_code")}>{r.hts_code ?? "—"}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{r.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
@@ -311,8 +306,6 @@ interface ModalProps {
   onSaved: () => void;
 }
 
-type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
-
 function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     code:                   fabric?.code                   ?? "",
@@ -320,65 +313,10 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
     composition_text:       fabric?.composition_text       ?? "",
     fabric_weight_gsm:      fabric?.fabric_weight_gsm != null ? String(fabric.fabric_weight_gsm) : "",
     country_of_origin_iso2: fabric?.country_of_origin_iso2 ?? "",
-    hts_code:               fabric?.hts_code               ?? "",
     care_instructions:      fabric?.care_instructions      ?? "",
     default_vendor_id:      fabric?.default_vendor_id      ?? "",
     is_active:              fabric?.is_active              ?? true,
   });
-  const [htsSuggestions, setHtsSuggestions] = useState<HtsSuggestion[]>([]);
-  const [htsSuggestLoading, setHtsSuggestLoading] = useState(false);
-  const [htsSuggestErr, setHtsSuggestErr] = useState<string | null>(null);
-
-  async function fetchHtsSuggestions() {
-    setHtsSuggestLoading(true);
-    setHtsSuggestErr(null);
-    setHtsSuggestions([]);
-    try {
-      const r = await fetch("/api/internal/hts/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fabric_content: form.composition_text.trim() || form.name.trim(),
-          country_of_origin: countries.find((c) => c.iso2 === form.country_of_origin_iso2)?.name ?? form.country_of_origin_iso2,
-          category: "",
-        }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      setHtsSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
-      if (data.note) setHtsSuggestErr(data.note);
-    } catch (e: unknown) {
-      setHtsSuggestErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setHtsSuggestLoading(false);
-    }
-  }
-
-  // Pick an AI HTS suggestion → set it on the fabric AND auto-fill the HTS
-  // Master reference table with the AI-classified code (description + duty rate
-  // + derived chapter/heading). Best-effort: a duplicate (409) or any failure
-  // never blocks setting the fabric's code. This is what makes the HTS Master
-  // "auto-fill with data" as fabrics get classified.
-  async function pickHtsSuggestion(s: HtsSuggestion) {
-    setForm((f) => ({ ...f, hts_code: s.code }));
-    setHtsSuggestions([]);
-    const digits = String(s.code).replace(/\D/g, "");
-    try {
-      await fetch("/api/internal/hts-codes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: s.code,
-          description: s.description || s.code,
-          chapter: digits.slice(0, 2) || null,
-          heading: digits.slice(0, 4) || null,
-          duty_rate_pct: s.duty_rate_pct ?? null,
-          notes: "Auto-added from AI HTS classification",
-        }),
-      });
-      // 409 (already in master) or any other status is fine — best-effort fill.
-    } catch { /* non-fatal: fabric still gets the code */ }
-  }
 
   // Chunk J item 7 — COO picker options ("<iso2> — <name>", value = iso2).
   // The stored value remains the 2-letter ISO code. If the row already holds
@@ -413,7 +351,6 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
         // The DB column + handler support remain; we simply stop sending it.
         fabric_weight_gsm:      form.fabric_weight_gsm ? Number(form.fabric_weight_gsm) : null,
         country_of_origin_iso2: form.country_of_origin_iso2.trim().toUpperCase() || null,
-        hts_code:               form.hts_code.trim() || null,
         care_instructions:      form.care_instructions.trim() || null,
         default_vendor_id:      form.default_vendor_id || null,
         is_active:              form.is_active,
@@ -499,52 +436,6 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
               options={countryOptions}
               placeholder="Pick a country (search ISO / name)…"
             />
-          </Field>
-          <Field label="HTS code">
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                type="text"
-                value={form.hts_code}
-                onChange={(e) => { setForm({ ...form, hts_code: e.target.value }); setHtsSuggestions([]); }}
-                style={{ ...inputStyle, flex: 1 }}
-                placeholder="e.g. 5208.32"
-              />
-              <button
-                type="button"
-                onClick={() => void fetchHtsSuggestions()}
-                disabled={htsSuggestLoading}
-                style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
-                title="Use Claude AI to suggest HTS codes based on fabric content and COO"
-              >
-                {htsSuggestLoading ? "…" : "🤖 Suggest"}
-              </button>
-            </div>
-            {htsSuggestErr && (
-              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{htsSuggestErr}</div>
-            )}
-            {htsSuggestions.length > 0 && (
-              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 4, marginTop: 4, overflow: "hidden" }}>
-                {htsSuggestions.map((s, i) => (
-                  <div
-                    key={i}
-                    onClick={() => void pickHtsSuggestion(s)}
-                    style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < htsSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.card; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, fontSize: 13 }}>{s.code}</span>
-                      <span style={{ fontSize: 11, color: s.confidence === "high" ? C.success : s.confidence === "medium" ? C.warn : C.textMuted }}>{s.confidence}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{s.description}</div>
-                    {s.duty_rate_pct != null && (
-                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>Duty: {s.duty_rate_pct}%</div>
-                    )}
-                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, fontStyle: "italic" }}>{s.reasoning}</div>
-                  </div>
-                ))}
-              </div>
-            )}
           </Field>
           <Field label="Default vendor">
             <select
