@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit",
     "check:api": "node scripts/check-api.mjs",
     "gen:routes": "node scripts/gen-routes.mjs",
+    "gen:module-keys": "node scripts/gen-module-keys.mjs",
+    "seed:module-keys": "node scripts/seed-module-keys.mjs",
     "test:eval": "RUN_AI_EVAL=1 vitest run api/_lib/ai/__tests__/golden-questions.test.js",
     "staging:local": "node scripts/staging-setup.mjs --local",
     "staging:remote": "node scripts/staging-setup.mjs --remote",
