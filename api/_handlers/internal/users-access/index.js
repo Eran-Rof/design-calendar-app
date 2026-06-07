@@ -20,8 +20,30 @@
 // Per-cell override grant/revoke lives in the sibling ./override.js handler.
 
 import { createClient } from "@supabase/supabase-js";
+import { TANGERINE_MODULES } from "../../../_lib/tangerineModules.js";
 
 export const config = { maxDuration: 15 };
+
+// The User Access grid shows exactly the CURRENT Tangerine menu items (the
+// generated nav mirror). The DB module_keys table may carry stale legacy keys
+// (e.g. product_master, coa) that are no longer in the nav — those are dropped
+// from the grid. For keys that ARE current, any curated DB values
+// (display_name / available_actions / sort_order) override the mirror default.
+function mergeModules(dbRows) {
+  const dbByKey = new Map((dbRows || []).map((r) => [r.key, r]));
+  return TANGERINE_MODULES
+    .map((m) => {
+      const r = dbByKey.get(m.key);
+      return {
+        key: m.key,
+        display_name: r?.display_name || m.display_name,
+        group_name: r?.group_name || m.group_name,
+        sort_order: m.sort_order,
+        available_actions: r?.available_actions || m.available_actions,
+      };
+    })
+    .sort((a, b) => (a.sort_order - b.sort_order) || a.key.localeCompare(b.key));
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -128,7 +150,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       entity_id: entityId,
-      modules: mods.data || [],
+      modules: mergeModules(mods.data),
       roles: roles.data || [],
       role_grants: roleGrants,
       users,
