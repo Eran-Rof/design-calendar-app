@@ -1,4 +1,4 @@
-// src/tanda/InternalPurchaseOrders.tsx
+﻿// src/tanda/InternalPurchaseOrders.tsx
 //
 // P16 / M11 — native Purchase Order entry (origination). List + create/edit
 // modal. Mirrors the Sales Order modal (M10): vendor/brand/payment-terms
@@ -214,7 +214,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/internal/items?limit=500").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/items?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);

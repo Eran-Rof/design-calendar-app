@@ -57,7 +57,7 @@ export default async function handler(req, res) {
     const url = new URL(req.url, `https://${req.headers.host}`);
     const includeInactive = url.searchParams.get("include_inactive") === "true";
     const q = (url.searchParams.get("q") || "").trim();
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 500);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "1000", 10) || 1000, 5000);
 
     let query = admin
       .from("vendors")

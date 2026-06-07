@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmTasks.tsx
+﻿// src/tanda/InternalCrmTasks.tsx
 //
 // Tangerine P8-3 — CRM Tasks admin panel (M25, arch §3 + §4).
 // Task list with filters: assignee, status, due-before. Add modal + inline
@@ -206,7 +206,7 @@ export default function InternalCrmTasks() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data) ? data : (data?.rows ?? []);

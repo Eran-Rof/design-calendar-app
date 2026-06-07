@@ -1,4 +1,4 @@
-// src/tanda/InternalFabricCodes.tsx
+﻿// src/tanda/InternalFabricCodes.tsx
 //
 // Tangerine P3 Chunk 11 — internal admin panel for fabric_codes CRUD.
 // List + search + country/active filter + add/edit modal + hard-delete with
@@ -136,7 +136,7 @@ export default function InternalFabricCodes() {
 
   async function loadVendors() {
     try {
-      const r = await fetch(`/api/internal/vendor-master?limit=500`);
+      const r = await fetch(`/api/internal/vendor-master?limit=5000`);
       if (!r.ok) return;
       const data = await r.json();
       if (Array.isArray(data)) setVendors(data as Vendor[]);

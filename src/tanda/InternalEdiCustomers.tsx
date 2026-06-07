@@ -1,4 +1,4 @@
-// src/tanda/InternalEdiCustomers.tsx
+﻿// src/tanda/InternalEdiCustomers.tsx
 //
 // Tangerine — EDI Customers (customer-side trading partners, MVP config).
 //
@@ -96,7 +96,7 @@ export default function InternalEdiCustomers() {
 
   useEffect(() => { void load(); }, [includeInactive]);
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500")
+    fetch("/api/internal/customer-master?limit=5000")
       .then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); })
       .catch(() => {});

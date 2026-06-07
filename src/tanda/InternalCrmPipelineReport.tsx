@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmPipelineReport.tsx
+﻿// src/tanda/InternalCrmPipelineReport.tsx
 //
 // Tangerine P8-3 — CRM Pipeline aggregate report (M25, arch §3 + §4).
 // Renders 5 stage cards: count + total_cents + weighted_cents. Visual stage bar
@@ -101,7 +101,7 @@ export default function InternalCrmPipelineReport() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const j = await r.json();
       const list = Array.isArray(j) ? j : (j?.rows ?? []);

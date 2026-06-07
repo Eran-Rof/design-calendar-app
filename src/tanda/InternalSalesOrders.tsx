@@ -1,4 +1,4 @@
-// src/tanda/InternalSalesOrders.tsx
+﻿// src/tanda/InternalSalesOrders.tsx
 //
 // P16 / M10-B — native Sales Order entry. List + create/edit modal. Mirrors the
 // AR-invoice modal patterns (customer/ship-to/brand/channel pickers, item
@@ -224,7 +224,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/internal/items?limit=500").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/items?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
     fetch("/api/internal/channels").then((r) => r.json()).then((d) => setChannels(Array.isArray(d.channels) ? d.channels : [])).catch(() => {});
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});

@@ -1,4 +1,4 @@
-// src/tanda/InternalPriceLists.tsx
+﻿// src/tanda/InternalPriceLists.tsx
 //
 // M43 — Price Lists admin. Master/detail: a list of price lists (scope =
 // default / tier / customer), each opening a detail modal that manages its
@@ -69,8 +69,8 @@ export default function InternalPriceLists() {
   }
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [qDebounced, includeInactive]);
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
-    fetch("/api/internal/style-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
+    fetch("/api/internal/customer-master?limit=5000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
+    fetch("/api/internal/style-master?limit=10000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
   }, []);
 
   return (

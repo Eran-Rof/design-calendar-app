@@ -1,4 +1,4 @@
-// src/tanda/InternalCases.tsx
+﻿// src/tanda/InternalCases.tsx
 //
 // Tangerine P7-9 — Cases admin panel (Customer Service / M47).
 // List + filters + detail modal with comment thread + create-new modal.
@@ -203,7 +203,7 @@ export default function InternalCases() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data)

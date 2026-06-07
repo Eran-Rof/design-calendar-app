@@ -1,4 +1,4 @@
-// src/tanda/InternalVendorScorecard.tsx
+﻿// src/tanda/InternalVendorScorecard.tsx
 //
 // Nav-reachable wrapper around the existing <VendorScorecard> drill-through
 // modal. The scorecard itself requires a vendor to be selected, so this panel
@@ -33,7 +33,7 @@ export default function InternalVendorScorecard() {
     (async () => {
       try {
         setLoading(true);
-        const r = await fetch("/api/internal/vendor-master?limit=500");
+        const r = await fetch("/api/internal/vendor-master?limit=5000");
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         const data = (await r.json()) as Vendor[];
         if (!cancelled) setVendors(data);

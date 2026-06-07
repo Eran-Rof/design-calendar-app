@@ -1,4 +1,4 @@
-// src/tanda/InternalB2BAccounts.tsx
+﻿// src/tanda/InternalB2BAccounts.tsx
 //
 // Tangerine P18-F — internal B2B Buyers admin panel.
 // Authorize a buyer (pre-authorization step): map a customer + email to a
@@ -143,7 +143,7 @@ export default function InternalB2BAccounts() {
   useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500")
+    fetch("/api/internal/customer-master?limit=5000")
       .then((r) => r.json())
       .then((arr: unknown) => { if (Array.isArray(arr)) setCustomers(arr as Customer[]); })
       .catch(() => {});

@@ -1,4 +1,4 @@
-// src/tanda/InternalARInvoices.tsx
+﻿// src/tanda/InternalARInvoices.tsx
 //
 // Tangerine P4 Chunk 4 — Accounts Receivable invoice admin UI.
 // Lists invoices with status/customer/date/search filters. Add/Edit modal
@@ -653,7 +653,7 @@ function ARInvoiceModal({
       .then((arr: { id: string; code: string; name: string }[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
       .catch(() => {});
     // Inventory items for the line picker (searchable dropdown).
-    fetch("/api/internal/items?limit=500")
+    fetch("/api/internal/items?limit=5000")
       .then((r) => (r.ok ? r.json() : []))
       .then((arr: ARItem[]) => setItems(Array.isArray(arr) ? arr : []))
       .catch(() => {});

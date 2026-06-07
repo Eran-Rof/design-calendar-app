@@ -167,7 +167,7 @@ export default function InternalInventoryAdjustments() {
   useEffect(() => {
     (async () => {
       try {
-        const itemsRes = await fetch(`/api/internal/style-master?limit=500`);
+        const itemsRes = await fetch(`/api/internal/style-master?limit=10000`);
         if (itemsRes.ok) {
           const data = await itemsRes.json();
           // style-master shape: depends on handler; fall back to flatMap-friendly
