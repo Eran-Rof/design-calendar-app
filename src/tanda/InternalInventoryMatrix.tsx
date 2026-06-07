@@ -275,8 +275,12 @@ function fmtQty(v: number): string {
 }
 
 
-const ALL_BRANDS_SENTINEL = "__ALL_BRANDS__";
-const ALL_STYLES_SENTINEL = "__ALL_STYLES__";
+const ALL_BRANDS_SENTINEL     = "__ALL_BRANDS__";
+const ALL_STYLES_SENTINEL     = "__ALL_STYLES__";
+const ALL_GENDER_SENTINEL     = "__ALL_GENDER__";
+const ALL_GROUP_SENTINEL      = "__ALL_GROUP__";
+const ALL_CATEGORY_SENTINEL   = "__ALL_CATEGORY__";
+const ALL_SUBCATEGORY_SENTINEL = "__ALL_SUBCATEGORY__";
 const MULTI_PAGE_SIZE = 25;
 
 // ── component ────────────────────────────────────────────────────────────────
@@ -306,12 +310,11 @@ export default function InternalInventoryMatrix() {
   const [listLoading, setListLoading] = useState(false);
   const [listErr, setListErr]         = useState<string | null>(null);
 
-  // ATS-style inventory filters that scope the STYLE picker (mirrors the ATS
-  // filter bar's gender/category/group multi-selects). Brand is already a
-  // separate picker above; these are additive narrowing on top of it.
-  const [genderFilter, setGenderFilter] = useState<string[]>([]); // [] = all
-  const [groupFilter, setGroupFilter]   = useState<string[]>([]); // master group_name
-  const [categoryFilter, setCategoryFilter] = useState<string[]>([]); // master category_name
+  // Single-value filter dropdowns that scope the STYLE picker. "" = all.
+  const [genderFilter, setGenderFilter]         = useState("");
+  const [groupFilter, setGroupFilter]           = useState("");
+  const [categoryFilter, setCategoryFilter]     = useState("");
+  const [subCategoryFilter, setSubCategoryFilter] = useState("");
   // Primary product image for the picked style (same source as the PIM
   // Product Catalog) + the enlarge lightbox open flag.
 
@@ -444,19 +447,15 @@ export default function InternalInventoryMatrix() {
   // effect below because that effect reads `brandStyles` in its dependency array,
   // which is evaluated during render — referencing it earlier is a TDZ crash.
   const brandStyles = useMemo<StyleListRow[]>(
-    () => {
-      const gSet = genderFilter.length ? new Set(genderFilter) : null;
-      const grpSet = groupFilter.length ? new Set(groupFilter) : null;
-      const catSet = categoryFilter.length ? new Set(categoryFilter) : null;
-      return styles.filter((s) => {
-        if (brandId && s.brand_id !== brandId) return false;
-        if (gSet && !(s.gender_code != null && gSet.has(s.gender_code))) return false;
-        if (grpSet && !(s.group_name != null && grpSet.has(s.group_name))) return false;
-        if (catSet && !(s.category_name != null && catSet.has(s.category_name))) return false;
-        return true;
-      });
-    },
-    [styles, brandId, genderFilter, groupFilter, categoryFilter],
+    () => styles.filter((s) => {
+      if (brandId && s.brand_id !== brandId) return false;
+      if (genderFilter && s.gender_code !== genderFilter) return false;
+      if (groupFilter && s.group_name !== groupFilter) return false;
+      if (categoryFilter && s.category_name !== categoryFilter) return false;
+      if (subCategoryFilter && s.sub_category_name !== subCategoryFilter) return false;
+      return true;
+    }),
+    [styles, brandId, genderFilter, groupFilter, categoryFilter, subCategoryFilter],
   );
 
   // Distinct filter option values derived from the loaded style list (scoped to
@@ -478,6 +477,16 @@ export default function InternalInventoryMatrix() {
     () => [...new Set(brandScopedStyles.map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
     [brandScopedStyles],
   );
+  const subCategoryOptions = useMemo<string[]>(
+    () => {
+      const base = categoryFilter ? brandScopedStyles.filter((s) => s.category_name === categoryFilter) : brandScopedStyles;
+      return [...new Set(base.map((s) => s.sub_category_name).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
+    },
+    [brandScopedStyles, categoryFilter],
+  );
+
+  // Reset sub-category when category changes.
+  useEffect(() => { setSubCategoryFilter(""); }, [categoryFilter]);
 
   // Reset to page 0 whenever the style list scope changes (brand/filter change).
   useEffect(() => { setMultiPage(0); }, [brandStyles]);
@@ -555,6 +564,36 @@ export default function InternalInventoryMatrix() {
     });
     return [{ value: ALL_STYLES_SENTINEL, label: "(All Styles)", searchHaystack: "all styles" }, ...individual];
   }, [brandStyles, brandLabelById]);
+
+  // Dropdown options for filter pickers (all include an "All" sentinel first).
+  const genderDropdownOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      { value: ALL_GENDER_SENTINEL, label: "All Genders", searchHaystack: "all genders" },
+      ...genderOptions.map((g) => ({ value: g, label: GENDER_LABELS[g] || g, searchHaystack: `${g} ${GENDER_LABELS[g] || ""}` })),
+    ],
+    [genderOptions],
+  );
+  const groupDropdownOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      { value: ALL_GROUP_SENTINEL, label: "All Groups", searchHaystack: "all groups" },
+      ...groupOptions.map((g) => ({ value: g, label: g, searchHaystack: g })),
+    ],
+    [groupOptions],
+  );
+  const categoryDropdownOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      { value: ALL_CATEGORY_SENTINEL, label: "All Categories", searchHaystack: "all categories" },
+      ...categoryOptions.map((c) => ({ value: c, label: c, searchHaystack: c })),
+    ],
+    [categoryOptions],
+  );
+  const subCategoryDropdownOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      { value: ALL_SUBCATEGORY_SENTINEL, label: "All Sub-Categories", searchHaystack: "all sub-categories" },
+      ...subCategoryOptions.map((s) => ({ value: s, label: s, searchHaystack: s })),
+    ],
+    [subCategoryOptions],
+  );
 
   const rises = payload?.rises ?? [];
   const showRise = rises.length > 1;
@@ -740,97 +779,95 @@ export default function InternalInventoryMatrix() {
       </div>
 
       {/* Controls */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
-        {/* Brand filter — scopes the style picker to one brand ("" = all). */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 200 }}>
-          Brand
-          <SearchableSelect
-            value={brandId ? brandId : ALL_BRANDS_SENTINEL}
-            onChange={(v) => {
-              if (!v || v === ALL_BRANDS_SENTINEL) { setBrandId(""); setStyleId(""); }
-              else setBrandId(v);
-            }}
-            options={brandOptions}
-            placeholder="Search brand…"
-            inputStyle={inputStyle}
-          />
-        </label>
+      <div style={{ marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 }}>
 
-        {/* Style picker — "(All Styles)" shows the brand-level matrix view. */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 320 }}>
-          Style
-          <SearchableSelect
-            value={styleId || ALL_STYLES_SENTINEL}
-            onChange={(v) => {
-              if (!v || v === ALL_STYLES_SENTINEL) setStyleId("");
-              else setStyleId(v);
-            }}
-            options={styleOptions}
-            placeholder="Search style code or name…"
-            inputStyle={inputStyle}
-          />
-        </label>
+        {/* Row 1 — filter dropdowns */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 180 }}>
+            Brand
+            <SearchableSelect
+              value={brandId ? brandId : ALL_BRANDS_SENTINEL}
+              onChange={(v) => {
+                if (!v || v === ALL_BRANDS_SENTINEL) { setBrandId(""); setStyleId(""); }
+                else setBrandId(v);
+              }}
+              options={brandOptions}
+              placeholder="Search brand…"
+              inputStyle={inputStyle}
+            />
+          </label>
 
-        {/* ATS-style inventory filters that scope the STYLE picker — gender,
-            group, category multi-selects (mirrors the ATS app's filter bar).
-            Each is hidden when there are no values to offer for the current
-            brand scope. Brand + style remain their own pickers above. */}
-        {genderOptions.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Gender
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <button type="button" style={chipStyle(genderFilter.length === 0)} onClick={() => setGenderFilter([])}>All</button>
-              {genderOptions.map((g) => {
-                const on = genderFilter.includes(g);
-                return (
-                  <button key={g} type="button" style={chipStyle(on)}
-                    onClick={() => setGenderFilter(on ? genderFilter.filter((x) => x !== g) : [...genderFilter, g])}>
-                    {GENDER_LABELS[g] || g}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {groupOptions.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Group
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
-              <button type="button" style={chipStyle(groupFilter.length === 0)} onClick={() => setGroupFilter([])}>All</button>
-              {groupOptions.map((g) => {
-                const on = groupFilter.includes(g);
-                return (
-                  <button key={g} type="button" style={chipStyle(on)}
-                    onClick={() => setGroupFilter(on ? groupFilter.filter((x) => x !== g) : [...groupFilter, g])}>
-                    {g}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {categoryOptions.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Category
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
-              <button type="button" style={chipStyle(categoryFilter.length === 0)} onClick={() => setCategoryFilter([])}>All</button>
-              {categoryOptions.map((c) => {
-                const on = categoryFilter.includes(c);
-                return (
-                  <button key={c} type="button" style={chipStyle(on)}
-                    onClick={() => setCategoryFilter(on ? categoryFilter.filter((x) => x !== c) : [...categoryFilter, c])}>
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 280 }}>
+            Style
+            <SearchableSelect
+              value={styleId || ALL_STYLES_SENTINEL}
+              onChange={(v) => {
+                if (!v || v === ALL_STYLES_SENTINEL) setStyleId("");
+                else setStyleId(v);
+              }}
+              options={styleOptions}
+              placeholder="Search style code or name…"
+              inputStyle={inputStyle}
+            />
+          </label>
 
-        {/* Store filter — on-hand-only; "All Stores" sums every location. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Store
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {genderDropdownOptions.length > 1 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+              Gender
+              <SearchableSelect
+                value={genderFilter || ALL_GENDER_SENTINEL}
+                onChange={(v) => setGenderFilter(!v || v === ALL_GENDER_SENTINEL ? "" : v)}
+                options={genderDropdownOptions}
+                placeholder="Gender…"
+                inputStyle={inputStyle}
+              />
+            </label>
+          )}
+
+          {groupDropdownOptions.length > 1 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+              Group
+              <SearchableSelect
+                value={groupFilter || ALL_GROUP_SENTINEL}
+                onChange={(v) => setGroupFilter(!v || v === ALL_GROUP_SENTINEL ? "" : v)}
+                options={groupDropdownOptions}
+                placeholder="Group…"
+                inputStyle={inputStyle}
+              />
+            </label>
+          )}
+
+          {categoryDropdownOptions.length > 1 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+              Category
+              <SearchableSelect
+                value={categoryFilter || ALL_CATEGORY_SENTINEL}
+                onChange={(v) => setCategoryFilter(!v || v === ALL_CATEGORY_SENTINEL ? "" : v)}
+                options={categoryDropdownOptions}
+                placeholder="Category…"
+                inputStyle={inputStyle}
+              />
+            </label>
+          )}
+
+          {subCategoryDropdownOptions.length > 1 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
+              Sub-Category
+              <SearchableSelect
+                value={subCategoryFilter || ALL_SUBCATEGORY_SENTINEL}
+                onChange={(v) => setSubCategoryFilter(!v || v === ALL_SUBCATEGORY_SENTINEL ? "" : v)}
+                options={subCategoryDropdownOptions}
+                placeholder="Sub-category…"
+                inputStyle={inputStyle}
+              />
+            </label>
+          )}
+        </div>
+
+        {/* Row 2 — display controls */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {/* Store filter */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginRight: 4 }}>
             <button
               type="button"
               style={btnToggle(warehouse === ALL_WAREHOUSES)}
@@ -849,46 +886,54 @@ export default function InternalInventoryMatrix() {
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Hide-zero-rows toggle (default ON). */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Rows
-          <div style={{ display: "flex", gap: 6 }}>
-            <button type="button" style={btnToggle(hideZeros)} onClick={() => setHideZeros(true)}>
-              Hide Zero
-            </button>
-            <button type="button" style={btnToggle(!hideZeros)} onClick={() => setHideZeros(false)}>
-              Show All
-            </button>
-          </div>
-        </div>
+          {/* Divider */}
+          <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
 
-        {/* Explode-PPK toggle (default OFF). When ON, the picked style's PPK
-            sibling packs on-hand are converted to sized eaches via the Prepack
-            Matrix master and folded into the grid. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Prepacks
-          <div style={{ display: "flex", gap: 6 }}>
-            <button type="button" style={btnToggle(!explodePpk)} onClick={() => setExplodePpk(false)}>
-              Off
-            </button>
-            <button type="button" style={btnToggle(explodePpk)} onClick={() => setExplodePpk(true)} title="Convert PPK packs on-hand into sized eaches using the Prepack Matrix master">
-              Explode PPK
-            </button>
-          </div>
-        </div>
+          {/* Hide Zeros toggle — blue = active (zeros hidden) */}
+          <button
+            type="button"
+            title="Toggle zero-qty rows"
+            style={{
+              background: hideZeros ? C.primary : C.card,
+              color: hideZeros ? "#fff" : C.textMuted,
+              border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`,
+              padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+              fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+            }}
+            onClick={() => setHideZeros((v) => !v)}
+          >
+            Hide Zeros
+          </button>
 
-        {payload && viewMode === "matrix" && (
-          <div style={{ alignSelf: "flex-end" }}>
-            <ExportButton
-              rows={exportRows}
-              filename={`inventory-matrix-${payload.style.style_code}`}
-              sheetName="Inventory Matrix"
-              columns={exportColumns}
-            />
-          </div>
-        )}
+          {/* Explode PPK toggle — blue = active */}
+          <button
+            type="button"
+            title="Convert PPK packs on-hand into sized eaches using the Prepack Matrix master"
+            style={{
+              background: explodePpk ? C.primary : C.card,
+              color: explodePpk ? "#fff" : C.textMuted,
+              border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`,
+              padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+              fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+            }}
+            onClick={() => setExplodePpk((v) => !v)}
+          >
+            Explode
+          </button>
+
+          {payload && viewMode === "matrix" && (
+            <>
+              <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
+              <ExportButton
+                rows={exportRows}
+                filename={`inventory-matrix-${payload.style.style_code}`}
+                sheetName="Inventory Matrix"
+                columns={exportColumns}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {/* View-mode switch — Matrix | SO | PO | Invoices. Only when a single
