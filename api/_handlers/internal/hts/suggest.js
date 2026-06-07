@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
   }
 
-  const { fabric_content = "", country_of_origin = "", category = "" } = body || {};
+  const { fabric_content = "", country_of_origin = "", category = "", gender = "" } = body || {};
   if (!fabric_content && !category) {
     return res.status(400).json({ error: "fabric_content or category required" });
   }
@@ -40,7 +40,12 @@ export default async function handler(req, res) {
 Classify the following fabric/product for US customs import:
 - Fabric Content / Description: ${fabric_content || "(not specified)"}
 - Country of Origin: ${country_of_origin || "(not specified)"}
-- Product Category: ${category || "(not specified)"}
+- Product Category / Group (top, bottom, accessory): ${category || "(not specified)"}
+- Gender / Wearer: ${gender || "(not specified)"}
+
+Gender is decisive for apparel HTS: men's/boys' garments classify under different
+codes than women's/girls', and babies'/infants' separately again — weight the
+men's-vs-women's-vs-boys'-vs-girls' distinction accordingly when it is specified.
 
 Return the top 3 most likely HTS codes with duty rates. Focus on Chapters 50-63 (textiles and apparel).
 
