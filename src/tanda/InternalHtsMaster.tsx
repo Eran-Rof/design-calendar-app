@@ -268,6 +268,47 @@ function HtsFormModal({ mode, row, onClose, onSaved }: ModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // AI HTS classification (Claude Haiku via /api/internal/hts/suggest). Type a
+  // description/fabric content, get the top-3 codes, click one to fill the form.
+  type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
+  const [aiSuggestions, setAiSuggestions] = useState<HtsSuggestion[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+
+  async function fetchAiSuggestions() {
+    setAiLoading(true);
+    setAiErr(null);
+    setAiSuggestions([]);
+    try {
+      const r = await fetch("/api/internal/hts/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fabric_content: form.description.trim(), category: form.description.trim() }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setAiSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+      if (data.note) setAiErr(data.note);
+    } catch (e: unknown) {
+      setAiErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function applyAiSuggestion(s: HtsSuggestion) {
+    const digits = String(s.code).replace(/\D/g, "");
+    setForm((f) => ({
+      ...f,
+      code: s.code,
+      description: s.description || f.description,
+      chapter: digits.slice(0, 2) || f.chapter,
+      heading: digits.slice(0, 4) || f.heading,
+      duty_rate_pct: s.duty_rate_pct != null ? String(s.duty_rate_pct) : f.duty_rate_pct,
+    }));
+    setAiSuggestions([]);
+  }
+
   async function submit() {
     setSubmitting(true);
     setErr(null);
@@ -317,6 +358,45 @@ function HtsFormModal({ mode, row, onClose, onSaved }: ModalProps) {
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add HTS code" : `Edit ${row!.code}`}
         </h3>
+
+        {mode === "add" && (
+          <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, color: C.textSub }}>
+                🤖 Type a product/fabric description below, then auto-fill the code, chapter, heading & duty with AI.
+              </span>
+              <button
+                type="button"
+                onClick={() => void fetchAiSuggestions()}
+                disabled={aiLoading || !form.description.trim()}
+                style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0, opacity: !form.description.trim() ? 0.5 : 1 }}
+                title="Use Claude AI to classify and fill HTS fields from the description"
+              >
+                {aiLoading ? "…" : "🤖 Suggest HTS"}
+              </button>
+            </div>
+            {aiErr && <div style={{ fontSize: 11, color: C.warn }}>{aiErr}</div>}
+            {aiSuggestions.length > 0 && (
+              <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 4, overflow: "hidden", marginTop: 4 }}>
+                {aiSuggestions.map((s, i) => (
+                  <div
+                    key={i}
+                    onClick={() => applyAiSuggestion(s)}
+                    style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < aiSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined, background: C.card }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, fontSize: 13 }}>{s.code}</span>
+                      <span style={{ fontSize: 11, color: s.confidence === "high" ? C.success : s.confidence === "medium" ? C.warn : C.textMuted }}>{s.confidence}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{s.description}</div>
+                    {s.duty_rate_pct != null && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>Duty: {s.duty_rate_pct}%</div>}
+                    {s.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, fontStyle: "italic" }}>{s.reasoning}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="HTS Code" wide={mode === "edit"}>

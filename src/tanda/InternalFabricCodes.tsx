@@ -354,6 +354,32 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
     }
   }
 
+  // Pick an AI HTS suggestion → set it on the fabric AND auto-fill the HTS
+  // Master reference table with the AI-classified code (description + duty rate
+  // + derived chapter/heading). Best-effort: a duplicate (409) or any failure
+  // never blocks setting the fabric's code. This is what makes the HTS Master
+  // "auto-fill with data" as fabrics get classified.
+  async function pickHtsSuggestion(s: HtsSuggestion) {
+    setForm((f) => ({ ...f, hts_code: s.code }));
+    setHtsSuggestions([]);
+    const digits = String(s.code).replace(/\D/g, "");
+    try {
+      await fetch("/api/internal/hts-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: s.code,
+          description: s.description || s.code,
+          chapter: digits.slice(0, 2) || null,
+          heading: digits.slice(0, 4) || null,
+          duty_rate_pct: s.duty_rate_pct ?? null,
+          notes: "Auto-added from AI HTS classification",
+        }),
+      });
+      // 409 (already in master) or any other status is fine — best-effort fill.
+    } catch { /* non-fatal: fabric still gets the code */ }
+  }
+
   // Chunk J item 7 — COO picker options ("<iso2> — <name>", value = iso2).
   // The stored value remains the 2-letter ISO code. If the row already holds
   // an ISO that isn't in the active country_master list, surface it so the
@@ -501,7 +527,7 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
                 {htsSuggestions.map((s, i) => (
                   <div
                     key={i}
-                    onClick={() => { setForm({ ...form, hts_code: s.code }); setHtsSuggestions([]); }}
+                    onClick={() => void pickHtsSuggestion(s)}
                     style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < htsSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined }}
                     onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.card; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
