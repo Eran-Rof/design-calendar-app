@@ -6,15 +6,6 @@ import { navigate, getView } from "../helpers";
 export default function CostingNavBar() {
   const view = getView();
 
-  // "New" navigates to the projects list AND fires a custom event the list
-  // view listens for to open its New-project modal. Keeps the modal state
-  // local to ProjectListView without store coupling.
-  const onNew = () => {
-    if (view !== "list") navigate("list");
-    // Defer so ProjectListView has rendered before we fire the event.
-    setTimeout(() => window.dispatchEvent(new CustomEvent("costing:new-project")), 0);
-  };
-
   return (
     <div style={{
       background: TH.header,
@@ -39,12 +30,6 @@ export default function CostingNavBar() {
           style={navBtn(view === "list" || view === "edit")}
         >
           Projects
-        </button>
-        <button
-          onClick={onNew}
-          style={navBtn(false)}
-        >
-          + New
         </button>
         <button
           onClick={() => navigate("rfq-list")}
