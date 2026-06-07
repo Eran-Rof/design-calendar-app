@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { TH } from "../utils/theme";
 
 // ─── NOTE INPUT ───────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ export function buildSkuCadPage(skus: any[], brand: any, showPrice: boolean, mod
       <div class="brand-logo">${brandName}</div>
       <div class="brand-sub">Product Line Sheet${isLink ? "" : " · Confidential"}</div>
     </div>
-    <div class="page-date">Generated ${new Date().toLocaleDateString()}</div>
+    <div class="page-date">Generated ${new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
   </div>
   <div class="skus-grid">${skuCards}</div>
   <div class="footer">ROF Design Calendar · ${new Date().getFullYear()}</div>
@@ -193,7 +193,7 @@ export function buildAttachmentPage(task: any, taskOrig: any, collData: any, bra
   <div class="header">${headerHtml}</div>
   <div class="phase-badge">${task.phase || ""}</div>
   <div class="attachments">${imagesHtml}</div>
-  <div class="footer">Generated ${new Date().toLocaleDateString()} · ROF Design Calendar</div>
+  <div class="footer">Generated ${new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })} · ROF Design Calendar</div>
   <div class="lightbox" id="lb" onclick="closeLb()">
     <button class="lightbox-close" onclick="closeLb()">✕</button>
     <img id="lb-img" src="" onclick="event.stopPropagation()" />

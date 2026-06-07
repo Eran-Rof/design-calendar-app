@@ -1,4 +1,4 @@
-import type { ATSRow } from "./types";
+﻿import type { ATSRow } from "./types";
 import { fmtDate } from "./helpers";
 import {
   INTEREST_RATE, PALLET_PCS, STORAGE_PER_PALLET_MONTH, DEFAULT_LAST_RECEIVED,
@@ -51,20 +51,18 @@ function teallSubtotalStyle(num: boolean): any {
 }
 
 function fmtMMDDYYYY(iso: string): string {
-  // Canonical app-wide date format: MMM/DD/YYYY (matches fmtDateDisplay).
+  // Canonical app-wide date format: MM/DD/YYYY (matches fmtDateDisplay).
   // Name kept for back-compat with existing call sites in this file.
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d.getTime())) return iso;
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
 export type AgedInvenResult = "empty" | ReportPayload;
 
 export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, category = "All"): AgedInvenResult {
   const today    = new Date();
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const todayStr = `${months[today.getMonth()]}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
+  const todayStr = `${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
 
   const categoryLabel = category !== "All" ? ` – ${category}` : "";
 

@@ -125,12 +125,10 @@ export function formatQty(n: number | null | undefined): string {
 }
 
 // ── Date formatting ────────────────────────────────────────────────────────
-// House format is MMM/DD/YYYY (e.g. Apr/19/2026) everywhere planning data
+// House format is MM/DD/YYYY (e.g. 04/19/2026) everywhere planning data
 // is shown. ISO strings are parsed as UTC to keep month boundaries stable.
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// "2026-04-19" or "2026-04-19T12:34:56Z" → "Apr/19/2026". Returns "–" on null/invalid.
+// "2026-04-19" or "2026-04-19T12:34:56Z" → "04/19/2026". Returns "–" on null/invalid.
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "–";
   // Fast path for YYYY-MM-DD — avoids TZ foot-guns.
@@ -139,19 +137,19 @@ export function formatDate(iso: string | null | undefined): string {
     const [, y, mm, dd] = m;
     const mi = Number(mm) - 1;
     if (mi < 0 || mi > 11) return "–";
-    return `${MONTHS[mi]}/${dd}/${y}`;
+    return `${mm}/${dd}/${y}`;
   }
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "–";
-  return `${MONTHS[d.getUTCMonth()]}/${String(d.getUTCDate()).padStart(2, "0")}/${d.getUTCFullYear()}`;
+  return `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}/${d.getUTCFullYear()}`;
 }
 
-// Timestamp with local time for audit trails. Returns e.g. "Apr/19/2026 14:32".
+// Timestamp with local time for audit trails. Returns e.g. "04/19/2026 14:32".
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "–";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "–";
-  const date = `${MONTHS[d.getMonth()]}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  const date = `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
   return `${date} ${hh}:${mi}`;
