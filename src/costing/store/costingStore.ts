@@ -301,11 +301,14 @@ export const useCostingStore = create<State>((set, get) => ({
     //  - created_at/updated_at → server-managed timestamps
     //  - selected_vendor_quote_id → VENDOR reset; the duplicate starts with
     //    no awarded vendor so the operator must pick a new one.
+    //  - status      → a brand-new line is always 'draft' (a copy of a sent/
+    //    quoted/awarded line must NOT inherit that lifecycle state).
     const {
       id: _omitId,
       created_at: _omitCreated,
       updated_at: _omitUpdated,
       selected_vendor_quote_id: _omitVendor,
+      status: _omitStatus,
       ...rest
     } = source as CostingLine & { created_at?: unknown; updated_at?: unknown };
 
@@ -317,6 +320,7 @@ export const useCostingStore = create<State>((set, get) => ({
 
     const copy = {
       ...rest,
+      status: "draft",
       selected_vendor_quote_id: null,
       sort_order: newSortOrder,
     } as Partial<CostingLine>;
