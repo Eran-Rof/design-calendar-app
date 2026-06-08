@@ -82,5 +82,21 @@ You'll be warned — with the option to **delete the incomplete rows and continu
    RFQ editor).
 4. **Compare RFQs** lays quotes side-by-side; **Award** picks the winner.
 
+### When a vendor revises a quote
+
+A vendor can reopen an already-submitted quote and resubmit revised figures. When
+they do:
+
+- The procurement team is **emailed automatically** — the alert is titled
+  "<vendor> revised their quote … (v2)" so you can tell it apart from a brand-new
+  quote (configure recipients via `INTERNAL_PROCUREMENT_EMAILS` or per-employee
+  notification subscriptions).
+- The next time you **open that RFQ**, a banner + toast pop up at the top
+  ("⚠ <vendor> revised their quote — review the highlighted rows"). The vendor's
+  row in the comparison shows a gold **Revised v2** badge; expand it to see
+  **current vs. prior** prices, lead time, and per-line figures.
+- Click **Got it** to dismiss the banner. It won't nag you again for that RFQ
+  unless the vendor revises *again* (a newer version re-triggers it).
+
 See also: [14 — Payment Terms](14-payment-terms.md), [15 — Fabric Codes](15-fabric-codes.md),
 [32 — Procurement & Receiving](32-procurement-receiving.md).
