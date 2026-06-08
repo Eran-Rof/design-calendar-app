@@ -21,7 +21,7 @@ function client() {
   const u = process.env.VITE_SUPABASE_URL, k = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return u && k ? createClient(u, k, { auth: { persistSession: false } }) : null;
 }
-const FIELDS = ["code","name","kind","location_id","contact_name","email","phone","account_ref","billing_notes","is_active","notes"];
+const FIELDS = ["code","name","kind","location_id","contact_name","email","phone","account_ref","billing_notes","is_active","notes","edi_protocol","edi_endpoint","edi_username","edi_credential_ref","inventory_sftp_path"];
 function pick(body) {
   const o = {};
   for (const f of FIELDS) if (body[f] !== undefined) o[f] = body[f] === "" ? null : body[f];

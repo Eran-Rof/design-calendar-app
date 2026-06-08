@@ -52,6 +52,7 @@ import r_cron_notification_digest_flush from "./cron/notification-digest-flush.j
 import r_cron_po_issued_notify from "./cron/po-issued-notify.js";
 import r_cron_push_delivery from "./cron/push-delivery.js";
 import r_cron_scorecards_monthly from "./cron/scorecards-monthly.js";
+import r_cron_tpl_inventory_pull from "./cron/tpl-inventory-pull.js";
 import r_cron_workspace_tasks_due_soon from "./cron/workspace-tasks-due-soon.js";
 import r_dropbox_proxy from "./dropbox-proxy.js";
 import r_edi_inbound_vendor_id from "./edi/inbound/[vendor_id].js";
@@ -1079,6 +1080,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/diversity-profile", handler: r_vendor_diversity_profile_index },
   { pattern: "/api/cron/fba-orders-nightly", handler: r_cron_fba_orders_nightly },
   { pattern: "/api/cron/scorecards-monthly", handler: r_cron_scorecards_monthly },
+  { pattern: "/api/cron/tpl-inventory-pull", handler: r_cron_tpl_inventory_pull },
   { pattern: "/api/internal/approval-rules", handler: r_internal_approval_rules_index },
   { pattern: "/api/internal/b2b-price-list", handler: r_internal_b2b_price_list_index },
   { pattern: "/api/internal/sustainability", handler: r_internal_sustainability_index },

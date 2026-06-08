@@ -628,6 +628,7 @@ export default [
   ["/api/ap/sync-bills"                                      , "./ap/sync-bills.js"],
   ["/api/cron/ip-normalize"                                  , "./cron/ip-normalize.js"],
   ["/api/cron/ip-freshness-refresh"                          , "./cron/ip-freshness-refresh.js"],
+  ["/api/cron/tpl-inventory-pull"                            , "./cron/tpl-inventory-pull.js"],
   ["/api/cron/ip-integration-health"                         , "./cron/ip-integration-health.js"],
   ["/api/internal/rfqs/messages-inbox"                       , "./internal/rfqs/messages-inbox/index.js"],
   ["/api/internal/rfqs/:id/messages"                         , "./internal/rfqs/[id]/messages/index.js"],
