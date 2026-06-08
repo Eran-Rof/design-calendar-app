@@ -93,7 +93,7 @@ export default async function handler(req, res) {
   // still loads — sell_price / margin then degrade to unknown ("—").
   let [itemsRes, quotesRes] = await Promise.all([
     admin.from("rfq_line_items")
-      .select("id, rfq_id, line_index, description, quantity, costing_line_id")
+      .select("id, rfq_id, line_index, description, quantity, costing_line_id, target_price")
       .in("rfq_id", rfqIds)
       .order("line_index", { ascending: true }),
     admin.from("rfq_quotes")
@@ -107,7 +107,7 @@ export default async function handler(req, res) {
     /costing_line_id/.test(itemsRes.error.message || "")
   ) {
     itemsRes = await admin.from("rfq_line_items")
-      .select("id, rfq_id, line_index, description, quantity")
+      .select("id, rfq_id, line_index, description, quantity, target_price")
       .in("rfq_id", rfqIds)
       .order("line_index", { ascending: true });
     if (itemsRes.data) itemsRes.data = itemsRes.data.map((it) => ({ ...it, costing_line_id: null }));
@@ -161,7 +161,14 @@ export default async function handler(req, res) {
   const itemsByRfq = new Map();
   for (const it of itemsRes.data || []) {
     if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
-    const sell = it.costing_line_id ? (sellByCostingLine.get(it.costing_line_id) ?? null) : null;
+    // Sell price priority:
+    // 1. costing_line sell_price / sell_target / target_cost (current, via back-pointer)
+    // 2. rfq_line_items.target_price (snapshot at RFQ generation time — used when
+    //    costing_line_id is null or the costing line lookup found nothing)
+    let sell = it.costing_line_id ? (sellByCostingLine.get(it.costing_line_id) ?? null) : null;
+    if (sell === null && typeof it.target_price === "number" && it.target_price > 0) {
+      sell = it.target_price;
+    }
     itemsByRfq.get(it.rfq_id).push({
       id: it.id,
       line_index: it.line_index,
