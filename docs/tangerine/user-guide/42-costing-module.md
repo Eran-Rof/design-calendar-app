@@ -92,12 +92,14 @@ A vendor can reopen an already-submitted quote and resubmit revised figures. Whe
 they do:
 
 - The procurement team is **notified automatically** — both **in-app** (the 🔔
-  bell, for staff whose Employee record has a linked PLM login) and by **email**.
-  The alert is titled "<vendor> revised their quote … (v2)" so you can tell it
-  apart from a brand-new quote. Configure recipients via
-  `INTERNAL_PROCUREMENT_EMAILS` or per-employee notification subscriptions; the
-  in-app bell requires the employee's **PLM login** to be linked on their
-  Employee record.
+  bell) and by **email**. The alert is titled "<vendor> revised their quote …
+  (v2)" so you can tell it apart from a brand-new quote. Configure recipients via
+  `INTERNAL_PROCUREMENT_EMAILS` or per-employee notification subscriptions.
+  **The in-app bell now lights up automatically** whenever a recipient's email
+  matches a staff member's **PLM login** (their Teams email on the login roster) —
+  no one has to hand-link a PLM login on the Employee record anymore. If a
+  recipient's email has no matching PLM login, they still get the **email**; only
+  the bell is skipped for them.
 - The next time you **open that RFQ**, a banner + toast pop up at the top
   ("⚠ <vendor> revised their quote — review the highlighted rows"). The vendor's
   row in the comparison shows a gold **Revised v2** badge; expand it to see
