@@ -26,7 +26,7 @@ const DEFAULT_FROM = process.env.RESEND_FROM || "Ring of Fire <noreply@ringoffir
 // Event types that should also queue mobile push notifications.
 const PUSH_EVENT_TYPES = new Set([
   "po_issued", "invoice_approved", "invoice_discrepancy", "payment_sent",
-  "new_message", "new_dispute_message", "rfq_invited", "rfq_awarded",
+  "new_message", "new_dispute_message", "rfq_invited", "rfq_awarded", "rfq_revised",
   "compliance_expiring_soon", "onboarding_approved", "dispute_resolved",
 ]);
 

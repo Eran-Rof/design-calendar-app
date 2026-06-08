@@ -111,9 +111,22 @@ they do:
 time, per-line figures). A vendor only ever sees **their own** history — never
 another vendor's quotes and never Ring of Fire's internal comparison.
 
-> Note: Ring of Fire staff **cannot edit a published RFQ or a vendor's quote** —
-> RFQs lock once published, and quotes belong to the vendor. So there is no
-> "RFQ revised by the buyer" history; revisions are always vendor-initiated.
+> Note: Ring of Fire staff cannot edit a vendor's **quote** (quotes belong to the
+> vendor), and the RFQ header locks once published. But editing a **costing line**
+> after its RFQ was sent **does** flow through to the vendor — see below.
+
+### When YOU (Ring of Fire) revise a sent RFQ
+
+If you edit a costing line that's already been sent to a vendor — its **Tgt DDP /
+FOB cost**, **Qty**, **fabric**, **size scale**, **style**, **color**, **fit**,
+etc. — the change automatically syncs onto that vendor's RFQ line, and:
+
+- The **vendor is notified** — in-app (🔔 bell) + email: *"An RFQ was revised: …"*.
+- When the vendor **opens the RFQ**, a popup tells them *"One of your RFQs has been
+  revised,"* the changed line shows an **✎ Revised · <date>** badge, and **each
+  changed value is shown in green** so they see exactly what moved.
+- Only the fields you actually changed are flagged; re-editing re-notifies with the
+  new change set.
 
 See also: [14 — Payment Terms](14-payment-terms.md), [15 — Fabric Codes](15-fabric-codes.md),
 [32 — Procurement & Receiving](32-procurement-receiving.md).
