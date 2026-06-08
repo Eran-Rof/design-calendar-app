@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   inferColumns,
   formatCell,
+  formatCellDisplay,
   buildAoA,
+  buildDisplayAoA,
   toCsvRow,
   toCsv,
   todayStamp,
@@ -63,6 +65,52 @@ describe("buildAoA", () => {
     expect(aoa).toEqual([
       ["Code", "Amount"],
       ["1100", 123.45],
+      ["1200", ""],
+    ]);
+  });
+});
+
+describe("formatCellDisplay (PDF / print rendering)", () => {
+  it("null/undefined → empty string", () => {
+    expect(formatCellDisplay(null)).toBe("");
+    expect(formatCellDisplay(undefined)).toBe("");
+  });
+  it("currency_cents → $X.XX", () => {
+    expect(formatCellDisplay(12345, { key: "x", format: "currency_cents" })).toBe("$123.45");
+    expect(formatCellDisplay(100000, { key: "x", format: "currency_cents" })).toBe("$1,000.00");
+    expect(formatCellDisplay("abc", { key: "x", format: "currency_cents" })).toBe("");
+  });
+  it("currency_dollars → $X.XX", () => {
+    expect(formatCellDisplay(9.5, { key: "x", format: "currency_dollars" })).toBe("$9.50");
+  });
+  it("percent → X.X%", () => {
+    expect(formatCellDisplay(12.34, { key: "x", format: "percent" })).toBe("12.3%");
+  });
+  it("number passes through toLocaleString", () => {
+    expect(formatCellDisplay(1000, { key: "x", format: "number" })).toBe((1000).toLocaleString());
+  });
+  it("number with digits is fixed", () => {
+    expect(formatCellDisplay(3, { key: "x", format: "number", digits: 2 })).toBe("3.00");
+  });
+  it("date passthrough as string", () => {
+    expect(formatCellDisplay("2026-05-28", { key: "x", format: "date" })).toBe("2026-05-28");
+  });
+  it("plain text passthrough", () => {
+    expect(formatCellDisplay("hello")).toBe("hello");
+  });
+});
+
+describe("buildDisplayAoA", () => {
+  it("emits header then display-formatted body rows", () => {
+    type R = { code: string; amt: number | null };
+    const cols: Array<import("../useTableExport").ExportColumn<R>> = [
+      { key: "code", header: "Code" },
+      { key: "amt", header: "Amount", format: "currency_cents" },
+    ];
+    const aoa = buildDisplayAoA<R>([{ code: "1100", amt: 12345 }, { code: "1200", amt: null }], cols);
+    expect(aoa).toEqual([
+      ["Code", "Amount"],
+      ["1100", "$123.45"],
       ["1200", ""],
     ]);
   });
