@@ -76,6 +76,10 @@ You'll be warned — with the option to **delete the incomplete rows and continu
 ## RFQ flow
 
 1. Tick rows and click **Vendor RFQ** to generate one RFQ per vendor.
+   - The **target unit price** the vendor sees on each RFQ line matches the
+     project's cost basis: **Tgt DDP Cost** for DDP projects, **FOB cost** for
+     FOB/Landed projects (never the sell price). Editing the costing line's
+     Tgt DDP / FOB cost re-syncs the target on any RFQ already generated.
 2. **Send** publishes the RFQ to the vendor; they submit a quote.
 3. In the **RFQ list**, the **Fabric** column shows `CODE — Description`, and clicking a
    row opens that RFQ's **source project in a new tab** (the title cell still opens the

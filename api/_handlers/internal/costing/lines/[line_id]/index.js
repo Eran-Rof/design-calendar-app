@@ -6,6 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
+import { vendorTargetForMode } from "../../../../../_lib/costingVendorTarget.js";
 
 export const config = { maxDuration: 15 };
 
@@ -72,13 +73,21 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: "Line not found" });
 
-    // Sync rfq_line_items.target_price whenever sell pricing changes so Compare
-    // Quotes always reflects the current value, not the stale RFQ-generation snapshot.
-    const SELL_FIELDS = ["sell_price", "sell_target", "target_cost"];
-    const hasSellChange = SELL_FIELDS.some(f => Object.prototype.hasOwnProperty.call(updates, f));
-    if (hasSellChange) {
+    // Sync rfq_line_items.target_price whenever the vendor's COST BASIS changes
+    // so the RFQ (and Compare Quotes) reflects the current target, not the stale
+    // generation snapshot. The vendor target is the cost they quote against —
+    // Tgt DDP cost (DDP projects) or FOB cost (FOB/Landed) — NEVER the sell price.
+    const COST_FIELDS = ["target_cost", "fob_cost"];
+    const hasCostChange = COST_FIELDS.some(f => Object.prototype.hasOwnProperty.call(updates, f));
+    if (hasCostChange && data.project_id) {
       const toNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
-      const newRef = toNum(data.sell_price) ?? toNum(data.sell_target) ?? toNum(data.target_cost) ?? null;
+      let isDdp = false;
+      try {
+        const { data: proj } = await admin.from("costing_projects")
+          .select("payment_terms_name").eq("id", data.project_id).maybeSingle();
+        isDdp = !!proj?.payment_terms_name && /DDP/i.test(proj.payment_terms_name);
+      } catch { /* default to FOB basis */ }
+      const newRef = vendorTargetForMode(isDdp, data.target_cost, data.fob_cost);
       if (newRef !== null) {
         // Path A: exact FK (new RFQs generated after migration 20260719000000)
         await admin.from("rfq_line_items").update({ target_price: newRef })
@@ -87,20 +96,18 @@ export default async function handler(req, res) {
         // Path B: legacy rows where costing_line_id is null (older RFQs). Match via
         // the project's rfqs; only update rows whose target_price == target_cost
         // (the original snapshot) so we don't clobber any manual overrides.
-        if (data.project_id) {
-          const { data: rfqRows } = await admin.from("rfqs")
-            .select("id").eq("source_costing_project_id", data.project_id);
-          const rfqIds = (rfqRows || []).map(r => r.id);
-          if (rfqIds.length > 0) {
-            const { data: legItems } = await admin.from("rfq_line_items")
-              .select("id, target_price").in("rfq_id", rfqIds).is("costing_line_id", null);
-            const oldRef = toNum(data.target_cost);
-            const legIds = (legItems || [])
-              .filter(i => oldRef === null || toNum(i.target_price) === oldRef)
-              .map(i => i.id);
-            if (legIds.length > 0) {
-              await admin.from("rfq_line_items").update({ target_price: newRef }).in("id", legIds);
-            }
+        const { data: rfqRows } = await admin.from("rfqs")
+          .select("id").eq("source_costing_project_id", data.project_id);
+        const rfqIds = (rfqRows || []).map(r => r.id);
+        if (rfqIds.length > 0) {
+          const { data: legItems } = await admin.from("rfq_line_items")
+            .select("id, target_price").in("rfq_id", rfqIds).is("costing_line_id", null);
+          const oldRef = toNum(data.target_cost);
+          const legIds = (legItems || [])
+            .filter(i => oldRef === null || toNum(i.target_price) === oldRef)
+            .map(i => i.id);
+          if (legIds.length > 0) {
+            await admin.from("rfq_line_items").update({ target_price: newRef }).in("id", legIds);
           }
         }
       }
