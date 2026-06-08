@@ -473,7 +473,7 @@ export function NavDrawer({
           <>
             <div onClick={e => { e.stopPropagation(); setAppsOpen(false); }} style={{ position:"fixed", inset:0, zIndex:290 }} aria-hidden />
             <div
-              style={{ position:"fixed", bottom:8, left:w+8, width:310, background:"#1e293b", border:`1px solid ${C.border}`, borderRadius:10, padding:10, zIndex:300, boxShadow:"0 10px 30px rgba(0,0,0,0.5)" }}
+              style={{ position:"fixed", bottom:8, left:w+8, width:"min(310px, 95vw)", maxHeight:"90vh", overflowY:"auto", boxSizing:"border-box", background:"#1e293b", border:`1px solid ${C.border}`, borderRadius:10, padding:10, zIndex:300, boxShadow:"0 10px 30px rgba(0,0,0,0.5)" }}
               onClick={e => e.stopPropagation()}
             >
               <div style={{ fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:1, marginBottom:8, padding:"0 4px" }}>Suite Apps</div>

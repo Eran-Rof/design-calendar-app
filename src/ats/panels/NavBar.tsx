@@ -1266,7 +1266,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
         onClick={() => setAgedOpen(false)}
       >
-        <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, width: 320, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+        <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, width: "min(320px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           onClick={e => e.stopPropagation()}
         >
           <div style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>Aged Inventory Report</div>

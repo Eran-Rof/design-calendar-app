@@ -122,7 +122,7 @@ const S: Record<string, React.CSSProperties> = {
   loadingState:{ textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   emptyState:  { textAlign: "center" as const, padding: 60, color: "#6B7280", background: "#1E293B", borderRadius: 10 },
   modalOverlay:{ position: "fixed" as const, inset: 0, background: "rgba(0,0,0,.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
-  modal:       { background: "#1E293B", borderRadius: 14, width: 500, maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" as const, border: "1px solid #334155" },
+  modal:       { background: "#1E293B", borderRadius: 14, width: "min(500px, 95vw)", maxHeight: "90vh", overflowY: "auto" as const, boxSizing: "border-box" as const, display: "flex", flexDirection: "column" as const, border: "1px solid #334155" },
   modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #334155" },
   modalTitle:  { margin: 0, fontSize: 17, fontWeight: 700, color: "#F1F5F9" },
   modalBody:   { padding: 20, overflowY: "auto" as const },

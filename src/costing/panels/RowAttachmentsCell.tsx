@@ -79,7 +79,7 @@ export default function RowAttachmentsCell({ lineId, styleCode }: { lineId: stri
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "#0F172A", border: "1px solid #334155", borderRadius: 8,
-              padding: 18, width: 560, maxWidth: "92vw", maxHeight: "85vh", overflowY: "auto",
+              padding: 18, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>

@@ -257,7 +257,7 @@ function LocationModal({ customerId, existing, defaultType = "store", onClose, o
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-          padding: 20, width: 520, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto",
+          padding: 20, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
           color: C.text,
         }}
       >

@@ -271,7 +271,7 @@ function SuggestModal({ onClose }: { onClose: () => void }) {
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, width: 560, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 22, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>{title}</h3>
         {children}
       </div>

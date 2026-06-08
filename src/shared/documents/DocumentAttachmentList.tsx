@@ -241,7 +241,7 @@ function UploadModal({ kinds, onCancel, onUpload, uploading }: {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
     }}>
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 24, width: 480 }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 24, width: "min(480px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
         <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>Upload document</h2>
 
         <div style={{ marginBottom: 10 }}>

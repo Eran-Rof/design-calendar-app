@@ -263,4 +263,4 @@ const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px 
 const btnPrimary = { padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "8px 16px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const modalBox = { background: TH.surface, borderRadius: 10, padding: 22, maxWidth: "92vw", boxShadow: "0 10px 40px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" as const };
+const modalBox = { background: TH.surface, borderRadius: 10, padding: 22, maxWidth: "92vw", boxSizing: "border-box" as const, boxShadow: "0 10px 40px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" as const };
