@@ -97,7 +97,7 @@ export async function fetchOpenSoComp(admin, skuIds, windowFrom, windowTo) {
     const net = qty * unitPrice;
     const cost = qty * avgCost;
     const margin = net - cost;
-    const marginPct = net > 0 ? (margin / net) * 100 : 0;
+    const marginPct = net > 0 ? (margin / net) : 0; // fraction (0.247 = 24.7%) — matches ip_sales_history_wholesale.margin_pct scale
 
     const slot = out.get(skuId) || { qty: 0, costSum: 0, netSum: 0, marginPctNum: 0, txnCount: 0 };
     slot.qty += qty;
