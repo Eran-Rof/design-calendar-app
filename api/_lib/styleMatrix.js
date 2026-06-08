@@ -225,13 +225,46 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   // warehouse, look up the pack's per-size composition from prepack_matrices,
   // and emit exploded eaches. Folds into the sized matrix as synthetic cells
   // keyed by (color, size); the UI sums them on top of the real on-hand.
+  // Two explode modes:
+  //  • SIZED style picked → fold its PPK siblings' packs into its size grid
+  //    (additive `explode.cells`, original logic).
+  //  • PPK style picked directly (operator searches "ppk") → SELF-explode: turn
+  //    THIS style's own pack on-hand into sized eaches via its own matrix and
+  //    REPLACE the pack-token column with real size columns.
   let explode = null;
-  if (explodePpk && !isPpkStyle(style.style_code)) {
+  let selfExplode = null;
+  if (explodePpk && isPpkStyle(style.style_code)) {
+    selfExplode = await computeSelfPpkExplode(admin, entityId, style, skus, {
+      onHand, onHandByWh, lastReceived, avgCostCentsBySku, avgCostCentsByLoose,
+    });
+  } else if (explodePpk && !isPpkStyle(style.style_code)) {
     explode = await computePpkExplode(admin, entityId, style, whSeenAll);
   }
 
   const warehouses = [...whSeenAll].filter((w) => w !== WH_UNASSIGNED).sort((a, b) => a.localeCompare(b));
   if (whSeenAll.has(WH_UNASSIGNED)) warehouses.push(WH_UNASSIGNED);
+
+  // SELF-explode: the picked style IS a PPK and a matrix was found → return the
+  // exploded sized matrix in place of the pack-token grid (no double count).
+  if (selfExplode) {
+    return {
+      style: { id: style.id, style_code: style.style_code, style_name: style.style_name, description: style.description, size_scale_id: style.size_scale_id, brand_id: style.brand_id, gender_code: style.gender_code },
+      sizes: selfExplode.sizes,
+      colors: selfExplode.colors,
+      inseams: [],
+      rises: [],
+      warehouses,
+      explode: {
+        enabled: true,
+        self: true,
+        cells: [],
+        packs_exploded: selfExplode.packsExploded,
+        packs_unmatched: selfExplode.unmatched,
+        ppk_styles: [style.style_code],
+      },
+      skus: selfExplode.skus,
+    };
+  }
 
   // When exploding, surface any newly-introduced sizes (e.g. a pack composition
   // references a garment size that has no sized SKU yet) so the grid renders a
@@ -313,6 +346,87 @@ function mergeSkusByCell(skus, maps) {
     if (lr && (!cell.last_received || lr > cell.last_received)) cell.last_received = lr;
   }
   return [...cells.values()].map(({ _primaryOnHand, ...rest }) => rest);
+}
+
+/**
+ * SELF-explode a PPK style: convert its OWN pack on-hand into sized eaches using
+ * its own prepack_matrices composition. Returns { sizes, colors, skus,
+ * packsExploded, unmatched } where skus are synthetic SIZED rows (size = garment
+ * size, on_hand_qty = packs × qty_per_pack, avg_cost = pack cost ÷ units/pack),
+ * or null when the style has no active matrix or no pack on-hand (caller then
+ * renders the normal pack-token grid).
+ */
+async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
+  const { onHand, onHandByWh, lastReceived, avgCostCentsBySku, avgCostCentsByLoose } = maps;
+
+  // This PPK style's own matrix (case-insensitive on ppk_style_code).
+  const { data: matrices } = await admin
+    .from("prepack_matrices")
+    .select("id, ppk_style_code")
+    .eq("entity_id", entityId)
+    .eq("is_active", true)
+    .not("ppk_style_code", "is", null);
+  const mine = (matrices || []).find(
+    (m) => String(m.ppk_style_code).toLowerCase() === String(style.style_code).toLowerCase(),
+  );
+  if (!mine) return null;
+
+  const { data: comp } = await admin
+    .from("prepack_matrix_sizes")
+    .select("size, qty_per_pack")
+    .eq("matrix_id", mine.id);
+  const composition = (comp || [])
+    .map((r) => ({ size: normalizeSize(String(r.size)), qty: Number(r.qty_per_pack) || 0 }))
+    .filter((r) => r.size && r.qty > 0);
+  if (composition.length === 0) return null;
+  const unitsPerPack = composition.reduce((s, r) => s + r.qty, 0);
+
+  // Accumulate exploded eaches per (color, garment-size).
+  const cellMap = new Map(); // `${color}|${size}` → cell
+  const colorsSeen = [];
+  let packsExploded = 0;
+  for (const ps of packSkus) {
+    const packs = onHand.get(ps.id) || 0;
+    if (!(packs > 0)) continue;
+    packsExploded += 1;
+    const color = ps.color || "—";
+    if (!colorsSeen.includes(color)) colorsSeen.push(color);
+    const byWh = onHandByWh.get(ps.id) || {};
+    // Per-each cost = pack cost ÷ units per pack.
+    let packCents = null;
+    if (ps.sku_code) {
+      if (avgCostCentsBySku.has(ps.sku_code)) packCents = avgCostCentsBySku.get(ps.sku_code);
+      else { const lk = looseKey(ps.sku_code); if (avgCostCentsByLoose.has(lk)) packCents = avgCostCentsByLoose.get(lk); }
+    }
+    const eachCents = packCents != null && unitsPerPack > 0 ? Math.round(packCents / unitsPerPack) : null;
+    const lr = lastReceived.get(ps.id) || null;
+    for (const { size, qty } of composition) {
+      const key = `${color}|${size}`;
+      let cell = cellMap.get(key);
+      if (!cell) { cell = { color, size, on_hand_qty: 0, on_hand_by_wh: {}, avg_cost_cents: null, last_received: null }; cellMap.set(key, cell); }
+      cell.on_hand_qty += packs * qty;
+      for (const [wh, p] of Object.entries(byWh)) cell.on_hand_by_wh[wh] = (cell.on_hand_by_wh[wh] || 0) + p * qty;
+      if (eachCents != null && cell.avg_cost_cents == null) cell.avg_cost_cents = eachCents;
+      if (lr && (!cell.last_received || lr > cell.last_received)) cell.last_received = lr;
+    }
+  }
+  if (packsExploded === 0) return null; // no packs on hand → show the normal grid
+
+  const skus = [...cellMap.values()].map((c) => ({
+    id: `selfexp-${c.color}-${c.size}`,
+    sku_code: null,
+    color: c.color,
+    size: c.size,
+    inseam: null, length: null, fit: null, rise: null,
+    on_hand_qty: c.on_hand_qty,
+    on_hand_by_wh: c.on_hand_by_wh,
+    available_qty: null,
+    avg_cost_cents: c.avg_cost_cents,
+    last_received: c.last_received,
+  }));
+  const sizes = [];
+  for (const { size } of composition) if (!sizes.includes(size)) sizes.push(size);
+  return { sizes, colors: colorsSeen, skus, packsExploded, unmatched: [] };
 }
 
 /**
