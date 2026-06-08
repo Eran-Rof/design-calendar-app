@@ -57,7 +57,7 @@ function ActivityPanel({ tasks, globalLog = [], currentUser, isAdmin, team, onCl
   });
 
   return (
-    <div style={{ position: "fixed", top: 0, right: 0, width: 420, height: "100vh", background: "#fff", boxShadow: "-4px 0 32px rgba(0,0,0,0.18)", zIndex: 1200, display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "fixed", top: 0, right: 0, width: "min(420px, 95vw)", height: "100vh", boxSizing: "border-box", background: "#fff", boxShadow: "-4px 0 32px rgba(0,0,0,0.18)", zIndex: 1200, display: "flex", flexDirection: "column" }}>
       {/* Header */}
       <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${TH.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: TH.header }}>
         <div>

@@ -154,7 +154,7 @@ export default function InternalVirtualCards() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: 560, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", color: C.text }}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <h3 style={{ margin: 0, fontSize: 16 }}>

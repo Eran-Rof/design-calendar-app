@@ -461,7 +461,7 @@ function SyncLogModal({ syncLog, setShowSyncLog }: {
 }) {
   return (
     <div style={S.modalOverlay} onClick={() => setShowSyncLog(false)}>
-      <div style={{ ...S.modal, width: 620, maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ ...S.modal, width: "min(620px, 95vw)", maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
           <h2 style={S.modalTitle}>📋 Sync Log</h2>
           <button style={S.closeBtn} onClick={() => setShowSyncLog(false)}>✕</button>

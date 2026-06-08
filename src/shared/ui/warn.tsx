@@ -171,7 +171,7 @@ export function WarnHost() {
           onClick={() => closeConfirm(false)}
         >
           <div
-            style={{ background: "#1E293B", borderRadius: 16, width: 420, maxWidth: "92vw", border: `1px solid ${s.confirm.confirmColor}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden" }}
+            style={{ background: "#1E293B", borderRadius: 16, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", border: `1px solid ${s.confirm.confirmColor}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ background: `${s.confirm.confirmColor}15`, padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 12 }}>
@@ -228,7 +228,7 @@ function PromptModal({ req, onClose }: { req: PromptRequest; onClose: (value: st
       onClick={() => onClose(null)}
     >
       <div
-        style={{ background: "#1E293B", borderRadius: 16, width: 440, maxWidth: "92vw", border: `1px solid ${PROMPT_COLOR}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)", overflow: "hidden" }}
+        style={{ background: "#1E293B", borderRadius: 16, width: "min(440px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", border: `1px solid ${PROMPT_COLOR}44`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ background: `${PROMPT_COLOR}15`, padding: "20px 24px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 12 }}>

@@ -396,7 +396,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
                     <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
                   </button>
                   {custDropOpen && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 320, maxHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                    <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: "min(320px, 95vw)", maxHeight: "min(340px, 90vh)", boxSizing: "border-box", display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
                       <div style={{ padding: "8px 10px", borderBottom: "1px solid #334155" }}>
                         <input
                           type="text"
