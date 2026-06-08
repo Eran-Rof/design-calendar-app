@@ -227,6 +227,7 @@ import r_internal_edi_customer_partners_id from "./internal/edi/customer-partner
 import r_internal_edi_customer_partners_index from "./internal/edi/customer-partners/index.js";
 import r_internal_edi_settings_index from "./internal/edi/settings/index.js";
 import r_internal_edi_tpl_provider_id_inbound from "./internal/edi/tpl/[provider_id]/inbound.js";
+import r_internal_edi_tpl_provider_id_inventory_advice from "./internal/edi/tpl/[provider_id]/inventory-advice.js";
 import r_internal_employee_departments_id from "./internal/employee-departments/[id].js";
 import r_internal_employee_departments_index from "./internal/employee-departments/index.js";
 import r_internal_employee_titles_id from "./internal/employee-titles/[id].js";
@@ -632,6 +633,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/quotes/:quote_id", handler: r_internal_costing_lines_line_id_quotes_quote_id },
   { pattern: "/api/internal/pim/styles/:style_id/images/:id", handler: r_internal_pim_styles_style_id_images_id },
   { pattern: "/api/internal/pim/styles/:style_id/pull-shopify-images", handler: r_internal_pim_styles_style_id_pull_shopify_images },
+  { pattern: "/api/internal/edi/tpl/:provider_id/inventory-advice", handler: r_internal_edi_tpl_provider_id_inventory_advice },
   { pattern: "/api/internal/costing/lines/:line_id/select-quote", handler: r_internal_costing_lines_line_id_select_quote },
   { pattern: "/api/internal/costing/projects/:id/generate-rfqs", handler: r_internal_costing_projects_id_generate_rfqs },
   { pattern: "/api/internal/costing/lines/:line_id/compliance", handler: r_internal_costing_lines_line_id_compliance_index },

@@ -50,6 +50,7 @@ import InternalAllocations        from "./tanda/InternalAllocations";
 import InternalSalesReturns       from "./tanda/InternalSalesReturns";
 import InternalDropShip          from "./tanda/InternalDropShip";
 import InternalThreePL           from "./tanda/InternalThreePL";
+import InternalThreePLRecon      from "./tanda/InternalThreePLRecon";
 import InternalEDI               from "./tanda/InternalEDI";
 import InternalEdiCustomers      from "./tanda/InternalEdiCustomers";
 import InternalEdiSettings       from "./tanda/InternalEdiSettings";
@@ -225,6 +226,7 @@ type ModuleKey =
   | "sales_returns"
   | "drop_ship"
   | "three_pl"
+  | "three_pl_recon"
   | "edi"
   | "edi_customers"
   | "edi_settings"
@@ -435,6 +437,7 @@ const MODULES: ModuleDef[] = [
   { key: "sales_returns",     label: "Returns/RMA",        emoji: "↩️", group: "Sales" },
   { key: "drop_ship",         label: "Drop-Ship",          emoji: "📦", group: "Sales" },
   { key: "three_pl",          label: "3PL",                emoji: "🚚", group: "Inventory" },
+  { key: "three_pl_recon",    label: "3PL Inventory Recon", emoji: "📋", group: "Inventory" },
   // EDI restructured into a sub-menu under Master Data: Vendors / Customers /
   // Settings. The existing vendor X12 panel keeps key `edi`, relabelled "Vendors".
   { key: "edi",               label: "Vendors",            emoji: "🏭", group: "EDI" },
@@ -891,6 +894,7 @@ export default function Tangerine() {
         {activeModule === "sales_returns" && <InternalSalesReturns />}
         {activeModule === "drop_ship" && <InternalDropShip />}
         {activeModule === "three_pl" && <InternalThreePL />}
+        {activeModule === "three_pl_recon" && <InternalThreePLRecon />}
         {activeModule === "edi" && <InternalEDI />}
         {activeModule === "edi_customers" && <InternalEdiCustomers />}
         {activeModule === "edi_settings" && <InternalEdiSettings />}

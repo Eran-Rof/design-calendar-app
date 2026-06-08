@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-06-08 — 3PL Inventory Recon (#1112)
+
+New nav module **Inventory → 📋 3PL Inventory Recon** + endpoint. Ingest a 3PL's on-hand snapshot (EDI **846**, CSV, or JSON) → stores dated snapshot → recomputes per-SKU differences vs Tangerine on-hand (`inventory_layers`), comparable vs the provider's location or total. New tables `tpl_inventory_snapshots/_lines/_differences` (migration `20260839000000`, **applied to PROD**). `module_keys` row seeded. **What to verify:** set a provider's **location** in the 3PL master, paste a CSV of `sku,qty`, Ingest → differences grid (compare vs **Total** until 945 relocates layers to the 3PL location). ⚠️ Ingest is push-based (no SFTP pull cron yet); 3PL fees + layer relocation still deferred.
+
 ## 2026-06-08 — Inventory batch (#1105–#1110)
 
 | PR | Change | Verify |
