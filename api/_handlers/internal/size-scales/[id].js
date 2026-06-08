@@ -2,22 +2,23 @@
 //
 // GET    — fetch a single size_scales row.
 // PATCH  — update mutable fields. `code` and `entity_id` are LOCKED
-//          post-creation. Mutable: name, sizes, sort_order, is_active.
-//          `sizes` accepts a JSON array of strings OR a comma-separated
-//          string; order is preserved exactly as sent.
+//          post-creation. Mutable: name, sizes, inseams, sort_order, is_active.
+//          `sizes` / `inseams` accept a JSON array of strings OR a
+//          comma-separated string; order is preserved exactly as sent.
+//          `inseams` may be emptied (size-only scale); `sizes` may not.
 // DELETE — hard-delete. Rejected (409) if any style_master row still
 //          references it via size_scale_id.
 //
 // Tangerine — Size Scale Master.
 
 import { createClient } from "@supabase/supabase-js";
-import { normalizeSizes } from "./index.js";
+import { normalizeSizes, normalizeInseams } from "./index.js";
 
 export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MUTABLE_FIELDS = new Set(["name", "sizes", "sort_order", "is_active"]);
+const MUTABLE_FIELDS = new Set(["name", "sizes", "inseams", "sort_order", "is_active"]);
 const LOCKED_FIELDS = new Set(["code", "entity_id", "id"]);
 
 function corsHeaders(res) {
@@ -137,6 +138,11 @@ export function validatePatch(body) {
       return { error: "at least one size is required" };
     }
     out.sizes = sizes;
+  }
+
+  // Inseams are optional and MAY be cleared (a size-only scale) — no min-length.
+  if ("inseams" in out) {
+    out.inseams = normalizeInseams(out.inseams);
   }
 
   if ("sort_order" in out) {
