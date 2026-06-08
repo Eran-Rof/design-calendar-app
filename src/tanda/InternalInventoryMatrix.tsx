@@ -238,7 +238,9 @@ function buildMatrixRows(
 // single-style table and each brand-view block render the same shape.
 
 type InseamSubtotal = { color: string; sizes: Record<string, number>; totalQty: number; avgCostCents: number | null; totalCostCents: number };
-type InseamItem = { kind: "row"; row: MatrixRow } | { kind: "subtotal"; sub: InseamSubtotal };
+// `groupEnd` marks a row that ends its color group with no subtotal following
+// (a single-inseam color) so the renderer can draw the thicker group divider.
+type InseamItem = { kind: "row"; row: MatrixRow; groupEnd?: boolean } | { kind: "subtotal"; sub: InseamSubtotal };
 
 function buildInseamModel(rows: MatrixRow[], inseamOrder: string[]): InseamItem[] {
   const byColor = new Map<string, MatrixRow[]>();
@@ -257,6 +259,12 @@ function buildInseamModel(rows: MatrixRow[], inseamOrder: string[]): InseamItem[
   const items: InseamItem[] = [];
   for (const { color, rs } of colorGroups) {
     const sorted = [...rs].sort((a, b) => inseamIdx(a.inseam) - inseamIdx(b.inseam));
+    // A color with only one inseam row needs no subtotal — it would just
+    // duplicate that single row. Mark it as the group end so the divider shows.
+    if (rs.length < 2) {
+      items.push({ kind: "row", row: sorted[0], groupEnd: true });
+      continue;
+    }
     for (const row of sorted) items.push({ kind: "row", row });
     const sizes: Record<string, number> = {};
     let totalQty = 0, totalCostCents = 0, costedQty = 0;
@@ -1268,7 +1276,7 @@ export default function InternalInventoryMatrix() {
                             }
                             const row = it.row;
                             return (
-                              <tr key={row.key} style={{ borderBottom: `1px solid ${C.rowBdr}` }}>
+                              <tr key={row.key} style={{ borderBottom: it.groupEnd ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
                                 <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
                                   <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />
                                 </td>
@@ -1539,7 +1547,7 @@ export default function InternalInventoryMatrix() {
                   const imgKey = row.color.toLowerCase().trim();
                   const url = styleImages.get(imgKey) || styleImages.get("__default__") || "";
                   return (
-                    <tr key={row.key} style={{ borderBottom: `1px solid ${C.rowBdr}` }}>
+                    <tr key={row.key} style={{ borderBottom: it.groupEnd ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
                       <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
                         {url ? (
                           <img src={url} alt={row.color} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155" }} />
