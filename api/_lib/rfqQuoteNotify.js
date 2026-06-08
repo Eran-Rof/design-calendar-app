@@ -42,3 +42,31 @@ export function buildQuoteNotification({ quote, rfqTitle, vendorName }) {
       : `rfq_quote_submitted_${quote.id}_${email}`,
   };
 }
+
+/**
+ * Build the VENDOR-facing confirmation receipt for their own quote
+ * submission/revision (lands in the vendor's in-app bell + email).
+ *
+ * @param {Object} args
+ * @param {{ id: string, revision?: number|null }} args.quote
+ * @param {string} args.rfqTitle
+ * @returns {{ isRevision: boolean, revision: number, event_type: string, title: string, body: string, dedupeKey: string }}
+ */
+export function buildVendorQuoteReceipt({ quote, rfqTitle }) {
+  const rev = quote && quote.revision != null ? quote.revision : 1;
+  const isRevision = rev > 1;
+  return {
+    isRevision,
+    revision: rev,
+    event_type: isRevision ? "rfq_quote_revised_receipt" : "rfq_quote_submitted_receipt",
+    title: isRevision
+      ? `Your revised quote (v${rev}) was submitted`
+      : "Your quote was submitted",
+    body: isRevision
+      ? `Ring of Fire received your revised quote on "${rfqTitle}". They'll review the updated figures.`
+      : `Ring of Fire received your quote on "${rfqTitle}".`,
+    dedupeKey: isRevision
+      ? `rfq_quote_revised_receipt_${quote.id}_${rev}`
+      : `rfq_quote_submitted_receipt_${quote.id}`,
+  };
+}

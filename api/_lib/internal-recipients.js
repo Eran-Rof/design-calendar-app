@@ -156,6 +156,56 @@ export async function resolveInternalRecipients(admin, category, options = {}) {
 }
 
 /**
+ * Like resolveInternalRecipients, but returns per-recipient detail so the
+ * caller can ALSO target the in-app bell, not just email. Env-var recipients
+ * carry no PLM-login link (plm_user_id null → email-only); subscribed
+ * employees carry employees.metadata.plm_user_id (when set) which the internal
+ * NotificationsShell matches as recipient_internal_id, plus employees.apps for
+ * in-app app routing. Never throws — degrades to env-only on a DB hiccup.
+ *
+ * @param {object} admin    service-role Supabase client
+ * @param {string} category one of NOTIFICATION_CATEGORIES
+ * @param {object} [options] same shape as getInternalRecipients options
+ * @returns {Promise<{ recipients: Array<{email:string,plm_user_id:string|null,apps:string[]|null}>, emails: string[], empty: boolean }>}
+ */
+export async function resolveInternalRecipientsDetailed(admin, category, options = {}) {
+  const base = getInternalRecipients(category, options);
+  const byKey = new Map(); // lower(email) -> { email, plm_user_id, apps }
+  for (const e of base.emails) byKey.set(e.toLowerCase(), { email: e, plm_user_id: null, apps: null });
+
+  try {
+    if (admin && CATEGORY_VARS[category]) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("email, apps, metadata")
+        .eq("is_active", true)
+        .contains("notification_subscriptions", [category]);
+      if (error) throw error;
+      for (const row of data || []) {
+        const raw = (row.email || "").trim();
+        if (!raw) continue;
+        const key = raw.toLowerCase();
+        const meta = (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)) ? row.metadata : {};
+        const plmUserId = (typeof meta.plm_user_id === "string" && meta.plm_user_id.trim()) ? meta.plm_user_id.trim() : null;
+        const apps = Array.isArray(row.apps) && row.apps.length > 0 ? row.apps : null;
+        const existing = byKey.get(key);
+        if (existing) {
+          if (!existing.plm_user_id && plmUserId) existing.plm_user_id = plmUserId;
+          if (!existing.apps && apps) existing.apps = apps;
+        } else {
+          byKey.set(key, { email: raw, plm_user_id: plmUserId, apps });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] detailed lookup failed for category="${category}": ${String(err)}`);
+  }
+
+  const recipients = Array.from(byKey.values());
+  return { recipients, emails: recipients.map((r) => r.email), empty: recipients.length === 0 };
+}
+
+/**
  * Resolve the Production Manager recipient(s) for an RFQ-award notification.
  *
  * Resolution order (most→least specific):

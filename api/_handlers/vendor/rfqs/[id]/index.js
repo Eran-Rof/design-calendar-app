@@ -93,11 +93,26 @@ export default async function handler(req, res) {
   // links work without a second authenticated round-trip.
   const documents = await resolveLineDocuments(admin, lineItems);
 
+  // The vendor's OWN quote revision history (read-only). rfq_quote_revisions is
+  // service-role only; we scope strictly to this vendor's quote so a vendor can
+  // only ever see THEIR prior versions — never another vendor's, never ROF
+  // internals. Snapshots hold the prior header + per-line figures.
+  let quoteRevisions = [];
+  if (qtRes.data?.id) {
+    const { data: revs } = await admin
+      .from("rfq_quote_revisions")
+      .select("id, revision, snapshot, submitted_at, created_at")
+      .eq("quote_id", qtRes.data.id)
+      .eq("vendor_id", caller.vendor_id)
+      .order("revision", { ascending: false });
+    quoteRevisions = revs || [];
+  }
+
   return res.status(200).json({
     rfq: rfqRes.data,
     line_items: lineItems,
     invitation,
-    quote: qtRes.data || null,
+    quote: qtRes.data ? { ...qtRes.data, revisions: quoteRevisions } : null,
     documents,
   });
 }
