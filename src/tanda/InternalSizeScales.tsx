@@ -24,6 +24,7 @@ const SIZE_SCALE_COLUMNS: ColumnDef[] = [
   { key: "code",      label: "Code" },
   { key: "name",      label: "Name" },
   { key: "sizes",     label: "Sizes" },
+  { key: "inseams",   label: "Inseams" },
   { key: "is_active", label: "Active" },
 ];
 
@@ -33,6 +34,7 @@ type SizeScale = {
   code: string;
   name: string;
   sizes: string[];
+  inseams: string[];
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -224,18 +226,20 @@ export default function InternalSizeScales() {
         <ExportButton
           rows={rows.map((r) => ({
             ...r,
-            sizes_joined: Array.isArray(r.sizes) ? r.sizes.join(" · ") : "",
+            sizes_joined:   Array.isArray(r.sizes) ? r.sizes.join(" · ") : "",
+            inseams_joined: Array.isArray(r.inseams) ? r.inseams.join(" · ") : "",
           })) as unknown as Array<Record<string, unknown>>}
           filename="size-scales"
           sheetName="Size Scales"
           columns={[
-            { key: "code",         header: "Code" },
-            { key: "name",         header: "Name" },
-            { key: "sizes_joined", header: "Sizes" },
-            { key: "sort_order",   header: "Sort", format: "number" },
-            { key: "is_active",    header: "Active" },
-            { key: "created_at",   header: "Created", format: "datetime" },
-            { key: "updated_at",   header: "Updated", format: "datetime" },
+            { key: "code",           header: "Code" },
+            { key: "name",           header: "Name" },
+            { key: "sizes_joined",   header: "Sizes" },
+            { key: "inseams_joined", header: "Inseams" },
+            { key: "sort_order",     header: "Sort", format: "number" },
+            { key: "is_active",      header: "Active" },
+            { key: "created_at",     header: "Created", format: "datetime" },
+            { key: "updated_at",     header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
         <TablePrefsButton
@@ -269,6 +273,7 @@ export default function InternalSizeScales() {
                 <th style={th} hidden={!isVisible("code")}>Code</th>
                 <th style={th} hidden={!isVisible("name")}>Name</th>
                 <th style={th} hidden={!isVisible("sizes")}>Sizes</th>
+                <th style={th} hidden={!isVisible("inseams")}>Inseams</th>
                 <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
@@ -292,6 +297,11 @@ export default function InternalSizeScales() {
                   <td style={td} hidden={!isVisible("name")}>{ss.name}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sizes")}>
                     {Array.isArray(ss.sizes) ? ss.sizes.join(" · ") : ""}
+                  </td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("inseams")}>
+                    {Array.isArray(ss.inseams) && ss.inseams.length > 0
+                      ? ss.inseams.join(" · ")
+                      : <span style={{ color: C.textMuted }}>—</span>}
                   </td>
                   <td style={td} hidden={!isVisible("is_active")}>{ss.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -359,16 +369,19 @@ interface ModalProps {
 
 function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    name:       scale?.name ?? "",
-    sizesText:  scale?.sizes ? scale.sizes.join(", ") : "",
-    sort_order: scale?.sort_order != null ? String(scale.sort_order)
+    name:        scale?.name ?? "",
+    sizesText:   scale?.sizes ? scale.sizes.join(", ") : "",
+    inseamsText: scale?.inseams ? scale.inseams.join(", ") : "",
+    sort_order:  scale?.sort_order != null ? String(scale.sort_order)
       : seedSortOrder != null ? String(seedSortOrder) : "0",
-    is_active:  scale?.is_active ?? true,
+    is_active:   scale?.is_active ?? true,
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const parsedSizes = parseSizes(form.sizesText);
+  // Inseams parse the same way as sizes; an empty list is valid (size-only scale).
+  const parsedInseams = parseSizes(form.inseamsText);
 
   async function submit() {
     setSubmitting(true);
@@ -389,6 +402,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
         body = {
           name:       form.name.trim(),
           sizes:      parsedSizes,
+          inseams:    parsedInseams,
           sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
           is_active:  form.is_active,
         };
@@ -399,6 +413,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
         body = {
           name:       form.name.trim(),
           sizes:      parsedSizes,
+          inseams:    parsedInseams,
           sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
           is_active:  form.is_active,
         };
@@ -483,16 +498,34 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
           </Field>
         </div>
 
+        <div style={{ marginTop: 12 }}>
+          <Field label="Inseams (comma-separated, in order) — optional, for bottoms">
+            <input
+              type="text"
+              value={form.inseamsText}
+              onChange={(e) => setForm({ ...form, inseamsText: e.target.value })}
+              style={inputStyle}
+              placeholder="30, 32, 34  (leave blank for tops / accessories)"
+            />
+          </Field>
+        </div>
+
         <div style={{
           marginTop: 14, padding: "10px 12px",
           background: "#0b1220", border: `1px dashed ${C.cardBdr}`,
           borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.6,
         }}>
-          <div style={{ marginBottom: 6 }}>Preview ({parsedSizes.length} size{parsedSizes.length === 1 ? "" : "s"}, in order):</div>
+          <div style={{ marginBottom: 6 }}>Sizes preview ({parsedSizes.length} size{parsedSizes.length === 1 ? "" : "s"}, in order):</div>
           {parsedSizes.length === 0 ? (
             <span style={{ fontStyle: "italic" }}>Type comma-separated sizes above to preview the ordered scale.</span>
           ) : (
             <div>{parsedSizes.map((s, i) => <span key={`${s}-${i}`} style={chipStyle}>{s}</span>)}</div>
+          )}
+          <div style={{ marginTop: 10, marginBottom: 6 }}>Inseams preview ({parsedInseams.length} inseam{parsedInseams.length === 1 ? "" : "s"}, in order):</div>
+          {parsedInseams.length === 0 ? (
+            <span style={{ fontStyle: "italic" }}>No inseams — a size-only scale (tops, accessories). Add inseams for pants / shorts.</span>
+          ) : (
+            <div>{parsedInseams.map((s, i) => <span key={`in-${s}-${i}`} style={chipStyle}>{s}&quot;</span>)}</div>
           )}
         </div>
 
