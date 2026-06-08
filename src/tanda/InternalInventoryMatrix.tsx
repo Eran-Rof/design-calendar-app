@@ -229,6 +229,64 @@ function buildMatrixRows(
     .map((x) => x.r);
 }
 
+// ── inseam view model (shared by single-style + brand-level renderers) ────────
+//
+// In by-inseam mode each MatrixRow is one (color, inseam) cell. buildInseamModel
+// groups those rows by color, orders colors by descending total and each color's
+// inseam rows by the scale's inseam order, and appends a per-color SUBTOTAL row
+// (the roll-up the operator asked for). Extracted to module scope so both the
+// single-style table and each brand-view block render the same shape.
+
+type InseamSubtotal = { color: string; sizes: Record<string, number>; totalQty: number; avgCostCents: number | null; totalCostCents: number };
+type InseamItem = { kind: "row"; row: MatrixRow } | { kind: "subtotal"; sub: InseamSubtotal };
+
+function buildInseamModel(rows: MatrixRow[], inseamOrder: string[]): InseamItem[] {
+  const byColor = new Map<string, MatrixRow[]>();
+  for (const r of rows) {
+    const arr = byColor.get(r.color) ?? [];
+    arr.push(r);
+    byColor.set(r.color, arr);
+  }
+  const inseamIdx = (i: string | null): number => {
+    const k = inseamOrder.indexOf(i ?? "");
+    return k < 0 ? Number.MAX_SAFE_INTEGER : k;
+  };
+  const colorGroups = [...byColor.entries()]
+    .map(([color, rs]) => ({ color, rs, total: rs.reduce((s, r) => s + r.totalQty, 0) }))
+    .sort((a, b) => b.total - a.total);
+  const items: InseamItem[] = [];
+  for (const { color, rs } of colorGroups) {
+    const sorted = [...rs].sort((a, b) => inseamIdx(a.inseam) - inseamIdx(b.inseam));
+    for (const row of sorted) items.push({ kind: "row", row });
+    const sizes: Record<string, number> = {};
+    let totalQty = 0, totalCostCents = 0, costedQty = 0;
+    for (const row of rs) {
+      for (const sz of Object.keys(row.sizes)) sizes[sz] = (sizes[sz] || 0) + row.sizes[sz];
+      totalQty += row.totalQty;
+      totalCostCents += row.totalCostCents;
+      costedQty += row.costedQty;
+    }
+    const avgCostCents = costedQty > 0 && totalCostCents > 0 ? Math.round(totalCostCents / costedQty) : null;
+    items.push({ kind: "subtotal", sub: { color, sizes, totalQty, avgCostCents, totalCostCents } });
+  }
+  return items;
+}
+
+// Inseam axis order for one payload: prefer the assigned size scale's ordered
+// inseams (kept to those actually present on the SKUs), append stray SKU inseams,
+// else fall back to the SKU-derived inseams. Pure so both views call it.
+function computeInseamOrder(payload: MatrixPayload, scales: SizeScale[]): string[] {
+  const present = new Set(payload.skus.map((s) => s.inseam).filter((i): i is string => !!i));
+  const scale = payload.style.size_scale_id ? scales.find((s) => s.id === payload.style.size_scale_id) : null;
+  const scaleIns = (scale?.inseams ?? []).filter((i) => present.has(i));
+  if (scaleIns.length) {
+    const out = [...scaleIns];
+    for (const i of payload.inseams) if (i && !out.includes(i)) out.push(i);
+    return out;
+  }
+  return payload.inseams.filter(Boolean);
+}
+
 // ── palette (mirrors poMatrixTab + other Internal* panels) ───────────────────
 
 const C = {
@@ -640,28 +698,23 @@ export default function InternalInventoryMatrix() {
   // Phase-1 master field), keeping only the inseams that actually appear on the
   // style's SKUs; append any stray SKU inseams not in the scale at the end. Falls
   // back to the payload's SKU-derived inseams when the scale carries none.
-  const styleScale = useMemo<SizeScale | null>(() => {
-    if (!payload?.style.size_scale_id) return null;
-    return scales.find((s) => s.id === payload.style.size_scale_id) ?? null;
-  }, [payload, scales]);
-
-  const inseamOrder = useMemo<string[]>(() => {
-    if (!payload) return [];
-    const present = new Set(payload.skus.map((s) => s.inseam).filter((i): i is string => !!i));
-    const scaleIns = (styleScale?.inseams ?? []).filter((i) => present.has(i));
-    if (scaleIns.length) {
-      const out = [...scaleIns];
-      for (const i of payload.inseams) if (i && !out.includes(i)) out.push(i);
-      return out;
-    }
-    return payload.inseams.filter(Boolean);
-  }, [payload, styleScale]);
+  const inseamOrder = useMemo<string[]>(
+    () => (payload ? computeInseamOrder(payload, scales) : []),
+    [payload, scales],
+  );
 
   // The style supports the inseam view only when there's at least one inseam to
   // split on (>1 makes the split meaningful, but we allow 1 so the operator can
   // confirm a single-inseam bottom too).
   const styleHasInseams = inseamOrder.length > 0;
   const byInseam = inseamMode && styleHasInseams;
+
+  // Brand (multi-style) view: does any loaded style have inseams? Drives the
+  // global By Inseam toggle's visibility when no single style is picked.
+  const anyBrandInseams = useMemo<boolean>(
+    () => !styleId && brandPayloads.some((bp) => computeInseamOrder(bp.payload, scales).length > 0),
+    [styleId, brandPayloads, scales],
+  );
 
   // Warehouses available for the filter — prefer the global master list (always
   // present, works in multi-style view), then the payload's list, then derive
@@ -727,45 +780,12 @@ export default function InternalInventoryMatrix() {
   const grandQty = useMemo(() => visibleRows.reduce((s, r) => s + r.totalQty, 0), [visibleRows]);
   const grandCostCents = useMemo(() => visibleRows.reduce((s, r) => s + r.totalCostCents, 0), [visibleRows]);
 
-  // By-inseam render model: group the per-(color,inseam) visibleRows by color,
-  // order colors by descending total, order each color's inseam rows by the
-  // scale's inseam order, and append a SUBTOTAL row per color (the roll-up the
-  // operator asked for). Returns null when not in inseam mode (plain rendering).
-  type InseamSubtotal = { color: string; sizes: Record<string, number>; totalQty: number; avgCostCents: number | null; totalCostCents: number };
-  type InseamItem = { kind: "row"; row: MatrixRow } | { kind: "subtotal"; sub: InseamSubtotal };
-  const inseamModel = useMemo<InseamItem[] | null>(() => {
-    if (!byInseam) return null;
-    const byColor = new Map<string, MatrixRow[]>();
-    for (const r of visibleRows) {
-      const arr = byColor.get(r.color) ?? [];
-      arr.push(r);
-      byColor.set(r.color, arr);
-    }
-    const inseamIdx = (i: string | null): number => {
-      const k = inseamOrder.indexOf(i ?? "");
-      return k < 0 ? Number.MAX_SAFE_INTEGER : k;
-    };
-    const colorGroups = [...byColor.entries()]
-      .map(([color, rs]) => ({ color, rs, total: rs.reduce((s, r) => s + r.totalQty, 0) }))
-      .sort((a, b) => b.total - a.total);
-    const items: InseamItem[] = [];
-    for (const { color, rs } of colorGroups) {
-      const sorted = [...rs].sort((a, b) => inseamIdx(a.inseam) - inseamIdx(b.inseam));
-      for (const row of sorted) items.push({ kind: "row", row });
-      // Per-color subtotal across its inseam rows.
-      const sizes: Record<string, number> = {};
-      let totalQty = 0, totalCostCents = 0, costedQty = 0;
-      for (const row of rs) {
-        for (const sz of Object.keys(row.sizes)) sizes[sz] = (sizes[sz] || 0) + row.sizes[sz];
-        totalQty += row.totalQty;
-        totalCostCents += row.totalCostCents;
-        costedQty += row.costedQty;
-      }
-      const avgCostCents = costedQty > 0 && totalCostCents > 0 ? Math.round(totalCostCents / costedQty) : null;
-      items.push({ kind: "subtotal", sub: { color, sizes, totalQty, avgCostCents, totalCostCents } });
-    }
-    return items;
-  }, [byInseam, visibleRows, inseamOrder]);
+  // By-inseam render model for the single-style table (null when off). Shared
+  // logic lives in module-level buildInseamModel (also used per brand block).
+  const inseamModel = useMemo<InseamItem[] | null>(
+    () => (byInseam ? buildInseamModel(visibleRows, inseamOrder) : null),
+    [byInseam, visibleRows, inseamOrder],
+  );
 
   // Flat rows for export (one per matrix row). In inseam mode the export mirrors
   // the on-screen grid: an Inseam column, per-(color,inseam) rows, and a
@@ -1017,10 +1037,11 @@ export default function InternalInventoryMatrix() {
             Explode
           </button>
 
-          {/* Inseam toggle — only when the picked style's scale carries inseams.
+          {/* Inseam toggle — shows when the picked style's scale carries inseams
+              (single-style view) OR any loaded style does (brand/all-styles view).
               ON splits each color into one row per inseam, with a per-color
               subtotal row. Blue = active. */}
-          {styleId && viewMode === "matrix" && styleHasInseams && (
+          {viewMode === "matrix" && ((styleId && styleHasInseams) || anyBrandInseams) && (
             <button
               type="button"
               title="Split each color into one row per inseam, with a per-color subtotal"
@@ -1184,10 +1205,16 @@ export default function InternalInventoryMatrix() {
                 if (warehouse !== ALL_WAREHOUSES) return num((c.by_wh || {})[warehouse]);
                 return num(c.qty);
               };
-              const bRows = buildMatrixRows(bPayload, [], bShowRise, bSkuQty, bCellQty)
+              // Per-block inseam state: split this style by inseam when the
+              // global By Inseam toggle is on AND this style's scale has inseams.
+              const bInseamOrder = computeInseamOrder(bPayload, scales);
+              const bByInseam = inseamMode && bInseamOrder.length > 0;
+              const bShowSecondary = bByInseam || bShowRise;
+              const bRows = buildMatrixRows(bPayload, [], bShowRise, bSkuQty, bCellQty, bByInseam)
                 .filter((r) => !hideZeros || r.totalQty !== 0);
               if (bRows.length === 0) return null;
-              const bColSpan = bShowRise ? 3 : 2; // Image + Color [+ Rise]
+              const bInseamModel = bByInseam ? buildInseamModel(bRows, bInseamOrder) : null;
+              const bColSpan = bShowSecondary ? 3 : 2; // Image + Color [+ Rise/Inseam]
               const bColTotals: Record<string, number> = {};
               for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
               const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
@@ -1207,7 +1234,7 @@ export default function InternalInventoryMatrix() {
                         <tr style={{ background: C.headerBg }}>
                           <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                           <th style={{ ...thBase, textAlign: "left" }}>Color</th>
-                          {bShowRise && <th style={{ ...thBase, textAlign: "left" }}>Rise</th>}
+                          {bShowSecondary && <th style={{ ...thBase, textAlign: "left" }}>{bByInseam ? "Inseam" : "Rise"}</th>}
                           {bSizeOrder.map((sz) => (
                             <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
                           ))}
@@ -1218,7 +1245,49 @@ export default function InternalInventoryMatrix() {
                         </tr>
                       </thead>
                       <tbody>
-                        {bRows.map((row, ri) => {
+                        {bByInseam && bInseamModel ? (
+                          bInseamModel.map((it) => {
+                            if (it.kind === "subtotal") {
+                              const sub = it.sub;
+                              return (
+                                <tr key={`sub|${sub.color}`} style={{ background: "#16233b", borderBottom: `2px solid ${C.sectionBdr}` }}>
+                                  <td style={{ padding: "4px 8px" }} />
+                                  <td style={{ padding: "6px 12px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
+                                  <td style={{ padding: "6px 12px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 10 }}>Subtotal</td>
+                                  {bSizeOrder.map((sz) => (
+                                    <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
+                                      {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
+                                    </td>
+                                  ))}
+                                  <td style={{ padding: "6px 12px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>{fmtQty(sub.totalQty)}</td>
+                                  <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{sub.avgCostCents == null ? "—" : fmtCurrency(sub.avgCostCents / 100)}</td>
+                                  <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontWeight: 700, fontFamily: "monospace" }}>{sub.totalCostCents > 0 ? fmtCurrency(sub.totalCostCents / 100) : "—"}</td>
+                                  <td style={{ padding: "6px 12px" }} />
+                                </tr>
+                              );
+                            }
+                            const row = it.row;
+                            return (
+                              <tr key={row.key} style={{ borderBottom: `1px solid ${C.rowBdr}` }}>
+                                <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
+                                  <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />
+                                </td>
+                                <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
+                                <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
+                                {bSizeOrder.map((sz) => (
+                                  <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
+                                    {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
+                                  </td>
+                                ))}
+                                <td style={{ padding: "6px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>{fmtQty(row.totalQty)}</td>
+                                <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontFamily: "monospace" }}>{row.avgCostCents == null ? "—" : fmtCurrency(row.avgCostCents / 100)}</td>
+                                <td style={{ padding: "6px 12px", textAlign: "right", color: C.green, fontWeight: 600, fontFamily: "monospace" }}>{row.totalCostCents > 0 ? fmtCurrency(row.totalCostCents / 100) : "—"}</td>
+                                <td style={{ padding: "6px 12px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{row.lastReceived ? fmtDate(row.lastReceived.slice(0, 10)) : "—"}</td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                        bRows.map((row, ri) => {
                           const isLast = ri === bRows.length - 1;
                           // Use brand-level styleImages map doesn't apply here (we'd need per-style
                           // maps). Render an empty placeholder so layout is consistent.
@@ -1240,7 +1309,8 @@ export default function InternalInventoryMatrix() {
                               <td style={{ padding: "6px 12px", textAlign: "center", color: C.base, fontFamily: "monospace" }}>{row.lastReceived ? fmtDate(row.lastReceived.slice(0, 10)) : "—"}</td>
                             </tr>
                           );
-                        })}
+                        })
+                        )}
                       </tbody>
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
