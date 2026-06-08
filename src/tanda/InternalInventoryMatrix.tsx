@@ -73,6 +73,7 @@ type MatrixPayload = {
 type ExplodeCell = { color: string; size: string; qty: number; by_wh?: Record<string, number> };
 type ExplodeInfo = {
   enabled: boolean;
+  self?: boolean; // true = the picked PPK style was exploded into its own size grid
   cells: ExplodeCell[];
   packs_exploded: number;
   packs_unmatched: Array<{ ppk_style_code: string; color: string | null; pack_token: string | null; qty: number }>;
@@ -618,7 +619,7 @@ export default function InternalInventoryMatrix() {
     Promise.all(
       stylesToLoad.map(async (s) => {
         try {
-          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}`, { signal: controller.signal });
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}`, { signal: controller.signal });
           if (!r.ok) return null;
           const p = await r.json() as MatrixPayload;
           return { style: s, payload: p };
@@ -633,7 +634,7 @@ export default function InternalInventoryMatrix() {
       setBrandLoading(false);
     });
     return () => controller.abort();
-  }, [styleId, brandStyles, multiPage]);
+  }, [styleId, brandStyles, multiPage, explodePpk]);
 
   // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
