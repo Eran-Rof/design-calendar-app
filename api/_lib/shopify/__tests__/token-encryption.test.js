@@ -1,7 +1,7 @@
 // Tests for Tangerine P11-2 Shopify token-encryption.js — real AES-256-GCM.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { encryptToken, decryptToken, selfCheck } from "../token-encryption.js";
+import { encryptToken, decryptToken, selfCheck, toByteaHex } from "../token-encryption.js";
 
 const VALID_KEY = "0".repeat(64); // 32 bytes of zeros (hex)
 const ALT_KEY   = "f".repeat(64); // different key, same length
@@ -30,6 +30,24 @@ describe("shopify token-encryption", () => {
     expect(iv.length).toBe(12);
     expect(tag.length).toBe(16);
     expect(decryptToken(ciphertext, iv, tag)).toBe(sample);
+  });
+
+  it("toByteaHex produces the PostgREST \\x form that decryptToken reads back", () => {
+    // This is exactly the write→read path the Connect Store handler uses:
+    // encrypt → store as \x hex in bytea → PostgREST returns \x hex → decrypt.
+    const sample = "shpat_simulated_admin_api_token_value";
+    const { ciphertext, iv, tag } = encryptToken(sample);
+    const ctHex = toByteaHex(ciphertext);
+    const ivHex = toByteaHex(iv);
+    const tagHex = toByteaHex(tag);
+    expect(ctHex.startsWith("\\x")).toBe(true);
+    expect(ivHex.startsWith("\\x")).toBe(true);
+    expect(decryptToken(ctHex, ivHex, tagHex)).toBe(sample);
+  });
+
+  it("toByteaHex passes null through (optional webhook secret unset)", () => {
+    expect(toByteaHex(null)).toBeNull();
+    expect(toByteaHex(undefined)).toBeNull();
   });
 
   it("round-trips a webhook secret with special characters", () => {

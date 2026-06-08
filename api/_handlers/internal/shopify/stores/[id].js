@@ -9,7 +9,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
-import { encryptToken } from "../../../../_lib/shopify/token-encryption.js";
+import { encryptToken, toByteaHex } from "../../../../_lib/shopify/token-encryption.js";
 
 export const config = { maxDuration: 15 };
 
@@ -67,15 +67,15 @@ export default async function handler(req, res) {
     try {
       if (newToken) {
         const t = encryptToken(newToken);
-        updates.access_token_ciphertext = t.ciphertext;
-        updates.access_token_iv = t.iv;
-        updates.access_token_tag = t.tag;
+        updates.access_token_ciphertext = toByteaHex(t.ciphertext);
+        updates.access_token_iv = toByteaHex(t.iv);
+        updates.access_token_tag = toByteaHex(t.tag);
       }
       if (newSecret) {
         const h = encryptToken(newSecret);
-        updates.webhook_secret_ciphertext = h.ciphertext;
-        updates.webhook_secret_iv = h.iv;
-        updates.webhook_secret_tag = h.tag;
+        updates.webhook_secret_ciphertext = toByteaHex(h.ciphertext);
+        updates.webhook_secret_iv = toByteaHex(h.iv);
+        updates.webhook_secret_tag = toByteaHex(h.tag);
       }
     } catch (e) {
       return res.status(500).json({ error: `Token encryption failed: ${e.message}` });

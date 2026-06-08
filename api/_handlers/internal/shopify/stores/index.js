@@ -14,7 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
-import { encryptToken } from "../../../../_lib/shopify/token-encryption.js";
+import { encryptToken, toByteaHex } from "../../../../_lib/shopify/token-encryption.js";
 
 export const config = { maxDuration: 15 };
 
@@ -110,12 +110,12 @@ export default async function handler(req, res) {
       shopify_domain: domain,
       store_name: storeName,
       api_version: apiVersion,
-      access_token_ciphertext: tok.ciphertext,
-      access_token_iv: tok.iv,
-      access_token_tag: tok.tag,
-      webhook_secret_ciphertext: hook.ciphertext,
-      webhook_secret_iv: hook.iv,
-      webhook_secret_tag: hook.tag,
+      access_token_ciphertext: toByteaHex(tok.ciphertext),
+      access_token_iv: toByteaHex(tok.iv),
+      access_token_tag: toByteaHex(tok.tag),
+      webhook_secret_ciphertext: toByteaHex(hook.ciphertext),
+      webhook_secret_iv: toByteaHex(hook.iv),
+      webhook_secret_tag: toByteaHex(hook.tag),
       is_active: body?.is_active === false ? false : true,
     };
 
