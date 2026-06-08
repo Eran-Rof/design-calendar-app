@@ -7,6 +7,8 @@
 import React, { useEffect, useState } from "react";
 import { TH, setConfirmHandler } from "../utils/theme";
 import { WarnHost, confirmDialog } from "../shared/ui/warn";
+import { supabaseClient } from "../utils/supabase";
+import NotificationsShell from "../components/notifications/NotificationsShell";
 import CostingNavBar from "./panels/NavBar";
 import ProjectListView from "./views/ProjectListView";
 import ProjectEditView from "./views/ProjectEditView";
@@ -29,8 +31,18 @@ const COSTING_VIEW_LABELS: Record<string, string> = {
   "rfq-compare": "Compare RFQs",
 };
 
+// PLM login id (sessionStorage) — used to scope the internal notifications bell.
+function readPlmUserId(): string | null {
+  try {
+    const raw = sessionStorage.getItem("plm_user");
+    if (!raw) return null;
+    return (JSON.parse(raw) as { id?: string }).id || null;
+  } catch { return null; }
+}
+
 export default function CostingApp() {
   const [view, setView] = useState(getView());
+  const userId = readPlmUserId();
   // Reflect the active view in the browser tab.
   useDocumentTitle(`${COSTING_VIEW_LABELS[view] ?? "Costing"} · Costing`);
 
@@ -78,6 +90,21 @@ export default function CostingApp() {
           once here since the Costing app boots standalone (not under the
           Tangerine shell where the other <WarnHost/> lives). */}
       <WarnHost />
+
+      {/* Internal notifications bell, scoped to the Costing app (RFQ lifecycle
+          events). These are routed here instead of the PLM launcher. */}
+      {supabaseClient && userId && (
+        <NotificationsShell
+          kind="internal"
+          supabase={supabaseClient}
+          userId={userId}
+          notificationsUrl="/notifications?from=costing"
+          currentPath={typeof window !== "undefined" ? window.location.pathname : undefined}
+          sessionKey="rof_notif_dismissed_internal"
+          appFilter="costing"
+          autoOpen={false}
+        />
+      )}
     </div>
   );
 }

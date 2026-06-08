@@ -99,6 +99,9 @@ they do:
   bell) and by **email**. The alert is titled "<vendor> revised their quote …
   (v2)" so you can tell it apart from a brand-new quote. Configure recipients via
   `INTERNAL_PROCUREMENT_EMAILS` or per-employee notification subscriptions.
+  > **Where the bell lives:** RFQ notifications appear in the **Costing app's**
+  > 🔔 bell (RFQs are run from Costing). They no longer pile up on the PLM launcher
+  > home screen — open the Costing app to see them.
   **The in-app bell now lights up automatically** whenever a recipient's email
   matches a staff member's **PLM login** (their Teams email on the login roster) —
   no one has to hand-link a PLM login on the Employee record anymore. If a
