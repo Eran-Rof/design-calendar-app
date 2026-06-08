@@ -40,8 +40,25 @@ milestone (days_before_ddp = 0) is the authoritative expected arrival date.
 - **→ Inventory Planning:** `api/_lib/planning-sync.js::syncOpenPosFromTandaPos()` (via `POST /api/planning/sync-open-pos`) projects open `tanda_pos` lines into `ip_open_purchase_orders`. **The "In House / DDP" milestone date now times that incoming supply** in planning — "inbound PO is WIP" (M31/P17 step 5; see [`33-…` §33.8](../tangerine/user-guide/33-inventory-planning-to-tangerine-po.md)).
 - **→ Tangerine Procurement:** Tangerine has its own native `purchase_orders` (the ERP source of truth); `tanda_pos` is the Xoro mirror for production tracking. Goods receipts land in `tanda_po_receipts`, feeding QC inspections and 3-way match (`InternalThreeWayMatch`, `InternalQCInspections`).
 
+## Grid — Named Range filter (PO # column)
+
+The **Grid** view's PO # column carries a **Range** button in the header filter
+row. Click it to filter the grid by **either**:
+
+- **By Date** — the PO **creation date** (`DateOrder`). Enter a *From* date for
+  "that date or newer"; add an optional *To* date to close the window.
+- **By PO #** — the **last 6 digits** of the PO number (`ROF-P001263` → `1263`).
+  Enter a *From* number for "that number or greater"; add an optional *To* to cap it.
+
+*From* alone is enough — the *To* field is always optional (open-ended range).
+When a range is applied the grid **auto-sorts ascending by the chosen axis**
+(creation date or PO number), and the button turns purple with a • marker.
+Use **Clear** in the popover to remove the range. The selection persists across
+reloads (`gv_range_filter`).
+
 ## Recent additions
 
+- **Grid PO # Named-Range filter** — date-range (creation date) or PO-number-range filter with optional upper bound; auto-sorts by the chosen axis.
 - **Vendor onboarding / portal access** — operator "Onboarding review" (`src/tanda/InternalOnboarding.tsx`): invite vendors, track invite status (pending / expired / accepted, 72h expiry), and an admin to view + cancel vendor portal access. Vendors self-serve via the `/vendor` portal onboarding flow.
 - **Tombstone table** — prevents permanently-deleted POs from re-appearing after the nightly sync.
 
