@@ -61,7 +61,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "_status",        label: "Status",   width: 110 },
   { key: "style_code",     label: "Style#",   width: 130 },
   { key: "description",    label: "Description", width: 220 },
-  { key: "size_scale_label", label: "Scale",  width: 80 },
+  { key: "size_scale_label", label: "Scale",  width: 140 },
   { key: "fabric_code",    label: "Fabric",   width: 200 },
   { key: "fit",            label: "Fit",      width: 90 },
   { key: "color",          label: "Color",    width: 100 },
