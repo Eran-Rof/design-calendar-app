@@ -268,6 +268,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/commission-accruals", label: "Commission Accruals", app: "tanda", route: "/tangerine?m=commission_accruals", group: "Accounting", icon: "💰" },
   { key: "tanda/accounting/commission-payouts",  label: "Commission Payouts",  app: "tanda", route: "/tangerine?m=commission_payouts",  group: "Accounting", icon: "📜" },
   { key: "tanda/shopify/refunds",                label: "Refunds",              app: "tanda", route: "/tangerine?m=shopify_refunds",     group: "Shopify", icon: "↩️" },
+  { key: "tanda/shopify/stores",                 label: "Connect Store",        app: "tanda", route: "/tangerine?m=shopify_stores",     group: "Shopify", icon: "🛍️" },
   { key: "tanda/marketplaces/status",            label: "Marketplace Status",   app: "tanda", route: "/tangerine?m=marketplace_status",  group: "Marketplaces", icon: "🛒" },
   { key: "tanda/audit/log",                      label: "Audit Log",            app: "tanda", route: "/tangerine?m=audit_log",           group: "Audit", icon: "🕒" },
   { key: "tanda/admin/user-access",              label: "User Access",          app: "tanda", route: "/tangerine?m=user_access",         group: "Admin", icon: "🔐" },

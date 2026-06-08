@@ -418,6 +418,9 @@ import r_internal_shopify_backfill from "./internal/shopify/backfill.js";
 import r_internal_shopify_post_cogs_id from "./internal/shopify/post-cogs/[id].js";
 import r_internal_shopify_post_order_id from "./internal/shopify/post-order/[id].js";
 import r_internal_shopify_process_refund_id from "./internal/shopify/process-refund/[id].js";
+import r_internal_shopify_stores_id from "./internal/shopify/stores/[id].js";
+import r_internal_shopify_stores_id_test from "./internal/shopify/stores/[id]/test.js";
+import r_internal_shopify_stores_index from "./internal/shopify/stores/index.js";
 import r_internal_shopify_sync_payouts from "./internal/shopify/sync-payouts.js";
 import r_internal_shopify_webhooks_disputes from "./internal/shopify/webhooks/disputes.js";
 import r_internal_shopify_webhooks_orders from "./internal/shopify/webhooks/orders.js";
@@ -654,6 +657,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/projects/:id/lines", handler: r_internal_costing_projects_id_lines },
   { pattern: "/api/internal/recon/variances/:id/clear", handler: r_internal_recon_clear },
   { pattern: "/api/internal/scf/requests/:id/approve", handler: r_internal_scf_requests_id_approve },
+  { pattern: "/api/internal/shopify/stores/:id/test", handler: r_internal_shopify_stores_id_test },
   { pattern: "/api/internal/scf/requests/:id/fund", handler: r_internal_scf_requests_id_fund },
   { pattern: "/api/vendor/rfqs/:id/quotes/submit", handler: r_vendor_rfqs_id_quotes_submit },
   { pattern: "/api/vendor/rfqs/:id/quote/revise", handler: r_vendor_rfqs_id_quote_revise },
@@ -777,6 +781,7 @@ export const ROUTES = [
   { pattern: "/api/internal/fba/post-order/:id", handler: r_internal_fba_post_order_id },
   { pattern: "/api/internal/pim/categories/:id", handler: r_internal_pim_categories_id },
   { pattern: "/api/internal/procurement/qc/:id", handler: r_internal_procurement_qc_id },
+  { pattern: "/api/internal/shopify/stores/:id", handler: r_internal_shopify_stores_id },
   { pattern: "/api/vendor/workspaces/:id/tasks", handler: r_vendor_workspaces_id_tasks_index },
   { pattern: "/api/internal/rfqs/:id/messages", handler: r_internal_rfqs_id_messages_index },
   { pattern: "/api/internal/vendors/:id/flags", handler: r_internal_vendors_id_flags_index },
@@ -904,6 +909,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/qc", handler: r_internal_procurement_qc_index },
   { pattern: "/api/internal/recon/cutovers", handler: r_internal_recon_cutovers },
   { pattern: "/api/internal/recon/run-cash", handler: r_internal_recon_run_cash },
+  { pattern: "/api/internal/shopify/stores", handler: r_internal_shopify_stores_index },
   { pattern: "/api/internal/xoro-mirror/ap", handler: r_internal_xoro_mirror_ap },
   { pattern: "/api/internal/xoro-mirror/ar", handler: r_internal_xoro_mirror_ar },
   { pattern: "/api/vendor/analytics/health", handler: r_vendor_analytics_health },

@@ -180,6 +180,7 @@ const KEYS = [
   "tanda/accounting/commission-accruals",
   "tanda/accounting/commission-payouts",
   "tanda/shopify/refunds",
+  "tanda/shopify/stores",
   "tanda/marketplaces/status",
   "tanda/audit/log",
   "tanda/admin/user-access",
