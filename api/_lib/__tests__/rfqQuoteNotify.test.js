@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildQuoteNotification } from "../rfqQuoteNotify.js";
+import { buildQuoteNotification, buildVendorQuoteReceipt } from "../rfqQuoteNotify.js";
 
 describe("buildQuoteNotification", () => {
   const base = { id: "q1", total_price: 1234.5, lead_time_days: 30 };
@@ -36,5 +36,24 @@ describe("buildQuoteNotification", () => {
     expect(n.event_type).toBe("rfq_quote_revised");
     expect(n.body).toContain("—");
     expect(n.body).not.toContain("lead time");
+  });
+});
+
+describe("buildVendorQuoteReceipt", () => {
+  it("first submission → submitted receipt", () => {
+    const r = buildVendorQuoteReceipt({ quote: { id: "q1", revision: 1 }, rfqTitle: "Spring Tees" });
+    expect(r.isRevision).toBe(false);
+    expect(r.event_type).toBe("rfq_quote_submitted_receipt");
+    expect(r.title).toBe("Your quote was submitted");
+    expect(r.body).toContain("Spring Tees");
+    expect(r.dedupeKey).toBe("rfq_quote_submitted_receipt_q1");
+  });
+
+  it("revision → revised receipt with version + per-revision dedupe", () => {
+    const r = buildVendorQuoteReceipt({ quote: { id: "q1", revision: 2 }, rfqTitle: "Spring Tees" });
+    expect(r.isRevision).toBe(true);
+    expect(r.event_type).toBe("rfq_quote_revised_receipt");
+    expect(r.title).toBe("Your revised quote (v2) was submitted");
+    expect(r.dedupeKey).toBe("rfq_quote_revised_receipt_q1_2");
   });
 });

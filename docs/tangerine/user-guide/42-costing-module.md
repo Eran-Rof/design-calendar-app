@@ -87,16 +87,29 @@ You'll be warned — with the option to **delete the incomplete rows and continu
 A vendor can reopen an already-submitted quote and resubmit revised figures. When
 they do:
 
-- The procurement team is **emailed automatically** — the alert is titled
-  "<vendor> revised their quote … (v2)" so you can tell it apart from a brand-new
-  quote (configure recipients via `INTERNAL_PROCUREMENT_EMAILS` or per-employee
-  notification subscriptions).
+- The procurement team is **notified automatically** — both **in-app** (the 🔔
+  bell, for staff whose Employee record has a linked PLM login) and by **email**.
+  The alert is titled "<vendor> revised their quote … (v2)" so you can tell it
+  apart from a brand-new quote. Configure recipients via
+  `INTERNAL_PROCUREMENT_EMAILS` or per-employee notification subscriptions; the
+  in-app bell requires the employee's **PLM login** to be linked on their
+  Employee record.
 - The next time you **open that RFQ**, a banner + toast pop up at the top
   ("⚠ <vendor> revised their quote — review the highlighted rows"). The vendor's
   row in the comparison shows a gold **Revised v2** badge; expand it to see
   **current vs. prior** prices, lead time, and per-line figures.
 - Click **Got it** to dismiss the banner. It won't nag you again for that RFQ
   unless the vendor revises *again* (a newer version re-triggers it).
+
+**What the vendor sees:** the vendor gets their own **in-app + email confirmation**
+("Your revised quote (v2) was submitted") and, on their RFQ page, a read-only
+**🕑 Your revision history** expander listing their prior versions (totals, lead
+time, per-line figures). A vendor only ever sees **their own** history — never
+another vendor's quotes and never Ring of Fire's internal comparison.
+
+> Note: Ring of Fire staff **cannot edit a published RFQ or a vendor's quote** —
+> RFQs lock once published, and quotes belong to the vendor. So there is no
+> "RFQ revised by the buyer" history; revisions are always vendor-initiated.
 
 See also: [14 — Payment Terms](14-payment-terms.md), [15 — Fabric Codes](15-fabric-codes.md),
 [32 — Procurement & Receiving](32-procurement-receiving.md).

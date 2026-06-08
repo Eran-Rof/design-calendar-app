@@ -17,11 +17,26 @@ interface RfqDetail {
     fabric_code: string | null; fabric_name: string | null; fit: string | null;
   }[];
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
-  quote: { id: string; status: string; revision?: number | null; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[] } | null;
+  quote: { id: string; status: string; revision?: number | null; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[]; revisions?: QuoteRevisionSnapshot[] } | null;
   // Documents attached to the source costing lines (tech packs, spec sheets,
   // reference images), each with a short-lived signed URL. Images render as a
   // product-image strip; other kinds as a downloadable list.
   documents?: { id: string; title: string; kind: string; mime: string; is_image: boolean; byte_size: number | null; line_index: number | null; url: string }[];
+}
+
+// A snapshot of one prior version of THIS vendor's quote (read-only history).
+interface QuoteRevisionSnapshot {
+  id: string;
+  revision: number;
+  submitted_at: string | null;
+  created_at: string;
+  snapshot: {
+    total_price: number | null;
+    lead_time_days: number | null;
+    valid_until: string | null;
+    notes: string | null;
+    lines: { rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[];
+  };
 }
 
 async function token() {
@@ -66,6 +81,7 @@ export default function VendorRfqDetail() {
   const [leadTime, setLeadTime] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Total price is auto-calculated from each line's (your unit price × your qty)
   // — the vendor no longer types it. Falls back to the RFQ's req qty when the
@@ -393,10 +409,88 @@ export default function VendorRfqDetail() {
               Need to change your pricing? Click <b>Revise quote</b> — your current submission is saved, and you can edit and re-submit while this RFQ is open.
             </div>
           )}
+
+          {/* Read-only history of THIS vendor's own prior versions. */}
+          {quote.revisions && quote.revisions.length > 0 && (
+            <div style={{ marginTop: 14, borderTop: `1px solid ${TH.border}`, paddingTop: 12 }}>
+              <div
+                onClick={() => setShowHistory((s) => !s)}
+                style={{ cursor: "pointer", color: TH.textSub2, fontSize: 12, fontWeight: 600, userSelect: "none" }}
+              >
+                {showHistory ? "▾" : "▸"} 🕑 Your revision history ({quote.revisions.length} prior {quote.revisions.length === 1 ? "version" : "versions"})
+              </div>
+              {showHistory && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                  {/* Current (live) values first, then prior snapshots newest-first. */}
+                  <VendorRevisionCard
+                    label={`v${quote.revision ?? 1} (current)`}
+                    when={quote.valid_until}
+                    totalPrice={quote.total_price}
+                    leadTime={quote.lead_time_days}
+                    notes={quote.notes}
+                    lines={quote.lines.map((l) => ({ rfq_line_item_id: l.rfq_line_item_id, unit_price: l.unit_price, quantity: l.quantity, notes: l.notes }))}
+                    lineLabel={(liId) => { const li = lines.find((x) => x.id === liId); return li ? `#${li.line_index} ${styleNameOf(li.description) || li.description}` : "Line"; }}
+                    highlight
+                  />
+                  {quote.revisions.map((rev) => (
+                    <VendorRevisionCard
+                      key={rev.id}
+                      label={`v${rev.revision}`}
+                      when={rev.submitted_at || rev.created_at}
+                      totalPrice={rev.snapshot?.total_price ?? null}
+                      leadTime={rev.snapshot?.lead_time_days ?? null}
+                      notes={rev.snapshot?.notes ?? null}
+                      lines={rev.snapshot?.lines || []}
+                      lineLabel={(liId) => { const li = lines.find((x) => x.id === liId); return li ? `#${li.line_index} ${styleNameOf(li.description) || li.description}` : "Line"; }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {id && <RfqMessageThread rfqId={id} />}
+    </div>
+  );
+}
+
+// One version's figures in the vendor's own revision history (read-only).
+function VendorRevisionCard({
+  label, when, totalPrice, leadTime, notes, lines, lineLabel, highlight,
+}: {
+  label: string;
+  when: string | null;
+  totalPrice: number | null;
+  leadTime: number | null;
+  notes: string | null;
+  lines: { rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[];
+  lineLabel: (lineItemId: string) => string;
+  highlight?: boolean;
+}) {
+  return (
+    <div style={{ border: `1px solid ${highlight ? TH.primary : TH.border}`, borderRadius: 8, padding: "10px 12px", background: TH.bg }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: highlight ? TH.primary : TH.textSub }}>{label}</div>
+        <div style={{ fontSize: 11, color: TH.textMuted }}>{when ? fmtDate(when) : "—"}</div>
+      </div>
+      <div style={{ fontSize: 12, color: TH.textSub2, marginBottom: lines.length ? 8 : 0 }}>
+        Total {totalPrice != null ? fmtMoney(totalPrice) : "—"} · Lead time {leadTime ?? "—"}d
+        {notes ? <span style={{ color: TH.textMuted }}> · {notes}</span> : null}
+      </div>
+      {lines.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {lines.map((l, i) => (
+            <div key={l.rfq_line_item_id || i} style={{ fontSize: 11, color: TH.textMuted, display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineLabel(l.rfq_line_item_id)}</span>
+              <span style={{ flexShrink: 0 }}>
+                {l.unit_price != null ? fmtMoney(l.unit_price) : "—"}{l.quantity != null ? ` × ${fmtQty(l.quantity)}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
