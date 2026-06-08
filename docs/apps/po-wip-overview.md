@@ -56,6 +56,11 @@ When a range is applied the grid **auto-sorts ascending by the chosen axis**
 Use **Clear** in the popover to remove the range. The selection persists across
 reloads (`gv_range_filter`).
 
+If a range matches **no POs**, it is **auto-reverted** — the grid drops the range
+and shows all POs again, with a brief amber notice in the status bar ("No POs
+matched that range — showing all POs."), so the planner is never stranded on an
+empty page.
+
 ## Recent additions
 
 - **Grid PO # Named-Range filter** — date-range (creation date) or PO-number-range filter with optional upper bound; auto-sorts by the chosen axis.

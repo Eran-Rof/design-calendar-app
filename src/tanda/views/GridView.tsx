@@ -286,29 +286,34 @@ export function GridView({
     return isNaN(n) ? null : n;
   }, []);
 
+  // True when a PO falls inside the named range. Shared by the rows filter
+  // and the auto-revert effect so the predicate lives in exactly one place.
+  const matchesRange = useCallback((p: XoroPO, rf: RangeFilter): boolean => {
+    if (rf.mode === "date") {
+      const d = normDateISO(p.DateOrder);
+      if (!d) return false;
+      if (rf.from && d < rf.from) return false;
+      if (rf.to   && d > rf.to)   return false;
+      return true;
+    }
+    const n = poNumLast6(p.PoNumber);
+    if (n == null) return false;
+    const from = rf.from ? parseInt(rf.from, 10) : null;
+    const to   = rf.to   ? parseInt(rf.to,   10) : null;
+    if (from != null && n < from) return false;
+    if (to   != null && n > to)   return false;
+    return true;
+  }, [poNumLast6]);
+
   // ── Rows ────────────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     const s = search.toLowerCase();
     const rf = rangeFilter;
-    const rfFrom = rf && rf.mode === "po" && rf.from ? parseInt(rf.from, 10) : null;
-    const rfTo   = rf && rf.mode === "po" && rf.to   ? parseInt(rf.to,   10) : null;
     const filtered = pos.filter(p => {
       if (filterVendor !== "All" && (p.VendorName ?? "") !== filterVendor) return false;
       if (filterBuyer  !== "All" && (p.BuyerName  ?? "") !== filterBuyer)  return false;
       // Named-range filter — PO creation date (DateOrder) OR trailing PO #.
-      if (rf) {
-        if (rf.mode === "date") {
-          const d = normDateISO(p.DateOrder);
-          if (!d) return false;
-          if (rf.from && d < rf.from) return false;
-          if (rf.to   && d > rf.to)   return false;
-        } else {
-          const n = poNumLast6(p.PoNumber);
-          if (n == null) return false;
-          if (rfFrom != null && n < rfFrom) return false;
-          if (rfTo   != null && n > rfTo)   return false;
-        }
-      }
+      if (rf && !matchesRange(p, rf)) return false;
       if (!s) return true;
       return (
         (p.PoNumber   ?? "").toLowerCase().includes(s) ||
@@ -364,9 +369,29 @@ export function GridView({
       }
     };
     return [...filtered].sort((a, b) => cmp(get(a), get(b)));
-  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp, rangeFilter, poNumLast6]);
+  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp, rangeFilter, poNumLast6, matchesRange]);
 
   useEffect(() => setPage(0), [search, filterVendor, filterBuyer, sortKey, sortDir, rangeFilter]);
+
+  // Auto-revert: if the active named range matches ZERO POs (independent of the
+  // search/vendor/buyer filters), drop it and fall back to the full PO list so
+  // the planner is never stranded on an empty grid. A transient notice explains
+  // why. Scoped to the range predicate only — other filters returning nothing
+  // is a legitimate empty result and is left alone.
+  const [rangeNotice, setRangeNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!rangeFilter) return;
+    if (pos.some(p => matchesRange(p, rangeFilter))) return;
+    const label = rangeFilter.mode === "date" ? "date range" : "PO-number range";
+    setRangeFilter(null);
+    setRangeNotice(`No POs matched that ${label} — showing all POs.`);
+  }, [rangeFilter, pos, matchesRange]);
+  // Clear the notice shortly after it appears (or immediately on next change).
+  useEffect(() => {
+    if (!rangeNotice) return;
+    const t = setTimeout(() => setRangeNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [rangeNotice]);
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -1047,7 +1072,12 @@ export function GridView({
 
         {/* ── Status bar + pagination ─────────────────────────────────── */}
         <div style={{ padding: "10px 14px", color: "#9CA3AF", fontSize: 13, borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}</span>
+          <span>
+            Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}
+            {rangeNotice && (
+              <span style={{ marginLeft: 10, color: "#FBBF24", fontWeight: 600 }}>⤢ {rangeNotice}</span>
+            )}
+          </span>
           {totalPages > 1 && (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
