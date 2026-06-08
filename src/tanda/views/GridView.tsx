@@ -1876,6 +1876,23 @@ export function GridView({
               <button onClick={() => setRangeAnchor(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
             </div>
 
+            {/* Show-all shortcut — only when a range is currently applied, so the
+                planner can drop an active range and see every PO in one click. */}
+            {rangeFilter && (
+              <button
+                onClick={() => { setRangeFilter(null); setRangeAnchor(null); }}
+                title="Remove the active range and show every PO"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  width: "100%", marginBottom: 12, padding: "8px 10px",
+                  background: "#064E3B", border: "1px solid #10B981", borderRadius: 8,
+                  color: "#A7F3D0", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                <span style={{ fontSize: 13 }}>↺</span> Show all POs
+              </button>
+            )}
+
             {/* Mode toggle */}
             <div style={{ display: "flex", marginBottom: 12, border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
               {(["date", "po"] as RangeMode[]).map(mode => {
@@ -1916,10 +1933,11 @@ export function GridView({
 
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button
-                onClick={() => { setRangeFilter(null); setRangeAnchor(null); }}
+                onClick={() => setRangeDraft(d => ({ ...d, from: "", to: "" }))}
+                title="Clear the From / To inputs"
                 style={{ ...S.btnSecondary, flex: 1, fontSize: 12, padding: "7px 8px" }}
               >
-                Clear
+                Reset
               </button>
               <button
                 disabled={!rangeDraft.from}
