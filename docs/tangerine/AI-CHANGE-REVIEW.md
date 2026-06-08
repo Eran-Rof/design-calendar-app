@@ -6,6 +6,10 @@
 
 ---
 
+## 2026-06-08 — 3PL Recon: nightly SFTP auto-pull (#1114)
+
+Made the 3PL recon hands-off. New cron `/api/cron/tpl-inventory-pull` (02:30 UTC) SFTP-pulls each provider's newest inventory file, parses (846/CSV), and reconciles via the shared `reconcileSnapshot`. Added `ssh2-sftp-client` dependency (lockfile updated). New `tpl_providers` columns `inventory_sftp_path/last_inventory_file/last_inventory_pulled_at` (migration `20260840000000`, **PROD-applied**). Configure per provider in the recon panel's **⚙ Auto-pull (SFTP)** section. **Verify:** the secret stays in an env var (named by `edi_credential_ref`), never the DB; the nightly run ingests + dedupes via `last_inventory_file`. ⚠️ New native-ish dep (ssh2) — watch the first Vercel build.
+
 ## 2026-06-08 — 3PL Inventory Recon (#1112)
 
 New nav module **Inventory → 📋 3PL Inventory Recon** + endpoint. Ingest a 3PL's on-hand snapshot (EDI **846**, CSV, or JSON) → stores dated snapshot → recomputes per-SKU differences vs Tangerine on-hand (`inventory_layers`), comparable vs the provider's location or total. New tables `tpl_inventory_snapshots/_lines/_differences` (migration `20260839000000`, **applied to PROD**). `module_keys` row seeded. **What to verify:** set a provider's **location** in the 3PL master, paste a CSV of `sku,qty`, Ingest → differences grid (compare vs **Total** until 945 relocates layers to the 3PL location). ⚠️ Ingest is push-based (no SFTP pull cron yet); 3PL fees + layer relocation still deferred.

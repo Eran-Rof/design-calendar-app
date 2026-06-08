@@ -20,7 +20,11 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 
-type Provider = { id: string; name: string; code: string | null; location_id?: string | null };
+type Provider = {
+  id: string; name: string; code: string | null; location_id?: string | null;
+  edi_endpoint?: string | null; edi_username?: string | null; edi_credential_ref?: string | null;
+  inventory_sftp_path?: string | null; last_inventory_file?: string | null; last_inventory_pulled_at?: string | null;
+};
 type Snapshot = { id: string; snapshot_date: string; source: string; line_count: number; matched_count: number; created_at: string };
 type Diff = { sku_code: string; qty_3pl: number; qty_tangerine_location: number; qty_tangerine_total: number; direction: string };
 
@@ -29,6 +33,16 @@ const td: React.CSSProperties = { padding: "7px 10px", borderBottom: `1px solid 
 const tdNum: React.CSSProperties = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", fontFamily: "SFMono-Regular, Menlo, monospace" };
 const btn: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnGhost: React.CSSProperties = { background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12 };
+const inp: React.CSSProperties = { width: "100%", background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "6px 9px", fontSize: 12, boxSizing: "border-box" };
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
 
 const fmtQty = (v: number) => (Number(v) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -46,6 +60,40 @@ export default function InternalThreePLRecon() {
   const [mismatchOnly, setMismatchOnly] = useState(true);
   const [paste, setPaste] = useState("");
   const [ingesting, setIngesting] = useState(false);
+
+  // SFTP auto-pull settings (per provider) — the nightly cron reads these.
+  const [showSftp, setShowSftp] = useState(false);
+  const [savingSftp, setSavingSftp] = useState(false);
+  const [sftp, setSftp] = useState({ edi_endpoint: "", edi_username: "", edi_credential_ref: "", inventory_sftp_path: "" });
+  const selectedProvider = providers.find((p) => p.id === providerId) || null;
+  useEffect(() => {
+    if (!selectedProvider) return;
+    setSftp({
+      edi_endpoint: selectedProvider.edi_endpoint || "",
+      edi_username: selectedProvider.edi_username || "",
+      edi_credential_ref: selectedProvider.edi_credential_ref || "",
+      inventory_sftp_path: selectedProvider.inventory_sftp_path || "",
+    });
+  }, [providerId, providers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveSftp() {
+    if (!providerId) return;
+    setSavingSftp(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/tpl-providers", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: providerId, edi_protocol: "SFTP", ...sftp }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify("SFTP auto-pull settings saved.", "success");
+      // refresh providers so selectedProvider reflects the new values
+      const d = await fetch("/api/internal/tpl-providers").then((x) => x.json());
+      setProviders(Array.isArray(d) ? d : (d.providers || d.rows || []));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setSavingSftp(false); }
+  }
 
   useEffect(() => {
     fetch("/api/internal/tpl-providers")
@@ -163,6 +211,30 @@ export default function InternalThreePLRecon() {
           </label>
           <span style={{ fontSize: 11, color: C.textMuted }}>Each ingest stores a dated snapshot and recomputes the differences.</span>
         </div>
+      </div>
+
+      {/* SFTP auto-pull settings (nightly cron) */}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, marginBottom: 14 }}>
+        <button onClick={() => setShowSftp((v) => !v)} style={{ width: "100%", textAlign: "left", background: "transparent", border: 0, color: C.textSub, cursor: "pointer", padding: "10px 14px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          {showSftp ? "▾" : "▸"} ⚙ Auto-pull (SFTP) — runs nightly at 02:30 UTC
+          {selectedProvider?.last_inventory_pulled_at && (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted, fontWeight: 400 }}>
+              last pulled {new Date(selectedProvider.last_inventory_pulled_at).toLocaleString()} {selectedProvider.last_inventory_file ? `· ${selectedProvider.last_inventory_file}` : ""}
+            </span>
+          )}
+        </button>
+        {showSftp && (
+          <div style={{ padding: "0 14px 14px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            <Field label="SFTP host[:port]"><input style={inp} value={sftp.edi_endpoint} onChange={(e) => setSftp({ ...sftp, edi_endpoint: e.target.value })} placeholder="sftp.my3pl.com:22" /></Field>
+            <Field label="Username"><input style={inp} value={sftp.edi_username} onChange={(e) => setSftp({ ...sftp, edi_username: e.target.value })} placeholder="ringoffire" /></Field>
+            <Field label="Credential env-var name"><input style={inp} value={sftp.edi_credential_ref} onChange={(e) => setSftp({ ...sftp, edi_credential_ref: e.target.value })} placeholder="TPL_ACME_SFTP_KEY" /></Field>
+            <Field label="Inventory directory (remote)"><input style={inp} value={sftp.inventory_sftp_path} onChange={(e) => setSftp({ ...sftp, inventory_sftp_path: e.target.value })} placeholder="/outbox/inventory" /></Field>
+            <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10 }}>
+              <button style={btn} onClick={() => void saveSftp()} disabled={savingSftp || !providerId}>{savingSftp ? "Saving…" : "Save SFTP settings"}</button>
+              <span style={{ fontSize: 11, color: C.textMuted }}>The secret (password or SSH key) lives in the named environment variable — never stored in the DB. The cron pulls the newest file in the directory each night and reconciles it.</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>Error: {err}</div>}
