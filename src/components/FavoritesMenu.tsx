@@ -235,8 +235,12 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
     };
   }, [open]);
 
-  function navigate(menuKey: string, route: string): void {
+  // Plain click → same-tab navigate. Modifier / middle click falls through so
+  // the browser opens the favorite's route in a new TAB (the rows are <a> links).
+  function navigate(e: React.MouseEvent, menuKey: string, route: string): void {
     if (typeof window === "undefined") return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+    e.preventDefault();
     logClick(menuKey);
     window.location.href = route;
   }
@@ -391,13 +395,13 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
                     onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.panelHi; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => navigate(k, route)}
+                    <a
+                      href={route}
+                      onClick={(e) => navigate(e, k, route)}
                       title={appTag ? `${appTag} — ${label}` : label}
                       style={{
                         flex: 1, minWidth: 0, background: "transparent", border: "none",
-                        color: C.textSub, textAlign: "left", fontSize: 13, cursor: "pointer",
+                        color: C.textSub, textAlign: "left", fontSize: 13, cursor: "pointer", textDecoration: "none",
                         padding: "7px 6px", display: "flex", alignItems: "center", gap: 8, fontFamily: "inherit",
                       }}
                     >
@@ -412,7 +416,7 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
                           {appTag}
                         </span>
                       )}
-                    </button>
+                    </a>
                     <button
                       type="button"
                       onClick={() => void removeKey(k)}

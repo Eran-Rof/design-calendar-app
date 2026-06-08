@@ -169,6 +169,18 @@ export function NavDrawer({
     setAppsOpen(false);
   }, [logClick, onSelectModule]);
 
+  // Deep-link for a module so nav rows can be real <a> links — enables the
+  // browser's native middle-click / Cmd-click / right-click → "Open in new tab".
+  const moduleHref = (key: string) => `?m=${encodeURIComponent(key)}`;
+  // Plain left-click → in-app navigation (no reload). Any modifier or middle
+  // click falls through to the browser so it opens the href in a new TAB.
+  const onNavClick = useCallback((e: React.MouseEvent, key: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(key);
+  }, [navigate]);
+
   // ── sorted sections + modules ─────────────────────────────────────────
   const sortedSections = useMemo(() => {
     const score = (s: NavSection) =>
@@ -214,10 +226,10 @@ export function NavDrawer({
     userSelect: "none", whiteSpace: "nowrap", overflow: "hidden",
     transition: "background 0.1s",
   });
-  const hoverOn  = (e: React.MouseEvent<HTMLDivElement>, key: string) =>
-    { (e.currentTarget as HTMLDivElement).style.background = activeModule === key ? C.bgActive : C.bgRow; };
-  const hoverOff = (e: React.MouseEvent<HTMLDivElement>, key: string) =>
-    { (e.currentTarget as HTMLDivElement).style.background = activeModule === key ? C.bgActive : "transparent"; };
+  const hoverOn  = (e: React.MouseEvent<HTMLElement>, key: string) =>
+    { (e.currentTarget as HTMLElement).style.background = activeModule === key ? C.bgActive : C.bgRow; };
+  const hoverOff = (e: React.MouseEvent<HTMLElement>, key: string) =>
+    { (e.currentTarget as HTMLElement).style.background = activeModule === key ? C.bgActive : "transparent"; };
 
   const av  = deriveInitials(userName, userEmail);
   const avBg = avatarBg(userName || userEmail || "");
@@ -331,13 +343,13 @@ export function NavDrawer({
             {searchHits.length === 0
               ? <div style={{ color:C.textMuted, fontSize:12, padding:"8px 12px" }}>No matches</div>
               : searchHits.map(m => (
-                <div key={m.key} style={rowStyle(m.key)}
-                  onClick={e => { e.stopPropagation(); navigate(m.key); }}
+                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }}
+                  onClick={e => onNavClick(e, m.key)}
                   onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
                 >
                   <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
                   <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>
-                </div>
+                </a>
               ))
             }
           </div>
@@ -365,13 +377,13 @@ export function NavDrawer({
               <div style={{ color:C.textMuted, fontSize:12, padding:"2px 10px 7px", fontStyle:"italic" }}>Use ☆ to star the current view</div>
             )}
             {favMods.map(m => (
-              <div key={m.key} style={rowStyle(m.key)} title={collapsed ? m.label : undefined}
-                onClick={e => { e.stopPropagation(); navigate(m.key); }}
+              <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? m.label : undefined}
+                onClick={e => onNavClick(e, m.key)}
                 onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
               >
                 <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
                 {!collapsed && <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>}
-              </div>
+              </a>
             ))}
             <div style={{ height:1, background:C.border, margin:"5px 0" }} />
           </div>
@@ -416,8 +428,8 @@ export function NavDrawer({
 
               {/* Sub-items — only rendered when section is open */}
               {!collapsed && isOpen && mods.map(m => (
-                <div key={m.key} style={rowStyle(m.key)}
-                  onClick={e => { e.stopPropagation(); navigate(m.key); }}
+                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }}
+                  onClick={e => onNavClick(e, m.key)}
                   onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
                 >
                   <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
@@ -425,7 +437,7 @@ export function NavDrawer({
                   {(counts[m.key] ?? 0) > 0 && (
                     <span style={{ fontSize:10, color:C.textMuted, flexShrink:0 }}>{counts[m.key]}</span>
                   )}
-                </div>
+                </a>
               ))}
 
               {/* In collapsed mode show active item's icon always */}
