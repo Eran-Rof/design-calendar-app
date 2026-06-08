@@ -53,7 +53,9 @@ row. Click it to filter the grid by **either**:
 *From* alone is enough — the *To* field is always optional (open-ended range).
 When a range is applied the grid **auto-sorts ascending by the chosen axis**
 (creation date or PO number), and the button turns purple with a • marker.
-Use **Clear** in the popover to remove the range. The selection persists across
+When a range is already active the popover shows a green **Show all POs** button
+at the top — one click drops the range and returns to the full list. **Reset**
+clears just the From / To inputs. The selection persists across
 reloads (`gv_range_filter`).
 
 If a range matches **no POs**, it is **auto-reverted** — the grid drops the range
