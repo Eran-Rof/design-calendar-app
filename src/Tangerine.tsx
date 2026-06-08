@@ -105,6 +105,8 @@ import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 // P11-7 — Shopify Refunds reports panel.
 import InternalShopifyRefunds         from "./tanda/InternalShopifyRefunds";
+// P11 — Connect Shopify Store (encrypted token; enables sync + image pull).
+import InternalShopifyStores          from "./tanda/InternalShopifyStores";
 // Tangerine P12-99 — Marketplaces status panel (Shopify / FBA / Walmart / Faire dashboard).
 import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit nav group).
@@ -280,6 +282,8 @@ type ModuleKey =
   | "shadow_mirror"
   // P11-7 — Shopify Refunds reports panel.
   | "shopify_refunds"
+  // P11 — Connect Shopify Store.
+  | "shopify_stores"
   // Tangerine P12-99 — Marketplaces status (Shopify / FBA / Walmart / Faire).
   | "marketplace_status"
   // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit).
@@ -516,6 +520,8 @@ const MODULES: ModuleDef[] = [
   { key: "shadow_mirror",       label: "Mirror Status",     emoji: "🔁", group: "Shadow Mirror" },
   // P11-7 — Shopify Refunds reports panel (read-only audit surface).
   { key: "shopify_refunds",     label: "Refunds",           emoji: "↩️", group: "Shopify" },
+  // P11 — Connect Shopify Store (encrypted token; enables sync + image pull).
+  { key: "shopify_stores",      label: "Connect Store",     emoji: "🛍️", group: "Shopify" },
   // Tangerine P12-99 — Marketplaces close-out status panel (Shopify / FBA / Walmart / Faire).
   { key: "marketplace_status",  label: "Marketplace Status",emoji: "🛒", group: "Marketplaces" },
   // Cross-cutter T11-3 — Universal audit log admin panel (operator-facing row_changes browser).
@@ -948,6 +954,8 @@ export default function Tangerine() {
         {activeModule === "shadow_mirror"       && <InternalShadowMirrorStatus />}
         {/* P11-7 — Shopify Refunds reports panel */}
         {activeModule === "shopify_refunds"     && <InternalShopifyRefunds />}
+        {/* P11 — Connect Shopify Store */}
+        {activeModule === "shopify_stores"      && <InternalShopifyStores />}
         {/* Tangerine P12-99 — Marketplaces close-out status dashboard */}
         {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
         {/* Cross-cutter T11-3 — Universal audit log admin panel */}

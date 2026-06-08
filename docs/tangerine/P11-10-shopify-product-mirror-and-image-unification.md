@@ -41,15 +41,16 @@ recreates it faithfully + idempotently (verified no-op on prod).
 | **bulk** | **Bulk link by handle=style_code** (walk catalog → match → upsert mirror + link, with dry-run report) + **bulk pull** (batched/cursored over linked styles) | — | ⬜ planned |
 | C+ | products/* webhooks + scheduled product backfill cron; `InternalShopifyProducts` admin panel; Dropbox migration + kill switch | — | ⬜ deferred |
 
-## ⛔ Prerequisite blocker (operator)
-`shopify_stores` is **empty in prod** — no store, no Admin API token. The entire
-Shopify integration (orders + images) is dormant until a store is connected:
+## Prerequisite (operator) — now self-serve ✅
+A store must be connected before orders/images work. This is now a UI action
+(no SQL): **Tangerine → Sales → Shopify → 🛍️ Connect Store** →
+`/api/internal/shopify/stores` encrypts the token (`encryptToken`, AES-256-GCM)
+into `shopify_stores`. See user-guide ch43.
 1. Shopify admin → Develop apps → custom app with `read_products`
-   (+ `read_orders` for the dormant orders sync) → install → copy the
-   `shpat_…` Admin API token.
+   (+ `read_orders` for order sync) → install → **Reveal** the `shpat_…` token.
 2. Ensure `SHOPIFY_TOKEN_ENC_KEY` is set on Vercel prod.
-3. Insert a `shopify_stores` row with the token **encrypted** (`encryptToken`,
-   AES-256-GCM). One-time write.
+3. Paste the token + `*.myshopify.com` domain in the **Connect Store** panel →
+   **Test**. (prod still has 0 stores — pending this one operator step.)
 
 ## Bulk plan (P11-10-bulk) — next build
 **Match rule (operator-chosen): Shopify `handle` = `style_master.style_code`.**
