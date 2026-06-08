@@ -21,6 +21,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
+import { vendorTargetForMode } from "../../../../../_lib/costingVendorTarget.js";
 
 export const config = { maxDuration: 30 };
 
@@ -70,10 +71,17 @@ export default async function handler(req, res) {
   // `currency` column — RFQs default to USD on the insert below. If a
   // multi-currency costing project lands later, add the column then.
   const { data: project, error: projectErr } = await admin.from("costing_projects")
-    .select("id, project_name, brand, request_date, due_date, projected_delivery_date")
+    .select("id, project_name, brand, request_date, due_date, projected_delivery_date, payment_terms_name")
     .eq("id", projectId).maybeSingle();
   if (projectErr) return res.status(500).json({ error: projectErr.message });
   if (!project) return res.status(404).json({ error: "Project not found" });
+
+  // Cost mode is derived from payment terms (mirrors completeness.ts
+  // isDdpProject). DDP projects quote a single delivered-duty-paid price
+  // (costing_lines.target_cost = "Tgt DDP Cost"); FOB/Landed projects quote the
+  // FOB unit price (costing_lines.fob_cost). The vendor's RFQ target must match
+  // the basis they're quoting against.
+  const isDdpProject = !!project.payment_terms_name && /DDP/i.test(project.payment_terms_name);
 
   const entityId = await resolveEntityId(admin, req);
   if (!entityId) return res.status(500).json({ error: "Could not resolve entity_id" });
@@ -81,7 +89,7 @@ export default async function handler(req, res) {
   // 2. Lines + their selected vendor (the picker writes a costing_line_vendors
   //    row with status='selected' and stamps costing_lines.selected_vendor_quote_id).
   const { data: lines, error: linesErr } = await admin.from("costing_lines")
-    .select("id, style_code, style_name, description, color, size_scale_label, fabric_code, fit, bottom_closure, waist_type, comment, remarks, target_qty, target_cost, selected_vendor_quote_id")
+    .select("id, style_code, style_name, description, color, size_scale_label, fabric_code, fit, bottom_closure, waist_type, comment, remarks, target_qty, target_cost, fob_cost, selected_vendor_quote_id")
     .eq("project_id", projectId)
     .in("id", lineIds);
   if (linesErr) return res.status(500).json({ error: linesErr.message });
@@ -313,6 +321,8 @@ export default async function handler(req, res) {
         ln.comment ? `Comment: ${ln.comment}` : null,
         ln.remarks ? `Remarks: ${ln.remarks}` : null,
       ].filter(Boolean);
+      // Vendor target = Tgt DDP cost (DDP projects) or FOB cost (FOB/Landed).
+      const vendorTarget = vendorTargetForMode(isDdpProject, ln.target_cost, ln.fob_cost);
       return {
         rfq_id: rfq.id,
         line_index: idx + 1,
@@ -325,15 +335,15 @@ export default async function handler(req, res) {
         unit_of_measure: "ea",
         specifications: specsParts.length > 0 ? specsParts.join(" · ") : null,
         // Mirror the costing-line attributes into first-class columns. Falls
-        // back to NULL when the source field is unset. target_price tracks
-        // costing_lines.target_cost (the per-unit cost the vendor is asked
-        // to quote against).
+        // back to NULL when the source field is unset. target_price = the
+        // per-unit cost the vendor quotes against: Tgt DDP cost (DDP) or FOB
+        // cost (FOB/Landed) — see vendorTarget above.
         fabric_code:      ln.fabric_code      || null,
         fit:              ln.fit              || null,
         bottom_closure:   ln.bottom_closure   || null,
         size_scale_label: ln.size_scale_label || null,
         waist_type:       ln.waist_type       || null,
-        target_price:     typeof ln.target_cost === "number" ? ln.target_cost : null,
+        target_price:     vendorTarget,
         // Mirrored for the duplicate-RFQ match key (migration 20260713060000).
         style_code:       ln.style_code       || null,
         color:            ln.color            || null,
