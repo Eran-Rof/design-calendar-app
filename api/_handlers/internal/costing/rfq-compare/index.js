@@ -19,17 +19,18 @@
 //                       lines: [ { rfq_line_item_id, unit_price, quantity, notes } ] } ]
 //     } ] }
 //
-// `sell_price` per line is the VENDOR TARGET COST — the per-unit price the vendor
-// quotes against: Tgt DDP cost (DDP projects) or FOB cost (FOB/Landed), recomputed
-// live from costing_lines via vendorTargetForMode (#1115). Resolution priority:
-// (1) costing_line_id FK; (2) style_code:color match within the project;
-// (3) rfq_line_items.target_price snapshot (kept in sync by the line-edit PATCH).
-// NULL when no match is found. The field is still named sell_price for backward
-// compatibility with the frontend, which computes per-vendor delta = (ref − quoted) / ref.
+// `sell_price` per line is the ROF-side SELL TARGET — the price we sell at,
+// recomputed live from costing_lines.sell_target (fallback sell_price). This is
+// the reference the compare view uses for per-vendor gross margin =
+// (sell − quoted) / sell, so it MUST be the selling price, not a cost.
+// Resolution priority: (1) costing_line_id FK; (2) style_code:color match within
+// the project. NULL when no sell target is found (margin then shows "—").
+// NOTE: the vendor-facing target cost (what the vendor quotes against) is a
+// SEPARATE value — rfq_line_items.target_price, shown on the RFQ + vendor portal —
+// and is intentionally NOT used here.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
-import { vendorTargetForMode } from "../../../../_lib/costingVendorTarget.js";
 
 export const config = { maxDuration: 30 };
 
@@ -56,18 +57,14 @@ export default async function handler(req, res) {
   const projectId = (url.searchParams.get("project_id") || "").trim();
   if (!projectId) return res.status(400).json({ error: "project_id is required" });
 
-  // 1. Project header (name + payment terms → DDP vs FOB cost mode).
+  // 1. Project header (name).
   const { data: project, error: projErr } = await admin
     .from("costing_projects")
-    .select("id, project_name, payment_terms_name")
+    .select("id, project_name")
     .eq("id", projectId)
     .maybeSingle();
   if (projErr) return res.status(500).json({ error: projErr.message });
   if (!project) return res.status(404).json({ error: "Project not found" });
-
-  // Cost mode: DDP projects quote against Tgt DDP cost; FOB/Landed against the
-  // FOB cost. Mirrors src/costing/lib/completeness.ts isDdpProject + #1115.
-  const isDdp = !!project.payment_terms_name && /DDP/i.test(project.payment_terms_name);
 
   // 2. RFQs generated from this project. `code` is the newest column
   // (20260812000000_rfq_code.sql) — drop it on a pre-migration deploy so the
@@ -113,23 +110,23 @@ export default async function handler(req, res) {
   // Helper: coerce numeric(12,4) which Supabase may return as a string or number.
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
 
-  // 3b. Resolve the reference price per line = the VENDOR TARGET COST (what the
-  // vendor quotes against), recomputed LIVE from costing_lines so a revised cost
-  // shows immediately — never the sell price, never a stale snapshot. The vendor
-  // target is Tgt DDP cost (DDP) or FOB cost (FOB/Landed), per #1115.
+  // 3b. Resolve the reference price per line = the ROF SELL TARGET (the price we
+  // sell at), recomputed LIVE from costing_lines so a revised sell target shows
+  // immediately. Used by the compare view's margin = (sell − quoted)/sell, so it
+  // MUST be the selling price, NOT a cost.
   //   A. costing_line_id FK   — exact, preferred
   //   B. style_code:color     — fallback when costing_line_id is null (legacy RFQs)
-  //   C. target_price snapshot — last resort (kept in sync by the line-edit PATCH)
-  const refById = new Map();         // costing_line.id → vendor target cost
-  const refByStyleColor = new Map(); // "style_code:color" → vendor target cost
+  // sell_target is the primary; sell_price is the fallback when the target is unset.
+  const refById = new Map();         // costing_line.id → sell target
+  const refByStyleColor = new Map(); // "style_code:color" → sell target
 
   const { data: clRows } = await admin
     .from("costing_lines")
-    .select("id, style_code, color, target_cost, fob_cost")
+    .select("id, style_code, color, sell_target, sell_price")
     .eq("project_id", projectId);
 
   for (const cl of clRows || []) {
-    const ref = vendorTargetForMode(isDdp, cl.target_cost, cl.fob_cost);
+    const ref = toNum(cl.sell_target) ?? toNum(cl.sell_price);
     if (ref !== null) {
       refById.set(cl.id, ref);
       const scKey = `${cl.style_code || ""}:${cl.color || ""}`;
@@ -154,15 +151,14 @@ export default async function handler(req, res) {
   const itemsByRfq = new Map();
   for (const it of itemsRes.data || []) {
     if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
-    // Reference price resolution — vendor target cost, three-level fallback:
-    // 1. costing_line_id FK → live vendor target from costing_lines
-    // 2. style_code:color match within project → live vendor target
-    // 3. rfq_line_items.target_price snapshot (kept in sync by the line PATCH)
+    // Reference price resolution — ROF sell target, two-level fallback:
+    // 1. costing_line_id FK → live sell target from costing_lines
+    // 2. style_code:color match within project → live sell target
+    // (No cost-snapshot fallback: target_price is the vendor COST, not a sell.)
     const scKey = `${it.style_code || ""}:${it.color || ""}`;
     const sell =
       (it.costing_line_id ? refById.get(it.costing_line_id) : null) ??
       refByStyleColor.get(scKey) ??
-      toNum(it.target_price) ??
       null;
     itemsByRfq.get(it.rfq_id).push({
       id: it.id,
