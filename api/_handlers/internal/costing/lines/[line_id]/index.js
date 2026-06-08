@@ -71,6 +71,41 @@ export default async function handler(req, res) {
       .update(updates).eq("id", lineId).select("*").maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: "Line not found" });
+
+    // Sync rfq_line_items.target_price whenever sell pricing changes so Compare
+    // Quotes always reflects the current value, not the stale RFQ-generation snapshot.
+    const SELL_FIELDS = ["sell_price", "sell_target", "target_cost"];
+    const hasSellChange = SELL_FIELDS.some(f => Object.prototype.hasOwnProperty.call(updates, f));
+    if (hasSellChange) {
+      const toNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+      const newRef = toNum(data.sell_price) ?? toNum(data.sell_target) ?? toNum(data.target_cost) ?? null;
+      if (newRef !== null) {
+        // Path A: exact FK (new RFQs generated after migration 20260719000000)
+        await admin.from("rfq_line_items").update({ target_price: newRef })
+          .eq("costing_line_id", lineId);
+
+        // Path B: legacy rows where costing_line_id is null (older RFQs). Match via
+        // the project's rfqs; only update rows whose target_price == target_cost
+        // (the original snapshot) so we don't clobber any manual overrides.
+        if (data.project_id) {
+          const { data: rfqRows } = await admin.from("rfqs")
+            .select("id").eq("source_costing_project_id", data.project_id);
+          const rfqIds = (rfqRows || []).map(r => r.id);
+          if (rfqIds.length > 0) {
+            const { data: legItems } = await admin.from("rfq_line_items")
+              .select("id, target_price").in("rfq_id", rfqIds).is("costing_line_id", null);
+            const oldRef = toNum(data.target_cost);
+            const legIds = (legItems || [])
+              .filter(i => oldRef === null || toNum(i.target_price) === oldRef)
+              .map(i => i.id);
+            if (legIds.length > 0) {
+              await admin.from("rfq_line_items").update({ target_price: newRef }).in("id", legIds);
+            }
+          }
+        }
+      }
+    }
+
     return res.status(200).json(data);
   }
 
