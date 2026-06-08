@@ -191,6 +191,42 @@ export function parse945(segments) {
   return out;
 }
 
+// 846 Inventory Inquiry/Advice — INBOUND from the 3PL reporting on-hand per item.
+// Returns { lines: [{ sku, qty_on_hand }] }. Walk in order: LIN starts an item,
+// the following QTY (qualifier "33"/"ON"/"QA" = on-hand/available) sets its qty.
+// SKU is taken from the LIN's product-id pair whose qualifier is a SKU/UPC type
+// (SK/UP/UK/EN/VN); otherwise the first id value. 3PL 846 layouts vary — this is
+// deliberately lenient and the handler also accepts CSV/JSON.
+export function parse846(segments) {
+  const out = { lines: [] };
+  let cur = null;
+  const SKU_QUALS = new Set(["SK", "UP", "UK", "EN", "VN", "IN", "BP"]);
+  for (const s of segments || []) {
+    const tag = (s[0] || "").toUpperCase();
+    if (tag === "LIN") {
+      // LIN — Item Identification: LIN*<assigned>*<qual1>*<id1>*<qual2>*<id2>...
+      // Scan qualifier/id pairs from element 2 onward; prefer a SKU/UPC-type id.
+      let sku = null, firstId = null;
+      for (let i = 2; i + 1 < s.length; i += 2) {
+        const qual = (s[i] || "").toUpperCase();
+        const id = s[i + 1] || null;
+        if (id && firstId == null) firstId = id;
+        if (id && SKU_QUALS.has(qual)) { sku = id; break; }
+      }
+      cur = { sku: sku || firstId || null, qty_on_hand: 0 };
+      out.lines.push(cur);
+    } else if (tag === "QTY" && cur) {
+      // QTY*<qualifier>*<quantity>. 33 = quantity on hand, QA/AV = available.
+      const qual = (s[1] || "").toUpperCase();
+      const qty = Number(s[2] || 0) || 0;
+      if (qual === "33" || qual === "ON" || qual === "QA" || qual === "AV" || qual === "17" || cur.qty_on_hand === 0) {
+        cur.qty_on_hand = qty;
+      }
+    }
+  }
+  return out;
+}
+
 // 820 Payment Order/Remittance — single-invoice payment envelope.
 // payment: { amount, currency, effective_date, vendor_id, invoices: [{invoice_number, amount}] }
 export function build820({ sender, receiver, controlNumber, payment }) {

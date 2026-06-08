@@ -164,6 +164,7 @@ const KEYS = [
   "tanda/inventory/matrix",
   "tanda/inventory/prepack-matrices",
   "tanda/inventory/3pl",
+  "tanda/inventory/3pl-recon",
   "tanda/cs/cases",
   "tanda/shadow-mirror/status",
   "tanda/approvals/rules",
