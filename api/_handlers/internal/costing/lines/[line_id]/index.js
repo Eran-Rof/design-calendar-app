@@ -80,6 +80,10 @@ export default async function handler(req, res) {
     // line "Revised" + green-highlights those cells), and notify the vendor.
     // The vendor target is the cost they quote against — Tgt DDP cost (DDP) or
     // FOB cost (FOB/Landed) — NEVER the sell price.
+    //
+    // revisionSummary is returned to the costing UI (as `_rfq_revision`) so it
+    // can show an on-screen "RFQ revised & sent to <vendor>" confirmation.
+    let revisionSummary = null;
     try {
       const ATTR_FIELDS = ["fabric_code", "fit", "bottom_closure", "size_scale_label", "waist_type", "style_code", "color"];
       const costChanged = "target_cost" in updates || "fob_cost" in updates;
@@ -109,9 +113,10 @@ export default async function handler(req, res) {
           const selectCols = ["id", "rfq_id", ...Object.keys(next)].join(", ");
 
           // Path A — FK-linked lines (RFQs generated after migration 20260719000000):
-          // full diff + revision flags + notify.
+          // full diff + revision flags + history snapshot + notify.
           const { data: items } = await admin.from("rfq_line_items").select(selectCols).eq("costing_line_id", lineId);
           const changedRfqIds = new Set();
+          const allChangedFields = new Set();
           for (const it of items || []) {
             const changed = diffVendorFields(it, next, Object.keys(next));
             if (changed.length === 0) continue;
@@ -119,6 +124,23 @@ export default async function handler(req, res) {
             for (const f of changed) patch[f] = next[f];
             await admin.from("rfq_line_items").update(patch).eq("id", it.id);
             changedRfqIds.add(it.rfq_id);
+            changed.forEach((f) => allChangedFields.add(f));
+
+            // Caveat 2 — append-only ROF revision history snapshot (old → new).
+            // Best-effort: a missing table / insert error never blocks the save.
+            try {
+              await admin.from("rfq_line_revisions").insert({
+                rfq_line_item_id: it.id,
+                rfq_id: it.rfq_id,
+                costing_line_id: lineId,
+                revised_at: nowIso,
+                changed_fields: changed,
+                old_values: Object.fromEntries(changed.map((f) => [f, it[f] ?? null])),
+                new_values: Object.fromEntries(changed.map((f) => [f, next[f] ?? null])),
+                revised_by: "ROF",
+                entity_id: data.entity_id || null,
+              });
+            } catch { /* history is best-effort */ }
           }
 
           // Path B — legacy FK-less rows: keep the target_price-only sync (no
@@ -141,12 +163,24 @@ export default async function handler(req, res) {
             }
           }
 
-          // Notify the invited vendor(s) of every RFQ whose line(s) changed.
+          // Notify the invited vendor(s) of every RFQ whose line(s) changed,
+          // and build the ROF-side on-screen confirmation summary.
           if (changedRfqIds.size > 0) {
             const ids = Array.from(changedRfqIds);
             const { data: rfqMeta } = await admin.from("rfqs").select("id, title").in("id", ids);
             const titleById = Object.fromEntries((rfqMeta || []).map(r => [r.id, r.title]));
             const { data: invs } = await admin.from("rfq_invitations").select("rfq_id, vendor_id").in("rfq_id", ids);
+
+            // Resolve vendor display names for the confirmation message.
+            const vendorIds = [...new Set((invs || []).map(i => i.vendor_id).filter(Boolean))];
+            let nameByVendor = {};
+            if (vendorIds.length > 0) {
+              const { data: vrows } = await admin.from("vendors")
+                .select("id, legal_name, name, code").in("id", vendorIds);
+              nameByVendor = Object.fromEntries((vrows || []).map(v =>
+                [v.id, v.legal_name || v.name || v.code || "vendor"]));
+            }
+
             const origin = `https://${req.headers.host}`;
             await Promise.all((invs || []).map((inv) =>
               fetch(`${origin}/api/send-notification`, {
@@ -165,6 +199,24 @@ export default async function handler(req, res) {
                 }),
               }).catch(() => {})
             ));
+
+            // Human-friendly labels for the changed vendor-visible fields.
+            const FIELD_LABELS = {
+              target_price: "target cost", quantity: "quantity", fabric_code: "fabric",
+              fit: "fit", bottom_closure: "closure", size_scale_label: "size scale",
+              waist_type: "waist", style_code: "style", color: "color",
+            };
+            const vendorNames = [...new Set(vendorIds.map(id => nameByVendor[id]).filter(Boolean))];
+            revisionSummary = {
+              rfqs: ids.map(rid => ({
+                id: rid,
+                title: titleById[rid] || "RFQ",
+                vendors: (invs || []).filter(i => i.rfq_id === rid)
+                  .map(i => nameByVendor[i.vendor_id]).filter(Boolean),
+              })),
+              vendors: vendorNames,
+              fields: [...allChangedFields].map(f => FIELD_LABELS[f] || f),
+            };
           }
         }
       }
@@ -173,7 +225,10 @@ export default async function handler(req, res) {
       console.warn(`[costing-line] RFQ revision sync failed for line ${lineId}: ${e && e.message ? e.message : String(e)}`);
     }
 
-    return res.status(200).json(data);
+    // Attach the revision summary (null when nothing was sent to a vendor) so the
+    // costing UI can surface "RFQ revised & sent to <vendor>". Non-enumerable-ish
+    // extra key on the line payload — the frontend strips it before storing.
+    return res.status(200).json(revisionSummary ? { ...data, _rfq_revision: revisionSummary } : data);
   }
 
   if (req.method === "DELETE") {

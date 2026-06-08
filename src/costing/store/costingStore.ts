@@ -353,9 +353,20 @@ export const useCostingStore = create<State>((set, get) => ({
     }));
     try {
       const updated = await api.updateLine(id, patch);
+      // Strip the server's revision-confirmation envelope before storing the line.
+      const { _rfq_revision, ...line } = updated;
       set((s) => ({
-        lines: s.lines.map((l) => (l.id === id ? updated : l)),
+        lines: s.lines.map((l) => (l.id === id ? (line as CostingLine) : l)),
       }));
+      // On-screen confirmation that the edit was pushed to the vendor's RFQ.
+      if (_rfq_revision && _rfq_revision.rfqs?.length) {
+        const vendors = _rfq_revision.vendors?.length
+          ? _rfq_revision.vendors.join(", ") : "the vendor";
+        const fields = _rfq_revision.fields?.length
+          ? ` (${_rfq_revision.fields.join(", ")})` : "";
+        const titles = _rfq_revision.rfqs.map((r) => `"${r.title}"`).join(", ");
+        get().setNotice(`RFQ ${titles} revised${fields} — sent to ${vendors}.`, "info");
+      }
     } catch (e) {
       set({ error: (e as Error).message });
     }

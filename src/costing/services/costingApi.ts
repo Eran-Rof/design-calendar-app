@@ -85,8 +85,18 @@ export async function upsertLines(projectId: string, lines: LineUpsertRow[]): Pr
   }));
 }
 
-export async function updateLine(lineId: string, patch: Partial<CostingLine>): Promise<CostingLine> {
-  return json<CostingLine>(await fetch(`/api/internal/costing/lines/${lineId}`, {
+// The server attaches `_rfq_revision` when the edit re-synced onto a sent RFQ
+// line and notified the vendor — drives the on-screen "RFQ revised & sent"
+// confirmation. Absent on ordinary saves.
+export interface RfqRevisionSummary {
+  rfqs: Array<{ id: string; title: string; vendors: string[] }>;
+  vendors: string[];
+  fields: string[];
+}
+export type UpdatedLine = CostingLine & { _rfq_revision?: RfqRevisionSummary | null };
+
+export async function updateLine(lineId: string, patch: Partial<CostingLine>): Promise<UpdatedLine> {
+  return json<UpdatedLine>(await fetch(`/api/internal/costing/lines/${lineId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
