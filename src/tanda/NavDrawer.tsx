@@ -19,7 +19,7 @@ import { MENU_KEYS } from "../lib/menuKeys";
 const C = {
   bg:        "#0b1220",
   bgRow:     "#1e293b",
-  bgActive:  "#1d4ed8",
+  bgActive:  "rgba(29,78,216,0.42)",  // faded blue (was bright #1d4ed8)
   text:      "#e2e8f0",
   textMuted: "#94a3b8",
   border:    "rgba(255,255,255,0.08)",
@@ -127,6 +127,10 @@ export function NavDrawer({
   const [userOpen, setUserOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  // When a Favorite is clicked we navigate but DON'T auto-expand the module's
+  // section in the menu below — the favorite IS the selection. This ref tells
+  // the auto-open effect to skip the next activeModule change.
+  const skipNextAutoOpen = useRef(false);
 
   // ── accordion: open sections ───────────────────────────────────────────
   const [openSections, setOpenSections] = useState<Set<string>>(() => {
@@ -138,9 +142,11 @@ export function NavDrawer({
     return initial;
   });
 
-  // auto-open the section of the newly-active module
+  // auto-open the section of the newly-active module — UNLESS the navigation
+  // came from a Favorite click (then leave the menu sections as they are).
   useEffect(() => {
     if (!activeModule) return;
+    if (skipNextAutoOpen.current) { skipNextAutoOpen.current = false; return; }
     const sec = sectionOf(activeModule, sections, modules);
     if (sec) setOpenSections(prev => prev.has(sec) ? prev : new Set([...prev, sec]));
   }, [activeModule, sections, modules]);
@@ -180,6 +186,17 @@ export function NavDrawer({
     e.stopPropagation();
     navigate(key);
   }, [navigate]);
+
+  // Favorites click — navigate but suppress the menu-section auto-open below.
+  // Only arm the skip when activeModule will actually change (so a re-click of
+  // the current favorite doesn't leave a stale flag that swallows a later nav).
+  const onFavClick = useCallback((e: React.MouseEvent, key: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (key !== activeModule) skipNextAutoOpen.current = true;
+    navigate(key);
+  }, [navigate, activeModule]);
 
   // ── sorted sections + modules ─────────────────────────────────────────
   const sortedSections = useMemo(() => {
@@ -378,7 +395,7 @@ export function NavDrawer({
             )}
             {favMods.map(m => (
               <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? m.label : undefined}
-                onClick={e => onNavClick(e, m.key)}
+                onClick={e => onFavClick(e, m.key)}
                 onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
               >
                 <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
