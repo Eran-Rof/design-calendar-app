@@ -127,6 +127,15 @@ etc. — the change automatically syncs onto that vendor's RFQ line, and:
   changed value is shown in green** so they see exactly what moved.
 - Only the fields you actually changed are flagged; re-editing re-notifies with the
   new change set.
+- **You don't get asked to "send" the revision** — it propagates automatically when
+  you save the costing line. Right after saving, you get an **on-screen confirmation**:
+  *"RFQ "<title>" revised (target cost, qty) — sent to <vendor>."* If you change a
+  field the vendor never sees (e.g. **Sell Tgt** / margin), no revision is sent and
+  no confirmation appears — that's expected.
+- **Revision history (internal):** open the RFQ from PO-WIP → its detail panel now has
+  a **🕑 RFQ revision history (Ring of Fire)** expander listing every buyer revision —
+  when, which line, and each field's **old → new** value. This mirrors the vendor's own
+  quote-revision history.
 
 See also: [14 — Payment Terms](14-payment-terms.md), [15 — Fabric Codes](15-fabric-codes.md),
 [32 — Procurement & Receiving](32-procurement-receiving.md).

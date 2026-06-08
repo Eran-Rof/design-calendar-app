@@ -2,11 +2,32 @@ import { useEffect, useRef, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme, type QuoteSortKey } from "./rfq/RfqQuotesAndMessages";
 
+interface RofRevision {
+  id: string;
+  rfq_line_item_id: string;
+  revised_at: string;
+  changed_fields: string[];
+  old_values: Record<string, unknown>;
+  new_values: Record<string, unknown>;
+  revised_by: string | null;
+}
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; awarded_to_vendor_id: string | null };
   line_items: { id: string; line_index: number; description: string; quantity: number; unit_of_measure: string | null }[];
   invitations: { id: string; vendor_id: string; status: string; vendor: { name: string } }[];
   quotes: { id: string; status: string }[];
+  rof_revisions?: RofRevision[];
+}
+
+// Friendly labels for vendor-visible revision fields.
+const REV_FIELD_LABELS: Record<string, string> = {
+  target_price: "Target cost", quantity: "Quantity", fabric_code: "Fabric",
+  fit: "Fit", bottom_closure: "Closure", size_scale_label: "Size scale",
+  waist_type: "Waist", style_code: "Style", color: "Color",
+};
+function fmtRevVal(v: unknown): string {
+  if (v == null || v === "") return "—";
+  return String(v);
 }
 
 const C: RfqTheme = {
@@ -140,6 +161,57 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
         theme={C}
         vendors={(detail.invitations || []).map((i) => ({ vendor_id: i.vendor_id, vendor_name: i.vendor?.name || i.vendor_id }))}
       />
+
+      <RofRevisionHistory
+        revisions={detail.rof_revisions || []}
+        lineLabel={(lineItemId) => {
+          const li = detail.line_items.find((x) => x.id === lineItemId);
+          return li ? `#${li.line_index} ${li.description}` : "Line";
+        }}
+      />
+    </div>
+  );
+}
+
+// Caveat 2 — buyer/ROF revision history: what Ring of Fire changed on the
+// vendor-visible RFQ fields, when, old → new. Mirrors the vendor quote-revision
+// history but for the buyer side. Collapsed by default.
+function RofRevisionHistory({
+  revisions, lineLabel,
+}: { revisions: RofRevision[]; lineLabel: (id: string) => string }) {
+  const [open, setOpen] = useState(false);
+  if (!revisions || revisions.length === 0) return null;
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px", marginTop: 14 }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ background: "transparent", border: "none", color: C.text, cursor: "pointer", fontSize: 13, fontWeight: 700, padding: 0, display: "flex", alignItems: "center", gap: 8 }}
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        🕑 RFQ revision history (Ring of Fire) · {revisions.length}
+      </button>
+      {open && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {revisions.map((rev) => (
+            <div key={rev.id} style={{ borderLeft: `2px solid ${C.success}`, paddingLeft: 12 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>
+                {new Date(rev.revised_at).toLocaleString()} · {lineLabel(rev.rfq_line_item_id)}
+                {rev.revised_by ? ` · ${rev.revised_by}` : ""}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
+                {(rev.changed_fields || []).map((f) => (
+                  <div key={f} style={{ fontSize: 12, color: C.textSub }}>
+                    <span style={{ color: C.textMuted }}>{REV_FIELD_LABELS[f] || f}:</span>{" "}
+                    <span style={{ textDecoration: "line-through", color: C.textMuted }}>{fmtRevVal(rev.old_values?.[f])}</span>
+                    {" → "}
+                    <span style={{ color: C.success, fontWeight: 600 }}>{fmtRevVal(rev.new_values?.[f])}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

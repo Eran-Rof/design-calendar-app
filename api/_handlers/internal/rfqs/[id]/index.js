@@ -37,11 +37,16 @@ export default async function handler(req, res) {
   if (!id) return res.status(400).json({ error: "Missing rfq id" });
 
   if (req.method === "GET") {
-    const [r, li, inv, qt] = await Promise.all([
+    const [r, li, inv, qt, rev] = await Promise.all([
       admin.from("rfqs").select("*, entity:entities(id, name, slug)").eq("id", id).maybeSingle(),
       admin.from("rfq_line_items").select("*").eq("rfq_id", id).order("line_index", { ascending: true }),
       admin.from("rfq_invitations").select("*, vendor:vendors(id, name)").eq("rfq_id", id),
       admin.from("rfq_quotes").select("id, vendor_id, status, total_price, lead_time_days, submitted_at").eq("rfq_id", id),
+      // ROF revision history (buyer edits to vendor-visible fields). Best-effort:
+      // the table is new (migration 20260842000000) — tolerate its absence.
+      admin.from("rfq_line_revisions")
+        .select("id, rfq_line_item_id, revised_at, changed_fields, old_values, new_values, revised_by")
+        .eq("rfq_id", id).order("revised_at", { ascending: false }),
     ]);
     if (!r.data) return res.status(404).json({ error: "RFQ not found" });
     return res.status(200).json({
@@ -49,6 +54,7 @@ export default async function handler(req, res) {
       line_items: li.data || [],
       invitations: inv.data || [],
       quotes: qt.data || [],
+      rof_revisions: rev?.error ? [] : (rev.data || []),
     });
   }
 
