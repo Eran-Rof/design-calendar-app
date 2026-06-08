@@ -353,6 +353,11 @@ type AccessRow = {
   role: string | null;
   last_login: string | null;
   status: "active" | "disabled" | "removed" | string;
+  // Onboarding approval state (joined server-side). A login is "Active" only
+  // once onboarding is approved; before that it shows the onboarding progress.
+  onboarding_status?: "not_started" | "in_progress" | "pending_review" | "approved" | "rejected" | string;
+  onboarding_step?: number;
+  onboarding_total?: number;
 };
 
 function ActiveVendorAccess() {
@@ -433,7 +438,7 @@ function ActiveVendorAccess() {
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No vendor portal users yet.</div>
         ) : rows.map((row) => {
           const isBusy = busy === row.id;
-          const badge = accessBadge(row.status);
+          const badge = accessBadge(row);
           return (
             <div
               key={row.id}
@@ -473,11 +478,19 @@ function ActiveVendorAccess() {
   );
 }
 
-function accessBadge(status: string): { label: string; bg: string; fg: string } {
-  if (status === "active") return { label: "Active", bg: "#064E3B", fg: "#6EE7B7" };
-  if (status === "disabled") return { label: "Disabled", bg: "#78350F", fg: "#FCD34D" };
-  if (status === "removed") return { label: "Removed", bg: "#7F1D1D", fg: "#FCA5A5" };
-  return { label: status, bg: "#334155", fg: "#CBD5E1" };
+// Badge reflects login state first (a disabled/removed login is never "Active"),
+// then ONBOARDING APPROVAL for an active login: green "Active" ONLY once approved,
+// otherwise the onboarding stage so an un-approved vendor isn't shown as Active.
+function accessBadge(row: AccessRow): { label: string; bg: string; fg: string } {
+  if (row.status === "disabled") return { label: "Disabled", bg: "#78350F", fg: "#FCD34D" };
+  if (row.status === "removed") return { label: "Removed", bg: "#7F1D1D", fg: "#FCA5A5" };
+  const ob = row.onboarding_status || "not_started";
+  if (ob === "approved") return { label: "Active", bg: "#064E3B", fg: "#6EE7B7" };
+  if (ob === "rejected") return { label: "Rejected", bg: "#7F1D1D", fg: "#FCA5A5" };
+  if (ob === "pending_review") return { label: "Pending review", bg: "#1E3A8A", fg: "#93C5FD" };
+  const step = row.onboarding_step ?? 0;
+  const total = row.onboarding_total ?? 6;
+  return { label: `Onboarding ${step}/${total}`, bg: "#334155", fg: "#CBD5E1" };
 }
 
 type VendorOpt = { id: string; name: string };

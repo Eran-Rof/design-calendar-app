@@ -64,7 +64,7 @@ empty page.
 ## Recent additions
 
 - **Grid PO # Named-Range filter** — date-range (creation date) or PO-number-range filter with optional upper bound; auto-sorts by the chosen axis.
-- **Vendor onboarding / portal access** — operator "Onboarding review" (`src/tanda/InternalOnboarding.tsx`): invite vendors, track invite status (pending / expired / accepted, 72h expiry), and an admin to view + cancel vendor portal access. Vendors self-serve via the `/vendor` portal onboarding flow.
+- **Vendor onboarding / portal access** — operator "Onboarding review" (`src/tanda/InternalOnboarding.tsx`): invite vendors, track invite status (pending / expired / accepted, 72h expiry), and an admin to view + cancel vendor portal access. Vendors self-serve via the `/vendor` portal onboarding flow. In **Active vendor access**, the Status badge reflects **onboarding approval**, not just login: a vendor shows green **Active** only once their onboarding is **approved** — before that it shows **Onboarding x/6** or **Pending review** (the login is granted at invite-acceptance so they can sign in to complete onboarding). Disable/Remove still control the login itself.
 - **Tombstone table** — prevents permanently-deleted POs from re-appearing after the nightly sync.
 
 ## See also

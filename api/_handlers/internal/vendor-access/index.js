@@ -74,6 +74,27 @@ async function doList(req, res, admin) {
     .order("last_login", { ascending: false, nullsFirst: false });
   if (error) return res.status(500).json({ error: error.message });
 
+  // Onboarding approval state per vendor — so the UI can badge a login as
+  // "Active" only once onboarding is APPROVED (vs. still onboarding / pending
+  // review). The login is granted at invite-acceptance so the vendor can log in
+  // to COMPLETE onboarding, hence it necessarily precedes approval.
+  const TOTAL_STEPS = 6; // company_info, banking, tax, compliance_docs, portal_tour, agreement
+  const vendorIds = [...new Set((data || []).map((r) => r.vendor_id).filter(Boolean))];
+  const onboardingByVendor = {};
+  if (vendorIds.length > 0) {
+    const { data: wfs } = await admin
+      .from("onboarding_workflows")
+      .select("vendor_id, status, current_step, completed_steps")
+      .in("vendor_id", vendorIds);
+    for (const w of wfs || []) {
+      const done = Array.isArray(w.completed_steps) ? w.completed_steps.length : (w.current_step || 0);
+      onboardingByVendor[w.vendor_id] = {
+        onboarding_status: w.status || "not_started",
+        onboarding_step: Math.min(done, TOTAL_STEPS),
+      };
+    }
+  }
+
   const out = (data || [])
     .map((r) => ({
       id: r.id,
@@ -85,6 +106,10 @@ async function doList(req, res, admin) {
       role: r.role || null,
       last_login: r.last_login || null,
       status: r.status || "active",
+      // Onboarding approval state — null workflow ⇒ treated as not_started.
+      onboarding_status: onboardingByVendor[r.vendor_id]?.onboarding_status || "not_started",
+      onboarding_step: onboardingByVendor[r.vendor_id]?.onboarding_step ?? 0,
+      onboarding_total: TOTAL_STEPS,
     }))
     // 'pending' = invited but not yet accepted. Those belong to the
     // "Outstanding invitations" panel, NOT "Active vendor access".
