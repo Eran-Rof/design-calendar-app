@@ -7,6 +7,9 @@ import StatusBadge from "../StatusBadge";
 import { fmtDate, fmtMoney } from "../utils";
 import { showAlert, showConfirm } from "../ui/AppDialog";
 
+// Green used to flag a buyer-revised value on a line (user request).
+const REVISED_GREEN = "#4ADE80";
+
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; delivery_required_by: string | null; estimated_quantity: number | null; estimated_budget: number | null; currency: string };
   line_items: {
@@ -15,6 +18,9 @@ interface RfqDetail {
     // Costing-derived attributes, surfaced as their own columns.
     style_code: string | null; color: string | null; size_scale_label: string | null;
     fabric_code: string | null; fabric_name: string | null; fit: string | null;
+    // Buyer-revision flags: when ROF edits this line after sending, revised_at is
+    // stamped and revised_fields lists the changed columns (green-highlighted).
+    revised_at?: string | null; revised_fields?: string[] | null;
   }[];
   invitation: { id: string; status: string; invited_at: string; viewed_at: string | null; declined_at: string | null };
   quote: { id: string; status: string; revision?: number | null; total_price: number | null; lead_time_days: number | null; valid_until: string | null; notes: string | null; lines: { id: string; rfq_line_item_id: string; unit_price: number | null; quantity: number | null; notes: string | null }[]; revisions?: QuoteRevisionSnapshot[] } | null;
@@ -106,6 +112,23 @@ export default function VendorRfqDetail() {
       if (!r.ok) throw new Error(await r.text());
       const d = await r.json() as RfqDetail;
       setData(d);
+
+      // Popup-on-open: if Ring of Fire revised any line since the vendor last
+      // acknowledged this RFQ, tell them. localStorage ack (per RFQ, keyed by
+      // the latest revised_at) means it shows once per revision, not every open.
+      try {
+        const revisedAts = (d.line_items || []).map((li) => li.revised_at).filter(Boolean) as string[];
+        if (revisedAts.length > 0) {
+          const maxRev = revisedAts.slice().sort().slice(-1)[0];
+          const ackKey = `rfq_vendor_rev_ack_${id}`;
+          let ack = "";
+          try { ack = localStorage.getItem(ackKey) || ""; } catch { /* noop */ }
+          if (maxRev > ack) {
+            try { localStorage.setItem(ackKey, maxRev); } catch { /* noop */ }
+            void showAlert({ title: "One of your RFQs has been revised", message: "Ring of Fire updated this RFQ. The changed details are highlighted in green below.", tone: "warn" });
+          }
+        }
+      } catch { /* noop */ }
 
       // Seed form from existing quote if any
       if (d.quote) {
@@ -346,23 +369,37 @@ export default function VendorRfqDetail() {
             <div style={{ textAlign: "right" }}>Your qty</div>
             <div>Notes</div>
           </div>
-          {lines.map((li) => (
+          {lines.map((li) => {
+            const rev = new Set(li.revised_fields || []);
+            const isRevised = !!li.revised_at && rev.size > 0;
+            // Green-highlight the cells whose value the buyer changed.
+            const g = (field: string) => rev.has(field) ? { color: REVISED_GREEN, fontWeight: 700 } : null;
+            return (
             <div key={li.id} style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 12, padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
               <div style={{ color: TH.textSub2 }}>{li.line_index}</div>
-              <div style={{ color: TH.text, fontWeight: 500 }}>{li.style_code || "—"}</div>
+              <div style={{ color: TH.text, fontWeight: 500, ...g("style_code") }}>
+                {li.style_code || "—"}
+                {isRevised && (
+                  <span title={`Revised by Ring of Fire${li.revised_at ? ` on ${fmtDate(li.revised_at)}` : ""}`}
+                    style={{ marginLeft: 6, background: REVISED_GREEN, color: "#06240F", borderRadius: 4, padding: "1px 5px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                    ✎ Revised{li.revised_at ? ` · ${fmtDate(li.revised_at)}` : ""}
+                  </span>
+                )}
+              </div>
               <div style={{ color: TH.textSub }}>{styleNameOf(li.description) || "—"}</div>
-              <div style={{ color: TH.textSub }}>{li.color || "—"}</div>
-              <div style={{ color: TH.textSub }}>{li.size_scale_label || "—"}</div>
-              <div style={{ color: TH.textSub }}>{li.fabric_name || li.fabric_code || "—"}</div>
-              <div style={{ textAlign: "right", color: TH.textSub }}>{li.target_price != null ? fmtUsd(li.target_price) : "—"}</div>
-              <div style={{ textAlign: "right", color: TH.textSub2 }}>{fmtQty(li.quantity)}</div>
+              <div style={{ color: TH.textSub, ...g("color") }}>{li.color || "—"}</div>
+              <div style={{ color: TH.textSub, ...g("size_scale_label") }}>{li.size_scale_label || "—"}</div>
+              <div style={{ color: TH.textSub, ...g("fabric_code") }}>{li.fabric_name || li.fabric_code || "—"}</div>
+              <div style={{ textAlign: "right", color: TH.textSub, ...g("target_price") }}>{li.target_price != null ? fmtUsd(li.target_price) : "—"}</div>
+              <div style={{ textAlign: "right", color: TH.textSub2, ...g("quantity") }}>{fmtQty(li.quantity)}</div>
               <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
               {/* Half-size input, centered under its header. */}
               <div style={{ textAlign: "center" }}><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, width: "calc(50% + 2ch)", textAlign: "right" }} /></div>
               <div><input disabled={!canEdit} value={lineQtys[li.id] || ""} onChange={(e) => setLineQtys({ ...lineQtys, [li.id]: qtyInput(e.target.value) })} inputMode="numeric" style={{ ...inp, textAlign: "right" }} placeholder={fmtQty(li.quantity)} /></div>
               <div><input disabled={!canEdit} value={lineNotes[li.id] || ""} onChange={(e) => setLineNotes({ ...lineNotes, [li.id]: e.target.value })} style={inp} /></div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
