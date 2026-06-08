@@ -125,15 +125,20 @@ export default async function handler(req, res) {
   if (costingLineIds.length > 0) {
     const { data: clRows, error: clErr } = await admin
       .from("costing_lines")
-      .select("id, sell_price, sell_target")
+      .select("id, sell_price, sell_target, target_cost, status")
       .in("id", costingLineIds);
     if (!clErr && clRows) {
       for (const cl of clRows) {
-        // Reference sell = sell_price, falling back to sell_target when sell_price
-        // is unset/0 (operators often fill the target sell but not the final one).
-        const sp = typeof cl.sell_price === "number" && cl.sell_price > 0
+        // Priority: sell_price → sell_target → target_cost (quoted/revised lines only).
+        // target_cost fallback lets operators see revised cost targets as the margin
+        // reference in Compare Quotes without needing a separate sell price entry.
+        let sp = typeof cl.sell_price === "number" && cl.sell_price > 0
           ? cl.sell_price
           : (typeof cl.sell_target === "number" && cl.sell_target > 0 ? cl.sell_target : null);
+        if (sp === null && (cl.status === "quoted" || cl.status === "revised")
+            && typeof cl.target_cost === "number" && cl.target_cost > 0) {
+          sp = cl.target_cost;
+        }
         sellByCostingLine.set(cl.id, sp);
       }
     }
