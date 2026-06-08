@@ -52,6 +52,7 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const projectId = (url.searchParams.get("project_id") || "").trim();
+  const debugMode = url.searchParams.get("debug") === "1";
   if (!projectId) return res.status(400).json({ error: "project_id is required" });
 
   // 1. Project header (name).
@@ -215,6 +216,47 @@ export default async function handler(req, res) {
     line_items: itemsByRfq.get(r.id) || [],
     quotes: quotesByRfq.get(r.id) || [],
   }));
+
+  if (debugMode) {
+    // Raw DB values for diagnosing sell_price resolution. Never shown in prod UI.
+    return res.status(200).json({
+      _debug: true,
+      project: { id: project.id, name: project.project_name },
+      costing_lines: (clRows || []).map((cl) => ({
+        id: cl.id,
+        style_code: cl.style_code,
+        color: cl.color,
+        sell_price: cl.sell_price,
+        sell_target: cl.sell_target,
+        target_cost: cl.target_cost,
+        _resolved_sp: toNum(cl.sell_price) ?? toNum(cl.sell_target) ?? toNum(cl.target_cost) ?? null,
+      })),
+      rfq_line_items: (itemsRes.data || []).map((it) => {
+        const scKey = `${it.style_code || ""}:${it.color || ""}`;
+        const tpKey = String(toNum(it.target_price) ?? "");
+        const step1 = it.costing_line_id ? (sellById.get(it.costing_line_id) ?? null) : null;
+        const step2 = sellByStyleColor.get(scKey) ?? null;
+        const step3 = tpKey ? (sellByTargetCost.get(tpKey) ?? null) : null;
+        const step4 = toNum(it.target_price) ?? null;
+        return {
+          id: it.id,
+          rfq_id: it.rfq_id,
+          line_index: it.line_index,
+          costing_line_id: it.costing_line_id ?? null,
+          style_code: it.style_code ?? null,
+          color: it.color ?? null,
+          target_price: it.target_price ?? null,
+          _scKey: scKey,
+          _tpKey: tpKey,
+          _step1_fk: step1,
+          _step2_style_color: step2,
+          _step3_target_cost: step3,
+          _step4_snapshot: step4,
+          _resolved: step1 ?? step2 ?? step3 ?? step4 ?? null,
+        };
+      }),
+    });
+  }
 
   return res.status(200).json({
     project: { id: project.id, name: project.project_name },
