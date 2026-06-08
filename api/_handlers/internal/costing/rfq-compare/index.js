@@ -19,15 +19,17 @@
 //                       lines: [ { rfq_line_item_id, unit_price, quantity, notes } ] } ]
 //     } ] }
 //
-// `sell_price` per line is the reference sell price resolved from the source costing
-// line. Resolution priority: (1) costing_line_id FK → costing_lines.sell_price /
-// sell_target / target_cost; (2) style_code:color match within the project;
-// (3) target_cost value match using rfq_line_items.target_price as a lookup key
-// (covers RFQs generated before the style_code/color columns existed). NULL when no
-// match is found. The frontend computes per-vendor margin = (sell − quoted) / sell.
+// `sell_price` per line is the VENDOR TARGET COST — the per-unit price the vendor
+// quotes against: Tgt DDP cost (DDP projects) or FOB cost (FOB/Landed), recomputed
+// live from costing_lines via vendorTargetForMode (#1115). Resolution priority:
+// (1) costing_line_id FK; (2) style_code:color match within the project;
+// (3) rfq_line_items.target_price snapshot (kept in sync by the line-edit PATCH).
+// NULL when no match is found. The field is still named sell_price for backward
+// compatibility with the frontend, which computes per-vendor delta = (ref − quoted) / ref.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { vendorTargetForMode } from "../../../../_lib/costingVendorTarget.js";
 
 export const config = { maxDuration: 30 };
 
@@ -52,17 +54,20 @@ export default async function handler(req, res) {
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const projectId = (url.searchParams.get("project_id") || "").trim();
-  const debugMode = url.searchParams.get("debug") === "1";
   if (!projectId) return res.status(400).json({ error: "project_id is required" });
 
-  // 1. Project header (name).
+  // 1. Project header (name + payment terms → DDP vs FOB cost mode).
   const { data: project, error: projErr } = await admin
     .from("costing_projects")
-    .select("id, project_name")
+    .select("id, project_name, payment_terms_name")
     .eq("id", projectId)
     .maybeSingle();
   if (projErr) return res.status(500).json({ error: projErr.message });
   if (!project) return res.status(404).json({ error: "Project not found" });
+
+  // Cost mode: DDP projects quote against Tgt DDP cost; FOB/Landed against the
+  // FOB cost. Mirrors src/costing/lib/completeness.ts isDdpProject + #1115.
+  const isDdp = !!project.payment_terms_name && /DDP/i.test(project.payment_terms_name);
 
   // 2. RFQs generated from this project. `code` is the newest column
   // (20260812000000_rfq_code.sql) — drop it on a pre-migration deploy so the
@@ -108,34 +113,27 @@ export default async function handler(req, res) {
   // Helper: coerce numeric(12,4) which Supabase may return as a string or number.
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
 
-  // 3b. Resolve the current sell/target prices from costing_lines for this project.
-  // Three lookup paths — use whichever is available:
-  //   A. costing_line_id (exact FK) — preferred, always current
-  //   B. style_code:color match within the project — fallback for rows where
-  //      costing_line_id is null (RFQ generated before migration 20260719000000)
-  //   C. target_cost value match — last resort for rows where style_code/color are
-  //      also null (RFQ generated before migration 20260713060000). The snapshot
-  //      rfq_line_items.target_price equals costing_lines.target_cost at generation
-  //      time, so matching on that value retrieves the current costing line and its
-  //      sell_target even when no other identifier is available.
-  const sellById = new Map();         // costing_line.id → resolved sell price
-  const sellByStyleColor = new Map(); // "style_code:color" → resolved sell price
-  const sellByTargetCost = new Map(); // String(target_cost) → resolved sell price
+  // 3b. Resolve the reference price per line = the VENDOR TARGET COST (what the
+  // vendor quotes against), recomputed LIVE from costing_lines so a revised cost
+  // shows immediately — never the sell price, never a stale snapshot. The vendor
+  // target is Tgt DDP cost (DDP) or FOB cost (FOB/Landed), per #1115.
+  //   A. costing_line_id FK   — exact, preferred
+  //   B. style_code:color     — fallback when costing_line_id is null (legacy RFQs)
+  //   C. target_price snapshot — last resort (kept in sync by the line-edit PATCH)
+  const refById = new Map();         // costing_line.id → vendor target cost
+  const refByStyleColor = new Map(); // "style_code:color" → vendor target cost
 
   const { data: clRows } = await admin
     .from("costing_lines")
-    .select("id, style_code, color, sell_price, sell_target, target_cost")
+    .select("id, style_code, color, target_cost, fob_cost")
     .eq("project_id", projectId);
 
   for (const cl of clRows || []) {
-    // Priority per line: sell_price → sell_target → target_cost
-    const sp = toNum(cl.sell_price) ?? toNum(cl.sell_target) ?? toNum(cl.target_cost) ?? null;
-    if (sp !== null) {
-      sellById.set(cl.id, sp);
+    const ref = vendorTargetForMode(isDdp, cl.target_cost, cl.fob_cost);
+    if (ref !== null) {
+      refById.set(cl.id, ref);
       const scKey = `${cl.style_code || ""}:${cl.color || ""}`;
-      if (!sellByStyleColor.has(scKey)) sellByStyleColor.set(scKey, sp);
-      const tcKey = String(toNum(cl.target_cost) ?? "");
-      if (tcKey && !sellByTargetCost.has(tcKey)) sellByTargetCost.set(tcKey, sp);
+      if (!refByStyleColor.has(scKey)) refByStyleColor.set(scKey, ref);
     }
   }
 
@@ -156,19 +154,14 @@ export default async function handler(req, res) {
   const itemsByRfq = new Map();
   for (const it of itemsRes.data || []) {
     if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
-    // Sell price resolution — five-level fallback:
-    // 1. Exact costing_line_id FK → current value from costing_lines
-    // 2. style_code:color match within project → current value from costing_lines
-    // 3. target_cost value match (target_price snapshot = costing_lines.target_cost) →
-    //    current sell_target even when style/color are null on older rfq rows
-    // 4. rfq_line_items.target_price snapshot (stale, only when all else fails)
-    // 5. null
+    // Reference price resolution — vendor target cost, three-level fallback:
+    // 1. costing_line_id FK → live vendor target from costing_lines
+    // 2. style_code:color match within project → live vendor target
+    // 3. rfq_line_items.target_price snapshot (kept in sync by the line PATCH)
     const scKey = `${it.style_code || ""}:${it.color || ""}`;
-    const tpKey = String(toNum(it.target_price) ?? "");
     const sell =
-      (it.costing_line_id ? sellById.get(it.costing_line_id) : null) ??
-      sellByStyleColor.get(scKey) ??
-      (tpKey ? sellByTargetCost.get(tpKey) : null) ??
+      (it.costing_line_id ? refById.get(it.costing_line_id) : null) ??
+      refByStyleColor.get(scKey) ??
       toNum(it.target_price) ??
       null;
     itemsByRfq.get(it.rfq_id).push({
@@ -216,47 +209,6 @@ export default async function handler(req, res) {
     line_items: itemsByRfq.get(r.id) || [],
     quotes: quotesByRfq.get(r.id) || [],
   }));
-
-  if (debugMode) {
-    // Raw DB values for diagnosing sell_price resolution. Never shown in prod UI.
-    return res.status(200).json({
-      _debug: true,
-      project: { id: project.id, name: project.project_name },
-      costing_lines: (clRows || []).map((cl) => ({
-        id: cl.id,
-        style_code: cl.style_code,
-        color: cl.color,
-        sell_price: cl.sell_price,
-        sell_target: cl.sell_target,
-        target_cost: cl.target_cost,
-        _resolved_sp: toNum(cl.sell_price) ?? toNum(cl.sell_target) ?? toNum(cl.target_cost) ?? null,
-      })),
-      rfq_line_items: (itemsRes.data || []).map((it) => {
-        const scKey = `${it.style_code || ""}:${it.color || ""}`;
-        const tpKey = String(toNum(it.target_price) ?? "");
-        const step1 = it.costing_line_id ? (sellById.get(it.costing_line_id) ?? null) : null;
-        const step2 = sellByStyleColor.get(scKey) ?? null;
-        const step3 = tpKey ? (sellByTargetCost.get(tpKey) ?? null) : null;
-        const step4 = toNum(it.target_price) ?? null;
-        return {
-          id: it.id,
-          rfq_id: it.rfq_id,
-          line_index: it.line_index,
-          costing_line_id: it.costing_line_id ?? null,
-          style_code: it.style_code ?? null,
-          color: it.color ?? null,
-          target_price: it.target_price ?? null,
-          _scKey: scKey,
-          _tpKey: tpKey,
-          _step1_fk: step1,
-          _step2_style_color: step2,
-          _step3_target_cost: step3,
-          _step4_snapshot: step4,
-          _resolved: step1 ?? step2 ?? step3 ?? step4 ?? null,
-        };
-      }),
-    });
-  }
 
   return res.status(200).json({
     project: { id: project.id, name: project.project_name },
