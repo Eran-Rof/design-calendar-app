@@ -140,7 +140,13 @@ export default function StylePickerCell({ value, onPick, onChange, placeholder }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); commitNew(queryTrim); }
+                if (e.key !== "Enter") return;
+                if (queryIsNew) { e.preventDefault(); commitNew(queryTrim); return; }
+                if (!queryTrim) return;
+                // Known style: prefer exact code match, fall back to sole filtered result
+                const exact = styles.find(s => (s.style_code || "").toLowerCase() === queryTrim.toLowerCase());
+                const hit = exact || (filtered.length === 1 ? filtered[0] : null);
+                if (hit) { e.preventDefault(); commitPick(hit); }
               }}
               style={{
                 width: "100%", background: "#0F172A", color: "#E2E8F0",
