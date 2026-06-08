@@ -82,6 +82,7 @@ export default function InternalUserAccess() {
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyCell, setBusyCell] = useState<string | null>(null);
+  const [busyGroup, setBusyGroup] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -168,6 +169,56 @@ export default function InternalUserAccess() {
     } finally {
       setBusyCell(null);
     }
+  }
+
+  // Select-all (or clear-all) every supported action across every module in a
+  // group. Mirrors toggleCell's grant/revoke-vs-role-default logic per cell, but
+  // batches the writes and reloads ONCE at the end (a group can be 50+ cells).
+  async function selectGroup(group: string, on: boolean) {
+    if (!selected) return;
+    const mods = grouped.find((g) => g.group === group)?.modules || [];
+    setBusyGroup(group);
+    setErr(null);
+    try {
+      for (const m of mods) {
+        for (const action of ACTIONS) {
+          if (!m.available_actions.includes(action)) continue;
+          const k = key(m.key, action);
+          if (effectiveSet.has(k) === on) continue; // already in desired state
+          const roleDefault = roleGrantSet.has(k);
+          const r = on === roleDefault
+            ? await fetch("/api/internal/users-access/override", {
+                method: "DELETE", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ user_id: selected.user_id, module_key: m.key, action }),
+              })
+            : await fetch("/api/internal/users-access/override", {
+                method: "PUT", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ user_id: selected.user_id, module_key: m.key, action, allowed: on }),
+              });
+          if (!r.ok && r.status !== 204) {
+            throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+          }
+        }
+      }
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusyGroup(null);
+    }
+  }
+
+  // Is every supported (module, action) in the group effectively ON?
+  function groupAllOn(modules: ModuleDef[]): boolean {
+    let any = false;
+    for (const m of modules) {
+      for (const action of ACTIONS) {
+        if (!m.available_actions.includes(action)) continue;
+        any = true;
+        if (!effectiveSet.has(key(m.key, action))) return false;
+      }
+    }
+    return any;
   }
 
   // Modules grouped by group_name, preserving sort_order.
@@ -294,7 +345,14 @@ export default function InternalUserAccess() {
                     </thead>
                     <tbody>
                       {grouped.map((g) => (
-                        <GroupBlock key={g.group} group={g.group}>
+                        <GroupBlock
+                          key={g.group}
+                          group={g.group}
+                          allOn={groupAllOn(g.modules)}
+                          busy={busyGroup === g.group}
+                          disabled={!selected || busyGroup != null}
+                          onToggleAll={(on) => void selectGroup(g.group, on)}
+                        >
                           {g.modules.map((m) => (
                             <tr key={m.key}>
                               <td style={td}>
@@ -373,14 +431,33 @@ function Legend() {
   );
 }
 
-function GroupBlock({ group, children }: { group: string; children: React.ReactNode }) {
+function GroupBlock({ group, children, allOn, busy, disabled, onToggleAll }: {
+  group: string;
+  children: React.ReactNode;
+  allOn: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onToggleAll: (on: boolean) => void;
+}) {
   return (
     <>
       <tr>
         <td colSpan={1 + ACTIONS.length} style={{
           background: "#0b1220", color: C.textMuted, fontSize: 10, fontWeight: 700,
           textTransform: "uppercase", letterSpacing: 0.5, padding: "5px 10px",
-        }}>{group}</td>
+        }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1 }}
+                 title="Select / clear every action for every module in this group">
+            <input
+              type="checkbox"
+              checked={allOn}
+              disabled={disabled}
+              onChange={(e) => onToggleAll(e.target.checked)}
+              style={{ cursor: disabled ? "default" : "pointer" }}
+            />
+            {group}{busy ? " — saving…" : ""}
+          </label>
+        </td>
       </tr>
       {children}
     </>
