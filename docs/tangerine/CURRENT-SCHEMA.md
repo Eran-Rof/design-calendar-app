@@ -2540,6 +2540,7 @@ _(no columns parsed)_
 - `resend_message_id` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
+- RLS: `anon_all_notifications` (anon, FOR ALL, true); `vendor_own_notifications_select` / `_update` / `_delete` (authenticated, `recipient_auth_id = auth.uid()`). The `_delete` policy (20260843000000) lets a vendor delete their own notifications from the portal.
 
 ## `notifications_overdue_log`  _(P4-6)_
 
