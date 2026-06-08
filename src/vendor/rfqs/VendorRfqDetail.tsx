@@ -378,10 +378,10 @@ export default function VendorRfqDetail() {
             <div key={li.id} style={{ display: "grid", gridTemplateColumns: GRID_COLS, columnGap: 12, padding: "10px 16px", borderBottom: `1px solid ${TH.border}`, fontSize: 12, alignItems: "center" }}>
               <div style={{ color: TH.textSub2 }}>{li.line_index}</div>
               <div style={{ color: TH.text, fontWeight: 500, ...g("style_code") }}>
-                {li.style_code || "—"}
+                <div>{li.style_code || "—"}</div>
                 {isRevised && (
                   <span title={`Revised by Ring of Fire${li.revised_at ? ` on ${fmtDate(li.revised_at)}` : ""}`}
-                    style={{ marginLeft: 6, background: REVISED_GREEN, color: "#06240F", borderRadius: 4, padding: "1px 5px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                    style={{ display: "inline-block", marginTop: 4, background: REVISED_GREEN, color: "#06240F", borderRadius: 4, padding: "1px 5px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap" }}>
                     ✎ Revised{li.revised_at ? ` · ${fmtDate(li.revised_at)}` : ""}
                   </span>
                 )}
