@@ -19,10 +19,12 @@
 //                       lines: [ { rfq_line_item_id, unit_price, quantity, notes } ] } ]
 //     } ] }
 //
-// `sell_price` per line is the reference SELL price from the source costing line
-// (rfq_line_items.costing_line_id → costing_lines.sell_price). It is NULL when the
-// RFQ line was not originated from costing (costing_line_id NULL) or the column /
-// row is missing. The frontend computes per-vendor margin = (sell − quoted) / sell.
+// `sell_price` per line is the reference sell price resolved from the source costing
+// line. Resolution priority: (1) costing_line_id FK → costing_lines.sell_price /
+// sell_target / target_cost; (2) style_code:color match within the project;
+// (3) target_cost value match using rfq_line_items.target_price as a lookup key
+// (covers RFQs generated before the style_code/color columns existed). NULL when no
+// match is found. The frontend computes per-vendor margin = (sell − quoted) / sell.
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
@@ -106,12 +108,18 @@ export default async function handler(req, res) {
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
 
   // 3b. Resolve the current sell/target prices from costing_lines for this project.
-  // Two lookup paths — use whichever is available:
+  // Three lookup paths — use whichever is available:
   //   A. costing_line_id (exact FK) — preferred, always current
   //   B. style_code:color match within the project — fallback for rows where
   //      costing_line_id is null (RFQ generated before migration 20260719000000)
-  const sellById = new Map();       // costing_line.id → resolved sell price
+  //   C. target_cost value match — last resort for rows where style_code/color are
+  //      also null (RFQ generated before migration 20260713060000). The snapshot
+  //      rfq_line_items.target_price equals costing_lines.target_cost at generation
+  //      time, so matching on that value retrieves the current costing line and its
+  //      sell_target even when no other identifier is available.
+  const sellById = new Map();         // costing_line.id → resolved sell price
   const sellByStyleColor = new Map(); // "style_code:color" → resolved sell price
+  const sellByTargetCost = new Map(); // String(target_cost) → resolved sell price
 
   const { data: clRows } = await admin
     .from("costing_lines")
@@ -125,6 +133,8 @@ export default async function handler(req, res) {
       sellById.set(cl.id, sp);
       const scKey = `${cl.style_code || ""}:${cl.color || ""}`;
       if (!sellByStyleColor.has(scKey)) sellByStyleColor.set(scKey, sp);
+      const tcKey = String(toNum(cl.target_cost) ?? "");
+      if (tcKey && !sellByTargetCost.has(tcKey)) sellByTargetCost.set(tcKey, sp);
     }
   }
 
@@ -145,15 +155,19 @@ export default async function handler(req, res) {
   const itemsByRfq = new Map();
   for (const it of itemsRes.data || []) {
     if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
-    // Sell price resolution — four-level fallback:
+    // Sell price resolution — five-level fallback:
     // 1. Exact costing_line_id FK → current value from costing_lines
     // 2. style_code:color match within project → current value from costing_lines
-    // 3. rfq_line_items.target_price snapshot (value at RFQ generation time)
-    // 4. null
+    // 3. target_cost value match (target_price snapshot = costing_lines.target_cost) →
+    //    current sell_target even when style/color are null on older rfq rows
+    // 4. rfq_line_items.target_price snapshot (stale, only when all else fails)
+    // 5. null
     const scKey = `${it.style_code || ""}:${it.color || ""}`;
+    const tpKey = String(toNum(it.target_price) ?? "");
     const sell =
       (it.costing_line_id ? sellById.get(it.costing_line_id) : null) ??
       sellByStyleColor.get(scKey) ??
+      (tpKey ? sellByTargetCost.get(tpKey) : null) ??
       toNum(it.target_price) ??
       null;
     itemsByRfq.get(it.rfq_id).push({
