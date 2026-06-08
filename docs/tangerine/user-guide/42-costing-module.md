@@ -84,7 +84,11 @@ You'll be warned — with the option to **delete the incomplete rows and continu
 3. In the **RFQ list**, the **Fabric** column shows `CODE — Description`, and clicking a
    row opens that RFQ's **source project in a new tab** (the title cell still opens the
    RFQ editor).
-4. **Compare RFQs** lays quotes side-by-side; **Award** picks the winner.
+4. **Compare RFQs** lays quotes side-by-side; **Award** picks the winner. Each
+   line's **Sell $** reference is the project's **Sell Tgt** (the price you sell
+   at — editable inline per line), and per-vendor **margin = (Sell − quoted) ÷
+   Sell**. The vendor's own target *cost* (what they quote against) is shown
+   separately on the RFQ itself, not in this comparison.
 
 ### When a vendor revises a quote
 
