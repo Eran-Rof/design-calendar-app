@@ -150,6 +150,33 @@ export function GridView({
   const [search, setSearch]                     = useState("");
   const [filterVendor, setFilterVendor]         = useState("All");
   const [filterBuyer, setFilterBuyer]           = useState("All");
+
+  // ── Named-range filter on the PO# column (row-2 header cell) ──────────────
+  // The planner picks EITHER a PO-creation-date range (DateOrder) or a
+  // PO-number range (trailing 6 digits of PoNumber). "From" alone means
+  // "this value or newer/greater"; an optional "To" closes the range.
+  // Results auto-sort ascending by the chosen axis. Persisted under
+  // gv_range_filter so the selection survives reloads.
+  type RangeMode = "date" | "po";
+  interface RangeFilter { mode: RangeMode; from: string; to: string; }
+  const [rangeFilter, setRangeFilter] = useState<RangeFilter | null>(() => {
+    try {
+      const raw = localStorage.getItem("gv_range_filter");
+      return raw ? (JSON.parse(raw) as RangeFilter) : null;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (rangeFilter) localStorage.setItem("gv_range_filter", JSON.stringify(rangeFilter));
+      else localStorage.removeItem("gv_range_filter");
+    } catch { /* ignore */ }
+  }, [rangeFilter]);
+  // Popover open + anchor. Fixed-positioned at the button so it escapes the
+  // grid's overflow:scroll clip (same approach as the matrix peek popover).
+  const [rangeAnchor, setRangeAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Draft form values while the popover is open; committed on Apply.
+  const [rangeDraft, setRangeDraft]   = useState<RangeFilter>({ mode: "date", from: "", to: "" });
+
   const [expandedPoNum, setExpandedPoNum]       = useState<string | null>(null);
   // While ANY PO is expanded, force the freeze through Days from DDP
   // (all 8 fixed cols). This pins the expansion strip + line item
@@ -250,12 +277,38 @@ export function GridView({
     return Math.round((dt - t) / 86400000);
   }, [todayIso]);
 
+  // Trailing numeric portion (last up to 6 digits) of a PO number, e.g.
+  // "ROF-P001263" → 1263. Powers the named-range PO-number filter + sort.
+  const poNumLast6 = useCallback((poNum: string | null | undefined): number | null => {
+    const m = String(poNum ?? "").match(/(\d+)\s*$/);
+    if (!m) return null;
+    const n = parseInt(m[1].slice(-6), 10);
+    return isNaN(n) ? null : n;
+  }, []);
+
   // ── Rows ────────────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     const s = search.toLowerCase();
+    const rf = rangeFilter;
+    const rfFrom = rf && rf.mode === "po" && rf.from ? parseInt(rf.from, 10) : null;
+    const rfTo   = rf && rf.mode === "po" && rf.to   ? parseInt(rf.to,   10) : null;
     const filtered = pos.filter(p => {
       if (filterVendor !== "All" && (p.VendorName ?? "") !== filterVendor) return false;
       if (filterBuyer  !== "All" && (p.BuyerName  ?? "") !== filterBuyer)  return false;
+      // Named-range filter — PO creation date (DateOrder) OR trailing PO #.
+      if (rf) {
+        if (rf.mode === "date") {
+          const d = normDateISO(p.DateOrder);
+          if (!d) return false;
+          if (rf.from && d < rf.from) return false;
+          if (rf.to   && d > rf.to)   return false;
+        } else {
+          const n = poNumLast6(p.PoNumber);
+          if (n == null) return false;
+          if (rfFrom != null && n < rfFrom) return false;
+          if (rfTo   != null && n > rfTo)   return false;
+        }
+      }
       if (!s) return true;
       return (
         (p.PoNumber   ?? "").toLowerCase().includes(s) ||
@@ -264,7 +317,30 @@ export function GridView({
         (p.BuyerPo    ?? "").toLowerCase().includes(s)
       );
     });
-    if (!sortKey) return filtered;
+    // An explicit header sort always wins. Otherwise, when a named range is
+    // active, auto-sort ascending by the chosen axis (date or PO number) —
+    // "sort results by date or number depending on the search selection".
+    if (!sortKey) {
+      if (rf) {
+        return [...filtered].sort((a, b) => {
+          if (rf.mode === "date") {
+            const da = normDateISO(a.DateOrder) || "";
+            const db = normDateISO(b.DateOrder) || "";
+            if (da === db) return 0;
+            if (!da) return 1;
+            if (!db) return -1;
+            return da < db ? -1 : 1;
+          }
+          const na = poNumLast6(a.PoNumber);
+          const nb = poNumLast6(b.PoNumber);
+          if (na == null && nb == null) return 0;
+          if (na == null) return 1;
+          if (nb == null) return -1;
+          return na - nb;
+        });
+      }
+      return filtered;
+    }
     const dirMul = sortDir === "asc" ? 1 : -1;
     const cmp = (av: any, bv: any) => {
       // Nulls + empty strings sort to the END regardless of direction
@@ -288,9 +364,9 @@ export function GridView({
       }
     };
     return [...filtered].sort((a, b) => cmp(get(a), get(b)));
-  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp]);
+  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp, rangeFilter, poNumLast6]);
 
-  useEffect(() => setPage(0), [search, filterVendor, filterBuyer, sortKey, sortDir]);
+  useEffect(() => setPage(0), [search, filterVendor, filterBuyer, sortKey, sortDir, rangeFilter]);
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -761,6 +837,13 @@ export function GridView({
   // Left border on first column to close the outer frame.
   const firstCol: React.CSSProperties = { borderLeft: B_CELL };
 
+  // Shared input style for the Named-Range popover fields.
+  const rangeInput: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", background: "#0B1220",
+    border: "1px solid #334155", borderRadius: 6, color: "#F1F5F9",
+    fontSize: 12, padding: "6px 8px", outline: "none",
+  };
+
   const ct    = buildColTpl(phases.length, hiddenCols);
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
@@ -1069,9 +1152,32 @@ export function GridView({
                     // above for why we can't use phaseDividerHost (would override the
                     // freeze CSS's position:sticky).
                     const showBoundary = i === 7 && effectiveFreezeCount > 0;
+                    // 3rd cell (PO #, i===2) hosts the Named-Range filter button.
+                    const isPoCol = i === 2;
                     return (
-                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(showBoundary ? { overflow: "visible" } : {}) }}>
+                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(showBoundary ? { overflow: "visible" } : {}), ...(isPoCol ? { padding: 2 } : {}) }}>
                         {showBoundary && <span style={phaseDividerOverlayBoundary} />}
+                        {isPoCol && (
+                          <button
+                            onClick={(e) => {
+                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setRangeDraft(rangeFilter ?? { mode: "date", from: "", to: "" });
+                              setRangeAnchor(prev => (prev ? null : { x: r.left, y: r.bottom + 4 }));
+                            }}
+                            title="Filter PO# by a creation-date range or a PO-number range"
+                            style={{
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+                              width: "100%", background: rangeFilter ? "#4C1D95" : "transparent",
+                              border: rangeFilter ? "1px solid #7C3AED" : "1px dashed #334155",
+                              borderRadius: 4, color: rangeFilter ? "#DDD6FE" : "#64748B",
+                              fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4,
+                              padding: "3px 4px", cursor: "pointer", lineHeight: 1.1,
+                            }}
+                          >
+                            <span style={{ fontSize: 10 }}>⤢</span>
+                            {rangeFilter ? "Range •" : "Range"}
+                          </button>
+                        )}
                       </span>
                     );
                   })}
@@ -1747,6 +1853,90 @@ export function GridView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Named-range filter popover (PO# column) ───────────────────────── */}
+      {rangeAnchor && (
+        <>
+          {/* Click-away scrim */}
+          <div style={{ position: "fixed", inset: 0, zIndex: 999 }} onClick={() => setRangeAnchor(null)} />
+          <div
+            style={{
+              position: "fixed",
+              left: Math.max(8, Math.min(rangeAnchor.x, window.innerWidth - 296)),
+              top: rangeAnchor.y,
+              zIndex: 1000, width: 288, boxSizing: "border-box",
+              background: "#0F172A", border: "1px solid #334155", borderRadius: 10,
+              boxShadow: "0 16px 48px rgba(0,0,0,0.55)", padding: 14,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#E5E7EB" }}>Named Range — PO #</span>
+              <button onClick={() => setRangeAnchor(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            </div>
+
+            {/* Mode toggle */}
+            <div style={{ display: "flex", marginBottom: 12, border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+              {(["date", "po"] as RangeMode[]).map(mode => {
+                const on = rangeDraft.mode === mode;
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => setRangeDraft(d => ({ ...d, mode, from: "", to: "" }))}
+                    style={{ flex: 1, padding: "7px 4px", background: on ? "#4C1D95" : "transparent", color: on ? "#DDD6FE" : "#94A3B8", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    {mode === "date" ? "By Date" : "By PO #"}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 10, color: "#64748B", marginBottom: 10, lineHeight: 1.4 }}>
+              {rangeDraft.mode === "date"
+                ? "PO creation date (Order date). Leave “To” blank for that date or newer."
+                : "Last 6 digits of the PO number. Leave “To” blank for that number or greater."}
+            </div>
+
+            <label style={{ display: "block", fontSize: 10, color: "#94A3B8", marginBottom: 3, fontWeight: 600 }}>From</label>
+            {rangeDraft.mode === "date" ? (
+              <input type="date" value={rangeDraft.from} onChange={e => setRangeDraft(d => ({ ...d, from: e.target.value }))} style={rangeInput} />
+            ) : (
+              <input type="number" inputMode="numeric" placeholder="e.g. 1255" value={rangeDraft.from} onChange={e => setRangeDraft(d => ({ ...d, from: e.target.value }))} style={rangeInput} />
+            )}
+
+            <label style={{ display: "block", fontSize: 10, color: "#94A3B8", margin: "8px 0 3px", fontWeight: 600 }}>
+              To <span style={{ color: "#475569", fontWeight: 400 }}>(optional)</span>
+            </label>
+            {rangeDraft.mode === "date" ? (
+              <input type="date" value={rangeDraft.to} onChange={e => setRangeDraft(d => ({ ...d, to: e.target.value }))} style={rangeInput} />
+            ) : (
+              <input type="number" inputMode="numeric" placeholder="(no upper limit)" value={rangeDraft.to} onChange={e => setRangeDraft(d => ({ ...d, to: e.target.value }))} style={rangeInput} />
+            )}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button
+                onClick={() => { setRangeFilter(null); setRangeAnchor(null); }}
+                style={{ ...S.btnSecondary, flex: 1, fontSize: 12, padding: "7px 8px" }}
+              >
+                Clear
+              </button>
+              <button
+                disabled={!rangeDraft.from}
+                onClick={() => {
+                  if (!rangeDraft.from) return;
+                  // Clear any header sort so the range's own axis ordering applies.
+                  setSortKey(null);
+                  setRangeFilter({ ...rangeDraft });
+                  setRangeAnchor(null);
+                }}
+                style={{ ...S.btnPrimary, flex: 2, fontSize: 12, padding: "7px 8px", opacity: rangeDraft.from ? 1 : 0.4, cursor: rangeDraft.from ? "pointer" : "not-allowed" }}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Right-click matrix peek ───────────────────────────────────────── */}
