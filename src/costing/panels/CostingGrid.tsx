@@ -1079,12 +1079,18 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Default: text input bound to the field name.
+                // Default: text input bound to the field name (e.g. Description).
                 const key = c.key as keyof CostingLine;
                 const v = line[key];
                 return (
                   <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                     <input
+                      // key tied to the value so this uncontrolled input REMOUNTS
+                      // when the field changes programmatically — e.g. picking a
+                      // different style repopulates Description. Without it the cell
+                      // keeps showing the previous style's text (defaultValue is read
+                      // once on mount only).
+                      key={`${c.key}_${(v as string | null) ?? ""}`}
                       defaultValue={(v as string | null) ?? ""}
                       type="text"
                       onBlur={(e) => void updateLineGuarded(line.id, { [key]: e.target.value || null } as Partial<CostingLine>)}
