@@ -185,13 +185,24 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   // style's cost set by style_code prefix and index it BOTH exactly and by a
   // "loose" key (all non-alphanumerics stripped) so those SKUs resolve. Loose
   // collisions were verified non-ambiguous in prod (same cost when keys clash).
+  //
+  // RENAME-SAFE FETCH: derive cost-row prefixes from the SKUs' OWN sku_codes
+  // (segment before the first '-'), NOT style.style_code. After an inseam merge
+  // the style was renamed (e.g. RYB086930 → RYB0869) but each SKU kept its
+  // original sku_code ("RYB086930-BLACK-30"), so `${style_code}-%` ("RYB0869-%")
+  // matched nothing and dropped every cost. A merged style spans several stems
+  // (…30/…32/…34) — collect them all and OR the prefixes.
   const avgCostCentsBySku   = new Map(); // exact sku_code → cents
   const avgCostCentsByLoose = new Map(); // looseKey(sku_code) → cents
-  if (style.style_code) {
+  const skuStems = [...new Set(
+    skus.map((s) => String(s.sku_code ?? "").split("-")[0].trim()).filter(Boolean),
+  )];
+  if (skuStems.length) {
+    const orFilter = skuStems.map((st) => `sku_code.like.${st}-%`).join(",");
     const { data: avgRows, error: avgErr } = await admin
       .from("ip_item_avg_cost")
       .select("sku_code, avg_cost")
-      .like("sku_code", `${style.style_code}-%`);
+      .or(orFilter);
     if (!avgErr) {
       for (const r of avgRows || []) {
         if (r.avg_cost == null) continue;

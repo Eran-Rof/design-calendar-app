@@ -575,7 +575,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            the Save buttons are always reachable no matter how tall the matrix
+            grows (negative margins + padding span the modal's 20px padding;
+            bottom:-20 cancels the container's padding-bottom). */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>
             {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "📦 Allocate stock"}</button>}
             {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">📊 View allocation</button>}
