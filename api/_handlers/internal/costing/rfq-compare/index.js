@@ -86,14 +86,12 @@ export default async function handler(req, res) {
 
   const rfqIds = rfqs.map((r) => r.id);
 
-  // 3. Batched pulls: line items, quotes (+vendor), quote lines.
-  // `costing_line_id` is the back-pointer to the source costing line (used to
-  // resolve the reference sell_price). Drop it gracefully on a pre-migration
-  // deploy (20260719000000_rfq_line_items_costing_line_id.sql) so the matrix
-  // still loads — sell_price / margin then degrade to unknown ("—").
+  // 3. Batched pulls: line items + quotes (+vendor).
+  // style_code + color on rfq_line_items are used as the fallback join key when
+  // costing_line_id is null (older RFQs generated before migration 20260719000000).
   let [itemsRes, quotesRes] = await Promise.all([
     admin.from("rfq_line_items")
-      .select("id, rfq_id, line_index, description, quantity, costing_line_id, target_price")
+      .select("id, rfq_id, line_index, description, quantity, costing_line_id, target_price, style_code, color")
       .in("rfq_id", rfqIds)
       .order("line_index", { ascending: true }),
     admin.from("rfq_quotes")
@@ -101,46 +99,32 @@ export default async function handler(req, res) {
       .in("rfq_id", rfqIds)
       .in("status", SUBMITTED_STATUSES),
   ]);
-  if (
-    itemsRes.error &&
-    /column .* does not exist/i.test(itemsRes.error.message || "") &&
-    /costing_line_id/.test(itemsRes.error.message || "")
-  ) {
-    itemsRes = await admin.from("rfq_line_items")
-      .select("id, rfq_id, line_index, description, quantity, target_price")
-      .in("rfq_id", rfqIds)
-      .order("line_index", { ascending: true });
-    if (itemsRes.data) itemsRes.data = itemsRes.data.map((it) => ({ ...it, costing_line_id: null }));
-  }
   if (itemsRes.error) return res.status(500).json({ error: itemsRes.error.message });
   if (quotesRes.error) return res.status(500).json({ error: quotesRes.error.message });
 
-  // 3b. Resolve reference sell prices: rfq_line_items.costing_line_id →
-  // costing_lines.sell_price. Best-effort — if the costing_lines lookup fails
-  // (missing column/table), sell prices stay unknown and margin shows "—".
-  const sellByCostingLine = new Map();
-  const costingLineIds = [...new Set(
-    (itemsRes.data || []).map((it) => it.costing_line_id).filter(Boolean),
-  )];
-  if (costingLineIds.length > 0) {
-    const { data: clRows, error: clErr } = await admin
-      .from("costing_lines")
-      .select("id, sell_price, sell_target, target_cost")
-      .in("id", costingLineIds);
-    if (!clErr && clRows) {
-      for (const cl of clRows) {
-        // Priority: sell_price → sell_target → target_cost.
-        // No status guard needed — Compare Quotes only surfaces lines that have
-        // real vendor quotes, so any line here has been through the RFQ process.
-        const sp = typeof cl.sell_price === "number" && cl.sell_price > 0
-          ? cl.sell_price
-          : typeof cl.sell_target === "number" && cl.sell_target > 0
-          ? cl.sell_target
-          : typeof cl.target_cost === "number" && cl.target_cost > 0
-          ? cl.target_cost
-          : null;
-        sellByCostingLine.set(cl.id, sp);
-      }
+  // Helper: coerce numeric(12,4) which Supabase may return as a string or number.
+  const toNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+
+  // 3b. Resolve the current sell/target prices from costing_lines for this project.
+  // Two lookup paths — use whichever is available:
+  //   A. costing_line_id (exact FK) — preferred, always current
+  //   B. style_code:color match within the project — fallback for rows where
+  //      costing_line_id is null (RFQ generated before migration 20260719000000)
+  const sellById = new Map();       // costing_line.id → resolved sell price
+  const sellByStyleColor = new Map(); // "style_code:color" → resolved sell price
+
+  const { data: clRows } = await admin
+    .from("costing_lines")
+    .select("id, style_code, color, sell_price, sell_target, target_cost")
+    .eq("project_id", projectId);
+
+  for (const cl of clRows || []) {
+    // Priority per line: sell_price → sell_target → target_cost
+    const sp = toNum(cl.sell_price) ?? toNum(cl.sell_target) ?? toNum(cl.target_cost) ?? null;
+    if (sp !== null) {
+      sellById.set(cl.id, sp);
+      const scKey = `${cl.style_code || ""}:${cl.color || ""}`;
+      if (!sellByStyleColor.has(scKey)) sellByStyleColor.set(scKey, sp);
     }
   }
 
@@ -161,14 +145,17 @@ export default async function handler(req, res) {
   const itemsByRfq = new Map();
   for (const it of itemsRes.data || []) {
     if (!itemsByRfq.has(it.rfq_id)) itemsByRfq.set(it.rfq_id, []);
-    // Sell price priority:
-    // 1. costing_line sell_price / sell_target / target_cost (current, via back-pointer)
-    // 2. rfq_line_items.target_price (snapshot at RFQ generation time — used when
-    //    costing_line_id is null or the costing line lookup found nothing)
-    let sell = it.costing_line_id ? (sellByCostingLine.get(it.costing_line_id) ?? null) : null;
-    if (sell === null && typeof it.target_price === "number" && it.target_price > 0) {
-      sell = it.target_price;
-    }
+    // Sell price resolution — four-level fallback:
+    // 1. Exact costing_line_id FK → current value from costing_lines
+    // 2. style_code:color match within project → current value from costing_lines
+    // 3. rfq_line_items.target_price snapshot (value at RFQ generation time)
+    // 4. null
+    const scKey = `${it.style_code || ""}:${it.color || ""}`;
+    const sell =
+      (it.costing_line_id ? sellById.get(it.costing_line_id) : null) ??
+      sellByStyleColor.get(scKey) ??
+      toNum(it.target_price) ??
+      null;
     itemsByRfq.get(it.rfq_id).push({
       id: it.id,
       line_index: it.line_index,

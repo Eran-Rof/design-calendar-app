@@ -450,10 +450,6 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                         }}
                       />
                     </div>
-                    {/* TEMP DIAGNOSTIC — remove after confirming sell_price seeding */}
-                    <div style={{ fontSize: 9, color: "#FBBF24", marginTop: 2 }}>
-                      api sell_price: {li.sell_price == null ? "null" : `${typeof li.sell_price}:${li.sell_price}`}
-                    </div>
                   </td>
                   {cells.map((c, i) => {
                     const isMin = min !== null && typeof c?.unit === "number" && c.unit === min;
