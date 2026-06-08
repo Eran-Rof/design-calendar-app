@@ -256,6 +256,8 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
   const hasQuotes = quotes.length > 0;
 
   // Per-line sell-price overrides — seeded from server data, editable inline.
+  // useEffect re-seeds whenever the server returns updated sell_price values so
+  // stale snapshots don't persist across re-fetches (lazy initializer only runs once).
   const [sellOverrides, setSellOverrides] = useState<Map<string, number>>(() => {
     const m = new Map<string, number>();
     for (const li of rfq.line_items) {
@@ -263,7 +265,6 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
     }
     return m;
   });
-  // Draft strings for the controlled sell-price inputs (one per line item).
   const [sellDrafts, setSellDrafts] = useState<Map<string, string>>(() => {
     const m = new Map<string, string>();
     for (const li of rfq.line_items) {
@@ -271,6 +272,28 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
     }
     return m;
   });
+  // Re-seed sell state when server data changes (e.g. after costing line revision).
+  // Only overwrite cells that have NOT been manually edited (i.e. still equal to the
+  // previous server value or absent) to avoid clobbering in-progress edits.
+  useEffect(() => {
+    setSellOverrides(prev => {
+      const next = new Map(prev);
+      for (const li of rfq.line_items) {
+        if (typeof li.sell_price === "number" && li.sell_price > 0) next.set(li.id, li.sell_price);
+      }
+      return next;
+    });
+    setSellDrafts(prev => {
+      const next = new Map(prev);
+      for (const li of rfq.line_items) {
+        if (typeof li.sell_price === "number" && li.sell_price > 0) next.set(li.id, fmtUnit.format(li.sell_price));
+      }
+      return next;
+    });
+  // rfq.id ensures re-seed on RFQ switch; JSON-stringify line sell prices triggers
+  // re-seed when the server returns a revised value for the same RFQ.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rfq.id, rfq.line_items.map(li => li.sell_price).join(",")]);
 
   // unit price lookup: vendorIdx → (rfq_line_item_id → {unit, qty, notes})
   const priceByVendorLine = useMemo(() => {
