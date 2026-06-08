@@ -26,7 +26,7 @@ export type ExportColumn<T = Record<string, unknown>> = {
   digits?: number;           // for number/currency formats
 };
 
-export type ExportFormat = "xlsx" | "csv";
+export type ExportFormat = "xlsx" | "csv" | "pdf";
 
 export type UseTableExportArgs<T extends Record<string, unknown>> = {
   rows: T[];
@@ -63,6 +63,54 @@ export function formatCell(value: unknown, col?: ExportColumn<Record<string, unk
   }
   if (typeof value === "object") return JSON.stringify(value);
   return value;
+}
+
+/**
+ * Display-string formatting for visual outputs (PDF / HTML print).
+ * Reuses the SAME coercion logic as `formatCell` (so values match the xlsx
+ * export), then renders the numeric/date results as human-readable strings:
+ *   currency_cents / currency_dollars → $X.XX
+ *   number  → fixed `digits` (default raw)
+ *   percent → X.X%
+ *   date / datetime → ISO slice (already strings from formatCell)
+ */
+export function formatCellDisplay(value: unknown, col?: ExportColumn<Record<string, unknown>>): string {
+  const coerced = formatCell(value, col);
+  if (coerced === "" || coerced == null) return "";
+  const fmt = col?.format;
+  const digits = col?.digits;
+  if (fmt === "currency_cents" || fmt === "currency_dollars") {
+    const n = Number(coerced);
+    if (!Number.isFinite(n)) return "";
+    return `$${n.toLocaleString(undefined, {
+      minimumFractionDigits: digits ?? 2,
+      maximumFractionDigits: digits ?? 2,
+    })}`;
+  }
+  if (fmt === "percent") {
+    const n = Number(coerced);
+    if (!Number.isFinite(n)) return "";
+    return `${n.toLocaleString(undefined, {
+      minimumFractionDigits: digits ?? 1,
+      maximumFractionDigits: digits ?? 1,
+    })}%`;
+  }
+  if (fmt === "number") {
+    const n = Number(coerced);
+    if (!Number.isFinite(n)) return "";
+    return digits == null
+      ? n.toLocaleString()
+      : n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+  return String(coerced);
+}
+
+export function buildDisplayAoA<T extends Record<string, unknown>>(rows: T[], columns: ExportColumn<T>[]): string[][] {
+  const header = columns.map((c) => String(c.header ?? c.key));
+  const body = rows.map((r) =>
+    columns.map((c) => formatCellDisplay(r[c.key], c as unknown as ExportColumn<Record<string, unknown>>)),
+  );
+  return [header, ...body];
 }
 
 export function buildAoA<T extends Record<string, unknown>>(rows: T[], columns: ExportColumn<T>[]) {
@@ -138,6 +186,95 @@ export function exportCsv<T extends Record<string, unknown>>(args: UseTableExpor
   downloadBlob(blob, `${args.filename}.csv`);
 }
 
+// Minimal HTML escaper for safe injection of cell text into the print window.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * PDF export via a print window. No external PDF dependency: we open a blank
+ * window, write a styled HTML <table> of the same formatted rows the xlsx path
+ * emits, then call print() so the operator saves as PDF. Title = sheetName,
+ * and the document title doubles as the default save filename hint.
+ */
+export function exportPdf<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
+  if (typeof window === "undefined" || typeof document === "undefined") return; // SSR / test safety
+  const cols = args.columns && args.columns.length > 0 ? args.columns : inferColumns(args.rows);
+  const aoa = buildDisplayAoA(args.rows, cols);
+  const title = args.sheetName || args.filename;
+
+  const headerCells = (aoa[0] || []).map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+  const bodyRows = aoa
+    .slice(1)
+    .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+    .join("");
+
+  const rowCount = args.rows.length;
+  const stamp = new Date().toLocaleString();
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtml(args.filename)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; color: #0f172a; }
+  h1 { font-size: 16px; margin: 0 0 2px; }
+  .meta { font-size: 11px; color: #64748b; margin-bottom: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 11px; }
+  th, td { border: 1px solid #cbd5e1; padding: 4px 8px; text-align: left; vertical-align: top; }
+  thead th { background: #1e293b; color: #f1f5f9; font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f1f5f9; }
+  @media print {
+    body { margin: 0; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <div class="meta">${rowCount} row${rowCount === 1 ? "" : "s"} · ${escapeHtml(stamp)}</div>
+  <table>
+    <thead><tr>${headerCells}</tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) {
+    // Pop-up blocked — fall back to xlsx so the operator still gets a deliverable.
+    exportXlsx(args);
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  // Give the new document a tick to lay out before invoking the print dialog.
+  const triggerPrint = () => {
+    try {
+      win.focus();
+      win.print();
+    } catch {
+      /* user closed window before print, or print unsupported */
+    }
+  };
+  if (win.document.readyState === "complete") {
+    setTimeout(triggerPrint, 150);
+  } else {
+    win.onload = () => setTimeout(triggerPrint, 50);
+    // Safety net if onload never fires.
+    setTimeout(triggerPrint, 400);
+  }
+}
+
 export function todayStamp(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -154,6 +291,7 @@ export function useTableExport<T extends Record<string, unknown>>(args: UseTable
   function exportNow(formatOverride?: ExportFormat) {
     const fmt = formatOverride || args.format || "xlsx";
     if (fmt === "csv") exportCsv(args);
+    else if (fmt === "pdf") exportPdf(args);
     else exportXlsx(args);
   }
   return { exportNow };

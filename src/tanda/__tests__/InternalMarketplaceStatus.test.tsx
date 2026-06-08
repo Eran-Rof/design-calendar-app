@@ -190,7 +190,7 @@ describe("<InternalMarketplaceStatus /> — rendering", () => {
     mockFetchOnce({ feeds: makeFeedStatuses() });
     render(<InternalMarketplaceStatus />);
     await waitFor(() => {
-      const btn = screen.getByTitle(/Download \d+ rows? as Excel/);
+      const btn = screen.getByTitle(/Export \d+ rows? \(Excel or PDF\)/);
       expect(btn).toBeInTheDocument();
     });
   });
