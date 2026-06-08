@@ -8,6 +8,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getInternalRecipients, resolveInternalRecipients } from "../../../../../_lib/internal-recipients.js";
 import { markLinesQuoted } from "../../../../../_lib/costingLineStatus.js";
+import { buildQuoteNotification } from "../../../../../_lib/rfqQuoteNotify.js";
 
 export const config = { maxDuration: 15 };
 
@@ -77,25 +78,30 @@ export default async function handler(req, res) {
     console.warn(`[quote-submit] line status -> quoted issue rfq=${rfqId}: ${e && e.message ? e.message : String(e)}`);
   }
 
-  // Internal notification
+  // Internal notification — a resubmission of a reopened quote (revision > 1)
+  // notifies as a REVISION so procurement knows the figures changed, not a
+  // brand-new quote.
   try {
-    const { emails } = await resolveInternalRecipients(admin, "procurement", { event: "rfq_quote_submitted" });
+    const notif = buildQuoteNotification({ quote, rfqTitle: rfq.title, vendorName: "A vendor" });
+    const { emails } = await resolveInternalRecipients(admin, "procurement", { event: notif.event_type });
     if (emails.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";
+      // Rebuild with the resolved vendor name now that we have it.
+      const n = buildQuoteNotification({ quote, rfqTitle: rfq.title, vendorName });
       const origin = `https://${req.headers.host}`;
       await Promise.all(emails.map((email) =>
         fetch(`${origin}/api/send-notification`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            event_type: "rfq_quote_submitted",
-            title: `${vendorName} submitted a quote on ${rfq.title}`,
-            body: `Total ${quote.total_price != null ? Number(quote.total_price).toLocaleString(undefined, { style: "currency", currency: "USD" }) : "—"}${quote.lead_time_days != null ? ` · lead time ${quote.lead_time_days}d` : ""}.`,
+            event_type: n.event_type,
+            title: n.title,
+            body: n.body,
             link: "/",
-            metadata: { rfq_id: rfqId, vendor_id: caller.vendor_id, quote_id: quote.id },
+            metadata: { rfq_id: rfqId, vendor_id: caller.vendor_id, quote_id: quote.id, revision: n.revision },
             recipient: { internal_id: "procurement", email },
-            dedupe_key: `rfq_quote_submitted_${quote.id}_${email}`,
+            dedupe_key: n.dedupeKeyFor(email),
             email: true,
           }),
         }).catch(() => {})

@@ -102,6 +102,7 @@ export function RfqQuotesPanel({
   isAwarded,
   lineLabel,
   reloadKey,
+  onRevisionsDetected,
 }: {
   rfqId: string;
   theme: RfqTheme;
@@ -111,6 +112,9 @@ export function RfqQuotesPanel({
   isAwarded?: boolean;
   lineLabel?: (lineItemId: string | null) => string;
   reloadKey?: unknown;
+  /** Called after quotes load with any vendor quotes that have been revised
+   *  (revision > 1), so the host can surface a "vendor revised" alert. */
+  onRevisionsDetected?: (info: { revisedVendors: { vendor_name: string; revision: number }[]; maxRevision: number }) => void;
 }) {
   const C = theme;
   const effSort: QuoteSortKey = sort ?? "price";
@@ -123,13 +127,27 @@ export function RfqQuotesPanel({
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  // Keep the latest callback without making it an effect dependency (the
+  // parent may pass a fresh function each render).
+  const onRevRef = useRef(onRevisionsDetected);
+  onRevRef.current = onRevisionsDetected;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setErr(null);
     fetch(`/api/internal/rfqs/${rfqId}/quotes?sort=${effSort}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
-      .then((q) => { if (!cancelled) setQuotes(q as Quote[]); })
+      .then((q) => {
+        if (cancelled) return;
+        const list = q as Quote[];
+        setQuotes(list);
+        const revisedVendors = list
+          .filter((x) => (x.revision ?? 1) > 1)
+          .map((x) => ({ vendor_name: x.vendor_name || "A vendor", revision: x.revision ?? 1 }));
+        const maxRevision = revisedVendors.reduce((m, r) => Math.max(m, r.revision), 1);
+        onRevRef.current?.({ revisedVendors, maxRevision });
+      })
       .catch((e: unknown) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

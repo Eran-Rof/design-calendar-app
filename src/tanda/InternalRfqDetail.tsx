@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme, type QuoteSortKey } from "./rfq/RfqQuotesAndMessages";
 
@@ -22,6 +22,32 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
   const [sort, setSort] = useState<QuoteSortKey>("price");
   // Bumped after publish/close/award to force the shared quotes panel to refetch.
   const [reloadKey, setReloadKey] = useState(0);
+
+  // "Vendor revised their quote" alert — surfaced when the RFQ is opened.
+  // The in-app bell does NOT fire for these (internal RFQ notifications are
+  // email-only), so we alert right here on the screen. A localStorage ack per
+  // RFQ means we re-alert only when a NEWER revision arrives.
+  const [revised, setRevised] = useState<{ revisedVendors: { vendor_name: string; revision: number }[]; maxRevision: number } | null>(null);
+  const toastedRef = useRef(false);
+  useEffect(() => { toastedRef.current = false; }, [rfqId]);
+
+  function handleRevisions(info: { revisedVendors: { vendor_name: string; revision: number }[]; maxRevision: number }) {
+    if (!info || info.revisedVendors.length === 0) { setRevised(null); return; }
+    let acked = 0;
+    try { acked = Number(localStorage.getItem(`rfq_rev_ack_${rfqId}`) || 0); } catch { /* noop */ }
+    if (info.maxRevision <= acked) { setRevised(null); return; }
+    setRevised(info);
+    if (!toastedRef.current) {
+      toastedRef.current = true;
+      const names = info.revisedVendors.map((v) => v.vendor_name).join(", ");
+      const plural = info.revisedVendors.length > 1;
+      notify(`⚠ ${names} revised ${plural ? "their quotes" : "their quote"} — review the highlighted rows below.`, "info");
+    }
+  }
+  function dismissRevised() {
+    if (revised) { try { localStorage.setItem(`rfq_rev_ack_${rfqId}`, String(revised.maxRevision)); } catch { /* noop */ } }
+    setRevised(null);
+  }
 
   async function load() {
     setLoading(true);
@@ -82,6 +108,18 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
         </div>
       </div>
 
+      {revised && (
+        <div style={{ background: "#422006", border: `1px solid ${C.warn}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 20, lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1, fontSize: 13, color: C.text }}>
+            <b>{revised.revisedVendors.map((v) => `${v.vendor_name} (v${v.revision})`).join(", ")}</b>{" "}
+            {revised.revisedVendors.length > 1 ? "have revised their quotes" : "has revised their quote"} since first submission.
+            Review the updated figures — the <b>Revised</b> rows below expand to show current vs. prior.
+          </div>
+          <button onClick={dismissRevised} style={btnSecondary}>Got it</button>
+        </div>
+      )}
+
       <RfqQuotesPanel
         rfqId={rfqId}
         theme={C}
@@ -94,6 +132,7 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
           return li ? `#${li.line_index} ${li.description}` : "Line";
         }}
         reloadKey={reloadKey}
+        onRevisionsDetected={handleRevisions}
       />
 
       <RfqVendorThreadPanel
