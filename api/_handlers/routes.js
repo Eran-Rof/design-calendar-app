@@ -431,6 +431,7 @@ import r_internal_shopify_webhooks_orders from "./internal/shopify/webhooks/orde
 import r_internal_shopify_webhooks_refunds from "./internal/shopify/webhooks/refunds.js";
 import r_internal_size_scales_id from "./internal/size-scales/[id].js";
 import r_internal_size_scales_index from "./internal/size-scales/index.js";
+import r_internal_states_index from "./internal/states/index.js";
 import r_internal_style_classifications_id from "./internal/style-classifications/[id].js";
 import r_internal_style_classifications_index from "./internal/style-classifications/index.js";
 import r_internal_style_fabric_codes_id from "./internal/style-fabric-codes/[id].js";
@@ -1212,6 +1213,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/shipments", handler: r_vendor_shipments },
   { pattern: "/api/internal/brands", handler: r_internal_brands_index },
   { pattern: "/api/internal/search", handler: r_internal_search_index },
+  { pattern: "/api/internal/states", handler: r_internal_states_index },
   { pattern: "/api/shopify/returns", handler: r_shopify_returns },
   { pattern: "/api/vendor/api-keys", handler: r_vendor_api_keys_index },
   { pattern: "/api/vendor/disputes", handler: r_vendor_disputes_index },

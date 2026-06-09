@@ -390,6 +390,7 @@ export default [
   ["/api/internal/prepack-matrices"                          , "./internal/prepack-matrices/index.js"],
   ["/api/internal/countries/:id"                             , "./internal/countries/[id].js"],
   ["/api/internal/countries"                                 , "./internal/countries/index.js"],
+  ["/api/internal/states"                                    , "./internal/states/index.js"],
   ["/api/internal/genders/:id"                               , "./internal/genders/[id].js"],
   ["/api/internal/genders"                                   , "./internal/genders/index.js"],
   ["/api/internal/style-classifications/:id"                 , "./internal/style-classifications/[id].js"],

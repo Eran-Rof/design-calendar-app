@@ -14,6 +14,7 @@
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeContacts } from "./index.js";
 
 export const config = { maxDuration: 15 };
 
@@ -43,6 +44,7 @@ const MUTABLE_FIELDS = new Set([
   "parent_customer_id",
   "price_list_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
+  "contacts",
 ]);
 
 // Nullable fields whose empty-string input should be normalized to null.
@@ -171,6 +173,12 @@ export function validatePatch(body) {
       return { error: "name cannot be empty" };
     }
     out.name = String(out.name).trim();
+  }
+
+  if ("contacts" in out) {
+    const c = sanitizeContacts(out.contacts, 12);
+    if (c && c.error) return { error: c.error };
+    out.contacts = c ?? [];
   }
 
   if (out.customer_type != null && out.customer_type !== "") {

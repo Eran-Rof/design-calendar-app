@@ -53,8 +53,29 @@ const LIST_COLUMNS = [
   "default_ar_account_id",
   "price_list_id",
   "status", "billing_address", "shipping_address", "attributes",
+  "contacts",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
+
+// Up to 12 contacts, each {name,email,phone,title,department} (strings only).
+// Blank rows are dropped; everything beyond 12 is truncated.
+export function sanitizeContacts(raw, max) {
+  if (raw == null) return undefined;
+  if (!Array.isArray(raw)) return { error: "contacts must be an array" };
+  const keys = ["name", "email", "phone", "title", "department"];
+  const out = [];
+  for (const c of raw) {
+    if (c == null || typeof c !== "object") continue;
+    const row = {};
+    for (const k of keys) {
+      const val = c[k];
+      if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
+    }
+    if (Object.keys(row).length) out.push(row);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -169,6 +190,7 @@ export default async function handler(req, res) {
       phone: v.data.phone || null,
       website: v.data.website || null,
       wechat_id: v.data.wechat_id || null,
+      contacts: v.data.contacts || [],
     });
 
     const { data, error } = await insertWithAutoCode(
@@ -204,6 +226,11 @@ export function validateInsert(body) {
   out.name = String(out.name).trim();
   if (out.code != null) {
     out.code = String(out.code).trim() || null;
+  }
+  if ("contacts" in out) {
+    const c = sanitizeContacts(out.contacts, 12);
+    if (c && c.error) return { error: c.error };
+    out.contacts = c;
   }
 
   if (out.customer_type != null && out.customer_type !== "") {

@@ -5,9 +5,10 @@
 // Wraps /api/internal/factors and /api/internal/factors/:id.
 //
 // A "factor" is a receivables financier / credit insurer. Full contact
-// profile: code, name, contact_name, phone, email, website, address
-// (jsonb), api_enabled, notes, is_active. Entity-scoped (ROF). The country
-// field inside the address uses SearchableSelect against country_master.
+// profile: code, name, contact_name, phone, email, website, address (jsonb),
+// up to 3 additional contacts (jsonb), api_enabled, notes, is_active.
+// Entity-scoped (ROF). Country + state inside the address are searchable
+// dropdowns provided by the shared AddressFields editor.
 
 import { useEffect, useState } from "react";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
@@ -31,7 +32,9 @@ const FACTOR_COLUMNS: ColumnDef[] = [
   { key: "is_active",    label: "Active" },
 ];
 import AddressFields, { type Address } from "./components/AddressFields";
-import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import ContactList, { type Contact } from "./components/ContactList";
+import MailLink from "./components/MailLink";
+import { formatUsPhone } from "../shared/phone";
 
 type Factor = {
   id: string;
@@ -43,14 +46,13 @@ type Factor = {
   email: string | null;
   website: string | null;
   address: Address | null;
+  contacts: Contact[] | null;
   api_enabled: boolean;
   notes: string | null;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
 };
-
-type CountryOption = { id: string; iso2: string; name: string };
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -90,7 +92,6 @@ const td: React.CSSProperties = {
 
 export default function InternalFactors() {
   const [rows, setRows] = useState<Factor[]>([]);
-  const [countries, setCountries] = useState<CountryOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
@@ -122,13 +123,9 @@ export default function InternalFactors() {
       const params = new URLSearchParams();
       if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
-      const [fRes, cRes] = await Promise.all([
-        fetch(`/api/internal/factors?${params.toString()}`),
-        fetch(`/api/internal/countries`),
-      ]);
+      const fRes = await fetch(`/api/internal/factors?${params.toString()}`);
       if (!fRes.ok) throw new Error((await fRes.json().catch(() => ({}))).error || `HTTP ${fRes.status}`);
       setRows(await fRes.json() as Factor[]);
-      if (cRes.ok) setCountries(await cRes.json() as CountryOption[]);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -231,7 +228,7 @@ export default function InternalFactors() {
                   <td style={td} hidden={!isVisible("name")}>{f.name}</td>
                   <td style={td} hidden={!isVisible("contact_name")}>{f.contact_name || "—"}</td>
                   <td style={td} hidden={!isVisible("phone")}>{f.phone || "—"}</td>
-                  <td style={td} hidden={!isVisible("email")}>{f.email || "—"}</td>
+                  <td style={td} hidden={!isVisible("email")}>{f.email ? <MailLink email={f.email}>{f.email}</MailLink> : "—"}</td>
                   <td style={td} hidden={!isVisible("api_enabled")}>{f.api_enabled ? "yes" : "no"}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{f.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -245,8 +242,8 @@ export default function InternalFactors() {
         )}
       </div>
 
-      {addOpen && <FactorFormModal mode="add" countries={countries} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
-      {editing && <FactorFormModal mode="edit" factor={editing} countries={countries} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
+      {addOpen && <FactorFormModal mode="add" onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+      {editing && <FactorFormModal mode="edit" factor={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />}
     </div>
   );
 }
@@ -254,12 +251,11 @@ export default function InternalFactors() {
 interface ModalProps {
   mode: "add" | "edit";
   factor?: Factor;
-  countries: CountryOption[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalProps) {
+function FactorFormModal({ mode, factor, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     code:         factor?.code         ?? "",
     name:         factor?.name         ?? "",
@@ -270,16 +266,11 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
     notes:        factor?.notes        ?? "",
     api_enabled:  factor?.api_enabled  ?? false,
     is_active:    factor?.is_active    ?? true,
+    contacts:     (Array.isArray(factor?.contacts) ? factor!.contacts : []) as Contact[],
   });
   const [address, setAddress] = useState<Address>(factor?.address ?? {});
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  const countryOptions: SearchableSelectOption[] = countries.map((c) => ({
-    value: c.name,
-    label: `${c.name} (${c.iso2})`,
-    searchHaystack: `${c.name} ${c.iso2}`,
-  }));
 
   async function submit() {
     setSubmitting(true);
@@ -298,6 +289,7 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
         address,
         api_enabled:  form.api_enabled,
         is_active:    form.is_active,
+        contacts:     form.contacts.filter((c) => Object.values(c).some((x) => String(x ?? "").trim() !== "")),
       };
       // Chunk M — code is server-generated; never sent from the client.
       const r = await fetch(url, {
@@ -334,10 +326,13 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
             <input type="text" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} style={inputStyle} />
           </Field>
           <Field label="Phone">
-            <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={inputStyle} />
+            <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatUsPhone(e.target.value) })} style={inputStyle} placeholder="(555) 000-0000" />
           </Field>
           <Field label="Email">
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={inputStyle} placeholder="contact@factor.com" />
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ ...inputStyle, paddingRight: 30 }} placeholder="contact@factor.com" />
+              <MailLink email={form.email} />
+            </div>
           </Field>
           <Field label="Website">
             <input type="text" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} style={inputStyle} placeholder="https://…" />
@@ -346,15 +341,16 @@ function FactorFormModal({ mode, factor, countries, onClose, onSaved }: ModalPro
 
         <div style={{ marginTop: 12 }}>
           <AddressFields label="Address" value={address} onChange={setAddress} />
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Country</div>
-            <SearchableSelect
-              value={typeof address.country === "string" ? address.country : ""}
-              onChange={(v) => setAddress({ ...address, country: v })}
-              options={countryOptions}
-              placeholder="Select country…"
-            />
-          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <ContactList
+            label="Additional contacts"
+            value={form.contacts}
+            onChange={(next) => setForm({ ...form, contacts: next })}
+            max={3}
+            fields={["name", "phone", "email", "title"]}
+          />
         </div>
 
         <div style={{ marginTop: 12 }}>
