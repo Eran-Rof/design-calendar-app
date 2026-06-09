@@ -38,7 +38,7 @@ recreates it faithfully + idempotently (verified no-op on prod).
 |---|---|---|---|
 | A | Schema + Shopify client (`listProducts`/`getProduct`/`getProductImages`) | #752 #753 | ✅ |
 | B | Per-style **link** + **Pull from Shopify** (re-host) + composite render fix (sign URLs) + PIM UI (h604 link / h605 pull) + drift migration | #844 #853 | ✅ |
-| **bulk** | **Bulk link by handle=style_code** (walk catalog → match → upsert mirror + link, with dry-run report) + **bulk pull** (batched/cursored over linked styles) | — | ⬜ planned |
+| **bulk** | **Bulk link + pull** — match by **SKU prefix = style_code** (denim inseam-strip fallback; handle/title/style_name proved unreliable on the live catalog). `bulk-link` (dry-run + commit) + `bulk-pull` (batched). UI: Connect Store → 🖼️ Bulk pull. | #1135-era | ✅ |
 | C+ | products/* webhooks + scheduled product backfill cron; `InternalShopifyProducts` admin panel; Dropbox migration + kill switch | — | ⬜ deferred |
 
 ## Prerequisite (operator) — now self-serve ✅

@@ -46,6 +46,54 @@ export default function InternalShopifyStores() {
   const [form, setForm] = useState({ ...blankForm });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
+  // Bulk image pull (P11-10-bulk).
+  const [bulkBusy, setBulkBusy] = useState<"dryrun" | "link" | "pull" | null>(null);
+  const [bulkLog, setBulkLog] = useState<string[]>([]);
+
+  function logBulk(line: string) { setBulkLog((prev) => [...prev, line]); }
+
+  async function bulkDryRun(storeId: string) {
+    setBulkBusy("dryrun"); setBulkLog(["Dry-run: matching Shopify products to styles by SKU prefix…"]);
+    try {
+      const r = await fetch(`/api/internal/shopify/stores/${storeId}/bulk-link?dry_run=true`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      logBulk(`Catalog: ${j.total_products} products · matched ${j.matched} · unmatched ${j.total_products - j.matched}.`);
+      (j.unmatched || []).slice(0, 12).forEach((u: { handle: string; sku_prefixes: string[] }) => logBulk(`  ✗ ${u.handle} [${(u.sku_prefixes || []).join(", ")}]`));
+    } catch (e: unknown) { logBulk(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setBulkBusy(null); }
+  }
+
+  async function bulkLink(storeId: string) {
+    setBulkBusy("link"); setBulkLog(["Linking matched products (mirror + style link)…"]);
+    try {
+      const r = await fetch(`/api/internal/shopify/stores/${storeId}/bulk-link`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      logBulk(`Linked ${j.linked}/${j.matched} matched products. Unmatched: ${j.total_products - j.matched}.`);
+      (j.errors || []).slice(0, 10).forEach((e: string) => logBulk(`  ! ${e}`));
+      await load();
+    } catch (e: unknown) { logBulk(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setBulkBusy(null); }
+  }
+
+  async function bulkPull(storeId: string) {
+    setBulkBusy("pull"); setBulkLog(["Pulling images for linked styles (batched)…"]);
+    try {
+      let offset = 0, pulled = 0, skipped = 0, failed = 0, guard = 0;
+      for (;;) {
+        const r = await fetch(`/api/internal/shopify/stores/${storeId}/bulk-pull?offset=${offset}&limit=8`, { method: "POST" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        pulled += j.pulled; skipped += j.skipped; failed += j.failed;
+        logBulk(`  …${Math.min(j.next_offset, j.total_linked)}/${j.total_linked} styles · +${j.pulled} images this batch (total pulled ${pulled})`);
+        offset = j.next_offset;
+        if (j.done || ++guard > 400) break;
+      }
+      logBulk(`Done. Pulled ${pulled} images · skipped ${skipped} (already present) · failed ${failed}.`);
+    } catch (e: unknown) { logBulk(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setBulkBusy(null); }
+  }
 
   async function load() {
     setLoading(true); setErr(null);
@@ -173,6 +221,29 @@ export default function InternalShopifyStores() {
           </div>
         ))}
       </div>
+
+      {/* Bulk image pull — only meaningful once a token-bearing store is connected. */}
+      {stores.some((s) => s.has_token && s.is_active) && (() => {
+        const s = stores.find((x) => x.has_token && x.is_active)!;
+        return (
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 16, marginTop: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>🖼️ Bulk pull product images</div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+              Matches Shopify products to styles by <b>SKU prefix = style code</b> (denim inseam handled), links them, and re-hosts every product's images onto the style. Safe to re-run (skips images already pulled).
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => void bulkDryRun(s.id)} disabled={bulkBusy != null} style={btn(C.cardBdr, true)}>{bulkBusy === "dryrun" ? "Checking…" : "1. Dry-run match"}</button>
+              <button onClick={() => void bulkLink(s.id)} disabled={bulkBusy != null} style={btn(C.primary)}>{bulkBusy === "link" ? "Linking…" : "2. Link matched"}</button>
+              <button onClick={() => void bulkPull(s.id)} disabled={bulkBusy != null} style={btn(C.success)}>{bulkBusy === "pull" ? "Pulling…" : "3. Pull all images"}</button>
+            </div>
+            {bulkLog.length > 0 && (
+              <pre style={{ marginTop: 12, maxHeight: 260, overflow: "auto", background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, fontSize: 11, color: C.textSub, whiteSpace: "pre-wrap" }}>
+                {bulkLog.join("\n")}
+              </pre>
+            )}
+          </div>
+        );
+      })()}
 
       {showForm && (
         <div onClick={() => !saving && setShowForm(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
