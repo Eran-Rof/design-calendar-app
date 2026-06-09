@@ -5,7 +5,9 @@
 //
 // GET  ?q=&include_inactive=   → lists for the default entity (+ customer name,
 //                                + item_count). Active-only unless include_inactive.
-// POST { code, name, currency?, customer_id?, customer_tier?, is_default? }
+// POST { name, currency?, customer_id?, customer_tier?, is_default? }
+//        `code` is AUTO-GENERATED (PL-NNNNN) by a DB trigger and is immutable —
+//        any client-supplied code is ignored on create and frozen on update.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -34,13 +36,12 @@ const SELECT_COLS =
 // Validate the one-scope rule + shape. Returns {data} or {error}.
 function validate(body, { isCreate }) {
   const out = {};
+  // `code` is auto-generated (PL-NNNNN) + immutable (DB trigger) — never
+  // accepted on create, never patched on update.
   if (isCreate) {
-    if (!body.code || !String(body.code).trim()) return { error: "code is required" };
     if (!body.name || !String(body.name).trim()) return { error: "name is required" };
-    out.code = String(body.code).trim().toUpperCase();
     out.name = String(body.name).trim();
   } else {
-    if (body.code != null) out.code = String(body.code).trim().toUpperCase();
     if (body.name != null) out.name = String(body.name).trim();
   }
   if (body.currency != null) {

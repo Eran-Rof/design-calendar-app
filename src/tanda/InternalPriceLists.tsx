@@ -123,7 +123,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceList | null; customers: Customer[]; styles?: Style[]; onClose: () => void; onSaved: () => void }) {
   const isNew = list === null;
-  const [code, setCode] = useState(list?.code || "");
+  // Code is auto-generated server-side (PL-NNNNN) + immutable — display only, never edited here.
+  const code = list?.code || "";
   const [name, setName] = useState(list?.name || "");
   const [currency, setCurrency] = useState(list?.currency || "USD");
   const [scope, setScope] = useState<"default" | "tier" | "customer">(list?.customer_id ? "customer" : list?.customer_tier ? "tier" : list?.is_default ? "default" : "default");
@@ -147,8 +148,9 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
     if (!code.trim() || !name.trim()) { setErr("Code and name are required."); return; }
     setSubmitting(true);
     try {
+      // code is auto-generated (PL-NNNNN) server-side + immutable — never sent.
       const body: Record<string, unknown> = {
-        code: code.trim(), name: name.trim(), currency: currency.trim().toUpperCase(), is_active: isActive,
+        name: name.trim(), currency: currency.trim().toUpperCase(), is_active: isActive,
         is_default: scope === "default",
         customer_id: scope === "customer" ? (customerId || null) : null,
         customer_tier: scope === "tier" ? (tier.trim() || null) : null,
@@ -180,7 +182,12 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(920px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New price list" : `Price list ${list?.code}`}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Code"><input value={code} onChange={(e) => setCode(e.target.value)} style={inputStyle} placeholder="DISTRIBUTOR" /></Field>
+          <Field label="Code (auto-generated)">
+            {/* Code is auto-generated (PL-NNNNN) + immutable — display only. */}
+            <div style={{ ...inputStyle, opacity: 0.6, fontFamily: "SFMono-Regular, Menlo, monospace", display: "flex", alignItems: "center" }} title="Code is auto-generated (PL-NNNNN) and cannot be edited">
+              {isNew ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(assigned on save)</span> : (code || "—")}
+            </div>
+          </Field>
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="Distributor Wholesale" /></Field>
           <Field label="Currency"><input value={currency} onChange={(e) => setCurrency(e.target.value)} style={inputStyle} maxLength={3} /></Field>
         </div>

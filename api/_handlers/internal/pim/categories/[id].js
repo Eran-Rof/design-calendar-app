@@ -2,7 +2,8 @@
 //
 // GET    — return one product_categories row.
 // PATCH  — update mutable fields. Body: any subset of
-//          { code, name, parent_category_id, sort_order, is_active }.
+//          { name, parent_category_id, sort_order, is_active }.
+//          `code` is auto-generated + immutable (DB trigger) — not patchable.
 // DELETE — soft-delete (is_active = false). Rejected with 409 if any
 //          child rows exist (active or not) — operator must reparent
 //          first. Hard delete is intentionally not exposed.
@@ -34,12 +35,7 @@ export function validatePatch(body) {
   }
   const out = {};
 
-  if (Object.prototype.hasOwnProperty.call(body, "code")) {
-    const s = String(body.code ?? "").trim();
-    if (!s) return { error: "code cannot be empty" };
-    if (s.length > 64) return { error: "code must be <= 64 chars" };
-    out.code = s;
-  }
+  // `code` is auto-generated + immutable (DB trigger) — silently ignored if sent.
   if (Object.prototype.hasOwnProperty.call(body, "name")) {
     const s = String(body.name ?? "").trim();
     if (!s) return { error: "name cannot be empty" };
