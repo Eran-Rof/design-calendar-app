@@ -85,6 +85,8 @@ interface Props {
   onSignOut: () => void;
   modules: NavModule[];
   sections: NavSection[];
+  /** Optional per-group icon, keyed by group name — shown on group sub-headers. */
+  groupIcons?: Record<string, string>;
   canPlanning: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -118,7 +120,8 @@ function sectionOf(key: string, sections: NavSection[], modules: NavModule[]): s
 export function NavDrawer({
   activeModule, onSelectModule,
   userEmail, userName, userPhotoUrl, onSignOut,
-  modules, sections, canPlanning,
+  modules, sections, groupIcons,
+  canPlanning,
   collapsed, onToggleCollapsed,
 }: Props) {
   const { favorites, toggleFavorite, logClick } = usePersonalization();
@@ -224,6 +227,20 @@ export function NavDrawer({
   const modsIn = useCallback((s: NavSection): NavModule[] =>
     [...modules.filter(m => s.groups.includes(m.group))]
       .sort((a, b) => (counts[b.key] ?? 0) - (counts[a.key] ?? 0)),
+    [modules, counts],
+  );
+
+  // Same modules, but split into the section's GROUPS (in declared order) so the
+  // drawer can show a labelled sub-header per group (e.g. "CRM") instead of one
+  // flat list. Empty groups are dropped; modules within a group are usage-sorted.
+  const groupedModsIn = useCallback((s: NavSection): { group: string; mods: NavModule[] }[] =>
+    s.groups
+      .map(g => ({
+        group: g,
+        mods: modules.filter(m => m.group === g)
+          .sort((a, b) => (counts[b.key] ?? 0) - (counts[a.key] ?? 0)),
+      }))
+      .filter(x => x.mods.length > 0),
     [modules, counts],
   );
 
@@ -432,6 +449,23 @@ export function NavDrawer({
           if (!mods.length) return null;
           const isOpen = openSections.has(sec.section);
           const hasActive = !favSelected && mods.some(m => m.key === activeModule);
+          // Split into labelled groups; only show sub-headers when >1 group has
+          // modules (single-group sections stay a clean flat list).
+          const groups = groupedModsIn(sec);
+          const showGroupHeaders = groups.length > 1;
+
+          const renderRow = (m: NavModule) => (
+            <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
+              onClick={e => onNavClick(e, m.key)}
+              onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
+            >
+              <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
+              <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>
+              {(counts[m.key] ?? 0) > 0 && (
+                <span style={{ fontSize:10, color:C.textMuted, flexShrink:0 }}>{counts[m.key]}</span>
+              )}
+            </a>
+          );
 
           return (
             <div key={sec.section} style={{ padding:"0 4px" }}>
@@ -463,18 +497,25 @@ export function NavDrawer({
                 )}
               </div>
 
-              {/* Sub-items — only rendered when section is open */}
-              {!collapsed && isOpen && mods.map(m => (
-                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
-                  onClick={e => onNavClick(e, m.key)}
-                  onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
-                >
-                  <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
-                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>
-                  {(counts[m.key] ?? 0) > 0 && (
-                    <span style={{ fontSize:10, color:C.textMuted, flexShrink:0 }}>{counts[m.key]}</span>
-                  )}
-                </a>
+              {/* Sub-items — only rendered when section is open. When the
+                  section spans multiple groups, each group gets a small label
+                  header (e.g. CRM) so the taxonomy is visible; otherwise it's a
+                  flat list. */}
+              {!collapsed && isOpen && !showGroupHeaders && mods.map(renderRow)}
+              {!collapsed && isOpen && showGroupHeaders && groups.map((g, gi) => (
+                <div key={g.group}>
+                  <div style={{
+                    display:"flex", alignItems:"center", gap:6,
+                    padding:"6px 10px 3px", marginTop: gi === 0 ? 0 : 4,
+                    borderTop: gi === 0 ? "none" : `1px solid ${C.border}`,
+                  }}>
+                    {groupIcons?.[g.group] && <span style={{ fontSize:11 }}>{groupIcons[g.group]}</span>}
+                    <span style={{ fontSize:10, fontWeight:700, color:C.textMuted, letterSpacing:0.6, textTransform:"uppercase", whiteSpace:"nowrap" }}>
+                      {g.group}
+                    </span>
+                  </div>
+                  {g.mods.map(renderRow)}
+                </div>
               ))}
 
               {/* In collapsed mode show active item's icon always */}

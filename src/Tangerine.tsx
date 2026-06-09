@@ -830,6 +830,7 @@ export default function Tangerine() {
         onSignOut={handleSignOut}
         modules={MODULES}
         sections={NAV_SECTIONS}
+        groupIcons={GROUP_ICON}
         canPlanning={canAccessAppFromSession("planning")}
         collapsed={drawerCollapsed}
         onToggleCollapsed={toggleDrawer}
