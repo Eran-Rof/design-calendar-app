@@ -49,6 +49,7 @@ export default function InternalShopifyStores() {
   // Bulk image pull (P11-10-bulk).
   const [bulkBusy, setBulkBusy] = useState<"dryrun" | "link" | "pull" | "meta" | null>(null);
   const [bulkLog, setBulkLog] = useState<string[]>([]);
+  const [bulkStoreId, setBulkStoreId] = useState<string>(""); // which store the bulk actions target
 
   function logBulk(line: string) { setBulkLog((prev) => [...prev, line]); }
 
@@ -242,18 +243,28 @@ export default function InternalShopifyStores() {
 
       {/* Bulk image pull — only meaningful once a token-bearing store is connected. */}
       {stores.some((s) => s.has_token && s.is_active) && (() => {
-        const s = stores.find((x) => x.has_token && x.is_active)!;
+        const eligible = stores.filter((x) => x.has_token && x.is_active);
+        const activeId = (bulkStoreId && eligible.some((e) => e.id === bulkStoreId)) ? bulkStoreId : eligible[0].id;
         return (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 16, marginTop: 16 }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>🖼️ Bulk pull product images</div>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
-              Matches Shopify products to styles by <b>SKU prefix = style code</b> (denim inseam handled), links them, and re-hosts every product's images onto the style. Safe to re-run (skips images already pulled).
+              Matches Shopify products to styles by <b>SKU prefix = style code</b> (denim inseam handled), links them, and re-hosts every product's images onto the style. Safe to re-run (skips images already pulled). Runs against the selected store only.
             </div>
+            {eligible.length > 1 && (
+              <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: C.textMuted }}>Store:</span>
+                <select value={activeId} onChange={(e) => { setBulkStoreId(e.target.value); setBulkLog([]); }} disabled={bulkBusy != null}
+                  style={{ background: C.bg, color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 10px", fontSize: 13 }}>
+                  {eligible.map((e) => <option key={e.id} value={e.id}>{e.store_name} ({e.shopify_domain})</option>)}
+                </select>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={() => void bulkDryRun(s.id)} disabled={bulkBusy != null} style={btn(C.cardBdr, true)}>{bulkBusy === "dryrun" ? "Checking…" : "1. Dry-run match"}</button>
-              <button onClick={() => void bulkLink(s.id)} disabled={bulkBusy != null} style={btn(C.primary)}>{bulkBusy === "link" ? "Linking…" : "2. Link matched"}</button>
-              <button onClick={() => void bulkPull(s.id)} disabled={bulkBusy != null} style={btn(C.success)}>{bulkBusy === "pull" ? "Pulling…" : "3. Pull all images"}</button>
-              <button onClick={() => void bulkMeta(s.id)} disabled={bulkBusy != null} style={btn(C.primary, true)}>{bulkBusy === "meta" ? "Syncing…" : "4. Sync descriptions + colors"}</button>
+              <button onClick={() => void bulkDryRun(activeId)} disabled={bulkBusy != null} style={btn(C.cardBdr, true)}>{bulkBusy === "dryrun" ? "Checking…" : "1. Dry-run match"}</button>
+              <button onClick={() => void bulkLink(activeId)} disabled={bulkBusy != null} style={btn(C.primary)}>{bulkBusy === "link" ? "Linking…" : "2. Link matched"}</button>
+              <button onClick={() => void bulkPull(activeId)} disabled={bulkBusy != null} style={btn(C.success)}>{bulkBusy === "pull" ? "Pulling…" : "3. Pull all images"}</button>
+              <button onClick={() => void bulkMeta(activeId)} disabled={bulkBusy != null} style={btn(C.primary, true)}>{bulkBusy === "meta" ? "Syncing…" : "4. Sync descriptions + colors"}</button>
             </div>
             {bulkLog.length > 0 && (
               <pre style={{ marginTop: 12, maxHeight: 260, overflow: "auto", background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, fontSize: 11, color: C.textSub, whiteSpace: "pre-wrap" }}>
