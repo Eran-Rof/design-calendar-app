@@ -19,7 +19,7 @@ import { MENU_KEYS } from "../lib/menuKeys";
 const C = {
   bg:        "#0b1220",
   bgRow:     "#1e293b",
-  bgActive:  "rgba(29,78,216,0.42)",  // faded blue (was bright #1d4ed8)
+  bgActive:  "rgba(59,130,246,0.16)",  // faded blue tint (was bright #1d4ed8)
   text:      "#e2e8f0",
   textMuted: "#94a3b8",
   border:    "rgba(255,255,255,0.08)",
@@ -131,6 +131,11 @@ export function NavDrawer({
   // section in the menu below — the favorite IS the selection. This ref tells
   // the auto-open effect to skip the next activeModule change.
   const skipNextAutoOpen = useRef(false);
+  // True while the active module was chosen from Favorites — its menu copy below
+  // is then NOT highlighted (only the favorites row is). Any other activeModule
+  // change (menu pick, drill-through, URL) clears it via the effect below.
+  const [favSelected, setFavSelected] = useState(false);
+  const favJustClicked = useRef(false);
 
   // ── accordion: open sections ───────────────────────────────────────────
   const [openSections, setOpenSections] = useState<Set<string>>(() => {
@@ -184,19 +189,29 @@ export function NavDrawer({
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
     e.preventDefault();
     e.stopPropagation();
+    setFavSelected(false); // a real menu pick → menu highlight is back on
     navigate(key);
   }, [navigate]);
 
-  // Favorites click — navigate but suppress the menu-section auto-open below.
+  // Favorites click — navigate, suppress the menu-section auto-open below, and
+  // mark the selection favorites-driven so the menu copy isn't highlighted.
   // Only arm the skip when activeModule will actually change (so a re-click of
   // the current favorite doesn't leave a stale flag that swallows a later nav).
   const onFavClick = useCallback((e: React.MouseEvent, key: string) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
     e.preventDefault();
     e.stopPropagation();
-    if (key !== activeModule) skipNextAutoOpen.current = true;
+    if (key !== activeModule) { skipNextAutoOpen.current = true; favJustClicked.current = true; }
+    setFavSelected(true);
     navigate(key);
   }, [navigate, activeModule]);
+
+  // Any activeModule change that DIDN'T come from a favorite click clears the
+  // favorites-only highlight (menu picks, scorecard drill-throughs, URL loads).
+  useEffect(() => {
+    if (favJustClicked.current) { favJustClicked.current = false; return; }
+    setFavSelected(false);
+  }, [activeModule]);
 
   // ── sorted sections + modules ─────────────────────────────────────────
   const sortedSections = useMemo(() => {
@@ -232,21 +247,26 @@ export function NavDrawer({
   }, [q, modules, counts, search]);
 
   // ── row style helpers ─────────────────────────────────────────────────
-  const rowStyle = (key: string): React.CSSProperties => ({
+  // `active` is parameterized so the menu copy of a favorite-selected module can
+  // render UN-highlighted (favSelected) while the favorites row stays highlighted.
+  const rowStyle = (key: string, active: boolean = activeModule === key): React.CSSProperties => ({
     display: "flex", alignItems: "center", gap: 8,
     padding: collapsed ? "7px 0" : "4px 10px 4px 22px",
     justifyContent: collapsed ? "center" : "flex-start",
     borderRadius: 5, cursor: "pointer", fontSize: 13,
-    fontWeight: activeModule === key ? 600 : 400,
-    background: activeModule === key ? C.bgActive : "transparent",
-    color: activeModule === key ? "#fff" : C.text,
+    fontWeight: active ? 600 : 400,
+    background: active ? C.bgActive : "transparent",
+    color: active ? "#fff" : C.text,
     userSelect: "none", whiteSpace: "nowrap", overflow: "hidden",
     transition: "background 0.1s",
   });
-  const hoverOn  = (e: React.MouseEvent<HTMLElement>, key: string) =>
-    { (e.currentTarget as HTMLElement).style.background = activeModule === key ? C.bgActive : C.bgRow; };
-  const hoverOff = (e: React.MouseEvent<HTMLElement>, key: string) =>
-    { (e.currentTarget as HTMLElement).style.background = activeModule === key ? C.bgActive : "transparent"; };
+  const hoverOn  = (e: React.MouseEvent<HTMLElement>, key: string, active: boolean = activeModule === key) =>
+    { (e.currentTarget as HTMLElement).style.background = active ? C.bgActive : C.bgRow; };
+  const hoverOff = (e: React.MouseEvent<HTMLElement>, key: string, active: boolean = activeModule === key) =>
+    { (e.currentTarget as HTMLElement).style.background = active ? C.bgActive : "transparent"; };
+  // The active module as seen by the MENU sections (favorites-driven selection
+  // doesn't light up its menu copy). Favorites rows still use activeModule.
+  const menuActive = (key: string) => !favSelected && activeModule === key;
 
   const av  = deriveInitials(userName, userEmail);
   const avBg = avatarBg(userName || userEmail || "");
@@ -343,7 +363,7 @@ export function NavDrawer({
             onChange={e => setSearch(e.target.value)}
             onKeyDown={e => {
               if (e.key === "Escape") setSearch("");
-              if (e.key === "Enter" && searchHits.length) navigate(searchHits[0].key);
+              if (e.key === "Enter" && searchHits.length) { setFavSelected(false); navigate(searchHits[0].key); }
             }}
             placeholder="Search modules…"
             style={{ width:"100%", background:"#1e293b", border:"none", borderRadius:6, padding:"5px 10px", color:C.text, fontSize:13, outline:"none", boxSizing:"border-box" }}
@@ -411,7 +431,7 @@ export function NavDrawer({
           const mods = modsIn(sec);
           if (!mods.length) return null;
           const isOpen = openSections.has(sec.section);
-          const hasActive = mods.some(m => m.key === activeModule);
+          const hasActive = !favSelected && mods.some(m => m.key === activeModule);
 
           return (
             <div key={sec.section} style={{ padding:"0 4px" }}>
@@ -445,9 +465,9 @@ export function NavDrawer({
 
               {/* Sub-items — only rendered when section is open */}
               {!collapsed && isOpen && mods.map(m => (
-                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }}
+                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
                   onClick={e => onNavClick(e, m.key)}
-                  onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
+                  onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
                 >
                   <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
                   <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>
