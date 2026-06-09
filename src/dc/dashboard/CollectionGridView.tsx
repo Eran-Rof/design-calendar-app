@@ -9,7 +9,7 @@
 
 import { S, TH } from "../styles";
 import { STATUS_CONFIG } from "../../utils/constants";
-import { formatDate, getDaysUntil } from "../../utils/dates";
+import { formatDate, getDaysUntil, collCreatedDate } from "../../utils/dates";
 import Avatar from "../../components/Avatar";
 import type { Task, Brand, TeamMember, CollectionGroup } from "../../store/types";
 
@@ -136,6 +136,12 @@ export function CollectionGridView({
                     <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 2 }}>{parts.join(" · ")}</div>
                   ) : null;
                 })()}
+                {/* Line 5: Created date */}
+                {collCreatedDate(collData) && (
+                  <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 3 }}>
+                    Created: {formatDate(collCreatedDate(collData))}
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{
