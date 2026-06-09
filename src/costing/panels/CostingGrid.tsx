@@ -299,7 +299,12 @@ export default function CostingGrid() {
       const parts = [];
       if (res.created.length > 0) {
         const vendorSummary = res.created.map((c) => `${c.vendor} (${c.line_count})`).join(", ");
-        parts.push(`${res.created.length} RFQ${res.created.length === 1 ? "" : "s"} created: ${vendorSummary}`);
+        // RFQs are auto-sent to the vendor on create now (one step — no separate
+        // "Send to Vendor" click). `sent` is true unless the auto-send hiccupped
+        // (that case is surfaced in res.errors below), so reflect it in the toast.
+        const allSent = res.created.every((c) => c.sent !== false);
+        const verb = allSent ? "sent to vendor" : "created (some not sent — see errors)";
+        parts.push(`${res.created.length} RFQ${res.created.length === 1 ? "" : "s"} ${verb}: ${vendorSummary}`);
       }
       if (res.skipped_no_vendor && res.skipped_no_vendor.length > 0) {
         parts.push(`${res.skipped_no_vendor.length} line${res.skipped_no_vendor.length === 1 ? "" : "s"} skipped (no vendor picked)`);
