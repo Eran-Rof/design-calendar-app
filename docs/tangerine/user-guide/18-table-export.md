@@ -4,7 +4,7 @@
 
 Look for the **⬇ Export** button in the filter bar of any list, report, or master panel. Click it for a small menu:
 
-- **Excel (.xlsx)** — formatted spreadsheet with autofit columns and a header row. Currencies come through as real numbers (already converted from cents). Dates render day-first `DD/MM/YYYY` (date-time columns keep the `HH:MM` time). Note: the auto-named filename still uses an ISO `YYYY-MM-DD` stamp so files sort chronologically.
+- **Excel (.xlsx)** — formatted spreadsheet with autofit columns and a header row. Currencies come through as real numbers (already converted from cents). Dates as ISO `YYYY-MM-DD`.
 - **CSV (.csv)** — RFC 4180 with a UTF-8 BOM so Excel opens it without garbled accents.
 
 ## What gets exported

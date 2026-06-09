@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 import { showAlert } from "../ui/AppDialog";
 
@@ -68,7 +68,7 @@ export default function VendorWorkspaces() {
             <button key={w.id} onClick={() => setSelected(w)} style={{ textAlign: "left", cursor: "pointer", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 14, color: C.text, fontFamily: "inherit" }}>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{w.name}</div>
               {w.description && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{w.description}</div>}
-              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 10 }}>Created {new Date(w.created_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
+              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 10 }}>Created {new Date(w.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
             </button>
           ))}
         </div>

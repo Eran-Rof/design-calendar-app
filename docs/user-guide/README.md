@@ -36,7 +36,7 @@ not for developers.
 - **Bold** marks an exact on-screen label — a button, tab, column, or status — so you can find it in the app.
 - Numbered lists are step-by-step procedures; follow them in order.
 - `>` call-out boxes flag tips, prerequisites, and gotchas.
-- Dates display **day-first (DD/MM/YYYY)** across the suite.
+- Dates display in **US format (MM/DD/YYYY)** across the suite.
 
 ## Two things that apply everywhere
 

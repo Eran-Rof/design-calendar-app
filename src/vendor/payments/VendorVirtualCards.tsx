@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 import { showAlert, showConfirm } from "../ui/AppDialog";
 
@@ -90,7 +90,7 @@ export default function VendorVirtualCards() {
                   <StatusChip status={cd.status} />
                 </div>
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                  Exp {String(cd.expiry_month).padStart(2, "0")}/{cd.expiry_year} · {cd.provider} · issued {new Date(cd.issued_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                  Exp {String(cd.expiry_month).padStart(2, "0")}/{cd.expiry_year} · {cd.provider} · issued {new Date(cd.issued_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 10 }}>
                   <Mini label="Limit" value={`$${Number(cd.credit_limit).toLocaleString()}`} />

@@ -35,12 +35,11 @@ describe("formatCell", () => {
     expect(formatCell("5",  { key: "x", format: "number" })).toBe(5);
     expect(formatCell("ab", { key: "x", format: "number" })).toBe("");
   });
-  it("date with Date instance → day-first DD/MM/YYYY", () => {
-    // Local-zone Date constructed from explicit components (no TZ ambiguity).
-    expect(formatCell(new Date(2026, 4, 28), { key: "x", format: "date" })).toBe("28/05/2026");
+  it("date with Date instance", () => {
+    expect(formatCell(new Date("2026-05-28T00:00:00Z"), { key: "x", format: "date" })).toBe("2026-05-28");
   });
-  it("date with ISO string → day-first DD/MM/YYYY (local-midnight anchored)", () => {
-    expect(formatCell("2026-05-28", { key: "x", format: "date" })).toBe("28/05/2026");
+  it("date with string passthrough", () => {
+    expect(formatCell("2026-05-28", { key: "x", format: "date" })).toBe("2026-05-28");
   });
   it("object → JSON", () => {
     expect(formatCell({ a: 1 })).toBe('{"a":1}');
@@ -93,8 +92,8 @@ describe("formatCellDisplay (PDF / print rendering)", () => {
   it("number with digits is fixed", () => {
     expect(formatCellDisplay(3, { key: "x", format: "number", digits: 2 })).toBe("3.00");
   });
-  it("date renders day-first DD/MM/YYYY", () => {
-    expect(formatCellDisplay("2026-05-28", { key: "x", format: "date" })).toBe("28/05/2026");
+  it("date passthrough as string", () => {
+    expect(formatCellDisplay("2026-05-28", { key: "x", format: "date" })).toBe("2026-05-28");
   });
   it("plain text passthrough", () => {
     expect(formatCellDisplay("hello")).toBe("hello");

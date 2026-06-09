@@ -10,9 +10,8 @@
 //     same sort, same visible columns. Do NOT re-query the DB.
 //   - Default column inference: if `columns` is omitted, the hook reads
 //     keys off `rows[0]` and uses them as both `key` and `header`.
-//   - Cell coercion: dates → day-first DD/MM/YYYY (datetime keeps HH:MM);
-//     numbers → numbers (not strings); null → empty; objects →
-//     JSON.stringify (rare; UI usually flattens first).
+//   - Cell coercion: dates → ISO; numbers → numbers (not strings); null →
+//     empty; objects → JSON.stringify (rare; UI usually flattens first).
 //   - Filename: defaults to `<panel>-<YYYY-MM-DD>.<ext>`. Caller may pass
 //     a custom filename (without extension; the hook appends it).
 //   - No styling beyond bold header row + autofit columns (cap 60 chars).
@@ -56,24 +55,6 @@ export function inferColumns<T extends Record<string, unknown>>(rows: T[]): Expo
   return keys.map((k) => ({ key: k, header: k }));
 }
 
-// Render a Date / ISO-ish string as day-first DD/MM/YYYY (canonical house
-// format for everything user-facing and downloaded). Bare YYYY-MM-DD strings
-// are anchored to local midnight so the calendar day doesn't shift in
-// negative-offset timezones. Anything we can't parse passes through unchanged.
-function ddmmyyyy(value: unknown): string {
-  let d: Date | null = null;
-  if (value instanceof Date) {
-    d = value;
-  } else {
-    const s = String(value);
-    const iso = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + "T00:00:00" : s;
-    const parsed = new Date(iso);
-    if (!Number.isNaN(parsed.getTime())) d = parsed;
-    else return s;
-  }
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
-}
-
 export function formatCell(value: unknown, col?: ExportColumn<Record<string, unknown>>): unknown {
   if (value == null) return "";
   const fmt = col?.format;
@@ -86,16 +67,12 @@ export function formatCell(value: unknown, col?: ExportColumn<Record<string, unk
     return Number.isFinite(n) ? n : "";
   }
   if (fmt === "date") {
-    return ddmmyyyy(value);
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    return String(value);
   }
   if (fmt === "datetime") {
-    // Day-first date plus 24h time-of-day, e.g. "28/05/2026 14:32".
-    const d = value instanceof Date ? value : new Date(String(value));
-    if (Number.isNaN(d.getTime())) return String(value);
-    const date = ddmmyyyy(d);
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mi = String(d.getMinutes()).padStart(2, "0");
-    return `${date} ${hh}:${mi}`;
+    if (value instanceof Date) return value.toISOString();
+    return String(value);
   }
   if (typeof value === "object") return JSON.stringify(value);
   return value;

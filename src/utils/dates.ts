@@ -24,7 +24,7 @@ export function getDaysUntil(d: string): number {
 export function formatDate(d: string): string {
   if (!d) return "";
   const x = parseLocalDate(d);
-  return `${String(x.getDate()).padStart(2, "0")}/${String(x.getMonth() + 1).padStart(2, "0")}/${x.getFullYear()}`;
+  return `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()}`;
 }
 
 // Resolve a collection's creation date to a YYYY-MM-DD string for display.
@@ -41,7 +41,7 @@ export function collCreatedDate(collData: any): string {
 export function formatDT(d: string): string {
   if (!d) return "";
   const x = new Date(d);
-  return `${String(x.getDate()).padStart(2, "0")}/${String(x.getMonth() + 1).padStart(2, "0")}/${x.getFullYear()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`;
+  return `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`;
 }
 
 export function addDays(ds: string, n: number): string {

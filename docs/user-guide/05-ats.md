@@ -159,7 +159,7 @@ Two controls define how far out the period columns reach:
 
 ## Reports and exports
 
-Every report lives under the green **Reports** menu (top-right). Each one opens a **View** preview first — you see the workbook on screen, then click **Download** to save the `.xlsx`. Exports are branded with the Ring of Fire logo and carry the day-first (DD/MM/YYYY) date format used across the suite.
+Every report lives under the green **Reports** menu (top-right). Each one opens a **View** preview first — you see the workbook on screen, then click **Download** to save the `.xlsx`. Exports are branded with the Ring of Fire logo and carry the US (MM/DD/YYYY) date format used across the suite.
 
 | Report | What it gives you |
 |---|---|
