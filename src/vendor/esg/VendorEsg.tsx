@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 
 interface EsgScore {
@@ -171,7 +171,7 @@ export default function VendorEsg() {
               {diversity.certifying_body ? <>Certified by <strong>{diversity.certifying_body}</strong>{diversity.certification_number ? ` · #${diversity.certification_number}` : ""}</> : "No certifying body on file."}
             </div>
             <div style={{ fontSize: 11, color: diversity.verified ? C.success : C.textMuted, marginTop: 6, fontWeight: 700 }}>
-              {diversity.verified ? `✓ Verified ${diversity.verified_at ? "on " + new Date(diversity.verified_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : ""}` : "Pending verification by buyer team"}
+              {diversity.verified ? `✓ Verified ${diversity.verified_at ? "on " + new Date(diversity.verified_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : ""}` : "Pending verification by buyer team"}
             </div>
           </div>
         )}

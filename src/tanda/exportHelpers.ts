@@ -47,7 +47,7 @@ export async function exportPOExcel(po: XoroPO, items: any[], mode: string, mile
 export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, milestones: Record<string, Milestone[]>, notes: LocalNote[]): { wb: ExcelJS.Workbook; fileName: string } {
   const poNum = po.PoNumber ?? "PO";
   const totalVal = items.reduce((s: number, i: any) => s + itemQty(i) * (i.UnitPrice ?? 0), 0);
-  const today = new Date().toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" });
+  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
   let fileName = "";
 
   // ── Canonical "ATS look" palette ──

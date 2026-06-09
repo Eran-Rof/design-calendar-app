@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
@@ -179,7 +179,7 @@ export default function POList() {
       .filter((dt): dt is Date => dt != null && dt.getTime() >= todayMidnight.getTime())
       .map((dt) => dt.getTime())
       .sort((a, b) => a - b);
-    const next = ddps[0] ? new Date(ddps[0]).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—";
+    const next = ddps[0] ? new Date(ddps[0]).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—";
     return {
       open,
       pendingCount: pending.length,

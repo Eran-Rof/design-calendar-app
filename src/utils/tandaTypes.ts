@@ -292,7 +292,7 @@ export function fmtDate(d?: string): string {
   const str = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T00:00:00" : d;
   const dt = new Date(str);
   if (isNaN(dt.getTime())) return d;
-  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
+  return `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 
 export function fmtDateDisplay(d?: string | null): string {
@@ -300,7 +300,7 @@ export function fmtDateDisplay(d?: string | null): string {
   const str = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T00:00:00" : d;
   const dt = new Date(str);
   if (isNaN(dt.getTime())) return d;
-  return `${String(dt.getDate()).padStart(2,"0")}/${String(dt.getMonth() + 1).padStart(2,"0")}/${dt.getFullYear()}`;
+  return `${String(dt.getMonth() + 1).padStart(2,"0")}/${String(dt.getDate()).padStart(2,"0")}/${dt.getFullYear()}`;
 }
 
 export function fmtCurrency(n?: number, code = "USD"): string {

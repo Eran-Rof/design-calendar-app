@@ -253,7 +253,7 @@ The **Job runs** and **Audit explorer** tables support per-column click-to-sort:
 
 ## Exports
 
-Every table-bearing screen carries the suite-standard Excel export. The biggest workbook is the **consolidated scenario export** (Scenarios → Exports) covering the whole plan. Execution batches export with vendor/customer/channel names resolved — never raw IDs — and all dates render day-first.
+Every table-bearing screen carries the suite-standard Excel export. The biggest workbook is the **consolidated scenario export** (Scenarios → Exports) covering the whole plan. Execution batches export with vendor/customer/channel names resolved — never raw IDs — and all dates render in US format (MM/DD/YYYY).
 
 ## A typical planning cycle
 

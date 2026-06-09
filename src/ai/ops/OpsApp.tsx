@@ -1,4 +1,4 @@
-// /ai-ops — operator-facing observability dashboard for Ask AI.
+﻿// /ai-ops — operator-facing observability dashboard for Ask AI.
 //
 // Reads /api/internal/ai/ops-summary (which aggregates ip_ai_call_log +
 // ip_ai_answer_cache) and renders stat tiles + tables. Helps the team
@@ -48,11 +48,7 @@ function formatTokens(n: number): string {
   return formatNum(n);
 }
 function formatDate(s: string): string {
-  // Day-first DD/MM/YYYY (canonical house format) plus local time-of-day.
-  return new Date(s).toLocaleString("en-GB", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  return new Date(s).toLocaleString();
 }
 
 function readPlmUserId(): string | null {
@@ -204,7 +200,7 @@ export default function OpsApp() {
               cols={[
                 { key: "question", label: "Question", render: r => <span style={{ color: PAL.text }}>{r.question}</span> },
                 { key: "hit_count", label: "Hits", align: "right", render: r => formatNum(r.hit_count) },
-                { key: "last_hit_at", label: "Last hit", render: r => r.last_hit_at ? new Date(r.last_hit_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—" },
+                { key: "last_hit_at", label: "Last hit", render: r => r.last_hit_at ? new Date(r.last_hit_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—" },
               ]}
             />
           </section>

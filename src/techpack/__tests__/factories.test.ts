@@ -39,7 +39,7 @@ describe("fmtDate", () => {
     expect(fmtDate("")).toBe("—");
     expect(fmtDate(undefined)).toBe("—");
   });
-  it("renders day-first DD/MM/YYYY for valid dates", () => {
+  it("renders MM/DD/YYYY for valid dates", () => {
     expect(fmtDate("2026-05-17")).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
   });
 });

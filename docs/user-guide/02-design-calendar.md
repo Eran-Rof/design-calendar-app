@@ -62,7 +62,7 @@ The Calendar is a month grid where every phase appears on its due date. The dark
 
 To **reschedule**, drag a task chip onto a different day. A blue banner ("✋ Drag a task to a day to reschedule") confirms drag mode, and the target day highlights as you hover.
 
-> **Created date:** each collection shows a **Created** date so you can see when it was set up. It appears on the collection card (a small "Created:" line under the customer row), in the Timeline header (both the focused "Showing:" bar and each collection's block header), and in the Calendar header when a collection is focused. The date is stamped automatically when the collection is created and never changes. Collections that pre-date this feature were backfilled with their original creation date. Remember dates are shown **day-first (DD/MM/YYYY)** — e.g. `01/04/2026` is 1 April 2026, not 4 January.
+> **Created date:** each collection shows a **Created** date so you can see when it was set up. It appears on the collection card (a small "Created:" line under the customer row), in the Timeline header (both the focused "Showing:" bar and each collection's block header), and in the Calendar header when a collection is focused. The date is stamped automatically when the collection is created and never changes. Collections that pre-date this feature were backfilled with their original creation date. Dates are shown in **US format (MM/DD/YYYY)** — e.g. `04/01/2026` is 1 April 2026.
 
 ## Phases and statuses
 

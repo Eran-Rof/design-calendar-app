@@ -20,12 +20,10 @@ export function fmtDateDisplay(dateStr: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     const d = new Date(dateStr + "T00:00:00");
     if (!isNaN(d.getTime()))
-      return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth() + 1).padStart(2,"0")}/${d.getFullYear()}`;
+      return `${String(d.getMonth() + 1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
   }
 
-  // Numeric slash/dot formats that may arrive if stored value bypassed toIsoDate.
-  // Parsing here still assumes incoming bare numeric is month-first (legacy US
-  // storage); only the rendered OUTPUT is day-first DD/MM/YYYY.
+  // Numeric slash/dot formats that may arrive if stored value bypassed toIsoDate
   const slashDot = dateStr.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
   if (slashDot) {
     const A = parseInt(slashDot[1], 10), B = parseInt(slashDot[2], 10);
@@ -33,13 +31,13 @@ export function fmtDateDisplay(dateStr: string): string {
     // If A > 12 it must be the day (DD/MM/YYYY); otherwise assume US MM/DD/YYYY
     const month = A > 12 ? B : A;
     const day   = A > 12 ? A : B;
-    return `${String(day).padStart(2,"0")}/${String(month).padStart(2,"0")}/${y}`;
+    return `${String(month).padStart(2,"0")}/${String(day).padStart(2,"0")}/${y}`;
   }
 
   // Fallback: let the JS parser try
   const d = new Date(dateStr);
   if (!isNaN(d.getTime()))
-    return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth() + 1).padStart(2,"0")}/${d.getFullYear()}`;
+    return `${String(d.getMonth() + 1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}/${d.getFullYear()}`;
 
   return dateStr;
 }

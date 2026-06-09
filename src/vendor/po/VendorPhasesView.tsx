@@ -1,4 +1,4 @@
-// Vendor-facing PO phase grid. Mirrors the layout of the internal
+﻿// Vendor-facing PO phase grid. Mirrors the layout of the internal
 // TandA Grid but is read-mostly: a vendor can only propose edits on
 // phases the ROF admin has flagged can_edit = true. Edits don't mutate
 // tanda_milestones directly — they're staged in
@@ -634,7 +634,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   {(() => {
                     const sd = statusChangeDate(r.statusReq);
                     if (!sd) return <span style={{ color: TH.textMuted }}>—</span>;
-                    const dateStr = new Date(sd.date).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" });
+                    const dateStr = new Date(sd.date).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
                     return (
                       <div style={{ display: "grid", gap: 1 }} title={sd.label === "pending" ? "Status change pending review" : "Status last changed (approved)"}>
                         <span>{dateStr}</span>
@@ -670,7 +670,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                       const label = approved
                         ? hasComment ? "Approved w/ note" : "Approved"
                         : "Rejected";
-                      const date = h.reviewed_at ? new Date(h.reviewed_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
+                      const date = h.reviewed_at ? new Date(h.reviewed_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
                       const tooltip = [
                         `${h.field_name} → ${h.new_value ?? "(cleared)"}`,
                         h.reviewed_by_internal_id ? `Reviewed by ${h.reviewed_by_internal_id}` : null,
@@ -693,7 +693,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     const color = approved ? "#6EE7B7" : "#FCA5A5";
                     const icon = approved ? "✓" : "✗";
                     const label = approved ? "Line item approved" : "Line item rejected";
-                    const date = sum.latestDate ? new Date(sum.latestDate).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
+                    const date = sum.latestDate ? new Date(sum.latestDate).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
                     const countSuffix = sum.count > 1 ? ` (${sum.count})` : "";
                     return (
                       <div
@@ -775,7 +775,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                               {(() => {
                                 const sd = statusChangeDate(lineStatusReq);
                                 if (!sd) return <span style={{ color: TH.textMuted }}>—</span>;
-                                const dateStr = new Date(sd.date).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" });
+                                const dateStr = new Date(sd.date).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
                                 return (
                                   <div style={{ display: "grid", gap: 1 }}>
                                     <span>{dateStr}</span>
@@ -798,7 +798,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 const label = approved
                                   ? hasComment ? "Approved w/ note" : "Approved"
                                   : "Rejected";
-                                const date = rv.reviewed_at ? new Date(rv.reviewed_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
+                                const date = rv.reviewed_at ? new Date(rv.reviewed_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
                                 const tooltip = [
                                   `${rv.field_name} → ${rv.new_value ?? "(cleared)"}`,
                                   rv.reviewed_by_internal_id ? `Reviewed by ${rv.reviewed_by_internal_id}` : null,

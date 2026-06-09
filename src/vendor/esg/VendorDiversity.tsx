@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 
 interface Profile {
@@ -114,7 +114,7 @@ export default function VendorDiversity() {
 
       {profile?.verified && (
         <div style={{ background: "rgba(16,185,129,0.1)", border: `1px solid ${C.success}`, borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 12 }}>
-          ✓ Verified on {profile.verified_at ? new Date(profile.verified_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—"}
+          ✓ Verified on {profile.verified_at ? new Date(profile.verified_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—"}
         </div>
       )}
       {err && <div style={{ color: C.danger, marginBottom: 10 }}>{err}</div>}
