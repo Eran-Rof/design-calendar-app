@@ -380,6 +380,7 @@ const GROUP_ICON: Record<GroupKey, string> = {
   "Treasury":         "💰",
   "Vendors":          "🏭",
   "Procurement":      "🚚",
+  "Sales":            "🧾",
   "Pricing":          "🏷️",
   "CRM":              "🤝",
   "Customers":        "🤝",
