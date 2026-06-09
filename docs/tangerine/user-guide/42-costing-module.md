@@ -82,16 +82,21 @@ You'll be warned — with the option to **delete the incomplete rows and continu
 
 ## RFQ flow
 
-1. Tick rows and click **Vendor RFQ** to generate one RFQ per vendor.
+1. Tick rows and click **Vendor RFQ**. This creates one RFQ per vendor **and
+   sends it to the vendor in the same step** — there's no separate **Send**
+   click anymore. Each vendor is invited and notified (in-app 🔔 + email)
+   immediately, and the RFQ shows up in their portal right away. The toast
+   confirms "<n> RFQs **sent to vendor**". The vendor then submits a quote.
    - The **target unit price** the vendor sees on each RFQ line matches the
      project's cost basis: **Tgt DDP Cost** for DDP projects, **FOB cost** for
      FOB/Landed projects (never the sell price). Editing the costing line's
      Tgt DDP / FOB cost re-syncs the target on any RFQ already generated.
-2. **Send** publishes the RFQ to the vendor; they submit a quote.
-3. In the **RFQ list**, the **Fabric** column shows `CODE — Description`, and clicking a
+   - If an RFQ already exists for the same **style / color / vendor**, you're
+     asked to confirm before a duplicate is created and sent.
+2. In the **RFQ list**, the **Fabric** column shows `CODE — Description`, and clicking a
    row opens that RFQ's **source project in a new tab** (the title cell still opens the
    RFQ editor).
-4. **Compare RFQs** lays quotes side-by-side; **Award** picks the winner. Each
+3. **Compare RFQs** lays quotes side-by-side; **Award** picks the winner. Each
    line's **Sell $** reference is the project's **Sell Tgt** (the price you sell
    at — editable inline per line), and per-vendor **margin = (Sell − quoted) ÷
    Sell**. The vendor's own target *cost* (what they quote against) is shown

@@ -38,6 +38,9 @@ export async function uploadDocument(
       context_id: contextId,
       kind: opts.kind || "supporting_doc",
       title: opts.title || file.name,
+      // Preserve the real filename so downloads keep their name (e.g.
+      // Q3-costing.xlsx) rather than the storage basename vN.ext.
+      original_filename: file.name,
       mime: file.type || "application/octet-stream",
       bytes_base64,
       notes: opts.notes || undefined,

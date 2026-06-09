@@ -22,6 +22,7 @@ type DocVersion = {
   byte_size: number;
   sha256_hex: string;
   notes: string | null;
+  original_filename: string | null;
   created_at: string;
 };
 
@@ -144,6 +145,8 @@ export default function DocumentAttachmentList({
           context_id: contextId,
           kind: form.kind,
           title: form.title,
+          // Keep the real filename for downloads (title is a free-text label).
+          original_filename: form.file.name,
           mime: form.file.type || "application/octet-stream",
           bytes_base64,
           notes: form.notes || undefined,

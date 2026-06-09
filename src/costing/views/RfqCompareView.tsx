@@ -453,11 +453,15 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3 }}>
                       <span style={{ fontSize: 10, color: C.subtle, whiteSpace: "nowrap" }}>Sell $</span>
                       <input
+                        title="What-if sell price — recomputes the margins below. Local to this view only; does NOT change the project row."
                         value={sellDrafts.get(li.id) ?? ""}
-                        onChange={(e) => setSellDrafts((p) => new Map(p).set(li.id, e.target.value))}
-                        onBlur={() => {
-                          const raw = (sellDrafts.get(li.id) ?? "").replace(/[^0-9.]/g, "");
-                          const val = parseFloat(raw);
+                        // Live what-if: update the override on every keystroke so the
+                        // margin cells + per-vendor margin recompute immediately (not
+                        // only on blur). Local state only — never written to the line.
+                        onChange={(e) => {
+                          const text = e.target.value;
+                          setSellDrafts((p) => new Map(p).set(li.id, text));
+                          const val = parseFloat(text.replace(/[^0-9.]/g, ""));
                           setSellOverrides((p) => {
                             const next = new Map(p);
                             if (!isNaN(val) && val > 0) next.set(li.id, val);

@@ -104,7 +104,7 @@ export default async function handler(req, res) {
           created_by_user_id: v.data.created_by_user_id,
         },
         buf,
-        { mime: v.data.mime, notes: v.data.notes });
+        { mime: v.data.mime, notes: v.data.notes, original_filename: v.data.original_filename });
 
       // A document attached to a costing line whose RFQ was already SENT is a
       // vendor-relevant change (costing-line docs reach the vendor RFQ detail
@@ -165,6 +165,12 @@ export function validateUploadBody(body) {
       mime: body.mime,
       bytes_base64: body.bytes_base64,
       notes: body.notes ? String(body.notes) : null,
+      // Original client-side filename — used as the download (Content-
+      // Disposition) name so files keep their real name (e.g. Q3-costing.xlsx)
+      // rather than the storage basename vN.ext. Falls back to title.
+      original_filename: body.original_filename
+        ? String(body.original_filename).trim()
+        : (body.title ? String(body.title).trim() : null),
       created_by_user_id: body.created_by_user_id || null,
     },
   };
