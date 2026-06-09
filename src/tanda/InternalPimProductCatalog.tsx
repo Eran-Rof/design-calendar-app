@@ -22,6 +22,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import InternalPimStyleDetail from "./InternalPimStyleDetail";
 import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
 import { fmtDateDisplay } from "../utils/tandaTypes";
@@ -614,9 +615,11 @@ export default function InternalPimProductCatalog() {
                       <img
                         src={r.primary_thumb}
                         alt={r.style_code}
+                        title="View all images for this style"
+                        onClick={(e) => { e.stopPropagation(); openStyleGallery(r.id, r.style_code); }}
                         style={{
                           width: 90, height: 90, objectFit: "cover",
-                          borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "#0b1220",
+                          borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "#0b1220", cursor: "pointer",
                         }}
                       />
                     ) : (
