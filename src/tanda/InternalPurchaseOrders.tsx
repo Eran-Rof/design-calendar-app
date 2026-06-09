@@ -78,7 +78,8 @@ export default function InternalPurchaseOrders() {
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
   // Scorecard per-line drill: ?q=<po_number> seeds the search on mount so a
   // new-tab deep-link lands here filtered to that single PO. Server-side q is
-  // all-field: matches PO #, vendor name/code, or notes.
+  // all-field (search_purchase_orders RPC): matches PO #, notes, vendor
+  // name/code, and any line's style / SKU / line description.
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("q"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
@@ -149,7 +150,7 @@ export default function InternalPurchaseOrders() {
             options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))]}
             placeholder="All vendors" inputStyle={inputStyle} />
         </div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO # or vendor…" style={{ ...inputStyle, width: 230 }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO #, vendor, style…" style={{ ...inputStyle, width: 240 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}

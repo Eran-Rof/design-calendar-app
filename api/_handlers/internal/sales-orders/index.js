@@ -12,7 +12,7 @@
 // Brand/channel + entity scoped. Writes via service-role (anon-read RLS).
 
 import { createClient } from "@supabase/supabase-js";
-import { applyBrandScope, applyChannelScope } from "../../../_lib/brandContext.js";
+import { applyBrandScope, applyChannelScope, activeBrandId, activeChannelId } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 20 };
 
@@ -135,32 +135,34 @@ export default async function handler(req, res) {
     limit = Math.min(limit, 500);
     if (status && !STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
 
-    let query = admin.from("sales_orders").select(SELECT_COLS)
-      .eq("entity_id", entity.id)
-      .order("order_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(limit);
-    query = applyBrandScope(query, req);
-    query = applyChannelScope(query, req);
-    if (status) query = query.eq("status", status);
-    if (customerId && UUID_RE.test(customerId)) query = query.eq("customer_id", customerId);
+    const custId = customerId && UUID_RE.test(customerId) ? customerId : null;
+    let data, error;
     if (q) {
-      // All-field search: SO #, notes, or customer name/code. A parent column
-      // can't be OR'd with an embedded one in a single PostgREST filter, so we
-      // resolve matching customer ids first and OR them into the header query.
-      const like = `%${q}%`;
-      const ors = [`so_number.ilike.${like}`, `notes.ilike.${like}`];
-      const { data: custMatches } = await admin
-        .from("customers")
-        .select("id")
-        .or(`name.ilike.${like},customer_code.ilike.${like}`)
-        .limit(1000);
-      const custIds = (custMatches || []).map((c) => c.id);
-      if (custIds.length) ors.push(`customer_id.in.(${custIds.join(",")})`);
-      query = query.or(ors.join(","));
+      // All-field search (SO #, notes, customer name/code, and any line's
+      // description / SKU sku_code / style_code / description) runs in the
+      // search_sales_orders RPC so the line-level match never has to ship a
+      // large id.in.(…) URL. NULL brand/channel = "all" unless enforcing.
+      ({ data, error } = await admin.rpc("search_sales_orders", {
+        p_entity_id: entity.id,
+        p_q: q,
+        p_status: status || null,
+        p_customer_id: custId,
+        p_brand_id: activeBrandId(req),
+        p_channel_id: activeChannelId(req),
+        p_limit: limit,
+      }));
+    } else {
+      let query = admin.from("sales_orders").select(SELECT_COLS)
+        .eq("entity_id", entity.id)
+        .order("order_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      query = applyBrandScope(query, req);
+      query = applyChannelScope(query, req);
+      if (status) query = query.eq("status", status);
+      if (custId) query = query.eq("customer_id", custId);
+      ({ data, error } = await query);
     }
-
-    const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data || []);
   }

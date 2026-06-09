@@ -11,7 +11,7 @@
 // Brand + entity scoped. Writes via service-role (anon-read RLS).
 
 import { createClient } from "@supabase/supabase-js";
-import { applyBrandScope } from "../../../_lib/brandContext.js";
+import { applyBrandScope, activeBrandId } from "../../../_lib/brandContext.js";
 
 export const config = { maxDuration: 20 };
 
@@ -92,31 +92,32 @@ export default async function handler(req, res) {
     limit = Math.min(limit, 500);
     if (status && !STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
 
-    let query = admin.from("purchase_orders").select(SELECT_COLS)
-      .eq("entity_id", entity.id)
-      .order("order_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(limit);
-    query = applyBrandScope(query, req);
-    if (status) query = query.eq("status", status);
-    if (vendorId && UUID_RE.test(vendorId)) query = query.eq("vendor_id", vendorId);
+    const venId = vendorId && UUID_RE.test(vendorId) ? vendorId : null;
+    let data, error;
     if (q) {
-      // All-field search: PO #, notes, or vendor name/code. A parent column
-      // can't be OR'd with an embedded one in a single PostgREST filter, so we
-      // resolve matching vendor ids first and OR them into the header query.
-      const like = `%${q}%`;
-      const ors = [`po_number.ilike.${like}`, `notes.ilike.${like}`];
-      const { data: vendorMatches } = await admin
-        .from("vendors")
-        .select("id")
-        .or(`name.ilike.${like},code.ilike.${like}`)
-        .limit(1000);
-      const vendorIds = (vendorMatches || []).map((v) => v.id);
-      if (vendorIds.length) ors.push(`vendor_id.in.(${vendorIds.join(",")})`);
-      query = query.or(ors.join(","));
+      // All-field search (PO #, notes, vendor name/code, and any line's
+      // description / SKU sku_code / style_code / description) runs in the
+      // search_purchase_orders RPC so the line-level match never has to ship a
+      // large id.in.(…) URL. NULL brand = "all" unless enforcing.
+      ({ data, error } = await admin.rpc("search_purchase_orders", {
+        p_entity_id: entity.id,
+        p_q: q,
+        p_status: status || null,
+        p_vendor_id: venId,
+        p_brand_id: activeBrandId(req),
+        p_limit: limit,
+      }));
+    } else {
+      let query = admin.from("purchase_orders").select(SELECT_COLS)
+        .eq("entity_id", entity.id)
+        .order("order_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      query = applyBrandScope(query, req);
+      if (status) query = query.eq("status", status);
+      if (venId) query = query.eq("vendor_id", venId);
+      ({ data, error } = await query);
     }
-
-    const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data || []);
   }

@@ -105,7 +105,7 @@ The alert fires once per SO (deduped on the SO id), through the same `resolveInt
 
 ### Finding a sales order (list search)
 
-The **Search SO # or customer…** box at the top of 🛒 Sales Orders is **all-field**: the server matches the typed text against the **SO number**, the **customer name / code**, and the order **notes** (case-insensitive, substring). So you can pull up an order by who it's for, not just its number. It works alongside the **Customer** and **Status** filters (all are ANDed) and updates as you type (200 ms debounce). Customer-name matches are resolved server-side, so they find orders across the whole order book, not just the rows currently loaded.
+The **Search SO #, customer, style…** box at the top of 🛒 Sales Orders is **all-field**: the server matches the typed text against the **SO number**, the **customer name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring). So you can pull up an order by who it's for or by a style on it, not just its number. It works alongside the **Customer** and **Status** filters (all are ANDed) and updates as you type (200 ms debounce). The whole search — including the line-level style/SKU match — runs in the `search_sales_orders` SQL function, so it spans the entire order book (not just the loaded rows) without shipping a giant id list over HTTP.
 
 ---
 
