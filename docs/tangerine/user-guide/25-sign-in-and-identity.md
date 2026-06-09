@@ -50,3 +50,51 @@ This bridge makes the **API layer** identity-aware. Making the **database itself
 - Minted in: `api/_handlers/internal/auth/provision.js`
 - Verified in: `api/_lib/auth.js` (`authenticateCaller` — local verify first, GoTrue fallback for vendor sessions)
 - Browser plumbing: `src/utils/tangerineAuthUser.ts` (cache) + `src/utils/internalApiAuth.ts` (header injection) + `src/Tangerine.tsx` (provision wiring)
+
+---
+
+## Forgot password / password reset (PLM launcher + Vendor portal)
+
+> **Applies to the two PASSWORD-based logins only:** the **PLM launcher** (`/`) and the **Vendor portal** (`/vendor/login`). Tangerine (Microsoft sign-in) and the B2B customer portal (magic link) have no password, so they have no "Forgot password?" link.
+
+### What the user sees
+
+1. On the sign-in screen, click **"Forgot password?"**.
+2. Enter your **username or email** (PLM) or your **email** (Vendor portal).
+3. You always see the same confirmation — *"If an account exists, a password reset email has been sent."* — whether or not the account exists. (This is deliberate: it prevents anyone from probing which usernames/emails are real.)
+4. The email contains a **"Set a new password"** link, valid for **1 hour** and usable **once**.
+5. Click it, choose a new password (minimum 8 characters), and confirm. You can then sign in.
+
+The **same link also sets a password for the first time** — if an account was created with a login but no password yet, "Forgot password?" is the way to set one.
+
+### Admin one-time setup: PLM user emails
+
+PLM accounts historically had **no email address**. Password-reset emails can't be sent without one, so admins must populate them:
+
+1. Open **PLM → User Access** (the admin user manager).
+2. **Edit** each user and fill in the new **Email** field (used only for password-reset emails). Save.
+3. Until a user has an email on file, their "Forgot password?" request will silently no-op (still showing the generic success message — by design).
+
+Vendor-portal users already have email addresses (they signed in with the email that received their invite), so no setup is needed there.
+
+### How it works (under the hood)
+
+- A request mints a cryptographically-random token. **Only its SHA-256 hash is stored** (table `password_reset_tokens`), alongside the account id, an expiry (1 hour), and a `used_at` marker. The raw token exists only inside the emailed link.
+- The reset page posts the raw token + new password back. The server re-hashes the token, confirms the row **exists, is unexpired, and is unused**, then sets the password:
+  - **PLM** — SHA-256 hash written into the `app_data` user blob (same scheme as normal PLM passwords; any legacy plaintext PIN is dropped on reset).
+  - **Vendor** — set in Supabase Auth via the service role.
+- The token is marked used immediately (single-use), and any other outstanding tokens for that account are burned too.
+- Requests are **rate-limited per account** (5 per 15 minutes). Emails fire **only** on a real reset request — never on app load.
+- The token table is **service-role only** (RLS on, no policies) — the browser can never read or write it.
+
+### Required environment
+
+Password-reset emails reuse the existing **Resend** sender (`RESEND_API_KEY`, optional `RESEND_FROM`) and require `SUPABASE_SERVICE_ROLE_KEY` on the server. If `RESEND_API_KEY` is unset, the request still succeeds silently but no email is sent.
+
+### Code map
+
+- Migration: `supabase/migrations/20260852000000_password_reset_tokens.sql`
+- Request endpoint: `api/_handlers/password-reset/request.js` (`POST /api/password-reset/request`)
+- Confirm endpoint: `api/_handlers/password-reset/confirm.js` (`POST /api/password-reset/confirm`)
+- PLM UI: `src/PLM.tsx` (`ForgotPasswordModal`, `ResetPasswordCard`, Email field in the user editor)
+- Vendor UI: `src/vendor/auth/VendorLogin.tsx` (forgot panel) + `src/vendor/auth/VendorResetPassword.tsx` (`/vendor/reset`)

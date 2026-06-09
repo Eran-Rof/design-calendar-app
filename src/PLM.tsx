@@ -36,6 +36,7 @@ interface User {
   id: string;
   username: string;
   name?: string;
+  email?: string;
   password: string;
   role: "admin" | "user";
   color?: string;
@@ -171,6 +172,138 @@ function ROFLogoFull({ height = 44 }: { height?: number }) {
   );
 }
 
+// ── Forgot-password request modal ──────────────────────────────────────────────
+// Posts username-or-email to the reset-request endpoint, which ALWAYS returns a
+// generic success (never reveals whether the account exists). Email only fires
+// on this explicit user action.
+function ForgotPasswordModal({ initial, onClose }: { initial: string; onClose: () => void }) {
+  const [identifier, setIdentifier] = useState(initial || "");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function submit() {
+    setErr("");
+    if (!identifier.trim()) { setErr("Enter your username or email."); return; }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/password-reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_type: "plm",
+          identifier: identifier.trim(),
+          site_url: window.location.origin,
+        }),
+      });
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        setErr((b as any)?.error || `Request failed (${r.status})`);
+        return;
+      }
+      setSent(true);
+    } catch (e: any) {
+      setErr(`Could not connect: ${e?.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ ...S.modalOverlay, zIndex: 400 }} onClick={onClose}>
+      <div style={{ ...S.modal, width: "min(380px, 95vw)", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#111827" }}>Reset your password</h3>
+          <button style={S.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+          {sent ? (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: "#374151", lineHeight: 1.5 }}>
+                If an account exists, a password reset email has been sent. Check your inbox and follow the link (valid for 1 hour).
+              </p>
+              <button style={S.btnPrimary} onClick={onClose}>Done</button>
+            </>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>
+                Enter your username or email and we'll send a reset link.
+              </p>
+              <input style={S.input} placeholder="Username or email"
+                value={identifier} onChange={e => setIdentifier(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submit()} autoFocus />
+              {err && <p style={S.err}>{err}</p>}
+              <button style={{ ...S.btnPrimary, opacity: busy ? 0.7 : 1 }} onClick={submit} disabled={busy}>
+                {busy ? "Sending…" : "Send reset link"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Set-new-password card (reset link target) ──────────────────────────────────
+// Posts the raw token + new password to the confirm endpoint, which validates
+// the token server-side and writes the sha256 hash into app_data.
+function ResetPasswordCard({ token }: { token: string }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function submit() {
+    setErr("");
+    if (password.length < 8) { setErr("Password must be at least 8 characters."); return; }
+    if (password !== confirm) { setErr("Passwords do not match."); return; }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/password-reset/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr((b as any)?.error || `Could not reset (${r.status})`); return; }
+      setDone(true);
+    } catch (e: any) {
+      setErr(`Could not connect: ${e?.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) return (
+    <div style={S.card}>
+      <p style={{ margin: "0 0 16px", fontSize: 14, color: "#374151", lineHeight: 1.5 }}>
+        Your password has been set. You can now sign in.
+      </p>
+      <a href="/" style={{ ...S.btnPrimary, display: "block", textAlign: "center", textDecoration: "none" }}>
+        Go to sign in
+      </a>
+    </div>
+  );
+
+  return (
+    <div style={S.card}>
+      <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>
+        Choose a new password for your account.
+      </p>
+      <input style={S.input} type="password" placeholder="New password" autoComplete="new-password"
+        value={password} onChange={e => setPassword(e.target.value)} autoFocus />
+      <input style={S.input} type="password" placeholder="Confirm new password" autoComplete="new-password"
+        value={confirm} onChange={e => setConfirm(e.target.value)}
+        onKeyDown={e => e.key === "Enter" && submit()} />
+      {err && <p style={S.err}>{err}</p>}
+      <button style={{ ...S.btnPrimary, opacity: busy ? 0.7 : 1 }} onClick={submit} disabled={busy}>
+        {busy ? "Saving…" : "Set password"}
+      </button>
+    </div>
+  );
+}
+
 // ── Main PLM Launcher ─────────────────────────────────────────────────────────
 export default function PLMApp() {
   const [user, setUser]           = useState<User | null>(null);
@@ -181,6 +314,14 @@ export default function PLMApp() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [view, setView] = useState<"launcher" | "notifications">("launcher");
+
+  // ── Password reset ──────────────────────────────────────────────────────────
+  // Reset link lands at /?reset_token=<token>. When present, show the set-new-
+  // password page instead of the launcher/login (read once at mount).
+  const [resetToken] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get("reset_token"); } catch { return null; }
+  });
+  const [showForgot, setShowForgot] = useState(false);
   const unreadAll = useAppUnreadCount({
     supabase: supabaseClient,
     userId: user?.id,
@@ -280,6 +421,22 @@ export default function PLMApp() {
     window.open(path, "_blank");
   }
 
+  // ── RESET-PASSWORD PAGE ──────────────────────────────────────────────────────
+  // Reachable via the emailed link (/?reset_token=...). Shown regardless of any
+  // stale session so the operator can always complete a reset.
+  if (resetToken) return (
+    <div style={S.bg}>
+      <div style={S.loginWrap}>
+        <ROFLogoFull height={72} />
+        <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 500, color: "#CDD1D7", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
+        <ResetPasswordCard token={resetToken} />
+        <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
+          Ring of Fire Clothing © {new Date().getFullYear()}
+        </p>
+      </div>
+    </div>
+  );
+
   // ── LOGIN SCREEN ────────────────────────────────────────────────────────────
   if (!user) return (
     <div style={S.bg}>
@@ -310,12 +467,19 @@ export default function PLMApp() {
             onClick={handleLogin} disabled={loggingIn}>
             {loggingIn ? "Signing in…" : "Sign In"}
           </button>
+
+          <button type="button" onClick={() => setShowForgot(true)}
+            style={{ background: "none", border: "none", color: "#9CA3AF", fontSize: 12, cursor: "pointer", marginTop: 14, padding: 0, fontFamily: "inherit", textDecoration: "underline" }}>
+            Forgot password?
+          </button>
         </div>
 
         <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
           Ring of Fire Clothing © {new Date().getFullYear()}
         </p>
       </div>
+
+      {showForgot && <ForgotPasswordModal initial={loginName} onClose={() => setShowForgot(false)} />}
     </div>
   );
 
@@ -576,7 +740,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
   function addUser() {
     const newUser: User = {
-      id: uid(), username: "", name: "", password: "", role: "user", color: "#3B82F6", initials: "",
+      id: uid(), username: "", name: "", email: "", password: "", role: "user", color: "#3B82F6", initials: "",
       permissions: {
         design:   { ...DEFAULT_PERMISSION },
         tanda:    { ...DEFAULT_PERMISSION },
@@ -598,7 +762,8 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     } else if (password && !isHashed(password)) {
       password = await sha256(password); // hash new plaintext password
     }
-    const saved = { ...editing, password };
+    const email = editing.email ? editing.email.trim().toLowerCase() : undefined;
+    const saved = { ...editing, password, email };
     const updated = exists ? users.map(u => u.id === editing.id ? saved : u) : [...users, saved];
     saveUsers(updated);
     setEditing(null);
@@ -811,6 +976,11 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                 <div>
                   <label style={S.label}>Username</label>
                   <input style={S.input} value={editing.username} onChange={e => setEditing(p => p ? { ...p, username: e.target.value } : p)} placeholder="username" />
+                </div>
+                <div>
+                  <label style={S.label}>Email</label>
+                  <input style={S.input} type="email" value={editing.email ?? ""} onChange={e => setEditing(p => p ? { ...p, email: e.target.value } : p)} placeholder="name@ringoffireclothing.com" />
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#9CA3AF" }}>Used for password-reset emails. Required for "Forgot password?".</p>
                 </div>
                 <div>
                   <label style={S.label}>Password</label>

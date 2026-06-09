@@ -520,6 +520,8 @@ import r_marketplace_listings_id from "./marketplace/listings/[id].js";
 import r_marketplace_listings_index from "./marketplace/listings/index.js";
 import r_master_sync from "./master/sync.js";
 import r_parse_excel from "./parse-excel.js";
+import r_password_reset_confirm from "./password-reset/confirm.js";
+import r_password_reset_request from "./password-reset/request.js";
 import r_planning_sync_on_hand from "./planning/sync-on-hand.js";
 import r_planning_sync_open_pos from "./planning/sync-open-pos.js";
 import r_sales_backfill_grain from "./sales/backfill-grain.js";
@@ -1125,6 +1127,8 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-access", handler: r_internal_vendor_access_index },
   { pattern: "/api/internal/vendor-master", handler: r_internal_vendor_master_index },
   { pattern: "/api/internal/virtual-cards", handler: r_internal_virtual_cards_index },
+  { pattern: "/api/password-reset/confirm", handler: r_password_reset_confirm },
+  { pattern: "/api/password-reset/request", handler: r_password_reset_request },
   { pattern: "/api/planning/sync-open-pos", handler: r_planning_sync_open_pos },
   { pattern: "/api/vendor/change-requests", handler: r_vendor_change_requests },
   { pattern: "/api/vendor/discount-offers", handler: r_vendor_discount_offers_index },
