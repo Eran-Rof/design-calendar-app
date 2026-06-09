@@ -10,8 +10,8 @@
 //     same sort, same visible columns. Do NOT re-query the DB.
 //   - Default column inference: if `columns` is omitted, the hook reads
 //     keys off `rows[0]` and uses them as both `key` and `header`.
-//   - Cell coercion: dates → ISO; numbers → numbers (not strings); null →
-//     empty; objects → JSON.stringify (rare; UI usually flattens first).
+//   - Cell coercion: dates → US MM/DD/YYYY; numbers → numbers (not strings);
+//     null → empty; objects → JSON.stringify (rare; UI usually flattens first).
 //   - Filename: defaults to `<panel>-<YYYY-MM-DD>.<ext>`. Caller may pass
 //     a custom filename (without extension; the hook appends it).
 //   - No styling beyond bold header row + autofit columns (cap 60 chars).
@@ -55,6 +55,40 @@ export function inferColumns<T extends Record<string, unknown>>(rows: T[]): Expo
   return keys.map((k) => ({ key: k, header: k }));
 }
 
+// US-format date helpers for exported cells. The suite's prevailing display
+// format is US MM/DD/YYYY (see formatDate in src/utils/dates.ts); downloads
+// must match what the operator sees on screen.
+//
+// TZ-safety: a bare `YYYY-MM-DD` is a calendar date with no zone, so we slice
+// the parts directly (no Date object, no midnight-UTC drift to the prior day).
+// A `Date` instance is read in UTC — matching the prior `toISOString().slice`
+// behavior and keeping the output deterministic regardless of the runtime TZ.
+export function toUsDate(value: unknown): string {
+  if (value instanceof Date) {
+    return `${String(value.getUTCMonth() + 1).padStart(2, "0")}/${String(value.getUTCDate()).padStart(2, "0")}/${value.getUTCFullYear()}`;
+  }
+  const s = String(value);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[2]}/${m[3]}/${m[1]}`;
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    return `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}/${d.getUTCFullYear()}`;
+  }
+  return s;
+}
+
+// MM/DD/YYYY HH:MM in local time — mirrors the on-screen formatDT helper so a
+// timestamp column reads the same in the download as on the panel.
+export function toUsDateTime(value: unknown): string {
+  const d = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(d.getTime())) return String(value);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}/${dd}/${d.getFullYear()} ${hh}:${mi}`;
+}
+
 export function formatCell(value: unknown, col?: ExportColumn<Record<string, unknown>>): unknown {
   if (value == null) return "";
   const fmt = col?.format;
@@ -66,14 +100,8 @@ export function formatCell(value: unknown, col?: ExportColumn<Record<string, unk
     const n = Number(value);
     return Number.isFinite(n) ? n : "";
   }
-  if (fmt === "date") {
-    if (value instanceof Date) return value.toISOString().slice(0, 10);
-    return String(value);
-  }
-  if (fmt === "datetime") {
-    if (value instanceof Date) return value.toISOString();
-    return String(value);
-  }
+  if (fmt === "date") return toUsDate(value);
+  if (fmt === "datetime") return toUsDateTime(value);
   if (typeof value === "object") return JSON.stringify(value);
   return value;
 }
@@ -85,7 +113,7 @@ export function formatCell(value: unknown, col?: ExportColumn<Record<string, unk
  *   currency_cents / currency_dollars → $X.XX
  *   number  → fixed `digits` (default raw)
  *   percent → X.X%
- *   date / datetime → ISO slice (already strings from formatCell)
+ *   date / datetime → US MM/DD/YYYY (already strings from formatCell)
  */
 export function formatCellDisplay(value: unknown, col?: ExportColumn<Record<string, unknown>>): string {
   const coerced = formatCell(value, col);
