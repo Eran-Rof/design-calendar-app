@@ -56,6 +56,7 @@ function Gallery({ styleId, label, onClose }: { styleId: string; label: string; 
   const [err, setErr] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [enlarged, setEnlarged] = useState<number | null>(null); // index into imgs, or null
 
   useEffect(() => {
     let cancelled = false;
@@ -68,12 +69,19 @@ function Gallery({ styleId, label, onClose }: { styleId: string; label: string; 
     return () => { cancelled = true; };
   }, [styleId]);
 
-  // Esc closes.
+  // Keyboard: in the lightbox, ←/→ navigate and Esc returns to the grid; in the
+  // grid, Esc closes.
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const h = (e: KeyboardEvent) => {
+      if (enlarged != null) {
+        if (e.key === "Escape") setEnlarged(null);
+        else if (e.key === "ArrowRight") setEnlarged((i) => (i == null ? i : Math.min(imgs.length - 1, i + 1)));
+        else if (e.key === "ArrowLeft") setEnlarged((i) => (i == null ? i : Math.max(0, i - 1)));
+      } else if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  }, [onClose, enlarged, imgs.length]);
 
   const toggle = (id: string) => setSel((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAll = () => setSel(new Set(imgs.map((i) => i.id)));
@@ -137,14 +145,19 @@ function Gallery({ styleId, label, onClose }: { styleId: string; label: string; 
             : imgs.length === 0 ? <div style={{ color: C.sub, padding: 30, textAlign: "center" }}>No images for this style yet.</div>
             : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
-              {imgs.map((img) => {
+              {imgs.map((img, idx) => {
                 const on = sel.has(img.id);
                 return (
-                  <div key={img.id} onClick={() => toggle(img.id)} title={img.color || img.alt_text || ""} style={{ cursor: "pointer", border: `2px solid ${on ? C.accent : C.bdr}`, borderRadius: 8, overflow: "hidden", position: "relative", background: "#0b1220" }}>
+                  // Click the tile to ENLARGE; tick the corner checkbox to SELECT.
+                  <div key={img.id} onClick={() => setEnlarged(idx)} title="Click to enlarge" style={{ cursor: "zoom-in", border: `2px solid ${on ? C.accent : C.bdr}`, borderRadius: 8, overflow: "hidden", position: "relative", background: "#0b1220" }}>
                     <div style={{ aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <img src={bestUrl(img, "web")} alt={img.alt_text || ""} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
                     </div>
-                    {on && <div style={{ position: "absolute", top: 6, right: 6, background: C.accent, color: "#06240F", borderRadius: 999, width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13 }}>✓</div>}
+                    <div
+                      onClick={(e) => { e.stopPropagation(); toggle(img.id); }}
+                      title={on ? "Deselect" : "Select"}
+                      style={{ position: "absolute", top: 6, right: 6, width: 22, height: 22, borderRadius: 999, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, background: on ? C.accent : "rgba(2,6,23,0.7)", color: on ? "#06240F" : "#fff", border: `1px solid ${on ? C.accent : "#64748b"}` }}
+                    >{on ? "✓" : ""}</div>
                     {img.color && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, padding: "2px 6px", textAlign: "center" }}>{img.color}</div>}
                   </div>
                 );
@@ -153,9 +166,25 @@ function Gallery({ styleId, label, onClose }: { styleId: string; label: string; 
           )}
         </div>
       </div>
+
+      {/* Enlarged lightbox — click backdrop or ✕ to return to the grid; ←/→ to navigate. */}
+      {enlarged != null && imgs[enlarged] && (
+        <div onClick={(e) => { e.stopPropagation(); setEnlarged(null); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 11001, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={(e) => { e.stopPropagation(); setEnlarged(null); }} style={lbBtn} title="Close (Esc)">✕</button>
+          {enlarged > 0 && <button onClick={(e) => { e.stopPropagation(); setEnlarged(enlarged - 1); }} style={{ ...lbNav, left: 12 }} title="Previous (←)">‹</button>}
+          {enlarged < imgs.length - 1 && <button onClick={(e) => { e.stopPropagation(); setEnlarged(enlarged + 1); }} style={{ ...lbNav, right: 12 }} title="Next (→)">›</button>}
+          <img onClick={(e) => e.stopPropagation()} src={bestUrl(imgs[enlarged], "print")} alt={imgs[enlarged].alt_text || ""} style={{ maxWidth: "94vw", maxHeight: "90vh", objectFit: "contain" }} />
+          <div style={{ position: "fixed", bottom: 14, left: 0, right: 0, textAlign: "center", color: "#cbd5e1", fontSize: 12 }}>
+            {[label, imgs[enlarged].color, `${enlarged + 1}/${imgs.length}`].filter(Boolean).join("  ·  ")}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const lbBtn: React.CSSProperties = { position: "fixed", top: 14, right: 16, zIndex: 11002, width: 38, height: 38, borderRadius: 999, border: "1px solid #475569", background: "rgba(2,6,23,0.7)", color: "#fff", fontSize: 18, cursor: "pointer" };
+const lbNav: React.CSSProperties = { position: "fixed", top: "50%", transform: "translateY(-50%)", zIndex: 11002, width: 46, height: 64, borderRadius: 8, border: "1px solid #475569", background: "rgba(2,6,23,0.6)", color: "#fff", fontSize: 32, lineHeight: "1", cursor: "pointer" };
 
 function btn(solid: boolean, color = "#475569"): React.CSSProperties {
   return { padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: solid ? "none" : `1px solid ${C.bdr}`, background: solid ? color : "transparent", color: solid ? "#fff" : C.text };

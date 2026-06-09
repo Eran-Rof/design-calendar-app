@@ -19,6 +19,7 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
+import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
 import { drillToModule } from "./scorecardDrill";
 
@@ -417,6 +418,8 @@ export default function InternalInventoryMatrix() {
   // for up to 50 of the brand's styles and render them all.
   const [brandPayloads, setBrandPayloads] = useState<Array<{style: StyleListRow; payload: MatrixPayload}>>([]);
   const [brandLoading, setBrandLoading] = useState(false);
+  // Batch-fetch per-color thumbnails for every style in the all-styles view.
+  const brandThumbs = useStyleThumbs(brandPayloads.map((b) => b.style.id));
   const [multiPage, setMultiPage] = useState(0); // 0-indexed page for multi-style view
 
   // Style list + size-scale names once on mount. Request the endpoint's max
@@ -1285,7 +1288,7 @@ export default function InternalInventoryMatrix() {
                             return (
                               <tr key={row.key} style={{ borderBottom: it.groupEnd ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
                                 <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
-                                  <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />
+                                  <StyleThumb styleId={bStyle.id} label={bStyle.style_code} url={brandThumbs.get(bStyle.id)?.byColor[(row.color || "").toLowerCase().trim()] ?? brandThumbs.get(bStyle.id)?.default ?? null} />
                                 </td>
                                 <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                                 <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
@@ -1309,7 +1312,7 @@ export default function InternalInventoryMatrix() {
                           return (
                             <tr key={row.key} style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
                               <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
-                                <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />
+                                <StyleThumb styleId={bStyle.id} label={bStyle.style_code} url={brandThumbs.get(bStyle.id)?.byColor[(row.color || "").toLowerCase().trim()] ?? brandThumbs.get(bStyle.id)?.default ?? null} />
                               </td>
                               <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                               {bShowRise && <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>}

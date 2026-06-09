@@ -69,6 +69,7 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
+import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 // Universal Column Visibility primitive (Operator ask #1, 2026-05-30).
@@ -210,6 +211,7 @@ function genderLabelFor(code: string | null, labelMap?: Map<string, string>): st
 
 export default function InternalStyleMaster() {
   const [rows, setRows] = useState<Style[]>([]);
+  const smThumbs = useStyleThumbs(rows.map((r) => r.id));
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   // Polish ask A — search-as-you-type. `q` binds to the input (synchronous);
@@ -545,6 +547,7 @@ export default function InternalStyleMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={{ ...th, width: 52, textAlign: "center" }}>Img</th>
                 <th style={th} hidden={!isVisible("style_code")}>Style Number</th>
                 <th style={th} hidden={!isVisible("style_name")}>Style Name</th>
                 <th style={th} hidden={!isVisible("description")}>Description</th>
@@ -572,6 +575,9 @@ export default function InternalStyleMaster() {
                   {...getRowProps(r)}
                   style={r.deleted_at ? { opacity: 0.4 } : undefined}
                 >
+                  <td style={{ ...td, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                    <StyleThumb styleId={r.id} label={r.style_code} url={smThumbs.get(r.id)?.default ?? null} />
+                  </td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("style_code")}>
                     {r.style_code}
                   </td>
