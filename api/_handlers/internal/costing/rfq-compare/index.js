@@ -100,7 +100,7 @@ export default async function handler(req, res) {
       .in("rfq_id", rfqIds)
       .order("line_index", { ascending: true }),
     admin.from("rfq_quotes")
-      .select("id, rfq_id, vendor_id, status, total_price, lead_time_days, valid_until, notes, vendor:vendors(id, name, legal_name, code)")
+      .select("id, rfq_id, vendor_id, status, total_price, lead_time_days, valid_until, submitted_at, notes, vendor:vendors(id, name, legal_name, code)")
       .in("rfq_id", rfqIds)
       .in("status", SUBMITTED_STATUSES),
   ]);
@@ -192,6 +192,7 @@ export default async function handler(req, res) {
       total_price: q.total_price,
       lead_time_days: q.lead_time_days,
       valid_until: q.valid_until,
+      submitted_at: q.submitted_at || null,
       notes: q.notes,
       lines: linesByQuote.get(q.id) || [],
     });
