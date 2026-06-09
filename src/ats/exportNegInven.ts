@@ -40,7 +40,7 @@ export function exportNegInven(
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null = null,
 ): ReportPayload | null {
   const today = new Date();
-  const todayStr = `${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
+  const todayStr = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
 
   function atsVal(r: ATSRow, p: { endDate: string }): number | null {
     const v = r.freeMap?.[p.endDate] ?? r.dates[p.endDate];

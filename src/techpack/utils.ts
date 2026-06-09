@@ -18,13 +18,13 @@ export function today(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-/** Render a date as MM/DD/YYYY for the operator. Null / empty / un-
+/** Render a date as DD/MM/YYYY for the operator. Null / empty / un-
  *  parseable input renders the em-dash placeholder. */
 export function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
   try {
     const dt = new Date(d);
-    return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+    return dt.toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" });
   } catch {
     return d;
   }

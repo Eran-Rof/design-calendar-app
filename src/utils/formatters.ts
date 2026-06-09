@@ -1,12 +1,13 @@
 // ── Shared formatting helpers ─────────────────────────────────────────────────
 // Used across Design Calendar, PO WIP, ATS, and Tech Packs.
 
-/** Format a date string as MM/DD/YYYY. Handles ISO and US date formats. */
+/** Format a date string as day-first DD/MM/YYYY. Handles ISO and US date formats.
+ *  Name kept for back-compat with existing call sites. */
 export function fmtDateMMDDYYYY(d?: string | null): string {
   if (!d) return "—";
   const dt = new Date(d.includes("T") ? d : d + "T00:00:00");
   if (isNaN(dt.getTime())) return d;
-  return `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}/${dt.getFullYear()}`;
+  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 
 /** Format a number as currency. Supports nullable input and custom currency codes. */

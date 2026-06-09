@@ -166,9 +166,9 @@ describe("milestoneUid", () => {
 });
 
 describe("fmtDate", () => {
-  it("formats date as MM/DD/YYYY", () => {
+  it("formats date as day-first DD/MM/YYYY", () => {
     // Use ISO format with time to avoid timezone shifts
-    expect(fmtDate("2026-03-05T12:00:00")).toBe("03/05/2026");
+    expect(fmtDate("2026-03-05T12:00:00")).toBe("05/03/2026");
   });
   it("returns dash for empty input", () => {
     expect(fmtDate()).toBe("—");

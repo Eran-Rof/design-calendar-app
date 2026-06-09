@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 
 interface Fx {
@@ -71,7 +71,7 @@ export default function VendorPayments() {
                       <div style={{ fontWeight: 700 }}>{p.currency} {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       <div style={{ fontSize: 11, color: C.textMuted }}>
                         {p.invoice ? `Invoice ${p.invoice.invoice_number} · ` : ""}
-                        {p.method.toUpperCase()} · {new Date(p.initiated_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                        {p.method.toUpperCase()} · {new Date(p.initiated_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}
                         {p.reference ? ` · ${p.reference}` : ""}
                       </div>
                     </div>

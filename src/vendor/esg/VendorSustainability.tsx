@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 
 interface Report {
@@ -89,10 +89,10 @@ export default function VendorSustainability() {
           {rows.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 130px 130px 120px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>{r.reporting_period_start} → {r.reporting_period_end}</div>
-              <div style={{ color: C.textSub }}>{new Date(r.submitted_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
+              <div style={{ color: C.textSub }}>{new Date(r.submitted_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
               <div><StatusChip status={r.status} /></div>
               <div style={{ fontWeight: 700 }}>{r.esg_score ? r.esg_score.overall_score.toFixed(0) : "—"}</div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—"}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—"}</div>
               {r.status === "rejected" && r.rejection_reason && (
                 <div style={{ gridColumn: "1 / -1", fontSize: 11, color: C.danger, marginTop: 4 }}>Rejection reason: {r.rejection_reason}</div>
               )}

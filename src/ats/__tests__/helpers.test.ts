@@ -27,8 +27,8 @@ describe("fmtDate", () => {
 });
 
 describe("fmtDateDisplay", () => {
-  it("formats ISO date as MM/DD/YYYY", () => {
-    expect(fmtDateDisplay("2026-03-05")).toBe("03/05/2026");
+  it("formats ISO date as day-first DD/MM/YYYY", () => {
+    expect(fmtDateDisplay("2026-03-05")).toBe("05/03/2026");
   });
   it("returns dash for empty input", () => {
     expect(fmtDateDisplay("")).toBe("—");

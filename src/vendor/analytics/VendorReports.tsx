@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
@@ -576,7 +576,7 @@ function POPhaseActivity({ rows }: { rows: Array<{ po_id: string; po_number: str
               {r.rejected > 0 ? <span style={{ background: "#7F1D1D33", color: "#FCA5A5", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{r.rejected}</span> : <span style={{ color: TH.textMuted, fontSize: 11 }}>—</span>}
             </div>
             <div style={{ textAlign: "right", fontSize: 11, color: TH.textMuted }}>
-              {r.latest_at ? new Date(r.latest_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—"}
+              {r.latest_at ? new Date(r.latest_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" }) : "—"}
             </div>
             <div style={{ textAlign: "right", color: TH.primary, fontSize: 14, fontWeight: 700 }}>→</div>
           </Link>
