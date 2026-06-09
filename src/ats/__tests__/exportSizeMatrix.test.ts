@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import XLSXStyle from "xlsx-js-style";
 import { buildExportPayload, type AtsSizeMatrixResponse } from "../exportExcel";
 import type { ExportOptions } from "../panels/ExportOptionsModal";
 import type { ATSRow } from "../types";
@@ -35,30 +34,31 @@ const matrix: AtsSizeMatrixResponse = {
   }],
 };
 
-function sheetAoa(wb: any, name: string): any[][] {
-  const ws = wb.Sheets[name];
-  return ws ? (XLSXStyle.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][]) : [];
-}
+// The matrix tabs now live in payload.extraSheets as styled Cell[][] arrays.
+const names = (p: any): string[] => (p?.wb?.worksheets ?? []).map((w: any) => w.name);
+const sheetCells = (p: any, name: string): any[][] => (p?.extraSheets ?? []).find((s: any) => s.name === name)?.aoa ?? [];
+const sheetAoa = (p: any, name: string): any[][] =>
+  sheetCells(p, name).map((row) => (row ?? []).map((cell: any) => (cell == null ? "" : cell.v ?? "")));
 
 describe("By Size Matrix worksheet", () => {
   const bulk = new Map([["RYB0412|CHARCOAL", { so: 1000, po: 1000 }]]);
 
   it("appends a 'By Size Matrix' sheet only when the option + data are present", () => {
     const off = buildExportPayload([row()], [], [], null, baseOpts({ bySizeMatrix: false }), null, undefined, true, undefined, matrix, bulk);
-    expect(off!.wb.SheetNames).not.toContain("By Size Matrix");
+    expect(names(off)).not.toContain("By Size Matrix");
 
     const noData = buildExportPayload([row()], [], [], null, baseOpts(), null, undefined, true, undefined, undefined, bulk);
-    expect(noData!.wb.SheetNames).not.toContain("By Size Matrix");
+    expect(names(noData)).not.toContain("By Size Matrix");
 
     const on = buildExportPayload([row()], [], [], null, baseOpts(), null, undefined, true, undefined, matrix, bulk);
-    expect(on!.wb.SheetNames).toContain("By Size Matrix");
+    expect(names(on)).toContain("By Size Matrix");
     // The main report is always present + untouched.
-    expect(on!.wb.SheetNames).toContain("ATS Report");
+    expect(names(on)).toContain("ATS Report");
   });
 
   it("renders header, color row, and subtotal exactly per the locked layout (with spacer cols)", () => {
     const payload = buildExportPayload([row()], [], [], null, baseOpts(), null, undefined, true, undefined, matrix, bulk)!;
-    const aoa = sheetAoa(payload.wb, "By Size Matrix");
+    const aoa = sheetAoa(payload, "By Size Matrix");
 
     const header = aoa.find((r) => r[0] === "Style" && r.includes("ATS"));
     expect(header).toBeTruthy();
@@ -91,7 +91,7 @@ describe("By Size Matrix worksheet", () => {
 
   it("title row names the style + section", () => {
     const payload = buildExportPayload([row()], [], [], null, baseOpts(), null, undefined, true, undefined, matrix, bulk)!;
-    const aoa = sheetAoa(payload.wb, "By Size Matrix");
+    const aoa = sheetAoa(payload, "By Size Matrix");
     expect(String(aoa[0][0])).toContain("RYB0412");
     expect(String(aoa[0][0])).toContain("ATS Available by Size");
   });
@@ -99,12 +99,12 @@ describe("By Size Matrix worksheet", () => {
   it("adds one tab per period with a 22pt dark-blue/white period banner", () => {
     const periodMatrices = [{ name: "June 2026", matrix }, { name: "July 2026", matrix }];
     const payload = buildExportPayload([row()], [], [], null, baseOpts(), null, undefined, true, undefined, matrix, bulk, periodMatrices)!;
-    expect(payload.wb.SheetNames).toContain("By Size Matrix"); // snapshot stays
-    expect(payload.wb.SheetNames).toContain("June 2026");
-    expect(payload.wb.SheetNames).toContain("July 2026");
-    const june = sheetAoa(payload.wb, "June 2026");
+    expect(names(payload)).toContain("By Size Matrix"); // snapshot stays
+    expect(names(payload)).toContain("June 2026");
+    expect(names(payload)).toContain("July 2026");
+    const june = sheetAoa(payload, "June 2026");
     expect(String(june[0][0])).toBe("June 2026");             // banner text
-    const a1 = (payload.wb.Sheets["June 2026"] as any)["A1"];
+    const a1 = sheetCells(payload, "June 2026")[0][0];
     expect(a1.s.font.sz).toBe(22);                            // 22pt
     expect(a1.s.font.color.rgb).toBe("FFFFFF");               // white font
     expect(a1.s.fill.fgColor.rgb).toBe("1F497D");             // dark-blue fill

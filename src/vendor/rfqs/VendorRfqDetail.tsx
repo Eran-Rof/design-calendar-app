@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import * as XLSX from "xlsx";
+import { newWorkbook, addAoaSheet, downloadExcelWorkbook } from "../../shared/excelLogo";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge from "../StatusBadge";
@@ -268,12 +269,14 @@ export default function VendorRfqDetail() {
       lineQtys[li.id] ? parseQty(lineQtys[li.id]) : "",
       lineNotes[li.id] || "",
     ]);
-    const ws = XLSX.utils.aoa_to_sheet([...meta, header, ...body]);
-    ws["!cols"] = [{ wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 9 }, { wch: 6 }, { wch: 15 }, { wch: 9 }, { wch: 24 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "RFQ");
+    const wb = newWorkbook();
+    addAoaSheet(wb, "RFQ", [...meta, header, ...body], {
+      title: `RFQ — ${rfq.title ?? ""}`.trim(),
+      metaRows: meta.length,
+      cols: [5, 12, 16, 22, 12, 16, 16, 9, 6, 15, 9, 24],
+    });
     const safe = (rfq.title || "rfq").replace(/[^\w-]+/g, "_").slice(0, 40);
-    XLSX.writeFile(wb, `RFQ_${safe}.xlsx`);
+    void downloadExcelWorkbook(wb, `RFQ_${safe}.xlsx`);
   }
 
   if (loading) return <div style={{ color: "rgba(255,255,255,0.85)" }}>Loading…</div>;

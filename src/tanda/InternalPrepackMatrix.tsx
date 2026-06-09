@@ -29,6 +29,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import XLSXStyle from "xlsx-js-style";
+import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, type ExcelJS } from "../shared/excelLogo";
+
+type PrepackSpec = { allRows: any[][]; cols: Array<{ wch: number }>; merges?: any[] };
+// Render a prepack grid spec as a branded sheet (logo on top).
+function appendPrepackSheet(wb: ExcelJS.Workbook, spec: PrepackSpec, name: string): void {
+  renderStyledAoa(wb, name, spec.allRows, {
+    banner: { cols: spec.cols.length },
+    cols: spec.cols.map((c) => c.wch),
+    merges: spec.merges,
+  });
+}
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -263,11 +274,10 @@ function buildPrepackSheet(sizes: string[], items: FillItem[]) {
   legend[5] = sCell("Green = auto", { ...ST.legend, fill: { fgColor: { rgb: "E2EFDA" }, patternType: "solid" }, border: _border });
   grid.push(legend);
 
-  const ws = (XLSXStyle.utils.aoa_to_sheet as any)(grid);
-  ws["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 13 }, { wch: 14 },
+  const cols = [{ wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 13 }, { wch: 14 },
     ...sizes.map(() => ({ wch: 7 })), { wch: 11 }, { wch: 9 }];
-  ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }, { s: { r: 1, c: 4 }, e: { r: 1, c: 5 } }];
-  return ws;
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }, { s: { r: 1, c: 4 }, e: { r: 1, c: 5 } }];
+  return { allRows: grid, cols, merges } as PrepackSpec;
 }
 
 // Sanitize a worksheet name (≤31 chars, no []:*?/\).
@@ -280,9 +290,9 @@ function downloadTemplate() {
     { ppk_style_code: "RYB059430PPK", style_name: "Edge Slim", pack_token: "PPK24", carton_qty: 24, upp: 3,
       sizeIp: { "30": 1, "31": 1, "32": 2, "33": 1, "34": 2, "36": 1 } },
   ]);
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "Prepack Matrix");
-  XLSXStyle.writeFile(wb, "prepack-matrix-template.xlsx");
+  const wb = newWorkbook();
+  appendPrepackSheet(wb, ws, "Prepack Matrix");
+  void downloadExcelWorkbook(wb, "prepack-matrix-template.xlsx");
 }
 
 type NeededRow = {
@@ -320,7 +330,7 @@ function buildNeededWorkbook(rows: NeededRow[]) {
     if (a.isScale) return a.label.localeCompare(b.label);
     return a.sizes.length - b.sizes.length || a.sizes.join().localeCompare(b.sizes.join());
   });
-  const wb = XLSXStyle.utils.book_new();
+  const wb = newWorkbook();
   let n = 0;
   for (const g of ordered) {
     // Skip one-size groups (e.g. the ONE-SIZE scale or a lone size) — a single-
@@ -329,7 +339,7 @@ function buildNeededWorkbook(rows: NeededRow[]) {
     n++;
     const items: FillItem[] = g.items.map((it) => ({ ppk_style_code: it.ppk_style_code, style_name: it.style_name, pack_token: it.pack_token, carton_qty: it.carton_total }));
     const label = `${n}. ${g.label} (${g.items.length})`;
-    XLSXStyle.utils.book_append_sheet(wb, buildPrepackSheet(g.sizes, items), sheetName(label));
+    appendPrepackSheet(wb, buildPrepackSheet(g.sizes, items), sheetName(label));
   }
   if (noSizes.length) {
     // No sized sibling — just the prefill columns + a note; sizes added manually.
@@ -338,9 +348,7 @@ function buildNeededWorkbook(rows: NeededRow[]) {
       ["PPK Style Code", "Matrix Name", "Pack Token", "Carton Qty"].map((t) => sCell(t, ST.hdr)),
       ...noSizes.map((it) => [sCell(it.ppk_style_code, ST.white), sCell(it.style_name || "", ST.white), sCell(it.pack_token || "", ST.whiteC), nCell(it.carton_total ?? "", ST.whiteC)]),
     ];
-    const ws = (XLSXStyle.utils.aoa_to_sheet as any)(grid);
-    ws["!cols"] = [{ wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }];
-    XLSXStyle.utils.book_append_sheet(wb, ws, sheetName(`No sizes (${noSizes.length})`));
+    appendPrepackSheet(wb, { allRows: grid, cols: [{ wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }] }, sheetName(`No sizes (${noSizes.length})`));
   }
   return wb;
 }
@@ -633,7 +641,7 @@ export default function InternalPrepackMatrix() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const needed = await r.json() as NeededRow[];
       if (!needed.length) { notify("All PPK styles already have a matrix — nothing to download.", "success"); return; }
-      XLSXStyle.writeFile(buildNeededWorkbook(needed), "prepack-matrices-all-ppk.xlsx");
+      void downloadExcelWorkbook(buildNeededWorkbook(needed), "prepack-matrices-all-ppk.xlsx");
       notify(`Downloaded ${needed.length} PPK styles needing a matrix.`, "success");
     } catch (e: unknown) {
       notify(`Download all failed: ${e instanceof Error ? e.message : String(e)}`, "error");

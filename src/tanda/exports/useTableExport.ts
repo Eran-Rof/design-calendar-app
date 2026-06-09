@@ -17,7 +17,20 @@
 //   - No styling beyond bold header row + autofit columns (cap 60 chars).
 //   - For CSV, RFC 4180 quoting; UTF-8 BOM so Excel opens it cleanly.
 
-import * as XLSX from "xlsx";
+import { newWorkbook, addLogoBanner, styleHeaderCell, styleBodyCell, downloadExcelWorkbook } from "../../shared/excelLogo";
+import { ROF_LOGO_DATA_URL } from "../../shared/assets/rofLogo";
+
+// Excel number format for a column's logical format.
+function numFmtFor(format?: string, digits?: number): string | undefined {
+  if (format === "currency_cents" || format === "currency_dollars") {
+    return digits != null ? `$#,##0.${"0".repeat(digits)}` : "$#,##0.00";
+  }
+  if (format === "number") return digits != null ? `#,##0.${"0".repeat(digits)}` : "#,##0";
+  // Percent values arrive already in percent units (e.g. 12.5 → "12.5%"), so
+  // append a literal % rather than Excel's *100 percent format.
+  if (format === "percent") return `#,##0.${"0".repeat(digits ?? 1)}"%"`;
+  return undefined;
+}
 
 export type ExportColumn<T = Record<string, unknown>> = {
   key: keyof T & string;
@@ -165,16 +178,56 @@ function autofitWidths(aoa: unknown[][]) {
   return widths;
 }
 
-export function exportXlsx<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
+// Ring of Fire branded xlsx — canonical "ATS look" (blue header band, zebra
+// rows, bold-blue first column) with the logo stamped on top. Every Tangerine
+// panel export inherits this through the shared hook.
+export async function exportXlsx<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
+  const wb = buildTableWorkbook(args);
+  await downloadExcelWorkbook(wb, `${args.filename}.xlsx`);
+}
+
+// Builds the branded ExcelJS workbook (no download) — separated so it can be
+// unit-tested and previewed.
+export function buildTableWorkbook<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
   const cols = args.columns && args.columns.length > 0 ? args.columns : inferColumns(args.rows);
-  const aoa = buildAoA(args.rows, cols);
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = autofitWidths(aoa);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, args.sheetName || "Sheet1");
-  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  downloadBlob(blob, `${args.filename}.xlsx`);
+  const aoa = buildAoA(args.rows, cols); // [header, ...coerced body]
+  const wb = newWorkbook();
+  const ws = wb.addWorksheet((args.sheetName || "Sheet1").replace(/[\\/*?:[\]]/g, "-").slice(0, 31));
+  const start = addLogoBanner(wb, ws, {
+    title: args.sheetName || args.filename,
+    subtitle: `${args.rows.length} row${args.rows.length === 1 ? "" : "s"} · ${todayStamp()}`,
+    cols: Math.max(cols.length, 1),
+  });
+
+  // Header row.
+  const hdr = ws.getRow(start);
+  cols.forEach((c, i) => {
+    const cell = hdr.getCell(i + 1);
+    cell.value = String(c.header ?? c.key);
+    styleHeaderCell(cell, i === 0 ? "left" : "center");
+  });
+  hdr.height = 20;
+
+  // Body rows (zebra), with per-column number formats.
+  args.rows.forEach((r, ri) => {
+    const row = ws.getRow(start + 1 + ri);
+    row.height = 15;
+    cols.forEach((c, ci) => {
+      const v = formatCell(r[c.key], c as unknown as ExportColumn<Record<string, unknown>>);
+      const cell = row.getCell(ci + 1);
+      const isNum = typeof v === "number";
+      const kind = ci === 0 ? "key" : isNum && (v as number) < 0 ? "neg" : "body";
+      if (v !== "" && v != null) cell.value = v as never;
+      styleBodyCell(cell, ri, isNum ? "right" : "left", kind);
+      if (isNum) { const nf = numFmtFor(c.format, c.digits); if (nf) cell.numFmt = nf; }
+    });
+  });
+
+  // Auto-fit widths from the coerced AOA (cap 60), then freeze the header.
+  autofitWidths(aoa).forEach((w, i) => { ws.getColumn(i + 1).width = w.wch; });
+  ws.views = [{ state: "frozen", xSplit: 0, ySplit: start }];
+
+  return wb;
 }
 
 export function exportCsv<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
@@ -228,9 +281,10 @@ export function exportPdf<T extends Record<string, unknown>>(args: UseTableExpor
   h1 { font-size: 16px; margin: 0 0 2px; }
   .meta { font-size: 11px; color: #64748b; margin-bottom: 12px; }
   table { border-collapse: collapse; width: 100%; font-size: 11px; }
-  th, td { border: 1px solid #cbd5e1; padding: 4px 8px; text-align: left; vertical-align: top; }
-  thead th { background: #1e293b; color: #f1f5f9; font-weight: 600; }
-  tbody tr:nth-child(even) { background: #f1f5f9; }
+  th, td { border: 1px solid #d0d8e4; padding: 4px 8px; text-align: left; vertical-align: top; }
+  thead th { background: #1F497D; color: #ffffff; font-weight: 600; }
+  tbody tr:nth-child(even) { background: #eef3fa; }
+  .rof-logo { height: 30px; display: block; margin-bottom: 8px; }
   @media print {
     body { margin: 0; }
     thead { display: table-header-group; }
@@ -239,6 +293,7 @@ export function exportPdf<T extends Record<string, unknown>>(args: UseTableExpor
 </style>
 </head>
 <body>
+  <img class="rof-logo" src="${ROF_LOGO_DATA_URL}" alt="Ring of Fire" />
   <h1>${escapeHtml(title)}</h1>
   <div class="meta">${rowCount} row${rowCount === 1 ? "" : "s"} · ${escapeHtml(stamp)}</div>
   <table>
