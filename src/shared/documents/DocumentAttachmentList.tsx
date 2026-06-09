@@ -1,4 +1,4 @@
-﻿// src/shared/documents/DocumentAttachmentList.tsx
+// src/shared/documents/DocumentAttachmentList.tsx
 //
 // Tangerine P2 Chunk 6 — reusable attachment widget.
 // Drops into any panel via:
@@ -197,7 +197,7 @@ export default function DocumentAttachmentList({
             </div>
             {d.current_version && (
               <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>
-                v{d.current_version.version_number} · {d.current_version.mime_type} · {formatBytes(d.current_version.byte_size)} · {new Date(d.current_version.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                v{d.current_version.version_number} · {d.current_version.mime_type} · {formatBytes(d.current_version.byte_size)} · {new Date(d.current_version.created_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}
               </div>
             )}
           </div>

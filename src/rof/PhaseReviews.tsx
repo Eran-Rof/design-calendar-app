@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type PriorReview = {
   id: string;
@@ -417,7 +417,7 @@ export default function PhaseReviews() {
                         {r.last_rejected_at && (
                           <>
                             {" Previously rejected on "}
-                            <strong>{new Date(r.last_rejected_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}</strong>
+                            <strong>{new Date(r.last_rejected_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}</strong>
                             {r.last_rejected_note && <>: <span style={{ fontStyle: "italic", color: C.textSub }}>"{r.last_rejected_note}"</span></>}
                           </>
                         )}
@@ -520,7 +520,7 @@ export default function PhaseReviews() {
                       <div style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Prior review history</div>
                       {(r.prior_reviews || []).map((p) => (
                         <div key={p.id} style={{ marginTop: 2 }}>
-                          {p.status === "approved" ? "✓" : "✗"} {p.status} {p.new_value ?? "(cleared)"} on {new Date(p.reviewed_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                          {p.status === "approved" ? "✓" : "✗"} {p.status} {p.new_value ?? "(cleared)"} on {new Date(p.reviewed_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}
                           {p.reviewed_by_internal_id && ` by ${p.reviewed_by_internal_id}`}
                           {p.review_note && <span style={{ fontStyle: "italic" }}> — "{p.review_note}"</span>}
                         </div>

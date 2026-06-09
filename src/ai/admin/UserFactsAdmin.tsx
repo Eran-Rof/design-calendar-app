@@ -1,4 +1,4 @@
-﻿// Admin UI for ip_ai_user_facts (Tier 2H — operator-authored Ask AI notes).
+// Admin UI for ip_ai_user_facts (Tier 2H — operator-authored Ask AI notes).
 //
 // Mounted at /ai-facts (see src/main.tsx). Internal staff only.
 // Each operator can add, edit, and remove facts that the Ask AI panel
@@ -276,7 +276,7 @@ export default function UserFactsAdmin() {
                   <span style={appChip}>{f.app}</span>
                 )}
                 <span style={{ marginLeft: "auto", color: PAL.textMuted, fontSize: 11 }}>
-                  updated {new Date(f.updated_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
+                  updated {new Date(f.updated_at).toLocaleDateString("en-GB", { month: "2-digit", day: "2-digit", year: "numeric" })}
                 </span>
               </div>
               <div style={{ color: PAL.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{f.fact}</div>

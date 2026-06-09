@@ -180,7 +180,7 @@ export function timelinePanel(ctx: TimelinePanelCtx): React.ReactElement | null 
                   return (
                     <div key={i} style={{ position: "absolute", left: w.offset, width: wWidth, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", borderRight: "1px solid #1E293B", background: isThisWeek ? "#F59E0B15" : "transparent" }}>
                       <span style={{ fontSize: 15, color: isThisWeek ? "#F59E0B" : "#6B7280", fontWeight: isThisWeek ? 700 : 500 }}>
-                        {w.date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}
+                        {w.date.toLocaleDateString("en-GB", { month: "numeric", day: "numeric" })}
                       </span>
                     </div>
                   );
