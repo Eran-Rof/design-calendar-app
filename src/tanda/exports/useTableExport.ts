@@ -10,8 +10,10 @@
 //     same sort, same visible columns. Do NOT re-query the DB.
 //   - Default column inference: if `columns` is omitted, the hook reads
 //     keys off `rows[0]` and uses them as both `key` and `header`.
-//   - Cell coercion: dates → US MM/DD/YYYY; numbers → numbers (not strings);
-//     null → empty; objects → JSON.stringify (rare; UI usually flattens first).
+//   - Cell coercion: dates → US MM/DD/YYYY (xlsx writes a REAL Excel date cell
+//     with an mm/dd/yyyy numFmt so it sorts chronologically; csv/pdf use the
+//     MM/DD/YYYY string); numbers → numbers (not strings); null → empty;
+//     objects → JSON.stringify (rare; UI usually flattens first).
 //   - Filename: defaults to `<panel>-<YYYY-MM-DD>.<ext>`. Caller may pass
 //     a custom filename (without extension; the hook appends it).
 //   - No styling beyond bold header row + autofit columns (cap 60 chars).
@@ -87,6 +89,34 @@ export function toUsDateTime(value: unknown): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
   return `${mm}/${dd}/${d.getFullYear()} ${hh}:${mi}`;
+}
+
+// For the xlsx path only: turn a date/datetime value into a REAL Excel date
+// cell so Excel sorts/filters chronologically, while still DISPLAYING as US
+// MM/DD/YYYY via a numFmt. We derive the calendar parts from the same
+// toUsDate/toUsDateTime output the CSV/PDF paths use, so the rendered cell
+// matches the string export and the screen exactly. Building the Date from
+// LOCAL parts is TZ-safe: ExcelJS subtracts the local offset when it serializes
+// to a serial number, so the value lands on the intended calendar date.
+// Returns null for empty/unparseable values — caller falls back to a string.
+export function excelDateCell(
+  value: unknown,
+  fmt: "date" | "datetime",
+): { value: Date; numFmt: string } | null {
+  if (fmt === "date") {
+    const m = toUsDate(value).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return {
+      value: new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2])),
+      numFmt: "mm/dd/yyyy",
+    };
+  }
+  const m = toUsDateTime(value).match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return {
+    value: new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]), Number(m[4]), Number(m[5])),
+    numFmt: "mm/dd/yyyy hh:mm",
+  };
 }
 
 export function formatCell(value: unknown, col?: ExportColumn<Record<string, unknown>>): unknown {
@@ -241,8 +271,19 @@ export function buildTableWorkbook<T extends Record<string, unknown>>(args: UseT
     const row = ws.getRow(start + 1 + ri);
     row.height = 15;
     cols.forEach((c, ci) => {
-      const v = formatCell(r[c.key], c as unknown as ExportColumn<Record<string, unknown>>);
       const cell = row.getCell(ci + 1);
+      // Real Excel date cells for date/datetime columns: chronological sort +
+      // US MM/DD/YYYY display. Falls through to the string form if unparseable.
+      const dc = (c.format === "date" || c.format === "datetime")
+        ? excelDateCell(r[c.key], c.format)
+        : null;
+      if (dc) {
+        cell.value = dc.value;
+        cell.numFmt = dc.numFmt;
+        styleBodyCell(cell, ri, "left", ci === 0 ? "key" : "body");
+        return;
+      }
+      const v = formatCell(r[c.key], c as unknown as ExportColumn<Record<string, unknown>>);
       const isNum = typeof v === "number";
       const kind = ci === 0 ? "key" : isNum && (v as number) < 0 ? "neg" : "body";
       if (v !== "" && v != null) cell.value = v as never;
