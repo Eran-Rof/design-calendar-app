@@ -49,19 +49,25 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
   const tokenHash = sha256(token);
 
-  // Look up the token. Generic invalid message either way (don't reveal whether
-  // the token ever existed vs. was already consumed/expired in distinct ways).
+  // Atomically CLAIM the token: flip used_at NULL→now only if it's still unused
+  // AND unexpired, in a single conditional UPDATE. This closes the TOCTOU window
+  // a select-then-update would leave open (two concurrent requests with the same
+  // token both passing the check). Fail-safe: the token is burned before the
+  // password is set — if the set then fails, the user just requests a new link.
+  const nowIso = new Date().toISOString();
   const { data: row, error: tErr } = await admin
     .from("password_reset_tokens")
-    .select("id, subject_type, subject_id, email, expires_at, used_at")
+    .update({ used_at: nowIso })
     .eq("token_hash", tokenHash)
+    .is("used_at", null)
+    .gt("expires_at", nowIso)
+    .select("id, subject_type, subject_id, email")
     .maybeSingle();
   if (tErr) return res.status(500).json({ error: "Token lookup failed" });
-  if (!row || row.used_at) {
-    return res.status(400).json({ error: "This reset link is invalid or has already been used." });
-  }
-  if (new Date(row.expires_at).getTime() < Date.now()) {
-    return res.status(400).json({ error: "This reset link has expired. Request a new one." });
+  if (!row) {
+    // Nothing claimed → never existed, already used, or expired. One generic
+    // message (don't reveal which case it was).
+    return res.status(400).json({ error: "This reset link is invalid, expired, or already used." });
   }
 
   try {
@@ -83,9 +89,8 @@ export default async function handler(req, res) {
       }
       const idx = users.findIndex((u) => String(u?.id) === String(row.subject_id));
       if (idx === -1) {
-        // The user was deleted after the token was minted. Don't 500 — treat as
-        // an invalid link.
-        await admin.from("password_reset_tokens").update({ used_at: new Date().toISOString() }).eq("id", row.id);
+        // The user was deleted after the token was minted. The token is already
+        // burned (claimed above); just treat as an invalid link.
         return res.status(400).json({ error: "This reset link is no longer valid." });
       }
       const newHash = sha256(password);
@@ -99,10 +104,9 @@ export default async function handler(req, res) {
       if (wErr) return res.status(500).json({ error: "Could not save the new password." });
     }
 
-    // Mark the token used (single-use). Also burn any other outstanding tokens
-    // for this subject so a second emailed link can't be replayed.
-    const nowIso = new Date().toISOString();
-    await admin.from("password_reset_tokens").update({ used_at: nowIso }).eq("id", row.id);
+    // This token was already burned by the atomic claim above. Also burn any
+    // OTHER outstanding tokens for this subject so a second emailed link can't
+    // be replayed.
     await admin
       .from("password_reset_tokens")
       .update({ used_at: nowIso })
