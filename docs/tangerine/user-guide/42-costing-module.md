@@ -63,6 +63,13 @@ LY (last year) and T3 (trailing 3 months) cost, sales price and margin are pulle
 sales history for the **base style** — both the base style and its PPK variants
 contribute, with pack rows exploded to per-unit so prepack pricing doesn't skew the average.
 
+**Single-unit (qty = 1) sales are excluded** from the comp — one-off pieces (samples /
+B2C, often priced far above wholesale) aren't representative and were skewing thin windows
+(e.g. a color that only sold a handful of single units last year). Pack sales are kept (a
+1-pack PPK row explodes to its unit count). If a style/color genuinely had no multi-unit
+wholesale sales in a window, that comp shows **—** instead of a misleading number. *(Comp
+values are stored per line — use the comp refresh to recompute existing lines.)*
+
 ## Incomplete-row guard
 
 A row is **incomplete** if it's missing any of: style, color, vendor, qty, cost
