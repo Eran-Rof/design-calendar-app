@@ -56,6 +56,8 @@ The header status enum is `draft → confirmed → allocated → fulfilling → 
 
 > **Note on transitions:** the state machine is permissive, not strictly linear. You can `🧾 Create AR invoice` from any of `confirmed / allocated / fulfilling / shipped` (it invoices the full open balance and jumps the SO straight to `invoiced`), and you can `🚚 Ship` directly from `confirmed` (the ship handler accepts `confirmed/allocated/fulfilling`). Allocation is therefore an optional reservation step, not a hard gate before shipping.
 
+> **Invoiced → green clickable header.** Once a sales order has been billed into an AR invoice, re-opening it shows the modal header in **green** and reads `Sales order SO-2026-00002 — invoiced · 🧾 AR-2026-00007 ↗`. Clicking the header jumps to **🧾 AR Invoices** filtered to that invoice (`?m=ar_invoices&q=<INV#>`) — the reverse of the **🧾 Create AR invoice** drill. The link resolves the invoice by `ar_invoices.sales_order_id` (the M10-C link column, served via `GET /api/internal/ar-invoices?sales_order_id=<uuid>`); the most-recent non-void invoice wins. Un-invoiced orders keep the plain title.
+
 ### Creating a sales order (draft)
 
 From **🛒 Sales Orders → + New sales order**. The header pickers mirror the AR-invoice modal:
