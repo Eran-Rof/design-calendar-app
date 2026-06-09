@@ -547,6 +547,7 @@ export default [
   ["/api/internal/shopify/stores/:id/test"                   , "./internal/shopify/stores/[id]/test.js"],
   ["/api/internal/shopify/stores/:id/bulk-link"              , "./internal/shopify/stores/[id]/bulk-link.js"],
   ["/api/internal/shopify/stores/:id/bulk-pull"              , "./internal/shopify/stores/[id]/bulk-pull.js"],
+  ["/api/internal/shopify/stores/:id/bulk-sync-meta"         , "./internal/shopify/stores/[id]/bulk-sync-meta.js"],
   ["/api/internal/shopify/stores/:id"                        , "./internal/shopify/stores/[id].js"],
   ["/api/internal/shopify/stores"                            , "./internal/shopify/stores/index.js"],
   ["/api/cron/shopify-payouts-daily"                         , "../cron/shopify-payouts-daily.js"],
