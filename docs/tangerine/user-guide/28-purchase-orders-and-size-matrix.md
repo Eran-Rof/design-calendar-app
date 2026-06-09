@@ -245,6 +245,20 @@ The panel supports CRUD plus a **styled** xlsx/csv template round-trip that upse
 
 So **carton units for a size = inner packs × Units/Inner Pack**. Example `RYB059430PPK` / Edge Slim / PPK24: Units/Inner Pack = 3, sizes 30·31·33·36 = 1 inner pack, 32·34 = 2 → 8 inner packs × 3 = **24 units**.
 
+### Bulk seed 2026-06-09 (135 active matrices)
+
+From an operator template (`matrices ppk.csv`) Claude bulk-seeded **116 new** matrices + **refreshed 15** RCB ones (→ **135 active**), matched to PPK styles by **prefix + pack token**:
+
+| Template | Composition (qty/pack per size) | Carton |
+|---|---|---|
+| **RBB-PPK48** | 8·12, 10·12, 12·12, 14·12 | 48 |
+| **RBB-PPK24** | 8·6, 10·6, 12·6, 14·6 | 24 |
+| **RCB-PPK60** | 4·15, 5·15, 6·15, 7·15 | 60 |
+| **RCB-PPK24** | 4·6, 5·6, 6·6, 7·6 | 24 |
+| **RYO-PPK18** | SML·3, MED·6, LRG·6, XLG·3 (1 inner each except MED/LRG·2) | 18 |
+
+These PPK styles now explode in the Inventory Matrix. **83 PPK styles still lack a matrix** and await operator curves — exported to `Producton Orders/PPK_matrices_need_guidance.xlsx` (RYB denim need a waist curve, not the alpha RYB-PPK24; RYG/ACMB/RBG/RBO/etc. have no template yet; some have no pack-token SKU; `RBB1042-PPK` is ambiguous across PPK40/44/48).
+
 - **Download template** ships the one filled Edge Slim example on a single styled sheet.
 - **⬇ Download all PPK** fetches every PPK style still lacking a matrix (from `v_prepack_ppk_needed`, via `GET /api/internal/prepack-matrices/needed`) and writes one workbook **grouped by size scale**: every style sharing the same **assigned size scale** (`style_master.size_scale_id` → `size_scales`) lands on **one tab**, with that scale's **canonical ordered sizes** as the columns. Styles with **no scale assigned** fall back to grouping by their raw size-set (one tab per distinct set, as before). White cells pre-filled from the master (names never guessed), yellow cells blank. Fill it in and upload the whole file in one go. **One-size groups are omitted** — a single-column prepack template is useless. Size columns sort **numerically** even for combined alpha/number labels (e.g. `S/8 · M/10 · L/12 · XL/14` order by 8·10·12·14, not by the letter). **To get the consolidated by-scale tabs, assign a Size Scale to each style** (Style Master → 🎯 Auto-assign size scales, §28.2) — unscaled styles fall back to per-size-set tabs.
 - **Upload** reads **every sheet** and is section-aware (title / `INNER PACK` band / blank / legend rows skipped; a `PPK Style Code` header re-establishes the columns). It accepts the **inner-pack** format (above), the **long** format (`…| Size | Inner Pack Qty | Qty Per Box`), and **legacy wide** (paired `<size> Inner`/`<size> Box`, or a plain `<size>` = carton units), in `.xlsx` **or `.csv`**. The **+ Add matrix / Edit** modal builds the composition the **same horizontal way it renders in the list** (no typed syntax): an **inner packs** grid (one boxed cell per size, you type the count) **× a Units / Inner Pack** field **= a carton** grid (box qty per size, auto-fills = inner × units, still editable), with live **inner-packs** and **carton** totals above each grid and a **warning when the carton total ≠ the pack token's qty** (e.g. PPK24 → must sum to 24). Type a label + **Add size** to add a column — it **slots into the correct sort order on both grids**; click a size label to remove it. **+ Create** from the "needs a matrix" list pre-loads the sizes. A **Size scale** picker at the top of the composition (a searchable dropdown of the Size Scale Master — search by code, name or sizes) lays the chosen scale's **ordered sizes out as the columns** in one click, so you don't hand-type each size (any inner/box you'd already typed for a matching size is kept); you can still add or remove sizes by hand afterwards. Both Inner Packs and Box Qty are saved per size, so editing a box quantity no longer drops the inner-pack breakdown _(the edit/PATCH path now persists `inner_pack_qty` too — previously a save could silently drop it)_.

@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-06-09 — PPK prepack matrices seeded (operator CSV)
+
+⚠️ **REVIEW — production master-data bulk insert.** From the operator's `matrices ppk.csv` (6 templates), Claude **created 116** `prepack_matrices` + their size/inner-pack composition and **refreshed 15** existing RCB matrices → **135 active**. Matched by style prefix + pack token: RBB-PPK48 (8/10/12/14 ×12 = 48), RBB-PPK24 (×6), RCB-PPK60 (4/5/6/7 ×15 = 60), RCB-PPK24 (×6), RYO-PPK18 (SML3/MED6/LRG6/XLG3 = 18, alpha). Each size row carries `qty_per_pack` (carton) **and** `inner_pack_qty`. **Those PPK styles now explode** in the Inventory Matrix (Explode toggle, #1107). **Still open:** **83 PPK styles need operator guidance** → `Producton Orders/PPK_matrices_need_guidance.xlsx` (4 categories): **26 RYB denim** need a WAIST curve (RYB-PPK24 template is ALPHA, doesn't fit); **42** have no template for their prefix (RYG/ACMB/RBG/RBO/RG/RCO/RJO/CYB/SP/R); **14** have no pack-token SKU; **1** (RBB1042-PPK) ambiguous (PPK40/44/48). **Verify:** spot-check a seeded style (e.g. RYO0730PPK → Explode shows SML/MED/LRG/XLG eaches).
+
+## 2026-06-08 — Nav polish: faded active highlight + favorites-only (#1124, #1135)
+
+The selected menu item's bright royal-blue highlight is now a soft `rgba(59,130,246,0.16)` tint. Selecting a view **from Favorites** no longer auto-expands or highlights that module's copy in the menu below — only the favorites row shows selected (cleared on any other navigation). No data change.
+
 ## 2026-06-08 — 3PL Recon: nightly SFTP auto-pull (#1114)
 
 Made the 3PL recon hands-off. New cron `/api/cron/tpl-inventory-pull` (02:30 UTC) SFTP-pulls each provider's newest inventory file, parses (846/CSV), and reconciles via the shared `reconcileSnapshot`. Added `ssh2-sftp-client` dependency (lockfile updated). New `tpl_providers` columns `inventory_sftp_path/last_inventory_file/last_inventory_pulled_at` (migration `20260840000000`, **PROD-applied**). Configure per provider in the recon panel's **⚙ Auto-pull (SFTP)** section. **Verify:** the secret stays in an env var (named by `edi_credential_ref`), never the DB; the nightly run ingests + dedupes via `last_inventory_file`. ⚠️ New native-ish dep (ssh2) — watch the first Vercel build.
