@@ -366,21 +366,27 @@ export default function PAUnpackerPanel() {
         </div>
       )}
 
-      {/* Verification banner */}
+      {/* Verification banner — silent self-check, runs on every parse */}
       {hasData && (
         allOk ? (
           <div style={{ background: "#F0FFF4", border: "1px solid #9AE6B4", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#276749", fontWeight: 600 }}>
-            ✓ All {verify.total} channel totals tie out to PA report row 46.
+            ✓ Double-checked &amp; reconciled — {verify.byKind.color_coverage.passed.toLocaleString()} colors,{" "}
+            {verify.byKind.row_total.passed.toLocaleString()} line rows and{" "}
+            {verify.byKind.channel.passed.toLocaleString()} channel totals all tie out
+            ({verify.total.toLocaleString()} checks passed).
           </div>
         ) : (
           <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: TH.primary }}>
             <div style={{ fontWeight: 700, marginBottom: 4 }}>
-              ✗ {verify.mismatches.length} mismatch{verify.mismatches.length === 1 ? "" : "es"} vs PA report row 46:
+              ✗ {verify.mismatches.length} reconciliation {verify.mismatches.length === 1 ? "check" : "checks"} failed — output may be wrong, do not rely on it:
             </div>
             <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
               {verify.mismatches.slice(0, 10).map((m, idx) => (
                 <li key={idx} style={{ fontSize: 12 }}>
-                  {m.file} / {m.sheet} / {m.channel}: computed {m.computed.toLocaleString()} ≠ reported {m.reported.toLocaleString()}
+                  {m.file} / {m.sheet}: {m.label}
+                  {m.kind !== "color_coverage" && (
+                    <> — computed {m.computed.toLocaleString()} ≠ reported {m.reported.toLocaleString()}</>
+                  )}
                 </li>
               ))}
               {verify.mismatches.length > 10 && (
