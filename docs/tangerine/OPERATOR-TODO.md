@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-09 (Shopify store connected + images pulled — done; added API-auth hardening security follow-up after moving the app to apps.ringoffire.com)
+**Last updated:** 2026-06-09 (unified Suite User Guide shipped #1165; added 📚 Documentation depth follow-ups — areas to dig deeper into)
 
 ---
 
@@ -16,6 +16,22 @@
 | **Plaid credentials** | M7/M8 Bank feeds + reconciliation (live) | Live Plaid API keys / item link so bank + CC feeds pull real transactions (recon engine is built; needs the live connection). |
 | **Stock-allocation rule** | P15 inventory stock-pool separation | How existing on-hand maps to the new WS/EC "store" pools. Recommended default: **all current stock → each brand's Wholesale pool**, tag new receipts going forward. (Or "import the Xoro store split.") |
 | **Axel entity details** | Axel brand standup | Axel is a separate legal entity. Provide its legal name / tax / fiscal info to stand up the entity + brand, then its 15 unmapped `ip_item_avg_cost` rows get attributed. |
+
+## 📚 Documentation depth — dig deeper (agent work, not blocked on you)
+
+> Raised 2026-06-09 from the unified Suite User Guide build (#1165). These are areas the per-app
+> chapters covered at a workflow level but flagged for a deeper pass — verify against live behaviour,
+> then either expand the chapter or build/fix what's missing. None of these block anything.
+
+| Area | What to dig into |
+|---|---|
+| **Legacy `docs/apps/` overviews** | `ats-overview.md` / `po-wip-overview.md` / `inventory-planning-overview.md` are now short *technical* notes (kept, with a pointer to the unified guide). Decide later whether to expand them into architecture docs or retire them so there's no drift vs the user-guide chapters. |
+| **Tech Packs — PDF & AI** | Chapter 4 found export is **Excel-only** (no PDF) and **no AI generation** in `/techpack`. Confirm that's intended, or scope PDF export / AI tech-pack assist if expected. |
+| **"Ask AI" model** | The Design Calendar and Tech Packs **Ask AI** panels don't name their model in source. Confirm which model each runs (Tangerine assistants are documented as Haiku) and standardise. |
+| **Vendor Portal — Finance / More▾ menus** | Chapter 10 found large sub-menus (Early-pay / Supply-Chain-Finance / Virtual cards / Tax-withholding; Contracts / Marketplace / ESG / Disputes / API keys / ERP-EDI). Verify which are **live vs inert/later-phase**, then document or mark them. |
+| **PO WIP — Drop-Ship / 3PL surface** | These panels live in `src/tanda/` but are mounted in **Tangerine** (Sales/Inventory), not the `/tanda` nav. Confirm the intended home and document accordingly. Timeline view also not deep-documented. |
+| **ATS — modal text & grid legend** | Normalization-review and merge-confirm modals + the grid colour legend were described generically; do a pass for exact labels/semantics. |
+| **Planning — Accuracy run + AI suggestions** | The Accuracy "run pass" control label and the AI co-pilot suggestion mechanics weren't pinned down; verify and document. |
 
 ## 🔵 Security follow-up (needs your go-ahead; agent builds it)
 
