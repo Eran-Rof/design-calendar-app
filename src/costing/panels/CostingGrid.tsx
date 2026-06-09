@@ -79,7 +79,9 @@ const COLUMNS: ColumnDef[] = [
   { key: "insurance",      label: "Insur",    width: 70,  align: "right", numeric: true },
   { key: "other_costs",    label: "Other",    width: 70,  align: "right", numeric: true },
   { key: "_landed",        label: "Landed",   width: 80,  align: "right" },
-  { key: "_sell_from_margin", label: "Sell Tgt Frm Mrgn", width: 120, align: "right" },
+  // Slim column; its header is stacked on two lines ("Sell Tgt" / "Frm Mrgn")
+  // in the header render. label stays one-line plain for the column-toggle list.
+  { key: "_sell_from_margin", label: "Sell Tgt Frm Mrgn", width: 78, align: "right" },
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
   // LY comp — qty col dropped, replaced by sales-price (LY Sls Prc).
@@ -747,14 +749,20 @@ export default function CostingGrid() {
                 </div>
               );
             }
+            // Narrow margin-derive column: stack the header on two lines
+            // ("Sell Tgt" / "Frm Mrgn") so the column can stay slim.
+            const headerContent = c.key === "_sell_from_margin"
+              ? (<><div>Sell Tgt</div><div>Frm Mrgn</div></>)
+              : c.label;
             return (
               <div key={c.key} style={{
                 flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
-                padding: "8px 10px", fontSize: 10, fontWeight: 700,
+                padding: c.key === "_sell_from_margin" ? "5px 4px" : "8px 10px",
+                fontSize: 10, fontWeight: 700, lineHeight: 1.1,
                 color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
                 textAlign: c.align || "left",
                 borderRight: "1px solid #475569",
-              }}>{c.label}</div>
+              }}>{headerContent}</div>
             );
           })}
         </div>
