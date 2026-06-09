@@ -21,6 +21,31 @@ export function htmlToText(html) {
     .replace(/\s+/g, " ").trim();
 }
 
+/** Extract up to `max` bullet points from product HTML (its <li> list items). */
+export function htmlToBullets(html, max = 5) {
+  if (!html || typeof html !== "string") return [];
+  const out = [];
+  const re = /<li\b[^>]*>([\s\S]*?)<\/li>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null && out.length < max) {
+    const t = htmlToText(m[1]);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/** Pull SEO title / meta-description from a product's `global` metafields. */
+export function seoFromMetafields(metafields) {
+  const list = Array.isArray(metafields) ? metafields : [];
+  const find = (key) => list.find((x) => x && x.namespace === "global" && x.key === key);
+  const tt = find("title_tag");
+  const dt = find("description_tag");
+  return {
+    seo_title: tt && tt.value != null && String(tt.value).trim() ? String(tt.value).trim() : null,
+    seo_description: dt && dt.value != null && String(dt.value).trim() ? String(dt.value).trim() : null,
+  };
+}
+
 /** Shopify product tags → string[]. */
 export function tagsToArray(tags) {
   if (Array.isArray(tags)) return tags;
@@ -69,17 +94,34 @@ export async function syncProductMeta({ admin, styleId, deps = {} } = {}) {
 
   const summary = { style_id: styleId, description: false, attributes: 0, colored_images: 0, errors: [] };
 
-  // 1. Description.
+  // 1. Description — locale "en-US" to match the PIM Description tab. Pulls the
+  //    long copy, a derived short blurb, bullets from the HTML list items, and
+  //    SEO title/meta-description from Shopify's `global` metafields.
   try {
     const longDesc = product.body_html || null;
     const shortDesc = htmlToText(product.body_html).slice(0, 400) || null;
+    const bullets = htmlToBullets(product.body_html);
+
+    // SEO is a separate Shopify call (metafields) — best-effort; fall back to the title.
+    let seo = { seo_title: null, seo_description: null };
+    try {
+      const { data: mfs } = await shop.getProductMetafields(mirror.shopify_product_id, { namespace: "global" });
+      seo = seoFromMetafields(mfs);
+    } catch (e) { summary.errors.push(`metafields: ${e.message}`); }
+
     const { error } = await admin.from("product_descriptions").upsert({
       entity_id: style.entity_id,
       style_id: styleId,
-      locale: "en",
+      locale: "en-US",
       long_description: longDesc,
       short_description: shortDesc,
-      seo_title: product.title || null,
+      bullet_1: bullets[0] || null,
+      bullet_2: bullets[1] || null,
+      bullet_3: bullets[2] || null,
+      bullet_4: bullets[3] || null,
+      bullet_5: bullets[4] || null,
+      seo_title: seo.seo_title || product.title || null,
+      seo_description: seo.seo_description,
       updated_at: new Date().toISOString(),
     }, { onConflict: "style_id,locale" });
     if (error) throw new Error(error.message);

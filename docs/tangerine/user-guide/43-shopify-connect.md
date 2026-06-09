@@ -52,6 +52,10 @@ Requires the `SHOPIFY_TOKEN_ENC_KEY` server key to be set.
   3. **Pull all images** — re-hosts each linked product's images onto the style
      (runs in batches; safe to re-run — it skips images already pulled).
   4. **Sync descriptions + colors** — pulls each product's description, tags,
-     type/vendor attributes, and per-color image tagging onto the style.
+     type/vendor attributes, and per-color image tagging onto the style. This
+     fills the PIM **Description tab** (locale en-US): long description, a short
+     blurb, up to 5 **bullets** (from the product's HTML list items), and the
+     **SEO title / meta description** (from Shopify's `global` metafields, when
+     set). Re-run any time to refresh.
 
 See also: [42 — Costing & RFQ](42-costing-module.md).
