@@ -28,12 +28,13 @@ export function formatDate(d: string): string {
 }
 
 // Resolve a collection's creation date to a YYYY-MM-DD string for display.
-// Prefers the explicit `createdAt` stamped on new collections; falls back
-// to the persisted `_updatedAt` save-stamp for legacy collections that
-// predate createdAt (accurate for never-edited collections, best-effort
-// otherwise). Returns "" when no date is available. Pass through formatDate.
+// `createdAt` is stamped when a collection is created (addCollection) and was
+// backfilled for pre-existing collections from each row's original insert
+// timestamp. We deliberately do NOT fall back to `_updatedAt` — that's the
+// last-save time, not creation, so showing it as "Created" is misleading.
+// Returns "" when no creation date is available. Pass through formatDate.
 export function collCreatedDate(collData: any): string {
-  const raw = collData?.createdAt || collData?._updatedAt;
+  const raw = collData?.createdAt;
   return raw ? String(raw).slice(0, 10) : "";
 }
 
