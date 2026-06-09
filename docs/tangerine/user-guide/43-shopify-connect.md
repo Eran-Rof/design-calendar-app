@@ -38,7 +38,15 @@ Requires the `SHOPIFY_TOKEN_ENC_KEY` server key to be set.
 
 ## After connecting
 - **Order/refund sync** runs via the existing webhooks + backfill cron.
-- **Product images:** open a style in **PIM → Images**, link it to a Shopify
+- **One style's images:** open a style in **PIM → Images**, link it to a Shopify
   product, and click **Pull from Shopify** (see ch42 / the PIM guide).
+- **All styles at once (🖼️ Bulk pull product images** on this panel): matches
+  Shopify products to styles by **SKU prefix = style code** (denim inseam
+  handled automatically). Three steps:
+  1. **Dry-run match** — shows how many products matched + lists any unmatched
+     (e.g. a gift card) without changing anything.
+  2. **Link matched** — links every matched product to its style.
+  3. **Pull all images** — re-hosts each linked product's images onto the style
+     (runs in batches; safe to re-run — it skips images already pulled).
 
 See also: [42 — Costing & RFQ](42-costing-module.md).
