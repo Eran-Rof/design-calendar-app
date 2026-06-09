@@ -27,6 +27,16 @@ export function formatDate(d: string): string {
   return `${String(x.getDate()).padStart(2, "0")}/${String(x.getMonth() + 1).padStart(2, "0")}/${x.getFullYear()}`;
 }
 
+// Resolve a collection's creation date to a YYYY-MM-DD string for display.
+// Prefers the explicit `createdAt` stamped on new collections; falls back
+// to the persisted `_updatedAt` save-stamp for legacy collections that
+// predate createdAt (accurate for never-edited collections, best-effort
+// otherwise). Returns "" when no date is available. Pass through formatDate.
+export function collCreatedDate(collData: any): string {
+  const raw = collData?.createdAt || collData?._updatedAt;
+  return raw ? String(raw).slice(0, 10) : "";
+}
+
 export function formatDT(d: string): string {
   if (!d) return "";
   const x = new Date(d);

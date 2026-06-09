@@ -1,6 +1,6 @@
 import React from "react";
 import { S, TH, fmtDays } from "./styles";
-import { formatDate } from "../utils/dates";
+import { formatDate, collCreatedDate } from "../utils/dates";
 import { MONTHS } from "../utils/constants";
 import Avatar from "../components/Avatar";
 import { useAppStore } from "../store";

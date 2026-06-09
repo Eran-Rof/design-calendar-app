@@ -418,7 +418,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const s = get();
     const key = `${newTasks[0].brand}||${newTasks[0].collection}`;
     const tasksWithImages = newTasks.map((t: any) => ({ ...t, images: t.images || [] }));
-    s.setCollections((prev: any) => ({ ...prev, [key]: { ...(prev[key] || {}), ...meta } }));
+    s.setCollections((prev: any) => ({ ...prev, [key]: { createdAt: new Date().toISOString(), ...(prev[key] || {}), ...meta } }));
     s.setTasks((ts: any[]) => [...ts, ...tasksWithImages]);
     set({ globalLog: [...s.globalLog, {
       id: `${Date.now()}-coll-create`, field: "collection created", from: null,
