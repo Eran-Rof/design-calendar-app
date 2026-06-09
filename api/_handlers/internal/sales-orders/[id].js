@@ -78,7 +78,13 @@ export default async function handler(req, res, params) {
       const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
       return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, sku_code: s?.sku_code ?? null };
     });
-    return res.status(200).json({ ...so, lines: decorated });
+    // Resolve the buyer's name (no raw UUID in the UI).
+    let buyer_name = null;
+    if (so.buyer_id) {
+      const { data: buyer } = await admin.from("customer_buyers").select("name").eq("id", so.buyer_id).maybeSingle();
+      buyer_name = buyer?.name ?? null;
+    }
+    return res.status(200).json({ ...so, buyer_name, lines: decorated });
   }
 
   if (req.method === "DELETE") {
@@ -101,6 +107,21 @@ export default async function handler(req, res, params) {
     if ("customer_id" in body) {
       if (!UUID_RE.test(String(body.customer_id))) return res.status(400).json({ error: "customer_id must be a uuid" });
       patch.customer_id = body.customer_id;
+    }
+    // Optional buyer — null clears it; otherwise must be a buyer on the SO's
+    // (possibly being-patched) customer.
+    if ("buyer_id" in body) {
+      if (body.buyer_id == null || body.buyer_id === "") {
+        patch.buyer_id = null;
+      } else if (!UUID_RE.test(String(body.buyer_id))) {
+        return res.status(400).json({ error: "buyer_id must be a uuid" });
+      } else {
+        const custForBuyer = ("customer_id" in patch ? patch.customer_id : so.customer_id);
+        const { data: b } = await admin.from("customer_buyers").select("id, customer_id").eq("id", body.buyer_id).maybeSingle();
+        if (!b) return res.status(400).json({ error: "buyer_id not found" });
+        if (b.customer_id !== custForBuyer) return res.status(400).json({ error: "buyer_id must belong to the order's customer" });
+        patch.buyer_id = body.buyer_id;
+      }
     }
     for (const k of ["order_date", "requested_ship_date", "cancel_date"]) {
       if (k in body) patch[k] = /^\d{4}-\d{2}-\d{2}$/.test(body[k] || "") ? body[k] : null;

@@ -31,7 +31,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the customer detail modal.
 import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
-import ContactList, { type Contact } from "./components/ContactList";
+import { type Contact } from "./components/ContactList";
+import BuyersEditor from "./components/BuyersEditor";
 import MailLink from "./components/MailLink";
 import { formatUsPhone } from "../shared/phone";
 import CustomerLocations from "./components/CustomerLocations";
@@ -521,7 +522,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   const [channels, setChannels] = useState<Channel[]>([]);
   const [priceLists, setPriceLists] = useState<{ id: string; code: string; name: string }[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
-  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "contacts">("details");
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers">("details");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -734,7 +735,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             ["reps", "Reps & Defaults"],
             ["gl", "GL Accounts"],
             ["addresses", "Addresses & Locations"],
-            ["contacts", "Contacts"],
+            ["buyers", "Buyers"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1073,17 +1074,8 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         </div>
 
         {/* ── Tab 5 — Contacts (up to 12) ─────────────────────────────── */}
-        <div style={{ display: tab === "contacts" ? "block" : "none" }}>
-          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
-            Additional contacts for this customer (the Details tab holds the primary contact). Add up to 12.
-          </div>
-          <ContactList
-            label="Contacts"
-            value={form.contacts}
-            onChange={(next) => setForm({ ...form, contacts: next })}
-            max={12}
-            fields={["name", "email", "phone", "title", "department"]}
-          />
+        <div style={{ display: tab === "buyers" ? "block" : "none" }}>
+          <BuyersEditor customerId={mode === "edit" ? (customer?.id ?? null) : null} />
         </div>
 
         {err && (

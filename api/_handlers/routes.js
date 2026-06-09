@@ -141,6 +141,8 @@ import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/u
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_bulk_process from "./internal/bulk/process.js";
+import r_internal_buyer_scope_master_id from "./internal/buyer-scope-master/[id].js";
+import r_internal_buyer_scope_master_index from "./internal/buyer-scope-master/index.js";
 import r_internal_carriers_id from "./internal/carriers/[id].js";
 import r_internal_carriers_index from "./internal/carriers/index.js";
 import r_internal_cases_id from "./internal/cases/[id].js";
@@ -201,6 +203,8 @@ import r_internal_crm_opportunities_index from "./internal/crm/opportunities/ind
 import r_internal_crm_pipeline_report_index from "./internal/crm/pipeline-report/index.js";
 import r_internal_crm_tasks_id from "./internal/crm/tasks/[id].js";
 import r_internal_crm_tasks_index from "./internal/crm/tasks/index.js";
+import r_internal_customer_buyers_id from "./internal/customer-buyers/[id].js";
+import r_internal_customer_buyers_index from "./internal/customer-buyers/index.js";
 import r_internal_customer_locations_id from "./internal/customer-locations/[id].js";
 import r_internal_customer_locations_index from "./internal/customer-locations/index.js";
 import r_internal_customer_master_id from "./internal/customer-master/[id].js";
@@ -967,6 +971,7 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-transfers/:id", handler: r_internal_inventory_transfers_id },
   { pattern: "/api/internal/workflow-executions/:id", handler: r_internal_workflow_executions_id_index },
   { pattern: "/api/internal/adjustment-reasons/:id", handler: r_internal_adjustment_reasons_id },
+  { pattern: "/api/internal/buyer-scope-master/:id", handler: r_internal_buyer_scope_master_id },
   { pattern: "/api/internal/customer-locations/:id", handler: r_internal_customer_locations_id },
   { pattern: "/api/internal/style-fabric-codes/:id", handler: r_internal_style_fabric_codes_id },
   { pattern: "/api/internal/approval-requests/:id", handler: r_internal_approval_requests_id },
@@ -977,6 +982,7 @@ export const ROUTES = [
   { pattern: "/api/internal/price-promotions/:id", handler: r_internal_price_promotions_id },
   { pattern: "/api/internal/transfer-reasons/:id", handler: r_internal_transfer_reasons_id },
   { pattern: "/api/internal/bank-recon-runs/:id", handler: r_internal_bank_recon_runs_id },
+  { pattern: "/api/internal/customer-buyers/:id", handler: r_internal_customer_buyers_id },
   { pattern: "/api/internal/customer-master/:id", handler: r_internal_customer_master_id },
   { pattern: "/api/internal/employee-titles/:id", handler: r_internal_employee_titles_id },
   { pattern: "/api/internal/journal-entries/:id", handler: r_internal_journal_entries_id },
@@ -1053,6 +1059,7 @@ export const ROUTES = [
   { pattern: "/api/cron/fba-settlements-weekly", handler: r_cron_fba_settlements_weekly },
   { pattern: "/api/cron/walmart-orders-nightly", handler: r_cron_walmart_orders_nightly },
   { pattern: "/api/internal/adjustment-reasons", handler: r_internal_adjustment_reasons_index },
+  { pattern: "/api/internal/buyer-scope-master", handler: r_internal_buyer_scope_master_index },
   { pattern: "/api/internal/customer-locations", handler: r_internal_customer_locations_index },
   { pattern: "/api/internal/customer-scorecard", handler: r_internal_customer_scorecard_index },
   { pattern: "/api/internal/style-fabric-codes", handler: r_internal_style_fabric_codes_index },
@@ -1087,6 +1094,7 @@ export const ROUTES = [
   { pattern: "/api/cron/xoro-mirror-nightly", handler: r_cron_xoro_mirror_nightly },
   { pattern: "/api/internal/ats-size-matrix", handler: r_internal_ats_size_matrix },
   { pattern: "/api/internal/bank-recon-runs", handler: r_internal_bank_recon_runs_index },
+  { pattern: "/api/internal/customer-buyers", handler: r_internal_customer_buyers_index },
   { pattern: "/api/internal/customer-master", handler: r_internal_customer_master_index },
   { pattern: "/api/internal/discount-offers", handler: r_internal_discount_offers_index },
   { pattern: "/api/internal/employee-titles", handler: r_internal_employee_titles_index },

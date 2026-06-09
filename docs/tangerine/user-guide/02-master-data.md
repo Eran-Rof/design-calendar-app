@@ -220,6 +220,25 @@ The carrier list drives the **🚚 Ship** modal on Sales Orders — instead of t
 
 Hard-delete only. Historical shipments are unaffected because carrier is stored as plain text in shipment records (no FK). Toggle **Active** off to retire a carrier without losing history. Standard panel features apply: server-side search (code or name), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
 
+## 🛒 Buyer Scope Master
+
+Find it under **Master Data → Buyer Scope Master** (`/tangerine?m=buyer_scope_master`). A **scope** describes *what a customer buyer purchases* — e.g. Men's Tops, Men's Bottoms, Women's, Denim, Accessories, Footwear. Scopes are **multi-selected on a buyer** in **Customer Master → Buyers**, so you can see at a glance which buyer owns which categories.
+
+The table is **seeded with 6 sensible apparel scopes** on first migration; add, rename, or deactivate them freely.
+
+### What a scope row is
+
+| Field | Meaning |
+|---|---|
+| **Name** | The scope label, e.g. `Men's Tops`. Required and editable. |
+| **Code** | Optional short code, e.g. `MENS_TOPS`. Editable; uppercased on save; unique when supplied. |
+| **Sort order** | Optional integer ordering (low to high), then name as tie-breaker. |
+| **Active** | Inactive scopes drop out of the buyer scope picker but stay assigned where already chosen. Toggle **Show inactive** to see them. |
+
+### Delete protection
+
+Deleting a scope is **blocked** if any buyer is currently assigned it (you'll get a clear message with the count). Deactivate it instead to retire it from the picker while keeping existing assignments. Standard panel features apply: server-side search (name or code), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master
@@ -270,11 +289,29 @@ For the widget to work, an operator with admin access to Supabase must have crea
 
 The Customer Edit modal renders the same `<DocumentAttachmentList>` widget as Vendor Master. Seeded document kinds: `contract`, `tax_exempt`, `credit_app`, `other`. The widget appears below the form fields once the customer is in `mode='edit'`. Use it to attach signed contracts, tax-exempt certificates, credit applications — see [09-documents.md](09-documents.md).
 
-### Country default + tax-exempt default + Contacts tab
+### Country default + tax-exempt default + Buyers tab
 
 - **Country** is a **searchable dropdown** sourced from `country_master` (stored as the ISO-2 code, e.g. `US`). **New customers default to United States**; existing customers with a blank country were backfilled to `US`.
 - **Tax-exempt** defaults to **checked (yes)** for new customers, and every existing customer was set tax-exempt on this release (operator request). Uncheck per customer as needed.
-- A **Contacts** tab holds up to **12** additional contacts — each with **Name · Email · Phone · Title · Department**. Nothing shows until you click **+ Add contact**; the primary contact still lives on the Details tab. Stored in `customers.contacts` (jsonb). Blank rows are dropped on save.
+- A **Buyers** tab (which replaces the old Contacts tab) lists the people at this customer who place orders. See **Buyers tab** below.
+
+### Buyers tab
+
+The **Buyers** tab on the Customer Edit modal **replaces the legacy Contacts tab** and is richer than a plain contact list. Each buyer is a first-class record (table `customer_buyers`) and **saves immediately, per row** — there is no separate "Save" at the bottom for buyers, so a manager buyer always exists before another buyer can report to them.
+
+> Buyers can only be added/edited on a **saved** customer (the system needs the customer's id). On the *Add customer* flow, save the customer first, then re-open it to add buyers. Any contacts you had previously entered in the old Contacts tab were migrated into Buyers automatically (the original `customers.contacts` jsonb is retained as a backup).
+
+| Field | Required? | Meaning |
+|---|---|---|
+| **Name** | ✅ | The buyer's name. |
+| **Phone** | ✅ | Auto-formatted to **(xxx) xxx-xxxx** as you type. |
+| **Email** | ✅ | Validated as an email address. |
+| **Title** | ✅ | The buyer's job title, e.g. `Senior Buyer`. |
+| **Manager** | — | A checkbox beside Title. Tick it to mark a **management buyer** — only managers can be chosen as a "Report" target for other buyers. |
+| **Scope** | — | Multi-select of what the buyer purchases (chips/checkboxes sourced from **Buyer Scope Master**). Pick zero or more. |
+| **Report** | — | Who this buyer reports to. The dropdown lists **only management buyers on the same customer**, and never the buyer themselves. |
+
+To remove a buyer, click **Delete** on its card. Any other buyer that reported to it, and any sales order that recorded it, simply loses the link (no cascade delete of those rows). You cannot clear a buyer's **Manager** flag while other buyers still report to them — reassign their Report first.
 
 ## Address, contacts, country/state & phone — shared behaviours
 
