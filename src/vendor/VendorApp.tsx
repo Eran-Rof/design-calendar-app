@@ -14,6 +14,7 @@ import { ROFLogoFull } from "../utils/styles";
 import { supabaseVendor } from "./supabaseVendor";
 import VendorLogin from "./auth/VendorLogin";
 import VendorSetup from "./auth/VendorSetup";
+import VendorResetPassword from "./auth/VendorResetPassword";
 import POList from "./po/POList";
 import ShipmentsList from "./shipments/ShipmentsList";
 import ShipmentDetail from "./shipments/ShipmentDetail";
@@ -143,6 +144,7 @@ const VENDOR_VIEW_TITLES: { prefix: string; name: string }[] = [
   { prefix: "/vendor/phases", name: "Phases" },
   { prefix: "/vendor/onboarding", name: "Onboarding" },
   { prefix: "/vendor/setup", name: "Setup" },
+  { prefix: "/vendor/reset", name: "Reset password" },
   { prefix: "/vendor/login", name: "Sign in" },
   { prefix: "/vendor/entity-switcher", name: "Switch Entity" },
   { prefix: "/vendor/mobile/feed", name: "Feed" },
@@ -562,6 +564,7 @@ export default function VendorApp() {
       <Routes>
         <Route path="/vendor/login" element={<VendorShell><VendorLogin /></VendorShell>} />
         <Route path="/vendor/setup" element={<VendorShell><VendorSetup /></VendorShell>} />
+        <Route path="/vendor/reset" element={<VendorShell><VendorResetPassword /></VendorShell>} />
         <Route
           path="/vendor/onboarding"
           element={

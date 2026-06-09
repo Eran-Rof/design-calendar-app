@@ -17,6 +17,8 @@
 // exactly why routing is data-driven here and not inferred from the tree.
 
 export default [
+  ["/api/password-reset/request"                             , "./password-reset/request.js"],
+  ["/api/password-reset/confirm"                             , "./password-reset/confirm.js"],
   ["/api/b2b/session"                                        , "./b2b/session.js"],
   ["/api/b2b/catalog"                                        , "./b2b/catalog.js"],
   ["/api/b2b/orders/:id"                                     , "./b2b/orders/[id].js"],
