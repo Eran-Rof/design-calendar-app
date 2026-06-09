@@ -1,7 +1,7 @@
 // api/internal/buyer-scope-master/:id
 //
 // GET    — fetch a single buyer_scope_master row.
-// PATCH  — update mutable fields: name, code, sort_order, is_active.
+// PATCH  — update mutable fields: name, sort_order, is_active. (code is auto.)
 // DELETE — hard-delete. Blocked (409) if any buyer is assigned this scope
 //          (customer_buyer_scopes.scope_id ON DELETE RESTRICT). Deactivate
 //          (is_active=false) to retire it from the picker while keeping links.
@@ -13,7 +13,8 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MUTABLE_FIELDS = new Set(["name", "code", "sort_order", "is_active"]);
+// code is auto-generated + immutable (DB trigger) — not patchable.
+const MUTABLE_FIELDS = new Set(["name", "sort_order", "is_active"]);
 const LOCKED_FIELDS = new Set(["id"]);
 
 function corsHeaders(res) {
@@ -122,11 +123,6 @@ export function validatePatch(body) {
       return { error: "name cannot be empty" };
     }
     out.name = String(out.name).trim();
-  }
-
-  if ("code" in out) {
-    out.code = out.code != null && String(out.code).trim() !== ""
-      ? String(out.code).trim().toUpperCase() : null;
   }
 
   if ("sort_order" in out) {
