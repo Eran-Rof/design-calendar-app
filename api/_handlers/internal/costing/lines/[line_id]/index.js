@@ -19,7 +19,7 @@ const EDITABLE = [
   "category_id", "sub_category_id", "style_state",
   "comment", "remarks",
   "status",
-  "target_qty", "target_cost", "avg_cost", "sell_target", "sell_price",
+  "target_qty", "target_cost", "avg_cost", "sell_target", "sell_target_margin_pct", "sell_price",
   "priced_date", "fob_cost", "duty_rate", "freight", "insurance", "other_costs",
   "landed_cost", "margin_pct",
   "selected_vendor_quote_id",
