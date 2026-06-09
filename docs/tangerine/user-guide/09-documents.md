@@ -37,6 +37,8 @@ flowchart LR
 
 Click **⬇ Download** on any row. The handler returns a signed URL valid for 5 minutes; the browser opens it in a new tab. Re-clicking generates a fresh URL.
 
+The file downloads under its **original filename** (e.g. `Q3-costing.xlsx`), not the internal storage name. Each uploaded version records the filename it was uploaded with (`document_versions.original_filename`), and the signed URL carries it as the download (Content-Disposition) name. Documents uploaded before this feature (mig `20260835000000`) have no recorded name and fall back to the storage basename (`v1.xlsx`).
+
 ### Versioning
 
 Future PR: a "Replace" action to upload a new version (`v2`, `v3`, …) of an existing document. The current version is always what downloads return unless `?version_id=` is passed. Version history is in the DB but not yet surfaced in the UI.

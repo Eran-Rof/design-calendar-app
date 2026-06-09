@@ -41,6 +41,7 @@ export class DocumentsError extends Error {
  * @param {Object} meta
  * @param {string} meta.mime
  * @param {string} [meta.ext]                     File extension (defaults derived from mime)
+ * @param {string} [meta.original_filename]       Original client-side filename (download name)
  * @param {string} [meta.notes]
  * @returns {Promise<{document:Object, version:Object}>}
  */
@@ -151,15 +152,17 @@ export async function signedUrl(supabase, { document_id, version_id, ttl_seconds
   if (!document_id) throw new DocumentsError("missing_document_id", "document_id required");
 
   let storagePath;
+  let originalFilename = null;
   if (version_id) {
     const { data, error } = await supabase
       .from("document_versions")
-      .select("storage_path")
+      .select("storage_path, original_filename")
       .eq("id", version_id)
       .maybeSingle();
     if (error) throw new DocumentsError("version_query_failed", error.message);
     if (!data) throw new DocumentsError("version_not_found", `version ${version_id} not found`);
     storagePath = data.storage_path;
+    originalFilename = data.original_filename || null;
   } else {
     const { data: doc, error: dErr } = await supabase
       .from("documents")
@@ -173,19 +176,29 @@ export async function signedUrl(supabase, { document_id, version_id, ttl_seconds
     }
     const { data: ver, error: vErr } = await supabase
       .from("document_versions")
-      .select("storage_path")
+      .select("storage_path, original_filename")
       .eq("id", doc.current_version_id)
       .single();
     if (vErr) throw new DocumentsError("version_query_failed", vErr.message);
     storagePath = ver.storage_path;
+    originalFilename = ver.original_filename || null;
   }
 
+  // Tell the browser to save the file under its ORIGINAL name (sets the
+  // Content-Disposition filename) instead of the storage basename `vN.ext`.
+  // Fall back to the storage basename for pre-migration versions that have no
+  // recorded filename, preserving the prior behaviour.
+  const downloadName = originalFilename || storagePath.split("/").pop();
   const { data, error } = await supabase
     .storage
     .from(BUCKET)
-    .createSignedUrl(storagePath, ttl_seconds);
+    .createSignedUrl(storagePath, ttl_seconds, { download: downloadName });
   if (error) throw new DocumentsError("signed_url_failed", error.message);
-  return { url: data.signedUrl || data.signed_url, expires_in_seconds: ttl_seconds };
+  return {
+    url: data.signedUrl || data.signed_url,
+    expires_in_seconds: ttl_seconds,
+    filename: downloadName,
+  };
 }
 
 /**
@@ -242,6 +255,7 @@ async function createVersion(supabase, doc, file, meta, versionNumber) {
       byte_size: buf.byteLength,
       sha256_hex: sha,
       notes: meta.notes || null,
+      original_filename: meta.original_filename || null,
       created_by_user_id: meta.created_by_user_id || null,
     })
     .select()
