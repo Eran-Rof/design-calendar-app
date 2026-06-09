@@ -223,6 +223,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [shipTos, setShipTos] = useState<ShipTo[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // M10-C — the AR invoice this SO was billed into (NULL until invoiced). Drives
+  // the green, clickable "→ invoice" header. Most-recent non-void invoice wins.
+  const [relatedInvoice, setRelatedInvoice] = useState<{ id: string; invoice_number: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/internal/items?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
@@ -256,6 +259,23 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       }
       setSeed({ sections: [...byStyle.values()], flat });
     }).catch(() => {});
+  }, [isNew, so]);
+
+  // M10-C — resolve the AR invoice generated from this SO (if any) so the
+  // header can turn green and link straight to it. Picks the most recent
+  // non-void invoice carrying this sales_order_id.
+  useEffect(() => {
+    if (isNew || !so) { setRelatedInvoice(null); return; }
+    let cancel = false;
+    fetch(`/api/internal/ar-invoices?sales_order_id=${encodeURIComponent(so.id)}&limit=1`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (cancel) return;
+        const inv = Array.isArray(rows) ? rows[0] : null;
+        setRelatedInvoice(inv?.invoice_number ? { id: inv.id, invoice_number: inv.invoice_number } : null);
+      })
+      .catch(() => { if (!cancel) setRelatedInvoice(null); });
+    return () => { cancel = true; };
   }, [isNew, so]);
 
   // The customer's ship-to locations.
@@ -436,7 +456,22 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New sales order" : `Sales order ${so?.so_number || "(draft)"} — ${so?.status}`}</h3>
+        {/* When the SO has been billed into an AR invoice, the header turns
+            green and links straight to that invoice (?m=ar_invoices&q=<INV#>).
+            Otherwise it's the plain "Sales order … — <status>" title. */}
+        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
+          {isNew ? "New sales order" : relatedInvoice ? (
+            <span
+              onClick={() => { window.location.href = `?m=ar_invoices&q=${encodeURIComponent(relatedInvoice.invoice_number)}`; }}
+              title={`Open AR invoice ${relatedInvoice.invoice_number}`}
+              style={{ color: C.success, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
+            >
+              Sales order {so?.so_number || "(draft)"} — {so?.status} · 🧾 {relatedInvoice.invoice_number} ↗
+            </span>
+          ) : (
+            `Sales order ${so?.so_number || "(draft)"} — ${so?.status}`
+          )}
+        </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
