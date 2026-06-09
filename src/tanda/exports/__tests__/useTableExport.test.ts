@@ -3,6 +3,7 @@ import {
   inferColumns,
   formatCell,
   formatCellDisplay,
+  excelDateCell,
   buildAoA,
   buildDisplayAoA,
   toCsvRow,
@@ -54,6 +55,38 @@ describe("formatCell", () => {
     expect(formatCell("hello")).toBe("hello");
     expect(formatCell(42)).toBe(42);
     expect(formatCell(true)).toBe(true);
+  });
+});
+
+describe("excelDateCell (xlsx real-date cells)", () => {
+  it("date string → Date on the right calendar day + mm/dd/yyyy numFmt", () => {
+    const dc = excelDateCell("2026-05-28", "date");
+    expect(dc).not.toBeNull();
+    expect(dc!.numFmt).toBe("mm/dd/yyyy");
+    expect(dc!.value).toBeInstanceOf(Date);
+    expect(dc!.value.getFullYear()).toBe(2026);
+    expect(dc!.value.getMonth()).toBe(4); // May (0-indexed)
+    expect(dc!.value.getDate()).toBe(28);
+  });
+  it("Date instance → same calendar day", () => {
+    const dc = excelDateCell(new Date("2026-05-28T00:00:00Z"), "date");
+    expect(dc!.value.getFullYear()).toBe(2026);
+    expect(dc!.value.getMonth()).toBe(4);
+    expect(dc!.value.getDate()).toBe(28);
+  });
+  it("datetime → Date + mm/dd/yyyy hh:mm numFmt", () => {
+    // 14:30Z keeps the date stable across realistic runner TZs.
+    const dc = excelDateCell("2026-05-28T14:30:00Z", "datetime");
+    expect(dc!.numFmt).toBe("mm/dd/yyyy hh:mm");
+    expect(dc!.value).toBeInstanceOf(Date);
+    expect(dc!.value.getFullYear()).toBe(2026);
+    expect(dc!.value.getMonth()).toBe(4);
+    expect(dc!.value.getDate()).toBe(28);
+  });
+  it("empty/unparseable → null (caller falls back to string)", () => {
+    expect(excelDateCell(null, "date")).toBeNull();
+    expect(excelDateCell("", "date")).toBeNull();
+    expect(excelDateCell("not a date", "date")).toBeNull();
   });
 });
 
