@@ -76,7 +76,8 @@ export default function InternalThreePL() {
 
 function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]; busy: boolean; setBusy: (b: boolean) => void; reload: () => Promise<void> }) {
   const [creating, setCreating] = useState(false);
-  const [f, setF] = useState({ name: "", code: "", kind: "contract_3pl", contact_name: "", email: "", phone: "", account_ref: "", billing_notes: "" });
+  // code is auto-generated server-side (TPL-NNNNN) + immutable — not entered here.
+  const [f, setF] = useState({ name: "", kind: "contract_3pl", contact_name: "", email: "", phone: "", account_ref: "", billing_notes: "" });
 
   async function create() {
     if (!f.name.trim()) { notify("Name required", "error"); return; }
@@ -86,7 +87,7 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "create failed");
       notify("Provider created", "success");
-      setCreating(false); setF({ name: "", code: "", kind: "contract_3pl", contact_name: "", email: "", phone: "", account_ref: "", billing_notes: "" });
+      setCreating(false); setF({ name: "", kind: "contract_3pl", contact_name: "", email: "", phone: "", account_ref: "", billing_notes: "" });
       await reload();
     } catch (e) { notify("Create failed — " + (e instanceof Error ? e.message : String(e)), "error"); }
     finally { setBusy(false); }
@@ -110,7 +111,8 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
       {creating && (
         <div style={{ background: C.card, border: `1px solid ${C.primary}`, borderRadius: 8, padding: 14, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input style={{ ...input, minWidth: 200 }} placeholder="Provider name *" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          <input style={{ ...input, width: "12ch" }} placeholder="Code" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} />
+          {/* Code is auto-generated (TPL-NNNNN) + immutable — assigned on save. */}
+          <span style={{ ...input, width: "12ch", opacity: 0.55, fontFamily: "monospace", display: "flex", alignItems: "center", fontStyle: "italic" }} title="Code is auto-generated (TPL-NNNNN)">auto</span>
           <select style={input} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
             <option value="contract_3pl">Contract 3PL</option><option value="fba">FBA</option><option value="wfs">WFS</option><option value="other">Other</option>
           </select>

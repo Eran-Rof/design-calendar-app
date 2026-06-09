@@ -209,7 +209,7 @@ The carrier list drives the **🚚 Ship** modal on Sales Orders — instead of t
 
 | Field | Meaning |
 |---|---|
-| **Code** | Operator-supplied on create, then **locked** — e.g. `UPS`, `FEDEX`, `USPS`. Unlike auto-coded masters (Warehouses, RMA Reasons), you set the code. |
+| **Code** | **Auto-generated, read-only** `CARR-NNNNN` — allocated on save; you never type it. The 16 pre-seeded carriers keep their original meaningful codes (`ABF`, `AMAZON`, `DHL`, `FEDEX`, …); only newly added carriers receive a `CARR-NNNNN` code. The code is immutable once set. |
 | **Name** | The carrier's display name, e.g. `United Parcel Service`. Required. |
 | **Type** | `parcel`, `ltl`, `ocean`, `air`, or `other`. Used for filtering. |
 | **Tracking URL template** | Optional URL with `{tracking}` placeholder, e.g. `https://www.ups.com/track?tracknum={tracking}`. Not yet used for auto-link rendering — reserved for future use. |

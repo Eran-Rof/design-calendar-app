@@ -7,14 +7,14 @@
 //          ?carrier_type=<type>    — filter by carrier_type
 //          ?include_inactive=true  — include inactive rows
 // POST — create one carrier_master row. Body:
-//          { code (required, operator-supplied e.g. "UPS"),
-//            name (required),
+//          { name (required),
 //            carrier_type (default 'parcel'),
 //            tracking_url_template (optional),
 //            sort_order (>=0, optional, default 0),
 //            is_active (default true) }
-//          NOTE: code is operator-supplied (NOT auto-generated) — carrier codes
-//          like "UPS" are well-known and must be provided by the operator.
+//          NOTE: code is AUTO-GENERATED (CARR-NNNNN) by a DB trigger and is
+//          immutable. Existing meaningful codes (ABF/AMAZON/DHL …) are
+//          preserved; new carriers get a CARR-NNNNN code on save.
 //
 // Tangerine — Carrier Master.
 
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
       .single();
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `A carrier with code "${v.data.code}" already exists for this entity` });
+        return res.status(409).json({ error: "Could not allocate a unique carrier code; please retry" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -113,9 +113,9 @@ export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
   }
-  if (!body.code || !String(body.code).trim()) {
-    return { error: "code is required (operator-supplied, e.g. 'UPS')" };
-  }
+  // `code` is AUTO-GENERATED (CARR-NNNNN) by a DB trigger + immutable — any
+  // client-supplied code is ignored on create and frozen on update. Existing
+  // meaningful codes (ABF/AMAZON/DHL …) are preserved.
   if (!body.name || !String(body.name).trim()) {
     return { error: "name is required" };
   }
@@ -141,7 +141,6 @@ export function validateInsert(body) {
 
   return {
     data: {
-      code:                  String(body.code).trim().toUpperCase(),
       name:                  String(body.name).trim(),
       carrier_type:          carrierType,
       tracking_url_template: trackingUrl,

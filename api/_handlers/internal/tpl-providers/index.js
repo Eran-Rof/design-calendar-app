@@ -5,8 +5,10 @@
 //   GET   /api/internal/tpl-providers                → list (+ linked location)
 //   POST  /api/internal/tpl-providers                → create
 //   PATCH /api/internal/tpl-providers                → edit (body.id required)
-//        body { code?, name, kind?, location_id?, contact_name?, email?, phone?,
+//        body { name, kind?, location_id?, contact_name?, email?, phone?,
 //               account_ref?, billing_notes?, is_active?, notes? }
+//        `code` is AUTO-GENERATED (TPL-NNNNN) by a DB trigger and is immutable —
+//        not accepted on create, frozen on update.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -21,7 +23,8 @@ function client() {
   const u = process.env.VITE_SUPABASE_URL, k = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return u && k ? createClient(u, k, { auth: { persistSession: false } }) : null;
 }
-const FIELDS = ["code","name","kind","location_id","contact_name","email","phone","account_ref","billing_notes","is_active","notes","edi_protocol","edi_endpoint","edi_username","edi_credential_ref","inventory_sftp_path"];
+// `code` is intentionally omitted — auto-generated (TPL-NNNNN) + immutable (DB trigger).
+const FIELDS = ["name","kind","location_id","contact_name","email","phone","account_ref","billing_notes","is_active","notes","edi_protocol","edi_endpoint","edi_username","edi_credential_ref","inventory_sftp_path"];
 function pick(body) {
   const o = {};
   for (const f of FIELDS) if (body[f] !== undefined) o[f] = body[f] === "" ? null : body[f];

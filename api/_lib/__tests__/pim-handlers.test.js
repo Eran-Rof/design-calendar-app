@@ -59,14 +59,14 @@ describe("pim categories: parseListQuery", () => {
 });
 
 describe("pim categories: validateCreate", () => {
-  it("requires code + name", () => {
-    expect(validateCatCreate({}).error).toMatch(/code/);
-    expect(validateCatCreate({ code: "X" }).error).toMatch(/name/);
+  it("requires name (code is auto-generated, never required)", () => {
+    expect(validateCatCreate({}).error).toMatch(/name/);
   });
-  it("trims and accepts minimal valid input", () => {
+  it("trims and accepts minimal valid input; ignores any supplied code", () => {
     const v = validateCatCreate({ code: "  DENIM ", name: "  Denim " });
     expect(v.error).toBeUndefined();
-    expect(v.data.code).toBe("DENIM");
+    // code is auto-generated (PCAT-NNNNN) server-side — never echoed/accepted here.
+    expect(v.data.code).toBeUndefined();
     expect(v.data.name).toBe("Denim");
     expect(v.data.parent_category_id).toBeNull();
     expect(v.data.sort_order).toBe(0);
@@ -91,9 +91,8 @@ describe("pim categories: validateCreate", () => {
   it("rejects non-boolean is_active", () => {
     expect(validateCatCreate({ code: "A", name: "A", is_active: "true" }).error).toMatch(/is_active/);
   });
-  it("rejects oversize code/name", () => {
-    expect(validateCatCreate({ code: "x".repeat(100), name: "A" }).error).toMatch(/code/);
-    expect(validateCatCreate({ code: "A", name: "x".repeat(200) }).error).toMatch(/name/);
+  it("rejects oversize name (code is auto-generated, not validated)", () => {
+    expect(validateCatCreate({ name: "x".repeat(200) }).error).toMatch(/name/);
   });
 });
 
@@ -135,9 +134,10 @@ describe("pim categories: validatePatch", () => {
     expect(v.error).toBeUndefined();
     expect(v.data).toEqual({ name: "New" });
   });
-  it("rejects empty-string code/name", () => {
-    expect(validateCatPatch({ code: "  " }).error).toMatch(/code/);
+  it("rejects empty-string name; ignores any supplied code (auto-generated + immutable)", () => {
     expect(validateCatPatch({ name: "" }).error).toMatch(/name/);
+    // code is immutable — a supplied code is silently dropped, leaving no fields.
+    expect(validateCatPatch({ code: "  " }).error).toMatch(/No fields/);
   });
   it("allows nulling parent_category_id", () => {
     expect(validateCatPatch({ parent_category_id: null }).data.parent_category_id).toBeNull();

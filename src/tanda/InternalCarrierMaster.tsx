@@ -275,7 +275,6 @@ interface ModalProps {
 
 function CarrierFormModal({ mode, carrier, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    code:                  carrier?.code ?? "",
     name:                  carrier?.name ?? "",
     carrier_type:          carrier?.carrier_type ?? "parcel",
     tracking_url_template: carrier?.tracking_url_template ?? "",
@@ -292,23 +291,14 @@ function CarrierFormModal({ mode, carrier, onClose, onSaved }: ModalProps) {
       const url = mode === "add" ? "/api/internal/carriers" : `/api/internal/carriers/${carrier!.id}`;
       const method = mode === "add" ? "POST" : "PATCH";
 
-      // code is locked on edit — don't include it in PATCH body.
-      const body = mode === "add"
-        ? {
-            code:                  form.code.trim().toUpperCase(),
-            name:                  form.name.trim(),
-            carrier_type:          form.carrier_type,
-            tracking_url_template: form.tracking_url_template.trim() || null,
-            sort_order:            form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
-            is_active:             form.is_active,
-          }
-        : {
-            name:                  form.name.trim(),
-            carrier_type:          form.carrier_type,
-            tracking_url_template: form.tracking_url_template.trim() || null,
-            sort_order:            form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
-            is_active:             form.is_active,
-          };
+      // code is auto-generated (CARR-NNNNN) server-side + immutable — never sent.
+      const body = {
+        name:                  form.name.trim(),
+        carrier_type:          form.carrier_type,
+        tracking_url_template: form.tracking_url_template.trim() || null,
+        sort_order:            form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
+        is_active:             form.is_active,
+      };
 
       const r = await fetch(url, {
         method,
@@ -338,20 +328,14 @@ function CarrierFormModal({ mode, carrier, onClose, onSaved }: ModalProps) {
         </h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label={mode === "add" ? "Code *" : "Code (locked)"}>
-            {mode === "add" ? (
-              <input
-                type="text"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                style={inputStyle}
-                placeholder="e.g. UPS"
-                autoFocus
-              />
-            ) : (
-              /* Code is locked post-creation — show as read-only display. */
-              <div style={readonlyCodeStyle}>{carrier?.code || "—"}</div>
-            )}
+          <Field label="Code (auto-generated)">
+            {/* Code is auto-generated (CARR-NNNNN) + immutable — display only.
+                Existing meaningful codes (ABF/AMAZON …) are preserved. */}
+            <div style={readonlyCodeStyle}>
+              {mode === "add"
+                ? <span style={{ color: C.textMuted, fontStyle: "italic", fontFamily: "inherit" }}>(assigned on save)</span>
+                : (carrier?.code || "—")}
+            </div>
           </Field>
 
           <Field label="Name *">

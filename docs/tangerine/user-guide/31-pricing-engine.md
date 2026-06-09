@@ -19,7 +19,7 @@ Within the chosen list, if the style has **quantity breaks** (multiple prices at
 
 The list shows every price list with its **scope** (Default / Tier / Customer), currency, and item count. Click a row to open it.
 
-**Creating a list** — give it a `Code`, `Name`, currency, and pick a **Scope**:
+**Creating a list** — give it a `Name`, currency, and pick a **Scope**. The **Code** is **auto-generated, read-only** (`PL-NNNNN`) — allocated on save, you never type it; the pre-existing `DEFAULT` list keeps its code. Scope options:
 - **Default (fallback)** — the catch-all. Keep exactly one active default.
 - **Customer tier** — type the tier string (must match `customers.customer_tier`).
 - **Specific customer** — pick the customer; this becomes that customer's own list.
