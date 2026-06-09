@@ -230,7 +230,6 @@ export default async function handler(req, res) {
     if (!sc) continue;
     const slot = agg.get(sc);
     if (!slot) continue;
-    slot.sawAnyRow = true;
 
     // Resolve multiplier for this row's SKU using master meta.
     const meta = skuMasterMeta.get(r.sku_id);
@@ -251,6 +250,15 @@ export default async function handler(req, res) {
       ? Number(r.qty_units)
       : (Number(r.qty) || 0) * mult;
 
+    // Exclude SINGLE-UNIT retail/sample sales (per-unit qty ≤ 1) from the
+    // WHOLESALE comp. Operator decision: one-off pieces (often $15–20 on a $6
+    // wholesale style) are B2C/samples, not wholesale, and skew thin windows.
+    // Keyed on the EXPLODED per-unit qty, so a 1-pack PPK sale (e.g. 24 units)
+    // is kept — only true single pieces are dropped. Done BEFORE marking the row
+    // "seen" so a color whose only sales are singles reads as "no comp", not "all PPK".
+    if (explodedQty <= 1) continue;
+
+    slot.sawAnyRow = true;
     slot.sawUnitRow = true; // explosion always succeeds — no warning needed
     const unitCost = r.unit_cost_at_sale != null ? Number(r.unit_cost_at_sale) : null;
     const net = r.net_amount != null ? Number(r.net_amount) : null;

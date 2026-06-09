@@ -172,7 +172,6 @@ export default async function handler(req, res) {
     if (!sc) continue;
     const slot = agg.get(sc);
     if (!slot) continue;
-    slot.sawAnyRow = true;
 
     // Resolve multiplier for pack-grain rows.
     const meta = skuMasterMeta.get(r.sku_id);
@@ -190,6 +189,13 @@ export default async function handler(req, res) {
       ? Number(r.qty_units)
       : (Number(r.qty) || 0) * mult;
 
+    // Exclude SINGLE-UNIT retail/sample sales (per-unit qty ≤ 1) from the
+    // WHOLESALE comp — same rule as the LY comp (operator decision). Keyed on the
+    // exploded per-unit qty so a 1-pack PPK sale (e.g. 24 units) is kept. Done
+    // before marking the row "seen" so a singles-only color reads as "no comp".
+    if (explodedQty <= 1) continue;
+
+    slot.sawAnyRow = true;
     slot.sawUnitRow = true; // explosion always succeeds
     const unitCost = r.unit_cost_at_sale != null ? Number(r.unit_cost_at_sale) : null;
     const net = r.net_amount != null ? Number(r.net_amount) : null;
