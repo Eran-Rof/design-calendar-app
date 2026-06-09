@@ -73,6 +73,14 @@ export default function NotificationBell() {
     setItems((xs) => xs.map((n) => (n.read_at ? n : { ...n, read_at: now })));
   }
 
+  // Delete a single notification (RLS: vendor_own_notifications_delete). Optimistic;
+  // reload on error so the list stays in sync.
+  async function deleteOne(id: string) {
+    setItems((xs) => xs.filter((n) => n.id !== id));
+    const { error } = await supabaseVendor.from("notifications").delete().eq("id", id);
+    if (error) void load();
+  }
+
   async function onItemClick(n: Notification) {
     if (!n.read_at) await markRead(n.id);
     if (n.link) {
@@ -139,7 +147,14 @@ export default function NotificationBell() {
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
                     <strong style={{ fontSize: 13, color: TH.text }}>{n.title}</strong>
-                    <span style={{ fontSize: 11, color: TH.textMuted, whiteSpace: "nowrap" }}>{timeAgo(n.created_at)}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: 11, color: TH.textMuted }}>{timeAgo(n.created_at)}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void deleteOne(n.id); }}
+                        title="Delete this notification"
+                        style={{ background: "none", border: "none", color: TH.textMuted, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
+                      >🗑</button>
+                    </span>
                   </div>
                   {n.body && <div style={{ fontSize: 12, color: TH.textSub2, lineHeight: 1.4 }}>{n.body}</div>}
                 </div>
