@@ -421,6 +421,7 @@ import r_internal_shopify_process_refund_id from "./internal/shopify/process-ref
 import r_internal_shopify_stores_id from "./internal/shopify/stores/[id].js";
 import r_internal_shopify_stores_id_bulk_link from "./internal/shopify/stores/[id]/bulk-link.js";
 import r_internal_shopify_stores_id_bulk_pull from "./internal/shopify/stores/[id]/bulk-pull.js";
+import r_internal_shopify_stores_id_bulk_sync_meta from "./internal/shopify/stores/[id]/bulk-sync-meta.js";
 import r_internal_shopify_stores_id_test from "./internal/shopify/stores/[id]/test.js";
 import r_internal_shopify_stores_index from "./internal/shopify/stores/index.js";
 import r_internal_shopify_sync_payouts from "./internal/shopify/sync-payouts.js";
@@ -645,6 +646,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/lines/:line_id/compliance", handler: r_internal_costing_lines_line_id_compliance_index },
   { pattern: "/api/internal/costing/lines/:line_id/po-history", handler: r_internal_costing_lines_line_id_po_history },
   { pattern: "/api/internal/pim/styles/:style_id/link-shopify", handler: r_internal_pim_styles_style_id_link_shopify },
+  { pattern: "/api/internal/shopify/stores/:id/bulk-sync-meta", handler: r_internal_shopify_stores_id_bulk_sync_meta },
   { pattern: "/api/internal/pim/styles/:style_id/description", handler: r_internal_pim_styles_style_id_description_index },
   { pattern: "/api/internal/pim/styles/:style_id/attributes", handler: r_internal_pim_styles_style_id_attributes },
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: r_vendor_marketplace_inquiries_id_respond },

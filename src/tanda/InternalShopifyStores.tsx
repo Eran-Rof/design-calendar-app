@@ -47,7 +47,7 @@ export default function InternalShopifyStores() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   // Bulk image pull (P11-10-bulk).
-  const [bulkBusy, setBulkBusy] = useState<"dryrun" | "link" | "pull" | null>(null);
+  const [bulkBusy, setBulkBusy] = useState<"dryrun" | "link" | "pull" | "meta" | null>(null);
   const [bulkLog, setBulkLog] = useState<string[]>([]);
 
   function logBulk(line: string) { setBulkLog((prev) => [...prev, line]); }
@@ -91,6 +91,24 @@ export default function InternalShopifyStores() {
         if (j.done || ++guard > 400) break;
       }
       logBulk(`Done. Pulled ${pulled} images · skipped ${skipped} (already present) · failed ${failed}.`);
+    } catch (e: unknown) { logBulk(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setBulkBusy(null); }
+  }
+
+  async function bulkMeta(storeId: string) {
+    setBulkBusy("meta"); setBulkLog(["Syncing descriptions + attributes + per-image colors (batched)…"]);
+    try {
+      let offset = 0, d = 0, a = 0, ci = 0, failed = 0, guard = 0;
+      for (;;) {
+        const r = await fetch(`/api/internal/shopify/stores/${storeId}/bulk-sync-meta?offset=${offset}&limit=12`, { method: "POST" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        d += j.descriptions; a += j.attributes; ci += j.colored_images; failed += j.failed;
+        logBulk(`  …${Math.min(j.next_offset, j.total_linked)}/${j.total_linked} styles · +${j.descriptions} desc · +${j.colored_images} colored imgs`);
+        offset = j.next_offset;
+        if (j.done || ++guard > 400) break;
+      }
+      logBulk(`Done. Descriptions ${d} · attributes ${a} · colored images ${ci} · failed ${failed}.`);
     } catch (e: unknown) { logBulk(`Error: ${e instanceof Error ? e.message : String(e)}`); }
     finally { setBulkBusy(null); }
   }
@@ -235,6 +253,7 @@ export default function InternalShopifyStores() {
               <button onClick={() => void bulkDryRun(s.id)} disabled={bulkBusy != null} style={btn(C.cardBdr, true)}>{bulkBusy === "dryrun" ? "Checking…" : "1. Dry-run match"}</button>
               <button onClick={() => void bulkLink(s.id)} disabled={bulkBusy != null} style={btn(C.primary)}>{bulkBusy === "link" ? "Linking…" : "2. Link matched"}</button>
               <button onClick={() => void bulkPull(s.id)} disabled={bulkBusy != null} style={btn(C.success)}>{bulkBusy === "pull" ? "Pulling…" : "3. Pull all images"}</button>
+              <button onClick={() => void bulkMeta(s.id)} disabled={bulkBusy != null} style={btn(C.primary, true)}>{bulkBusy === "meta" ? "Syncing…" : "4. Sync descriptions + colors"}</button>
             </div>
             {bulkLog.length > 0 && (
               <pre style={{ marginTop: 12, maxHeight: 260, overflow: "auto", background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, fontSize: 11, color: C.textSub, whiteSpace: "pre-wrap" }}>
