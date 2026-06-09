@@ -6,6 +6,7 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
+import { collapseTabsToLogin } from "./utils/plmSessionTabs";
 import { canAccessAppFromSession } from "./permissions";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -311,11 +312,12 @@ function App() {
     idleMs: 60 * 60 * 1000,
     onWarning: setIdleWarning,
     onLogout: () => {
-      sessionStorage.removeItem("plm_user");
-      setCurrentUser(null);
       setIdleWarning(false);
-      setTeamsToken(null);
-      setView("dashboard");
+      // Collapse all idle PLM tabs to a single login tab (this one navigates to
+      // login or retires if another tab already holds it). Owns navigation, so
+      // don't null currentUser here — that would trigger the redirect guard and
+      // race the cross-tab coordination.
+      collapseTabsToLogin();
     },
   });
 
