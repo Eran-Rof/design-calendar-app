@@ -35,11 +35,17 @@ describe("formatCell", () => {
     expect(formatCell("5",  { key: "x", format: "number" })).toBe(5);
     expect(formatCell("ab", { key: "x", format: "number" })).toBe("");
   });
-  it("date with Date instance", () => {
-    expect(formatCell(new Date("2026-05-28T00:00:00Z"), { key: "x", format: "date" })).toBe("2026-05-28");
+  it("date with Date instance → US MM/DD/YYYY", () => {
+    expect(formatCell(new Date("2026-05-28T00:00:00Z"), { key: "x", format: "date" })).toBe("05/28/2026");
   });
-  it("date with string passthrough", () => {
-    expect(formatCell("2026-05-28", { key: "x", format: "date" })).toBe("2026-05-28");
+  it("date with ISO string → US MM/DD/YYYY", () => {
+    expect(formatCell("2026-05-28", { key: "x", format: "date" })).toBe("05/28/2026");
+  });
+  it("datetime with ISO string → US MM/DD/YYYY HH:MM", () => {
+    // Date part is TZ-stable; assert the date and that a HH:MM tail is present.
+    expect(formatCell("2026-05-28T14:30:00Z", { key: "x", format: "datetime" })).toMatch(
+      /^05\/28\/2026 \d{2}:\d{2}$/,
+    );
   });
   it("object → JSON", () => {
     expect(formatCell({ a: 1 })).toBe('{"a":1}');
@@ -92,8 +98,8 @@ describe("formatCellDisplay (PDF / print rendering)", () => {
   it("number with digits is fixed", () => {
     expect(formatCellDisplay(3, { key: "x", format: "number", digits: 2 })).toBe("3.00");
   });
-  it("date passthrough as string", () => {
-    expect(formatCellDisplay("2026-05-28", { key: "x", format: "date" })).toBe("2026-05-28");
+  it("date → US MM/DD/YYYY", () => {
+    expect(formatCellDisplay("2026-05-28", { key: "x", format: "date" })).toBe("05/28/2026");
   });
   it("plain text passthrough", () => {
     expect(formatCellDisplay("hello")).toBe("hello");
