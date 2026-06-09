@@ -513,7 +513,7 @@ function VendorRevisionCard({
         <div style={{ fontSize: 11, color: TH.textMuted }}>{when ? fmtDate(when) : "—"}</div>
       </div>
       <div style={{ fontSize: 12, color: TH.textSub2, marginBottom: lines.length ? 8 : 0 }}>
-        Total {totalPrice != null ? fmtMoney(totalPrice) : "—"} · Lead time {leadTime ?? "—"}d
+        Total {totalPrice != null ? fmtUsd(totalPrice) : "—"} · Lead time {leadTime ?? "—"}d
         {notes ? <span style={{ color: TH.textMuted }}> · {notes}</span> : null}
       </div>
       {lines.length > 0 && (
@@ -522,7 +522,7 @@ function VendorRevisionCard({
             <div key={l.rfq_line_item_id || i} style={{ fontSize: 11, color: TH.textMuted, display: "flex", justifyContent: "space-between", gap: 8 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineLabel(l.rfq_line_item_id)}</span>
               <span style={{ flexShrink: 0 }}>
-                {l.unit_price != null ? fmtMoney(l.unit_price) : "—"}{l.quantity != null ? ` × ${fmtQty(l.quantity)}` : ""}
+                {l.unit_price != null ? fmtUsd(l.unit_price) : "—"}{l.quantity != null ? ` × ${fmtQty(l.quantity)}` : ""}
               </span>
             </div>
           ))}
