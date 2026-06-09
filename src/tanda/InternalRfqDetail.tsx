@@ -24,6 +24,7 @@ const REV_FIELD_LABELS: Record<string, string> = {
   target_price: "Target cost", quantity: "Quantity", fabric_code: "Fabric",
   fit: "Fit", bottom_closure: "Closure", size_scale_label: "Size scale",
   waist_type: "Waist", style_code: "Style", color: "Color",
+  documents: "Documents",
 };
 function fmtRevVal(v: unknown): string {
   if (v == null || v === "") return "—";

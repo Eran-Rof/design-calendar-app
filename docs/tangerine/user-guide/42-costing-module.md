@@ -132,6 +132,13 @@ they do:
 time, per-line figures). A vendor only ever sees **their own** history — never
 another vendor's quotes and never Ring of Fire's internal comparison.
 
+> **Attaching a document also counts as a revision.** If a vendor adds a file to a
+> quote they've **already submitted**, the quote is snapshotted and bumped to the
+> next version (gold **Revised** badge), and **procurement is notified** the same
+> way as a price revision — so a document added after the fact never slips by
+> unseen. Attaching a document to a **draft** (not-yet-submitted) quote is normal
+> and triggers no revision.
+
 > Note: Ring of Fire staff cannot edit a vendor's **quote** (quotes belong to the
 > vendor), and the RFQ header locks once published. But editing a **costing line**
 > after its RFQ was sent **does** flow through to the vendor — see below.
@@ -157,6 +164,12 @@ etc. — the change automatically syncs onto that vendor's RFQ line, and:
   a **🕑 RFQ revision history (Ring of Fire)** expander listing every buyer revision —
   when, which line, and each field's **old → new** value. This mirrors the vendor's own
   quote-revision history.
+- **Attaching a document is a revision too.** Costing-line documents are
+  vendor-visible (the vendor reaches them from their RFQ detail), so adding a file
+  to a line whose **RFQ was already sent** flags that line **✎ Revised**, records a
+  **Documents** entry in the revision history, and **notifies the vendor** — exactly
+  like changing a vendor-visible field. Attaching a document to a **draft** line (no
+  RFQ sent yet) is normal and triggers no revision or notification.
 
 See also: [14 — Payment Terms](14-payment-terms.md), [15 — Fabric Codes](15-fabric-codes.md),
 [32 — Procurement & Receiving](32-procurement-receiving.md).
