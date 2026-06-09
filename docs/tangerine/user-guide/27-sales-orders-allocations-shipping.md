@@ -170,6 +170,8 @@ Style · Color   (on-hand · reserved · avail · demand)
 
 The demand rows are grouped under a **per-SO sub-header** showing **SO # · Customer · Start Ship · Cancel**. The **SO #** is a link (dotted underline + ↗): clicking it jumps to **🛒 Sales Orders** focused on that order — `?m=sales_orders&so=<SO#>` seeds the SO search box, so you land pre-filtered to it. This is the reverse of the SO modal's **📊 Allocations** drill, which brings you here focused on that same order.
 
+**Search box — all-field, not SO-only.** The search filter is an all-field match: it matches on **style/description, SKU code, color, size, customer name, and SO #** (case-insensitive, server-side via `q`). The **× / Esc** clears it in place. When you arrive via a deep link from a Sales Order, the SO # is seeded into the box as a one-shot focus — it is **not sticky**: leaving the panel strips the `?so=` param from the URL, so re-opening **📊 Allocations** from the menu lands with an empty search and the full cross-SO view.
+
 **Priority tiers** (the auto-allocate order, mirrored in the row badges):
 
 | Tier | Badge | Rule |

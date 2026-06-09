@@ -96,6 +96,18 @@ export default function InternalAllocations() {
   }, []);
   const { value: search, debouncedValue: dSearch, setValue: setSearch } = useDebouncedSearch(initialSo, 250);
   const [focusSo] = useState(initialSo);
+  // The ?so= deep-link seed is one-shot, not sticky: strip it (and its
+  // include_all companion) from the URL on exit so re-opening Allocations from
+  // the menu lands with an empty search instead of re-seeding the prior SO #.
+  useEffect(() => () => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("so") || url.searchParams.has("so_id") || url.searchParams.has("include_all")) {
+        url.searchParams.delete("so"); url.searchParams.delete("so_id"); url.searchParams.delete("include_all");
+        window.history.replaceState(window.history.state, "", url.toString());
+      }
+    } catch { /* noop */ }
+  }, []);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [savingLine, setSavingLine] = useState<string | null>(null);
@@ -433,7 +445,7 @@ export default function InternalAllocations() {
             options={[{ value: "", label: "All customers" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
             placeholder="All customers" />
         </div>
-        <DynamicSearchInput value={search} onChange={setSearch} placeholder="Search style / SKU / SO #" ariaLabel="Search allocations" wrapperStyle={{ maxWidth: 240 }} />
+        <DynamicSearchInput value={search} onChange={setSearch} placeholder="Search style / SKU / color / size / customer / SO #" ariaLabel="Search allocations" wrapperStyle={{ maxWidth: 300 }} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={onlyShort} onChange={(e) => setOnlyShort(e.target.checked)} /> Only with open qty
         </label>

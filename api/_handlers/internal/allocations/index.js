@@ -21,8 +21,9 @@
 //        { applied, skipped:[{line_id,reason}], message }. Used by both manual
 //        cell edits and the Auto-allocate run (which previews via ./preview).
 //
-// anon-read RLS; writes via service-role. q matches sku_code / style description
-// / SO number (case-insensitive).
+// anon-read RLS; writes via service-role. q is an all-field search — matches
+// sku_code / style description / SO number / color / size / customer name
+// (case-insensitive).
 
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope, applyChannelScope } from "../../../_lib/brandContext.js";
@@ -151,7 +152,7 @@ export default async function handler(req, res) {
     query = applyChannelScope(query, req);
     if (customerId && UUID_RE.test(customerId)) query = query.eq("customer_id", customerId);
     if (onlyShort) query = query.gt("open_qty", 0);
-    if (q) query = query.or(`sku_code.ilike.%${q}%,description.ilike.%${q}%,so_number.ilike.%${q}%,color.ilike.%${q}%`);
+    if (q) query = query.or(`sku_code.ilike.%${q}%,description.ilike.%${q}%,so_number.ilike.%${q}%,color.ilike.%${q}%,size.ilike.%${q}%,customer_name.ilike.%${q}%`);
 
     const { data: demand, error } = await query.limit(2000);
     if (error) return res.status(500).json({ error: error.message });
