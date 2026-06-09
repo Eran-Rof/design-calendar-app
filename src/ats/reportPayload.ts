@@ -10,8 +10,11 @@ export interface ReportPayload {
   title: string;
   /** Cell-level array-of-arrays the workbook was built from. */
   aoa: any[][];
-  /** Pre-styled XLSXStyle workbook ready to flush. */
+  /** Pre-styled (logo'd) ExcelJS workbook ready to flush. */
   wb: any;
   /** Suggested download filename. */
   filename: string;
+  /** Non-main worksheet AOAs (e.g. "By Size Matrix" + per-period tabs) so the
+   *  preview can render them without reaching into the workbook internals. */
+  extraSheets?: Array<{ name: string; aoa: any[][] }>;
 }

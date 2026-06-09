@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { newWorkbook, addAoaSheet, downloadExcelWorkbook } from "../../shared/excelLogo";
 import { notify, confirmDialog } from "../../shared/ui/warn";
 import AddressFields, { type Address } from "./AddressFields";
 import { formatUsPhone } from "../../shared/phone";
@@ -333,19 +334,9 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
       "Jane Buyer", "+1 (555) 000-0000", "store@example.com",
     ];
     const aoa = [STORE_UPLOAD_HEADERS, exampleRow];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Stores");
-    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "store-upload-template.xlsx";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    const wb = newWorkbook();
+    addAoaSheet(wb, "Stores", aoa, { title: "Customer Locations — Upload Template", subtitle: "Fill one row per store, then upload. The example row below shows the format." });
+    void downloadExcelWorkbook(wb, "store-upload-template.xlsx");
   }
 
   // Parse an .xlsx client-side and POST one customer_locations row per data

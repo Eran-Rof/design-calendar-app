@@ -6,6 +6,7 @@ import { uid, addDaysForPhase, diffDaysForPhase, diffDays, toDateStr, addDays } 
 import { CATEGORIES, DEFAULT_TASK_TEMPLATES } from "../utils/constants";
 import { LeadTimeCell } from "./DateInput";
 import { SB_URL, SB_KEY } from "../utils/supabase";
+import { newWorkbook, addAoaSheet, downloadExcelWorkbook } from "../shared/excelLogo";
 
 export const DEFAULT_WIP_TEMPLATES_DC = [
   { id: "wip_labdip",    phase: "Lab Dip / Strike Off",      category: "Pre-Production", daysBeforeDDP: 120 },
@@ -505,10 +506,6 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => {
-                if (!window.XLSX) {
-                  alert("XLSX library loading, try again.");
-                  return;
-                }
                 const headers = [
                   "Vendor Name",
                   "Country of Origin",
@@ -547,11 +544,13 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
                   "42",
                   "14",
                 ];
-                const ws = window.XLSX.utils.aoa_to_sheet([headers, example]);
-                ws["!cols"] = headers.map(() => ({ wch: 22 }));
-                const wb = window.XLSX.utils.book_new();
-                window.XLSX.utils.book_append_sheet(wb, ws, "Vendors");
-                window.XLSX.writeFile(wb, "ROF_Vendor_Template.xlsx");
+                const wb = newWorkbook();
+                addAoaSheet(wb, "Vendors", [headers, example], {
+                  title: "Vendor Upload Template",
+                  subtitle: "Fill one row per vendor, then upload. The example row below shows the format.",
+                  cols: headers.map(() => 22),
+                });
+                void downloadExcelWorkbook(wb, "ROF_Vendor_Template.xlsx");
               }}
               style={{
                 padding: "8px 16px",

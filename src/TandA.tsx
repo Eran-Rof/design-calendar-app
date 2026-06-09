@@ -1543,9 +1543,9 @@ function TandAApp() {
   // ════════════════════════════════════════════════════════════════════════════
   // PRINT + EXCEL EXPORT — see tanda/exportHelpers.ts
   // Wrapper to pass milestones/notes from component state
-  function handleExportPOExcel(po: XoroPO, items: any[], mode: string) {
+  async function handleExportPOExcel(po: XoroPO, items: any[], mode: string) {
     try {
-      exportPOExcel(po, items, mode, milestones, notes);
+      await exportPOExcel(po, items, mode, milestones, notes);
     } catch (e: any) {
       setToast("Excel export failed: " + (e.message || "Unknown error"));
     }

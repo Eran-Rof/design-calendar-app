@@ -1,4 +1,4 @@
-import XLSXStyle from "xlsx-js-style";
+import { buildMultiSheetWorkbook, writeWorkbookToFile, type MultiSheetSpec } from "./exportTheme";
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate, displayColor } from "./helpers";
 import type { GridTotals } from "./computeTotals";
@@ -55,29 +55,25 @@ export function exportToExcel(
 ) {
   const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices);
   if (!payload) return;
-  triggerXlsxDownload(payload.wb, payload.filename);
+  return triggerXlsxDownload(payload.wb, payload.filename);
 }
 
-// ── Trigger a browser download for a built workbook. ─────────────────
-export function triggerXlsxDownload(wb: any, filename: string): void {
-  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+// ── Trigger a browser download for a built (ExcelJS) workbook. ───────
+export function triggerXlsxDownload(wb: any, filename: string): Promise<void> {
+  return writeWorkbookToFile(wb, filename);
 }
 
 export interface ExportPayload {
   aoa: any[][];     // the array-of-arrays the worksheet was built from
-  wb: any;          // XLSXStyle workbook ready to write
+  wb: any;          // branded ExcelJS workbook ready to write
   filename: string; // download filename
   // Display title used by the preview modal header. Kept optional so
   // legacy code that built ExportPayload without one still type-checks
   // — the preview default falls back to "Export".
   title?: string;
+  // Non-main worksheet AOAs (By Size Matrix + per-period tabs) so the
+  // preview can render them without reaching into the workbook internals.
+  extraSheets?: Array<{ name: string; aoa: any[][] }>;
 }
 
 // Same as exportToExcel but returns the workbook + AOA without
@@ -1801,7 +1797,6 @@ export function buildExportPayload(
 
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = effectiveAllRows;
-  const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
   // ── Auto-fit column widths ──────────────────────────────────────────────
   const SPACER_WCH = 1.57;
@@ -1836,15 +1831,15 @@ export function buildExportPayload(
   }
   // Width array follows the same projection as the AOA when hideZero
   // is on: only emit widths for kept columns, in the same order.
-  ws["!cols"] = [];
+  const mainCols: Array<{ wch: number }> = [];
   if (columnIndexMap) {
     const keptOrigCols = [...columnIndexMap.keys()].sort((a, b) => (columnIndexMap!.get(a)! - columnIndexMap!.get(b)!));
     keptOrigCols.forEach((origCol, i) => {
-      ws["!cols"][i] = { wch: widthForColumn(origCol) };
+      mainCols[i] = { wch: widthForColumn(origCol) };
     });
   } else {
     for (let ci = 1; ci <= totalColumnCount; ci++) {
-      ws["!cols"][ci - 1] = { wch: widthForColumn(ci) };
+      mainCols[ci - 1] = { wch: widthForColumn(ci) };
     }
   }
 
@@ -1880,22 +1875,21 @@ export function buildExportPayload(
       rowsHeight.push({ hpt: ROW_HPT });
     }
   }
-  ws["!rows"] = rowsHeight;
-
   // Merged cells for prepack pairs — text + spacers + qty cols + Total
   // span both rows; only period cols stay split (qty top, PPK bottom).
-  if (effectiveMerges.length > 0) {
-    ws["!merges"] = effectiveMerges;
-  }
-  // No frozen panes, no autofilter.
-
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
+  // No frozen panes, no autofilter on the main sheet.
+  const sheetSpecs: MultiSheetSpec[] = [{
+    sheetName: "ATS Report",
+    allRows: aoa,
+    cols: mainCols,
+    rowHeights: rowsHeight,
+    merges: effectiveMerges.length > 0 ? effectiveMerges : undefined,
+  }];
 
   // Optional "By Size Matrix" worksheet(s) (operator export option). Built
   // only when the size-grain data was fetched; the main report is unaffected.
   if (opts.bySizeMatrix && sizeMatrix && Array.isArray(sizeMatrix.styles) && sizeMatrix.styles.length > 0) {
-    const usedNames = new Set(wb.SheetNames as string[]);
+    const usedNames = new Set<string>(["ATS Report"]);
     // Excel tab names: ≤31 chars, none of []:*?/\, unique within the book.
     const safeTab = (raw: string) => {
       let base = String(raw).replace(/[[\]:*?/\\]/g, " ").trim().slice(0, 31) || "Sheet";
@@ -1905,17 +1899,19 @@ export function buildExportPayload(
       return name;
     };
     // Snapshot (total) matrix tab.
-    const matrixWs = buildSizeMatrixSheet(sizeMatrix, bulkByStyleColor);
-    if (matrixWs) XLSXStyle.utils.book_append_sheet(wb, matrixWs, safeTab("By Size Matrix"));
+    const matrixSpec = buildSizeMatrixSheet(sizeMatrix, bulkByStyleColor);
+    if (matrixSpec) sheetSpecs.push({ ...matrixSpec, sheetName: safeTab("By Size Matrix") });
     // One tab per selected period, each AS OF that period with a 22pt banner.
     for (const pm of periodMatrices ?? []) {
       if (!pm?.matrix || !Array.isArray(pm.matrix.styles) || pm.matrix.styles.length === 0) continue;
-      const ws = buildSizeMatrixSheet(pm.matrix, bulkByStyleColor, pm.name);
-      if (ws) XLSXStyle.utils.book_append_sheet(wb, ws, safeTab(pm.name));
+      const spec = buildSizeMatrixSheet(pm.matrix, bulkByStyleColor, pm.name);
+      if (spec) sheetSpecs.push({ ...spec, sheetName: safeTab(pm.name) });
     }
   }
 
-  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid" };
+  const { wb } = buildMultiSheetWorkbook(`ATS_Report_${fmtDate(new Date())}.xlsx`, sheetSpecs);
+  const extraSheets = sheetSpecs.slice(1).map((s) => ({ name: s.sheetName, aoa: s.allRows }));
+  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid", extraSheets };
 }
 
 // ── By Size Matrix worksheet ───────────────────────────────────────────────
@@ -1952,7 +1948,7 @@ function buildSizeMatrixSheet(
   data: AtsSizeMatrixResponse,
   bulk?: Map<string, { so: number; po: number }>,
   periodHeader?: string,
-): any | null {
+): Omit<MultiSheetSpec, "sheetName"> | null {
   const NUMFMT = "#,##0";
   // Report palette (matches exportExcel's main sheet).
   const DARK = "1F497D";   // dark-blue header fill (On Order/PO/periods/Total)
@@ -2048,12 +2044,13 @@ function buildSizeMatrixSheet(
   }
 
   if (aoa.length === 0) return null;
-  const ws = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
-  if (merges.length > 0) ws["!merges"] = merges;
-  if (periodHeader) ws["!rows"] = [{ hpt: 30 }]; // tall banner row
   // Column widths: Style/Color wide, narrow spacers (cols 3,5,7), compact numerics.
   const cols: Array<{ wch: number }> = [{ wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 2 }, { wch: 9 }, { wch: 2 }, { wch: 10 }, { wch: 2 }];
   for (let i = 8; i < maxWidth; i++) cols.push({ wch: i >= maxWidth - 3 ? 11 : 7 });
-  ws["!cols"] = cols;
-  return ws;
+  return {
+    allRows: aoa,
+    cols,
+    merges: merges.length > 0 ? merges : undefined,
+    rowHeights: periodHeader ? [{ hpt: 30 }] : [], // tall banner row
+  };
 }

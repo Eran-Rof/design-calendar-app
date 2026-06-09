@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import XLSXStyle from "xlsx-js-style";
+import { newWorkbook, renderStyledAoa, downloadExcelWorkbook } from "../../shared/excelLogo";
 import {
   type XoroPO, type Milestone, type WipTemplate, type View,
   MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, fmtCurrency, milestoneUid, isLineClosed, todayLocalIso,
@@ -733,17 +733,18 @@ export function GridView({
   }, [ddpChangeModal, pushUndo, saveMilestone, user, cascadeFromDDP, persistDDP, addNote]);
 
   // ── Excel export ────────────────────────────────────────────────────────
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
+    // Canonical "ATS look" — see src/shared/excelLogo.ts.
     const HDR: any = {
       font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Calibri" },
-      fill:      { fgColor: { rgb: "217346" }, patternType: "solid" },
+      fill:      { fgColor: { rgb: "1F497D" }, patternType: "solid" },
       alignment: { horizontal: "center", vertical: "center", wrapText: true },
-      border: { top: { style: "thin", color: { rgb: "145A2E" } }, bottom: { style: "medium", color: { rgb: "145A2E" } }, left: { style: "thin", color: { rgb: "145A2E" } }, right: { style: "thin", color: { rgb: "145A2E" } } },
+      border: { top: { style: "thin", color: { rgb: "4472C4" } }, bottom: { style: "medium", color: { rgb: "4472C4" } }, left: { style: "thin", color: { rgb: "4472C4" } }, right: { style: "thin", color: { rgb: "4472C4" } } },
     };
-    const HDR2: any = { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" }, font: { ...HDR.font, sz: 9 } };
+    const HDR2: any = { ...HDR, fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" }, font: { ...HDR.font, sz: 9 } };
     const cellBase: any = { font: { sz: 10, name: "Calibri" }, alignment: { vertical: "center" }, border: { top: { style: "thin", color: { rgb: "D0D8E4" } }, bottom: { style: "thin", color: { rgb: "D0D8E4" } }, left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } } };
-    const cellAlt: any  = { ...cellBase, fill: { fgColor: { rgb: "F0FAF4" }, patternType: "solid" } };
+    const cellAlt: any  = { ...cellBase, fill: { fgColor: { rgb: "EEF3FA" }, patternType: "solid" } };
     const mono = (b: any): any => ({ ...b, font: { ...b.font, name: "Courier New" } });
 
     const fixedHdrs1 = ["PO #", "Vendor", "Buyer", "Buyer PO", "DDP", "Days from DDP"];
@@ -751,7 +752,7 @@ export function GridView({
     const phaseHdrs2: string[] = [];
     phases.forEach(p => { phaseHdrs1.push(p, "", "", "", ""); phaseHdrs2.push("Due Date", "Status", "Status Date", "Days", "Notes"); });
 
-    const row1 = [...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })), ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" } } }))];
+    const row1 = [...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })), ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" } } }))];
     const row2 = [...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })), ...phaseHdrs2.map(h => ({ v: h, t: "s", s: HDR2 }))];
 
     const dataRows = rows.map((po, ri) => {
@@ -791,18 +792,19 @@ export function GridView({
       return [...fixed, ...phaseCells];
     });
 
-    const ws = XLSXStyle.utils.aoa_to_sheet([[]]);
-    XLSXStyle.utils.sheet_add_aoa(ws, [row1.map(c => c.v), row2.map(c => c.v), ...dataRows.map(r => r.map((c: any) => c.v))]);
-    const applyRow = (ri: number, cells: any[]) => cells.forEach((c, ci) => { const addr = XLSXStyle.utils.encode_cell({ r: ri, c: ci }); if (!ws[addr]) ws[addr] = { v: c.v, t: c.t }; ws[addr].s = c.s; });
-    applyRow(0, row1); applyRow(1, row2); dataRows.forEach((r, ri) => applyRow(ri + 2, r));
+    const aoa = [row1, row2, ...dataRows];
     const fixedWidths = [12, 22, 18, 14, 12, 14];
     const phaseWidths = phases.flatMap(() => [12, 14, 12, 10, 30]);
-    ws["!cols"] = [...fixedWidths, ...phaseWidths].map(w => ({ wch: w }));
-    ws["!merges"] = phases.map((_, pi) => ({ s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS }, e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 } }));
-    ws["!rows"] = [{ hpx: 28 }, { hpx: 18 }];
-    const wb = XLSXStyle.utils.book_new();
-    XLSXStyle.utils.book_append_sheet(wb, ws, "WIP Grid");
-    XLSXStyle.writeFile(wb, `WIP_Grid_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const merges = phases.map((_, pi) => ({ s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS }, e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 } }));
+    const wb = newWorkbook();
+    renderStyledAoa(wb, "WIP Grid", aoa, {
+      banner: { title: "WIP Grid", subtitle: `Production work-in-progress · ${new Date().toISOString().slice(0, 10)}`, cols: aoa[0].length },
+      cols: [...fixedWidths, ...phaseWidths],
+      rowHeights: [22, 16],
+      merges,
+      freeze: { xSplit: 6, ySplit: 2 },
+    });
+    await downloadExcelWorkbook(wb, `WIP_Grid_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // ── Cell styles ─────────────────────────────────────────────────────────
