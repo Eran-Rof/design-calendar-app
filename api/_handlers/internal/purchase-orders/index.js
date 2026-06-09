@@ -100,7 +100,21 @@ export default async function handler(req, res) {
     query = applyBrandScope(query, req);
     if (status) query = query.eq("status", status);
     if (vendorId && UUID_RE.test(vendorId)) query = query.eq("vendor_id", vendorId);
-    if (q) query = query.ilike("po_number", `%${q}%`);
+    if (q) {
+      // All-field search: PO #, notes, or vendor name/code. A parent column
+      // can't be OR'd with an embedded one in a single PostgREST filter, so we
+      // resolve matching vendor ids first and OR them into the header query.
+      const like = `%${q}%`;
+      const ors = [`po_number.ilike.${like}`, `notes.ilike.${like}`];
+      const { data: vendorMatches } = await admin
+        .from("vendors")
+        .select("id")
+        .or(`name.ilike.${like},code.ilike.${like}`)
+        .limit(1000);
+      const vendorIds = (vendorMatches || []).map((v) => v.id);
+      if (vendorIds.length) ors.push(`vendor_id.in.(${vendorIds.join(",")})`);
+      query = query.or(ors.join(","));
+    }
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });

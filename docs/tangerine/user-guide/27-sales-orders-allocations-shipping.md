@@ -103,6 +103,10 @@ The alert fires once per SO (deduped on the SO id), through the same `resolveInt
 
 **Save & Confirm** issues the PATCH `status: "confirmed"`. The first time an SO is confirmed, the `[id].js` handler assigns the immutable `so_number` in the format **`SO-YYYY-NNNNN`** (year from the order date; the `NNNNN` is a per-entity sequence padded to 5). The `(entity_id, so_number)` unique index enforces no collisions within a company. Lines are editable only while `draft`; the PATCH handler returns **409** on a line edit to a non-draft SO.
 
+### Finding a sales order (list search)
+
+The **Search SO # or customer…** box at the top of 🛒 Sales Orders is **all-field**: the server matches the typed text against the **SO number**, the **customer name / code**, and the order **notes** (case-insensitive, substring). So you can pull up an order by who it's for, not just its number. It works alongside the **Customer** and **Status** filters (all are ANDed) and updates as you type (200 ms debounce). Customer-name matches are resolved server-side, so they find orders across the whole order book, not just the rows currently loaded.
+
 ---
 
 ## 27.2 Confirm → draft AR invoice (M10-C)

@@ -144,7 +144,21 @@ export default async function handler(req, res) {
     query = applyChannelScope(query, req);
     if (status) query = query.eq("status", status);
     if (customerId && UUID_RE.test(customerId)) query = query.eq("customer_id", customerId);
-    if (q) query = query.ilike("so_number", `%${q}%`);
+    if (q) {
+      // All-field search: SO #, notes, or customer name/code. A parent column
+      // can't be OR'd with an embedded one in a single PostgREST filter, so we
+      // resolve matching customer ids first and OR them into the header query.
+      const like = `%${q}%`;
+      const ors = [`so_number.ilike.${like}`, `notes.ilike.${like}`];
+      const { data: custMatches } = await admin
+        .from("customers")
+        .select("id")
+        .or(`name.ilike.${like},customer_code.ilike.${like}`)
+        .limit(1000);
+      const custIds = (custMatches || []).map((c) => c.id);
+      if (custIds.length) ors.push(`customer_id.in.(${custIds.join(",")})`);
+      query = query.or(ors.join(","));
+    }
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
