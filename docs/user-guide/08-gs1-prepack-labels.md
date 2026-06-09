@@ -288,7 +288,12 @@ This is a **standalone analysis tool**, separate from the GTIN/label flow. Drop 
 1. Drag files onto the drop zone (or click to choose). Multiple `.xls`/`.xlsx` files are supported.
 2. Each file shows a status (Parsing / OK / Error), sheet and record counts, and a **Verify** check.
 
-> **Verification banner.** A green banner confirms all channel totals **tie out to PA report row 46**. A red banner lists any mismatches (computed vs reported) so you can investigate before trusting the numbers.
+> **Verification banner.** Every parse is double-checked silently across three independent layers, and the result shows as a banner:
+> - **Channel totals** — units summed per channel tie out to the PA-reported TOTALS row.
+> - **Line rows** — units summed per source row tie out to that row's **TOTAL UNITS** column.
+> - **Color coverage** — every color in the sheet produces its own records (so a color can't be silently merged into the one above it).
+>
+> A green banner confirms all three layers reconciled (it shows the count of colors, line rows and channel totals checked). A red banner lists any failed check — **do not trust the numbers until it's green.** The color-coverage layer specifically guards against a color that starts on the sheet's last data row being folded into the color above it.
 
 Three views toggle the layout:
 
