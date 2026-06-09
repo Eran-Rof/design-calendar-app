@@ -84,6 +84,7 @@ export default function InternalSalesOrders() {
   // PART 44 — reverse drill from the Allocations Workbench: clicking a SO #
   // sub-header navigates here with ?so=<SO#>; seed the SO search box with it so
   // this panel lands pre-filtered to that order (mirrors the ?customer= seed).
+  // Server-side q is all-field: matches SO #, customer name/code, or notes.
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("so"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
@@ -134,7 +135,7 @@ export default function InternalSalesOrders() {
             options={[{ value: "", label: "All customers" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
             placeholder="All customers" inputStyle={inputStyle} />
         </div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO #…" style={{ ...inputStyle, width: 200 }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO # or customer…" style={{ ...inputStyle, width: 230 }} />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SO_TABLE_KEY}

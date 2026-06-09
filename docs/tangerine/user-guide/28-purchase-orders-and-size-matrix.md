@@ -136,6 +136,8 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). Lines become line-locked. The PO number is **never** reassigned.
 5. **Mark in-transit / Mark received** — advance status.
 
+**Finding a PO (list search).** The **Search PO # or vendor…** box is **all-field**: the server matches the typed text against the **PO number**, the **vendor name / code**, and the order **notes** (case-insensitive, substring), alongside the **Vendor** and **Status** filters (all ANDed), updating as you type (200 ms debounce). Vendor-name matches are resolved server-side, so they find POs across the whole book — not just the loaded rows.
+
 ### What receiving does NOT do
 
 > **Marking a PO `received` is a pure status flip. It does NOT create FIFO inventory layers, post a JE, or update on-hand.** The `[id].js` PATCH handler only changes `status`; `qty_received` is not written by this path.
