@@ -71,7 +71,7 @@ export default async function handler(req, res) {
       .single();
     if (error) {
       if (error.code === "23505") {
-        return res.status(409).json({ error: `A scope with that ${v.data.code ? "code" : "name"} already exists` });
+        return res.status(409).json({ error: "A scope with that name already exists" });
       }
       return res.status(500).json({ error: error.message });
     }
@@ -102,13 +102,11 @@ export function validateInsert(body) {
     typeof body.is_active === "boolean" ? body.is_active :
       body.is_active === "true" || body.is_active === 1;
 
-  const code = body.code != null && String(body.code).trim() !== ""
-    ? String(body.code).trim().toUpperCase() : null;
-
+  // code is AUTO-GENERATED (SCOPE-NNNNN) by a DB trigger and is immutable —
+  // any client-supplied code is ignored on create and frozen on update.
   return {
     data: {
       name:       String(body.name).trim(),
-      code,
       sort_order: sortOrder,
       is_active:  isActive,
     },

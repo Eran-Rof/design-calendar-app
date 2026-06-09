@@ -261,9 +261,9 @@ function ScopeFormModal({ mode, scope, onClose, onSaved }: ModalProps) {
     try {
       const url = mode === "add" ? "/api/internal/buyer-scope-master" : `/api/internal/buyer-scope-master/${scope!.id}`;
       const method = mode === "add" ? "POST" : "PATCH";
+      // code is auto-generated server-side (SCOPE-NNNNN) — never sent.
       const body = {
         name:       form.name.trim(),
-        code:       form.code.trim() ? form.code.trim().toUpperCase() : null,
         sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
         is_active:  form.is_active,
       };
@@ -306,13 +306,14 @@ function ScopeFormModal({ mode, scope, onClose, onSaved }: ModalProps) {
             />
           </Field>
 
-          <Field label="Code (optional)">
+          <Field label="Code (auto-generated)">
             <input
               type="text"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-              style={inputStyle}
-              placeholder="e.g. MENS_TOPS"
+              value={mode === "add" ? "(assigned on save)" : (scope?.code ?? "—")}
+              readOnly
+              disabled
+              style={{ ...inputStyle, opacity: 0.6, fontFamily: "SFMono-Regular, Menlo, monospace" }}
+              title="Code is auto-generated (SCOPE-NNNNN) and cannot be edited"
             />
           </Field>
 

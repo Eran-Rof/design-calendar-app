@@ -231,13 +231,13 @@ The table is **seeded with 6 sensible apparel scopes** on first migration; add, 
 | Field | Meaning |
 |---|---|
 | **Name** | The scope label, e.g. `Men's Tops`. Required and editable. |
-| **Code** | Optional short code, e.g. `MENS_TOPS`. Editable; uppercased on save; unique when supplied. |
+| **Code** | **Auto-generated** as `SCOPE-NNNNN` on save — read-only, never operator-entered or editable (an internal key only; the buyer↔scope link uses the row id, not the code). |
 | **Sort order** | Optional integer ordering (low to high), then name as tie-breaker. |
 | **Active** | Inactive scopes drop out of the buyer scope picker but stay assigned where already chosen. Toggle **Show inactive** to see them. |
 
 ### Delete protection
 
-Deleting a scope is **blocked** if any buyer is currently assigned it (you'll get a clear message with the count). Deactivate it instead to retire it from the picker while keeping existing assignments. Standard panel features apply: server-side search (name or code), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit.
+Deleting a scope is **blocked** if any buyer is currently assigned it (you'll get a clear message with the count). Deactivate it instead to retire it from the picker while keeping existing assignments. Standard panel features apply: server-side search (name or code), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. The **Code** column is auto-generated and shown read-only.
 
 ## 🏭 Vendor Master
 
