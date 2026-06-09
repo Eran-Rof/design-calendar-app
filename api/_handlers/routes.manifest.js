@@ -349,6 +349,11 @@ export default [
   ["/api/internal/warehouses"                                , "./internal/warehouses/index.js"],
   ["/api/internal/carriers/:id"                              , "./internal/carriers/[id].js"],
   ["/api/internal/carriers"                                  , "./internal/carriers/index.js"],
+  // #1156 — Buyer Scope Master + per-row Customer Buyers.
+  ["/api/internal/buyer-scope-master/:id"                    , "./internal/buyer-scope-master/[id].js"],
+  ["/api/internal/buyer-scope-master"                        , "./internal/buyer-scope-master/index.js"],
+  ["/api/internal/customer-buyers/:id"                       , "./internal/customer-buyers/[id].js"],
+  ["/api/internal/customer-buyers"                           , "./internal/customer-buyers/index.js"],
   // M15 — External / Partner API key admin (Admin -> API Keys panel).
   ["/api/internal/api-keys/:id"                              , "./internal/api-keys/[id].js"],
   ["/api/internal/api-keys"                                  , "./internal/api-keys/index.js"],

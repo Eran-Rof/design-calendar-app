@@ -65,6 +65,7 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 | Field | Required? | Notes |
 |---|---|---|
 | Customer | yes | `SearchableSelect` over Customer Master. Selecting a customer prefills **Brand** and **Channel** from the customer's `default_brand_id` / `default_channel_id` (new SO only, and only if the picker is still empty). |
+| Buyer | optional | `SearchableSelect` of the **buyers on the selected customer** (from Customer Master → Buyers). Records which buyer placed the order (`sales_orders.buyer_id`). Re-fetched when the customer changes; cleared if you switch customers. Disabled until a customer is picked. Validated server-side to belong to the order's customer. |
 | Ship-to location | optional | The customer's `customer_locations` (stores / DCs). Re-fetched when the customer changes. |
 | SO number | — | Read-only; shows "(assigned on confirm)". |
 | Order date | yes | Defaults to today. |

@@ -38,7 +38,7 @@ const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
   "ar_account_id, revenue_account_id, notes, subtotal_cents, total_cents, fulfillment_source, " +
-  "factor_approval_status, factor_reference, factor_approved_cents, " +
+  "factor_approval_status, factor_reference, factor_approved_cents, buyer_id, " +
   "parent_sales_order_id, is_split_parent, created_at, updated_at";
 
 export function validateInsert(body) {
@@ -86,6 +86,7 @@ export function validateInsert(body) {
   return {
     data: {
       customer_id: body.customer_id,
+      buyer_id: nz("buyer_id"),
       ship_to_location_id: nz("ship_to_location_id"),
       brand_id: nz("brand_id"),
       channel_id: nz("channel_id"),
@@ -173,10 +174,18 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
+    // Optional buyer must belong to this SO's customer.
+    if (v.data.buyer_id) {
+      const { data: b } = await admin.from("customer_buyers").select("id, customer_id").eq("id", v.data.buyer_id).maybeSingle();
+      if (!b) return res.status(400).json({ error: "buyer_id not found" });
+      if (b.customer_id !== v.data.customer_id) return res.status(400).json({ error: "buyer_id must belong to the order's customer" });
+    }
+
     const subtotal = v.data.lines.reduce((s, l) => s + l.line_total_cents, 0);
     const { data: header, error: hErr } = await admin.from("sales_orders").insert({
       entity_id: entity.id,
       customer_id: v.data.customer_id,
+      buyer_id: v.data.buyer_id,
       ship_to_location_id: v.data.ship_to_location_id,
       brand_id: v.data.brand_id || undefined, // undefined → DB default rof_default_brand_id()
       channel_id: v.data.channel_id,

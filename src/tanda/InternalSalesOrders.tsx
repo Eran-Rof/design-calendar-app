@@ -47,6 +47,7 @@ type SO = {
   id: string; so_number: string | null; customer_id: string; ship_to_location_id: string | null;
   brand_id: string | null; channel_id: string | null; order_date: string; requested_ship_date: string | null;
   cancel_date: string | null; status: string; payment_terms_id: string | null; ar_account_id: string | null;
+  buyer_id?: string | null; buyer_name?: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
   fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
@@ -203,6 +204,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [reqShip, setReqShip] = useState(so?.requested_ship_date || "");
   const [cancelDate, setCancelDate] = useState(so?.cancel_date || "");
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
+  // #1156 — optional buyer (the person at the customer who placed the order).
+  const [buyerId, setBuyerId] = useState(so?.buyer_id || "");
+  const [buyers, setBuyers] = useState<{ id: string; name: string; title: string | null }[]>([]);
   const [notes, setNotes] = useState(so?.notes || "");
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
@@ -288,11 +292,20 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return () => { cancel = true; };
   }, [customerId]);
 
+  // #1156 — the customer's buyers, for the optional Buyer picker.
+  useEffect(() => {
+    if (!customerId) { setBuyers([]); return; }
+    let cancel = false;
+    fetch(`/api/internal/customer-buyers?customer_id=${encodeURIComponent(customerId)}`).then((r) => r.ok ? r.json() : []).then((a) => { if (!cancel) setBuyers(Array.isArray(a) ? a as { id: string; name: string; title: string | null }[] : []); }).catch(() => {});
+    return () => { cancel = true; };
+  }, [customerId]);
+
   // Item 5 — prefill brand/channel from the customer's defaults (NEW SO only, and
   // only when the picker is still empty so an explicit choice isn't clobbered).
   function pickCustomer(v: string) {
     setCustomerId(v);
     setShipToLocationId("");
+    setBuyerId(""); // buyer belongs to the customer — clear when the customer changes
     if (!isNew) return;
     const c = customers.find((x) => x.id === v);
     if (!c) return;
@@ -320,7 +333,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         customer_id: customerId, ship_to_location_id: shipToLocationId || null,
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
-        payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: resolvedLines,
+        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: resolvedLines,
         fulfillment_source: fulfillmentSource || null,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
@@ -475,11 +488,17 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           )}
         </h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
             <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
               options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
               placeholder="(pick customer…)" disabled={!editable} />
+          </Field>
+          <Field label="Buyer (optional)">
+            <SearchableSelect value={buyerId || null} onChange={(v) => setBuyerId(v)}
+              options={[{ value: "", label: "(none)" }, ...buyers.map((b) => ({ value: b.id, label: b.title ? `${b.name} — ${b.title}` : b.name }))]}
+              placeholder={customerId ? (buyers.length ? "(none)" : "(no buyers on this customer)") : "(pick customer first)"}
+              disabled={!editable || !customerId} />
           </Field>
           <Field label="Ship-to location">
             <SearchableSelect value={shipToLocationId || null} onChange={(v) => setShipToLocationId(v)}
