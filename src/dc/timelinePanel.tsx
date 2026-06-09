@@ -255,6 +255,11 @@ function TimelinePanelInner(): React.ReactElement | null {
                 {focusCollKey.split("||")[1]}
               </strong>
             </span>
+            {collCreatedDate(collections[focusCollKey] || {}) && (
+              <span style={{ fontSize: 12, color: TH.textMuted }}>
+                Created: {formatDate(collCreatedDate(collections[focusCollKey] || {}))}
+              </span>
+            )}
             <button
               onClick={() => setFocusCollKey(null)}
               style={{
