@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { notify, confirmDialog } from "../../shared/ui/warn";
 import AddressFields, { type Address } from "./AddressFields";
+import { formatUsPhone } from "../../shared/phone";
 
 type LocationType = "dc" | "store" | "other";
 
@@ -143,8 +144,8 @@ function LocationForm({ draft, onChange }: LocationFormProps) {
           <input
             style={inputStyle}
             value={draft.phone}
-            onChange={(e) => set("phone", e.target.value)}
-            placeholder="+1 (555) 000-0000"
+            onChange={(e) => set("phone", formatUsPhone(e.target.value))}
+            placeholder="(555) 000-0000"
           />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>

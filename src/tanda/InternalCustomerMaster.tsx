@@ -31,6 +31,9 @@ import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the customer detail modal.
 import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
+import ContactList, { type Contact } from "./components/ContactList";
+import MailLink from "./components/MailLink";
+import { formatUsPhone } from "../shared/phone";
 import CustomerLocations from "./components/CustomerLocations";
 // Wave 5 primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
@@ -89,6 +92,7 @@ type Customer = {
   phone: string | null;
   website: string | null;
   wechat_id: string | null;
+  contacts: Contact[] | null;
   attributes: Record<string, unknown>;
   active: boolean | null;
   external_refs: Record<string, unknown> | null;
@@ -472,7 +476,8 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     name:                         customer?.name                         ?? "",
     code:                         customer?.code                         ?? "",
     customer_type:                customer?.customer_type                ?? "wholesale",
-    country:                      customer?.country                      ?? "",
+    // Operator request — new customers default to the US market.
+    country:                      customer?.country                      ?? (mode === "add" ? "US" : ""),
     payment_terms_id:             customer?.payment_terms_id             ?? "",
     default_currency:             customer?.default_currency             ?? "USD",
     // New customers default to tax-exempt=true (operator request).
@@ -507,18 +512,24 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     phone:                        customer?.phone                        ?? "",
     website:                      customer?.website                      ?? "",
     wechat_id:                    customer?.wechat_id                    ?? "",
+    contacts:                     (Array.isArray(customer?.contacts) ? customer!.contacts : []) as Contact[],
   });
+  const [countries, setCountries] = useState<{ iso2: string; name: string }[]>([]);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [priceLists, setPriceLists] = useState<{ id: string; code: string; name: string }[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
-  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses">("details");
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "contacts">("details");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    fetch("/api/internal/countries")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr) => setCountries(Array.isArray(arr) ? arr as { iso2: string; name: string }[] : []))
+      .catch(() => {});
     fetch("/api/internal/gl-accounts?limit=1000")
       .then((r) => r.json())
       .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
@@ -596,6 +607,16 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     ...factors.map((f) => ({ value: f.id, label: f.name, searchHaystack: `${f.code} ${f.name}` })),
   ], [factors]);
 
+  // Country picker from country_master (stored as ISO-2, e.g. "US"). A legacy
+  // free-text value not in the master is injected as a one-off option so it
+  // still shows and isn't dropped on save.
+  const countryOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts = countries.map((c) => ({ value: c.iso2, label: `${c.name} (${c.iso2})`, searchHaystack: `${c.name} ${c.iso2}` }));
+    const cur = form.country;
+    if (cur && !opts.some((o) => o.value === cur)) opts.unshift({ value: cur, label: cur, searchHaystack: cur });
+    return opts;
+  }, [countries, form.country]);
+
   // Wave 5 — payment-terms picker is the only modal dropdown whose option
   // list comes from a DB table (payment_terms) and can grow beyond a
   // handful, so we route it through SearchableSelect. The customer_type
@@ -667,6 +688,8 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         phone:                        form.phone.trim() || null,
         website:                      form.website.trim() || null,
         wechat_id:                    form.wechat_id.trim() || null,
+        // Up to 12 additional contacts; drop fully-blank rows on save.
+        contacts:                     form.contacts.filter((c) => Object.values(c).some((x) => String(x ?? "").trim() !== "")),
       };
       let url: string;
       let method: string;
@@ -711,6 +734,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             ["reps", "Reps & Defaults"],
             ["gl", "GL Accounts"],
             ["addresses", "Addresses & Locations"],
+            ["contacts", "Contacts"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -757,7 +781,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             </select>
           </Field>
           <Field label="Country">
-            <input type="text" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} style={inputStyle} placeholder="e.g. US" />
+            <SearchableSelect
+              value={form.country || null}
+              onChange={(v) => setForm({ ...form, country: v })}
+              options={countryOptions}
+              placeholder="Pick a country…"
+            />
           </Field>
           <Field label="Payment terms">
             <SearchableSelect
@@ -869,21 +898,24 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             />
           </Field>
           <Field label="Email">
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              style={inputStyle}
-              placeholder="contact@example.com"
-            />
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                style={{ ...inputStyle, paddingRight: 30 }}
+                placeholder="contact@example.com"
+              />
+              <MailLink email={form.email} />
+            </div>
           </Field>
           <Field label="Phone">
             <input
               type="text"
               value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              onChange={(e) => setForm({ ...form, phone: formatUsPhone(e.target.value) })}
               style={inputStyle}
-              placeholder="+1 (555) 000-0000"
+              placeholder="(555) 000-0000"
             />
           </Field>
           <Field label="Website">
@@ -1038,6 +1070,20 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── Tab 5 — Contacts (up to 12) ─────────────────────────────── */}
+        <div style={{ display: tab === "contacts" ? "block" : "none" }}>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+            Additional contacts for this customer (the Details tab holds the primary contact). Add up to 12.
+          </div>
+          <ContactList
+            label="Contacts"
+            value={form.contacts}
+            onChange={(next) => setForm({ ...form, contacts: next })}
+            max={12}
+            fields={["name", "email", "phone", "title", "department"]}
+          />
         </div>
 
         {err && (

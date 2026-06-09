@@ -270,6 +270,20 @@ For the widget to work, an operator with admin access to Supabase must have crea
 
 The Customer Edit modal renders the same `<DocumentAttachmentList>` widget as Vendor Master. Seeded document kinds: `contract`, `tax_exempt`, `credit_app`, `other`. The widget appears below the form fields once the customer is in `mode='edit'`. Use it to attach signed contracts, tax-exempt certificates, credit applications — see [09-documents.md](09-documents.md).
 
+### Country default + tax-exempt default + Contacts tab
+
+- **Country** is a **searchable dropdown** sourced from `country_master` (stored as the ISO-2 code, e.g. `US`). **New customers default to United States**; existing customers with a blank country were backfilled to `US`.
+- **Tax-exempt** defaults to **checked (yes)** for new customers, and every existing customer was set tax-exempt on this release (operator request). Uncheck per customer as needed.
+- A **Contacts** tab holds up to **12** additional contacts — each with **Name · Email · Phone · Title · Department**. Nothing shows until you click **+ Add contact**; the primary contact still lives on the Details tab. Stored in `customers.contacts` (jsonb). Blank rows are dropped on save.
+
+## Address, contacts, country/state & phone — shared behaviours
+
+These apply to the **Customer**, **Vendor**, and **Factor** masters (and customer ship-to locations), via the shared `AddressFields` / `ContactList` / phone-mask primitives:
+
+- **Country + State dropdowns.** Every structured address (billing / shipping / vendor / factor / location) now edits **Country** and **State / province** as **searchable dropdowns** — Country from `country_master`, State from the new `state_master` (all US states + DC + territories, and Canadian provinces), filtered to the chosen country. A country with no seeded states (e.g. China) falls back to a free-text State box. Legacy free-text values are preserved (shown as a one-off option) until you re-pick.
+- **Click-to-email.** Email fields show a **✉ mailto** affordance (and email cells in lists are clickable) so you can start an email in one click. Inert until the address is valid.
+- **US phone mask.** Phone inputs auto-format to **(XXX) XXX-XXXX** as you type — everywhere **except the Vendor master** (vendors are often overseas, so their phone stays free-form). A value beginning with `+` is treated as international and left as typed.
+
 ## Common patterns
 
 These hold for all three master panels:

@@ -29,6 +29,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the vendor detail modal.
 import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
+import MailLink from "./components/MailLink";
 // Wave 5 universal primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useSort } from "./hooks/useSort";
@@ -555,13 +556,16 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
             />
           </Field>
           <Field label="Email">
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              style={inputStyle}
-              placeholder="vendor@example.com"
-            />
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                style={{ ...inputStyle, paddingRight: 30 }}
+                placeholder="vendor@example.com"
+              />
+              <MailLink email={form.email} />
+            </div>
           </Field>
           <Field label="Phone">
             <input
