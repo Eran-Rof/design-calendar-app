@@ -238,6 +238,16 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
     else emitChanged();
   }
 
+  // One-click delete of a single notification (read or unread). Same RLS path as
+  // bulk delete: anon FOR ALL (internal) / vendor_own_notifications_delete (vendor).
+  async function deleteOne(id: string) {
+    setItems((xs) => xs.filter((n) => n.id !== id));
+    setSelected((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    const { error } = await supabase.from("notifications").delete().eq("id", id);
+    if (error) void load();
+    else emitChanged();
+  }
+
   const allVisibleSelected = filtered.length > 0 && filtered.every((n) => selected.has(n.id));
   function toggleSelectAllVisible() {
     setSelected((prev) => {
@@ -467,6 +477,15 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                             {clickable && !unread && (
                               <span style={{ fontSize: 10, color: C.textMuted }}>→</span>
                             )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); void deleteOne(n.id); }}
+                              title="Delete this notification"
+                              style={{
+                                padding: "2px 8px", borderRadius: 4,
+                                border: `1px solid ${C.borderLt}`, background: "transparent",
+                                color: C.textMuted, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "inherit",
+                              }}
+                            >🗑 Delete</button>
                           </div>
                         </div>
                       );
