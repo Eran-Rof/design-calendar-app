@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-05 (nav-surfacing + new masters + opt-in UPC + external API session; EDI restructured; screenshot annotation guide added)
+**Last updated:** 2026-06-09 (Shopify store connected + images pulled — done; added API-auth hardening security follow-up after moving the app to apps.ringoffire.com)
 
 ---
 
@@ -10,12 +10,18 @@
 
 | Item | Needed for | Detail |
 |---|---|---|
-| **Shopify store + Admin API token** | P11 Shopify (orders + COGS + product images) | `shopify_stores` is **empty in prod** (0 stores, no token) — the entire Shopify integration (order/refund/payout webhooks, COGS posting, product mirror, image re-host) is **dormant** until a store + Admin API token are connected. |
+| ~~**Shopify store + Admin API token**~~ ✅ DONE 2026-06-09 | P11 Shopify (orders + COGS + product images) | ~~`shopify_stores` empty~~ → **rof-clothing.myshopify.com connected** (Connect Store panel; token encrypted). Bulk image pull ran: **256 styles linked, 2,602 images re-hosted, 256 descriptions, 1,280 attributes, 678 color-tagged**. Re-runnable from Connect Store → 🖼️ Bulk pull. (Orders/refund/payout webhooks now have a live store too.) |
 | **`VENDOR_DATA_ENCRYPTION_KEY` on Preview** | Vendor portal field crypto on preview deploys | Set on Vercel **prod + dev**; the **Preview** environment still needs it or banking/card submit fails with "Encryption failed". ⚠️ Never change once data is encrypted (orphans all ciphertext). |
 | **Paycor access** | M51 Payroll | Confirm your Paycor plan exposes a **GL export** (preferred) **or the API**, and get credentials (API key/OAuth, or SFTP). Usually a plan-tier/partner gate — ask your Paycor rep. Then: the **pay-code→GL mapping**, a **Net-Pay-Clearing vs Cash** choice, and whether to **brand-allocate labor** on day one. *(arch: `payroll-paycor-integration-architecture.md`)* |
 | **Plaid credentials** | M7/M8 Bank feeds + reconciliation (live) | Live Plaid API keys / item link so bank + CC feeds pull real transactions (recon engine is built; needs the live connection). |
 | **Stock-allocation rule** | P15 inventory stock-pool separation | How existing on-hand maps to the new WS/EC "store" pools. Recommended default: **all current stock → each brand's Wholesale pool**, tag new receipts going forward. (Or "import the Xoro store split.") |
 | **Axel entity details** | Axel brand standup | Axel is a separate legal entity. Provide its legal name / tax / fiscal info to stand up the entity + brand, then its 15 unmapped `ip_item_avg_cost` rows get attributed. |
+
+## 🔵 Security follow-up (needs your go-ahead; agent builds it)
+
+| Item | Why | Detail |
+|---|---|---|
+| **Real auth on `/api/internal/*`** | Hardening after moving the app to the SSO-exempt custom domain `apps.ringoffire.com` | The app now lives at **apps.ringoffire.com** (no Vercel SSO — that fixed the recurring "Unexpected token '<'" / session-expiry outages). With SSO off, the internal API is gated only by the app's own login + a **client-bundled** `VITE_INTERNAL_API_TOKEN` — i.e. effectively reachable by URL. **Recommended:** add per-request auth (Supabase session/JWT) on `/api/internal/*` so data isn't exposed by URL alone. Not urgent, but should be done deliberately. Give the go-ahead and the agent will scope + build it. |
 
 ## 🟡 Go-live switches — when you're ready (operator-controlled, not blocking the build)
 
