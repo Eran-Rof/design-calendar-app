@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { htmlToText, tagsToArray, buildImageColorMap } from "../pull-product-meta.js";
+import { htmlToText, tagsToArray, buildImageColorMap, htmlToBullets, seoFromMetafields } from "../pull-product-meta.js";
 
 describe("htmlToText", () => {
   it("strips tags + decodes entities + collapses whitespace", () => {
@@ -18,6 +18,35 @@ describe("tagsToArray", () => {
     expect(tagsToArray(["x", "y"])).toEqual(["x", "y"]);
     expect(tagsToArray("")).toEqual([]);
     expect(tagsToArray(null)).toEqual([]);
+  });
+});
+
+describe("htmlToBullets", () => {
+  it("extracts <li> items as clean text, capped at max", () => {
+    const html = "<p>Intro</p><ul><li>Soft <b>cotton</b></li><li>Made in USA</li><li>Machine wash</li></ul>";
+    expect(htmlToBullets(html)).toEqual(["Soft cotton", "Made in USA", "Machine wash"]);
+    expect(htmlToBullets(html, 2)).toEqual(["Soft cotton", "Made in USA"]);
+  });
+  it("returns [] when there are no list items", () => {
+    expect(htmlToBullets("<p>just a paragraph</p>")).toEqual([]);
+    expect(htmlToBullets("")).toEqual([]);
+    expect(htmlToBullets(null)).toEqual([]);
+  });
+});
+
+describe("seoFromMetafields", () => {
+  it("reads global.title_tag / description_tag", () => {
+    const mfs = [
+      { namespace: "global", key: "title_tag", value: "Best Tee" },
+      { namespace: "global", key: "description_tag", value: "A great tee." },
+      { namespace: "other", key: "title_tag", value: "ignore" },
+    ];
+    expect(seoFromMetafields(mfs)).toEqual({ seo_title: "Best Tee", seo_description: "A great tee." });
+  });
+  it("returns nulls when absent / blank / not an array", () => {
+    expect(seoFromMetafields([])).toEqual({ seo_title: null, seo_description: null });
+    expect(seoFromMetafields([{ namespace: "global", key: "title_tag", value: "  " }]).seo_title).toBe(null);
+    expect(seoFromMetafields(null)).toEqual({ seo_title: null, seo_description: null });
   });
 });
 

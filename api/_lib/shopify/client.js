@@ -128,6 +128,23 @@ export class ShopifyClient {
     return { data: json.images || [], nextPageInfo: null };
   }
 
+  /**
+   * GET /admin/api/{v}/products/{id}/metafields.json
+   *
+   * Used by the description sync to read SEO fields — Shopify stores the SEO
+   * title / meta description as metafields under namespace `global`
+   * (key `title_tag` / `description_tag`). Pass { namespace } to filter.
+   */
+  async getProductMetafields(productId, { namespace } = {}) {
+    if (!productId) throw new Error("getProductMetafields: productId is required");
+    const { json } = await this._request(
+      "GET",
+      `/products/${encodeURIComponent(productId)}/metafields.json`,
+      { query: namespace ? { namespace } : undefined },
+    );
+    return { data: json.metafields || [], nextPageInfo: null };
+  }
+
   // ── Refunds ─────────────────────────────────────────────────────────────
 
   /**
