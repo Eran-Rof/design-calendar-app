@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { attach, list, DocumentsError } from "../../../_lib/documents/index.js";
+import { flagCostingLineDocRevised } from "../../../_lib/rfqDocRevision.js";
 
 export const config = { maxDuration: 60 };
 
@@ -104,6 +105,25 @@ export default async function handler(req, res) {
         },
         buf,
         { mime: v.data.mime, notes: v.data.notes });
+
+      // A document attached to a costing line whose RFQ was already SENT is a
+      // vendor-relevant change (costing-line docs reach the vendor RFQ detail
+      // via signed URLs keyed by costing_line_id). Flag the linked rfq_line_items
+      // "Revised" + notify the vendor, mirroring a vendor-visible field edit.
+      // Best-effort: never fail the upload on a revision/notify hiccup. No-op for
+      // draft lines (no FK-linked rfq_line_items) or any non-costing_lines context.
+      if (v.data.context_table === "costing_lines") {
+        try {
+          await flagCostingLineDocRevised(admin, {
+            lineId: v.data.context_id,
+            host: req.headers.host,
+            docTitle: v.data.title,
+          });
+        } catch (e) {
+          console.warn(`[documents] RFQ doc-revision flag failed for line ${v.data.context_id}: ${e && e.message ? e.message : String(e)}`);
+        }
+      }
+
       return res.status(201).json(out);
     } catch (err) {
       if (err instanceof DocumentsError) {

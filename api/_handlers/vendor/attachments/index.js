@@ -9,6 +9,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateVendor } from "../../../_lib/vendor-auth.js";
+import { flagVendorQuoteDocRevised } from "../../../_lib/rfqDocRevision.js";
 
 export const config = { maxDuration: 10 };
 
@@ -93,6 +94,21 @@ export default async function handler(req, res) {
       uploaded_by_auth_id: auth.auth_id || null,
     }).select("*").single();
     if (error) return send(500, { error: error.message });
+
+    // A document attached to an ALREADY-SUBMITTED quote is a revision: snapshot
+    // the quote, bump its revision, and notify procurement (mirrors the vendor
+    // quote-revision flow) so ROF is alerted and the quote shows "Revised".
+    // Best-effort: never fail the upload on a revision/notify hiccup. No-op for a
+    // draft quote or any non-rfq_quote entity_type.
+    if (entity_type === "rfq_quote") {
+      try {
+        await flagVendorQuoteDocRevised(admin, { quoteId: entity_id, vendorId, host: req.headers.host });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[vendor-attachments] quote doc-revision flag failed for quote ${entity_id}: ${e && e.message ? e.message : String(e)}`);
+      }
+    }
+
     return send(201, data);
   }
 
