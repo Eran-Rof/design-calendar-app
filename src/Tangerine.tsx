@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { WarnHost, notify, confirmDialog } from "./shared/ui/warn";
+import { StyleGalleryHost } from "./shared/ui/StyleImageGallery";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
 import InternalPimProductCatalog  from "./tanda/InternalPimProductCatalog";
@@ -816,6 +817,7 @@ export default function Tangerine() {
   return (
     <div style={{ background: C.bg, color: C.text, minHeight: "100vh" }}>
       <WarnHost />
+      <StyleGalleryHost />
       <NavDrawer
         activeModule={activeModule}
         onSelectModule={(k) => goToModule(k as ModuleKey | null)}
