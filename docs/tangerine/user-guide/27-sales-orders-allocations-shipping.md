@@ -239,7 +239,49 @@ Anything that fails is returned in `skipped[]` with a reason (e.g. `factor appro
 
 ---
 
-## 27.6 Shipping (M44)
+## 27.6 Wave & EDI 940 to 3PL
+
+**Waving** is the act of sending a **Warehouse Shipping Order (WSO)** to your third-party logistics (3PL) provider so they can physically pick, pack, and ship the order from their facility. It is the first step of the 3PL fulfilment sub-flow and is separate from the standard Ship action (which records an in-house shipment).
+
+### What happens when you click Wave
+
+1. **TPL shipment record created.** Tangerine inserts a `tpl_shipments` header (`status = 'released'`) + one `tpl_shipment_lines` row per SO line for the selected 3PL provider.
+2. **EDI 940 generated.** An X12 EDI 940 Warehouse Shipping Order is assembled with the full envelope:
+   - `ISA`/`GS`/`ST` interchange + group + transaction-set headers
+   - `W05` — order identification (SO number, order date)
+   - `N1*ST` — ship-to party (customer + ship-to location)
+   - `N1*SF` — ship-from party (your entity)
+   - `W66` — carrier routing (carrier, service level)
+   - `LX`/`W01` — one line per SKU with item ID + qty
+   - `W76` — total units / weight summary
+   - `SE`/`GE`/`IEA` — transaction / group / interchange trailers
+
+   The raw text file is stored in `edi_messages` with `transaction_set = '940'` and linked to the `tpl_shipment_id` and the SO.
+
+3. **Transmission.** If the 3PL provider's `edi_protocol` is set to `sftp` and the connection credentials are configured in environment variables (referenced by `edi_credential_ref`), the file is uploaded immediately and `edi_messages.status` is set to `transmitted`. Otherwise the record is left as `queued` for batch send — the system never fails silently; `transmitted = false` is returned and the message is preserved.
+
+4. **SO stamped.** `sales_orders.waved_at` (timestamp) and `waved_tpl_provider_id` are set. The Workbench sub-header shows a **Waved** badge with the timestamp and provider name.
+
+### Going live with EDI transmission
+
+The Wave framework is built and generates valid 940s. To enable live SFTP delivery, your 3PL needs to provide:
+
+| Setting | Where to configure |
+|---|---|
+| Protocol (`sftp` / `as2` / `van`) | `tpl_providers.edi_protocol` (edit in Inventory → 🚚 3PL) |
+| Endpoint / host | `tpl_providers.edi_endpoint` |
+| Username | `tpl_providers.edi_username` |
+| Password or key | Environment variable named by `edi_credential_ref` (set in Vercel) |
+
+No code change is needed — the transport layer reads these at runtime. Until credentials are set, waving queues cleanly.
+
+### EDI 945 (inbound — not yet active)
+
+The matching **EDI 945 Warehouse Shipping Advice** (the 3PL's confirmation that they shipped) is parsed by `parse945()` in `api/_lib/edi/builder.js`. Inbound processing (updating SO / TPL shipment status from the 945 payload) is on the roadmap but not yet wired.
+
+---
+
+## 27.8 Shipping (M44)
 
 > **Table-name note:** inbound vendor/PO freight already owns `shipments` / `shipment_lines`. Outbound SO fulfilment deliberately uses **`sales_order_shipments`** / **`sales_order_shipment_lines`** to avoid the collision.
 
@@ -254,17 +296,22 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 
 ---
 
-## 27.7 Day-to-day workflow
+## 27.9 Day-to-day workflow
 
 1. **Take the order.** 🛒 Sales Orders → **+ New** → pick customer (brand/channel/terms prefill) → add lines (the size-matrix body — **➕ Add style** per style, **+ Add non-matrix line** for one-offs) → optionally set Factor/Ins Approval → **Save & Confirm**. The SO gets its `SO-YYYY-NNNNN` number.
 2. *(Optional)* **Split across stores** while still a draft (🏬 Ship to multiple stores) → adjust + confirm each child.
 3. **Reserve stock.** Either per-SO **📦 Allocate stock**, or open **📊 Allocations** to arbitrate across competing orders — pick a fill mode, preview, apply. Factored orders only fill when approved and within the approved $.
-4. **Ship.** 🚚 Ship → enter carrier + tracking → confirm. SO → `shipped` (or `fulfilling` if partial). Blocked at 409 if the customer is factored and not approved.
+4. **Fulfil — three paths:**
+   - **In-house ship:** 🚚 Ship → enter carrier + tracking → confirm. SO → `shipped` (or `fulfilling` if partial). Blocked at 409 if the customer is factored and not approved.
+   - **Wave to 3PL:** 📦 Wave → pick 3PL provider → confirm. Tangerine generates + transmits an EDI 940; the 3PL picks and ships. See [§27.6 Wave & EDI 940](#276-wave--edi-940-to-3pl).
+   - **Both:** Wave first (3PL fulfils), then record the physical Ship once the 3PL confirms (or wait for the inbound EDI 945 — not yet auto-processed).
 5. **Invoice.** 🧾 Create AR invoice → a **draft** AR invoice is created and the SO → `invoiced`. Then go to **AR Invoices** and **Post** it to book revenue + FIFO COGS ([chapter 16](16-accounts-receivable.md)).
+
+> **Tip:** steps 3–5 can all be done from the **📊 Allocations Workbench** via the per-SO action buttons — no need to leave the allocation screen.
 
 ---
 
-## 27.8 What's NOT yet usable
+## 27.10 What's NOT yet usable
 
 - **No GL posting from this module.** SOs, allocations, and shipments never touch the ledger; only the downstream AR invoice (posted in AR Invoices) does.
 - **Factor approval is manual.** The Rosenthal & Rosenthal Factor API auto-fill is reserved — the fields are typed in by hand for now.
@@ -272,15 +319,18 @@ Shipping is a physical/logistics record only — **no GL impact, no FIFO**. COGS
 - **`closed` status** is in the enum but not written by the UI.
 - **Partial-quantity invoicing.** M10-C invoices the full open balance in one shot; there is no progressive ship-then-invoice-what-shipped split yet (Create AR invoice closes out all open lines).
 - **No approval gate on the SO itself.** Approval/credit-limit gates live on the AR invoice at post time, not on SO confirm.
+- **EDI 945 inbound not yet processed.** `parse945()` exists; the SO/TPL status update on receipt of a 3PL shipping confirmation is on the roadmap.
+- **EDI live transmission needs 3PL credentials.** Wave queues a valid 940 but doesn't transmit until `edi_protocol` + credentials are configured in `tpl_providers` + Vercel env. See `OPERATOR-TODO.md`.
 
 ---
 
-## 27.9 Code map
+## 27.11 Code map
 
 - **UI:** `src/tanda/InternalSalesOrders.tsx` (list + create/edit/confirm/allocate/ship/invoice/split modal), `src/tanda/SalesOrderMatrixBody.tsx` (the size-matrix line body — per-style grids + non-matrix flat lines + save-time SKU resolve), `src/tanda/InternalAllocations.tsx` (Allocations Workbench + auto-allocate preview dialog + per-SO Allocate/Ship/Invoice/Wave actions + focused-SO show-all).
 - **SO handlers:** `api/_handlers/internal/sales-orders/index.js` (GET list / POST create), `.../[id].js` (GET / PATCH incl. confirm + ship-gate / DELETE), `.../create-invoice.js`, `.../allocate.js`, `.../ship.js`, `.../split.js`, `.../wave.js` (3PL wave + EDI 940).
 - **Allocations handlers:** `api/_handlers/internal/allocations/index.js` (GET demand+availability — also `?so=&include_all=1` show-all-rows for a focused SO / POST `apply_allocations`), `.../allocations/preview.js` (fill-mode preview compute).
-- **Schema:** `supabase/migrations/20260712110000_p16_m10a_sales_orders_schema.sql` (`sales_orders` + `sales_order_lines`), `20260712120000_p16_m10c_so_invoice_link.sql`, `20260712150000_p16_so_multistore_split.sql`, `20260712200000_p16_m18_allocations.sql` (`v_inventory_available` + `allocate_sales_order()`), `20260714010000_p16_m18_allocations_workbench.sql` (`v_allocation_demand` + `apply_allocations()`), `20260712210000_p16_m44_shipments.sql` (`sales_order_shipments` + `_lines`).
+- **EDI library:** `api/_lib/edi/builder.js` (`build940()`, `parse945()`, plus existing 850/820/997), `api/_lib/edi/transport.js` (`transmitEdi()`, `providerEdiConfig()`).
+- **Schema:** `supabase/migrations/20260712110000_p16_m10a_sales_orders_schema.sql` (`sales_orders` + `sales_order_lines`), `20260712120000_p16_m10c_so_invoice_link.sql`, `20260712150000_p16_so_multistore_split.sql`, `20260712200000_p16_m18_allocations.sql` (`v_inventory_available` + `allocate_sales_order()`), `20260714010000_p16_m18_allocations_workbench.sql` (`v_allocation_demand` + `apply_allocations()`), `20260712210000_p16_m44_shipments.sql` (`sales_order_shipments` + `_lines`), `20260833000000_wave_edi_940.sql` (`sales_orders.waved_at`/`waved_tpl_provider_id`, `tpl_providers.edi_*` columns, `edi_messages` extensions).
 
 ## Related docs
 
