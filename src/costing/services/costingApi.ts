@@ -217,6 +217,8 @@ export interface GeneratedRfq {
   vendor: string;
   line_count: number;
   total_qty: number;
+  /** True once the RFQ was auto-sent (published + vendor invited) in the same step. */
+  sent?: boolean;
 }
 
 export interface GenerateRfqsResult {
@@ -243,7 +245,11 @@ export interface GenerateRfqsNeedsConfirm {
 }
 
 /**
- * Create RFQs from the selected costing lines.
+ * Create RFQs from the selected costing lines AND auto-send (publish) each one
+ * to its vendor in the same step — there is no separate "Send to Vendor" click.
+ * On success each created RFQ is published, the vendor portal invitation exists,
+ * and the vendor has been notified (rfq_invited). `created[].sent` reflects the
+ * per-RFQ auto-send outcome (a rare auto-send failure is also listed in errors).
  *
  * The handler refuses (HTTP 409 + needs_confirm) when an RFQ already exists
  * for the same style + color + vendor, UNLESS allowDuplicate is passed. The

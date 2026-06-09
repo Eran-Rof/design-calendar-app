@@ -22,6 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
 import { vendorTargetForMode } from "../../../../../_lib/costingVendorTarget.js";
+import { publishRfq } from "../../../../../_lib/rfqPublish.js";
 
 export const config = { maxDuration: 30 };
 
@@ -56,6 +57,9 @@ export default async function handler(req, res) {
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  // Absolute base URL for reaching /api/send-notification from the auto-send
+  // publish step below (same derivation the manual publish handler uses).
+  const origin = `https://${req.headers.host}`;
 
   const projectId = getProjectId(req);
   if (!projectId) return res.status(400).json({ error: "Missing project id" });
@@ -373,10 +377,36 @@ export default async function handler(req, res) {
       // visible. Operator can re-run if line_items are missing.
     }
 
-    // NOTE: no rfq_invitations row is created here anymore. The vendor only
-    // sees the RFQ once an internal user clicks "Send to Vendor" (publish),
-    // which creates the invitation from intended_vendor_id. This keeps a
-    // freshly generated RFQ a private draft until it's deliberately sent.
+    // Auto-send (one step): immediately publish the freshly created RFQ so it
+    // lands in the vendor portal and the vendor gets the rfq_invited alert —
+    // no separate "Send to Vendor" click. This reuses the SAME publish path the
+    // manual send uses (status -> published, lazy rfq_invitations row from the
+    // intended vendor, costing-line draft -> sent, rfq_invited notification),
+    // so the two flows can't drift. Best-effort per RFQ: a publish failure is
+    // surfaced in `errors` (with the RFQ already created) instead of failing the
+    // whole batch, and a notify hiccup never fails the create. We pass the
+    // intended vendor + freshly inserted ids directly rather than re-selecting.
+    let sent = false;
+    try {
+      const pub = await publishRfq(
+        admin,
+        {
+          id: rfq.id,
+          status: "draft",
+          intended_vendor_id: vendorId,
+          title,
+          submission_deadline: null,
+        },
+        origin,
+      );
+      if (pub.ok) {
+        sent = true;
+      } else {
+        errors.push({ vendor_id: vendorId, vendor: vendorLabel, error: `RFQ created but auto-send failed: ${pub.error}` });
+      }
+    } catch (e) {
+      errors.push({ vendor_id: vendorId, vendor: vendorLabel, error: `RFQ created but auto-send threw: ${e && e.message ? e.message : String(e)}` });
+    }
 
     created.push({
       rfq_id: rfq.id,
@@ -384,6 +414,7 @@ export default async function handler(req, res) {
       vendor: vendorLabel,
       line_count: vendorLines.length,
       total_qty: totalQty,
+      sent,
     });
   }
 
