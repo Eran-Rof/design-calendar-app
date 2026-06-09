@@ -39,6 +39,15 @@ The grid has two cost modes, chosen by the project's payment term:
 
 In non-DDP mode, **Landed = FOB + FOB×Duty% + Freight + Insurance + Other**.
 
+### Sell Tgt Frm Mrgn
+
+Between **Tgt DDP Cost** and **Sell Tgt** there's a **Sell Tgt Frm Mrgn** (%) field. Type a
+target gross-margin % and the grid **auto-fills Sell Tgt** = `cost basis ÷ (1 − margin/100)`
+(holding the cost fixed). You can still **override Sell Tgt** directly afterwards — doing so
+**clears the Sell Tgt Frm Mrgn cell** (it goes blank), since the sell price no longer comes
+from that margin. This is the inverse of the **Margin %** column below (which back-solves the
+*cost* from a margin, holding sell fixed) — use whichever direction you're working in.
+
 ### Margin %
 
 **Margin %** auto-fills from the **Sell Tgt** price and the cost basis:

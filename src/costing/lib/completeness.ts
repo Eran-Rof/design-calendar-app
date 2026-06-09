@@ -64,6 +64,21 @@ export function solveCostFromMargin(
   return { fob_cost: round2(Math.max(0, fob)) };
 }
 
+// Back-solve the SELL TGT from an operator-entered target gross-margin %, holding
+// the cost basis fixed: sell = cost / (1 − margin/100). This is the inverse of
+// solveCostFromMargin (which holds sell fixed and solves cost). Returns the
+// rounded sell price, or null when it can't solve (no positive cost, or margin
+// ≥ 100% which would divide by zero / go negative).
+export function solveSellFromMargin(
+  line: CostingLine,
+  isDdp: boolean,
+  marginPct: number,
+): number | null {
+  const cost = lineCostBasis(line, isDdp);
+  if (!(cost > 0) || !isFinite(marginPct) || marginPct >= 100) return null;
+  return round2(cost / (1 - marginPct / 100));
+}
+
 // Which required fields a row is still missing. Used for the incomplete-row
 // guard on Send / exit. "cost" = Tgt DDP Cost (DDP) or a target/FOB cost.
 export function rowMissingFields(line: CostingLine, isDdp: boolean): string[] {

@@ -106,6 +106,9 @@ export interface CostingLine {
   /** T3 weighted-avg sales price, stamped by /api/internal/costing/comp/t3. */
   t3_unit_price: number | null;
   sell_target: number | null;
+  /** Target gross-margin % the operator typed to derive sell_target. NULL when
+   *  sell_target was overridden directly (the "Sell Tgt Frm Mrgn" cell blanks). */
+  sell_target_margin_pct: number | null;
   sell_price: number | null;
   priced_date: string | null;
   fob_cost: number | null;

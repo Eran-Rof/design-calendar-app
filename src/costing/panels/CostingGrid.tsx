@@ -31,7 +31,7 @@ import { resolveCost } from "../../shared/costResolution";
 import { confirmDialog, notify } from "../../shared/ui/warn";
 import { marginTierColor } from "../../techpack/calc";
 import {
-  isDdpProject, lineCostBasis, lineMarginPct, solveCostFromMargin,
+  isDdpProject, lineCostBasis, lineMarginPct, solveCostFromMargin, solveSellFromMargin,
   rowMissingFields, projectHeaderMissing, num as cnum,
 } from "../lib/completeness";
 import type { CostingLine } from "../types";
@@ -79,6 +79,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "insurance",      label: "Insur",    width: 70,  align: "right", numeric: true },
   { key: "other_costs",    label: "Other",    width: 70,  align: "right", numeric: true },
   { key: "_landed",        label: "Landed",   width: 80,  align: "right" },
+  { key: "_sell_from_margin", label: "Sell Tgt Frm Mrgn", width: 120, align: "right" },
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
   // LY comp — qty col dropped, replaced by sales-price (LY Sls Prc).
@@ -432,6 +433,29 @@ export default function CostingGrid() {
     }
     const patch = solveCostFromMargin(line, isDdp, m);
     if (patch) void updateLineGuarded(line.id, patch);
+  };
+
+  // "Sell Tgt Frm Mrgn" — operator types a target gross-margin %; auto-derive
+  // Sell Tgt = cost basis / (1 − margin/100), holding cost fixed. Stores the
+  // entered margin (sell_target_margin_pct) so the cell keeps showing it until
+  // the operator overrides Sell Tgt directly (which clears it → cell blanks).
+  const onSellFromMarginEdit = (line: CostingLine, raw: string) => {
+    const trimmed = String(raw).trim();
+    if (trimmed === "") {
+      // Cleared the margin field → forget the derived-from-margin link.
+      if (line.sell_target_margin_pct != null) void updateLineGuarded(line.id, { sell_target_margin_pct: null });
+      return;
+    }
+    const m = Number(trimmed.replace(/[^0-9.\-]/g, ""));
+    if (!isFinite(m)) return;
+    if (!(lineCostBasis(line, isDdp) > 0)) {
+      notify(isDdp ? "Enter a Tgt DDP Cost first — margin needs a cost to solve the sell price."
+                   : "Enter a cost (FOB/Landed) first — margin needs a cost to solve the sell price.", "info");
+      return;
+    }
+    const sell = solveSellFromMargin(line, isDdp, m);
+    if (sell == null) { notify("Margin must be below 100%.", "info"); return; }
+    void updateLineGuarded(line.id, { sell_target_margin_pct: m, sell_target: sell });
   };
 
   // Style pick — prefill + seed target_cost.
@@ -949,6 +973,35 @@ export default function CostingGrid() {
 
                 // Margin — auto-filled from Sell Tgt vs cost basis (item 8) and
                 // EDITABLE: typing a margin back-solves the cost (item 9).
+                // Sell Tgt Frm Mrgn — type a target margin % → auto-derives Sell
+                // Tgt (sell = cost / (1 − m/100)). Shows the stored margin; blanks
+                // when the operator overrides Sell Tgt directly (handled in the
+                // sell_target numeric onBlur, which clears sell_target_margin_pct).
+                if (c.key === "_sell_from_margin") {
+                  const mv = line.sell_target_margin_pct;
+                  const hasMv = typeof mv === "number" && isFinite(mv);
+                  return (
+                    <div key={c.key} style={{ ...style, padding: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        key={`sfm_${line.id}_${hasMv ? mv.toFixed(2) : ""}`}
+                        defaultValue={hasMv ? fmtPct.format(mv) : ""}
+                        type="text"
+                        title={isDdp
+                          ? "Type a target margin % → sets Sell Tgt from Tgt DDP Cost. Editing Sell Tgt directly clears this."
+                          : "Type a target margin % → sets Sell Tgt from the cost basis (Landed). Editing Sell Tgt directly clears this."}
+                        placeholder="—"
+                        onBlur={(e) => onSellFromMarginEdit(line, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        style={{
+                          width: "100%", padding: "4px 6px", fontSize: 12, fontWeight: 600,
+                          textAlign: "right", background: "transparent",
+                          border: "1px solid transparent", color: "#93C5FD", outline: "none",
+                        }}
+                      />
+                    </div>
+                  );
+                }
+
                 if (c.key === "_margin") {
                   const marginVal = lineMarginPct(line, isDdp);
                   const hasMargin = cnum(line.sell_target) > 0 && marginVal !== 0;
@@ -1009,7 +1062,13 @@ export default function CostingGrid() {
                         onBlur={(e) => {
                           const raw = e.target.value.replace(/[^0-9.\-]/g, "");
                           const num = raw === "" ? null : Number(raw);
-                          void updateLineGuarded(line.id, { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>);
+                          const patch = { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>;
+                          // Overriding Sell Tgt by hand breaks the derived-from-margin
+                          // link → blank the "Sell Tgt Frm Mrgn" cell.
+                          if (key === "sell_target" && line.sell_target_margin_pct != null) {
+                            patch.sell_target_margin_pct = null;
+                          }
+                          void updateLineGuarded(line.id, patch);
                         }}
                         style={{
                           width: "100%", padding: "4px 6px", fontSize: 12,
