@@ -599,15 +599,26 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
 }
 
 function MatrixHeader({ rfq }: { rfq: RfqCompareRfq }) {
+  // Most recent quote-submission date across this RFQ's vendor quotes.
+  const lastQuotedAt = (rfq.quotes || [])
+    .map((q) => q.submitted_at)
+    .filter((d): d is string => !!d)
+    .sort()
+    .pop() || null;
+  // Flex row with a gap so code / title / status / date are clearly separated
+  // (and copy with real whitespace, not just CSS margins).
   return (
-    <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-      <span style={{ fontSize: 15, fontWeight: 700 }}>
-        {rfq.code ? <span style={{ color: C.accent, marginRight: 8 }}>{rfq.code}</span> : null}
-        {rfq.title || "(untitled RFQ)"}
-      </span>
+    <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
+      {rfq.code ? <span style={{ fontSize: 15, fontWeight: 700, color: C.accent }}>{rfq.code}</span> : null}
+      <span style={{ fontSize: 15, fontWeight: 700 }}>{rfq.title || "(untitled RFQ)"}</span>
       {rfq.status && (
-        <span style={{ marginLeft: 10, fontSize: 11, color: C.subtle, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <span style={{ fontSize: 11, color: C.subtle, textTransform: "uppercase", letterSpacing: 0.5 }}>
           {rfq.status}
+        </span>
+      )}
+      {lastQuotedAt && (
+        <span style={{ fontSize: 11, color: C.subtle }}>
+          quoted {fmtDateDisplay(lastQuotedAt)}
         </span>
       )}
     </div>

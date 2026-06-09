@@ -721,6 +721,8 @@ export interface RfqCompareQuote {
   total_price: number | null;
   lead_time_days: number | null;
   valid_until: string | null;
+  /** When the vendor submitted this quote — drives the header's quote date. */
+  submitted_at: string | null;
   notes: string | null;
   lines: RfqCompareQuoteLine[];
 }
