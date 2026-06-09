@@ -1,5 +1,11 @@
 # Apps overview (beyond Tangerine ERP)
 
+> 📖 **Looking for the user guide?** The full, operator-facing **Suite User Guide** —
+> one guide covering every app (Design Calendar, Costing, Tech Packs, ATS, PO WIP,
+> Inventory Planning, GS1, B2B, Vendor Portal, and Tangerine) — lives at
+> [`docs/user-guide/`](../user-guide/). The notes below are short technical overviews,
+> not the end-user manual.
+
 Ring of Fire runs several apps off the same React/TS/Vite + Supabase/Vercel
 codebase. The **Tangerine ERP** has its own deep docs under
 [`docs/tangerine/`](../tangerine/) (build progress, user guide, architecture).
