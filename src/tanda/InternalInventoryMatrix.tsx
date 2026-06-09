@@ -18,6 +18,7 @@ import type { SearchableSelectOption } from "./components/SearchableSelect";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
 import { drillToModule } from "./scorecardDrill";
 
@@ -1556,7 +1557,7 @@ export default function InternalInventoryMatrix() {
                     <tr key={row.key} style={{ borderBottom: it.groupEnd ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
                       <td style={{ padding: "4px 8px", width: 52, textAlign: "center" }}>
                         {url ? (
-                          <img src={url} alt={row.color} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155" }} />
+                          <img src={url} alt={row.color} title="View all images for this style" onClick={() => styleId && openStyleGallery(styleId, payload.style.style_code)} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155", cursor: "pointer" }} />
                         ) : <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />}
                       </td>
                       <td style={{ padding: "8px 14px", color: C.base, fontFamily: "monospace", fontWeight: 700, borderRight: `1px solid ${C.sectionBdr}` }}>{payload.style.style_code}</td>
@@ -1591,7 +1592,9 @@ export default function InternalInventoryMatrix() {
                           <img
                             src={url}
                             alt={row.color}
-                            style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155" }}
+                            title="View all images for this style"
+                            onClick={() => styleId && openStyleGallery(styleId, payload.style.style_code)}
+                            style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid #334155", cursor: "pointer" }}
                           />
                         ) : <span style={{ display: "block", width: 44, height: 44, background: "#1E293B", borderRadius: 4, margin: "0 auto" }} />;
                       })()}
