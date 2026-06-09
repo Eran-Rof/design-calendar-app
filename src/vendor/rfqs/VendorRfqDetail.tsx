@@ -638,7 +638,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // Shared column template for the line-items header + rows so they stay aligned.
 // #, Style, Style name, Wash, Size, Fabric, Target unit price, Req qty, UoM,
 // Your unit price, Your qty, Notes. Wrapped in a min-width scroller (GRID_MIN).
-const GRID_COLS = "30px 100px 120px 150px 96px 120px 110px 88px 46px 120px 100px minmax(140px,1fr)";
+// Style# widened by ~5 chars (100→135px) so Style name and every column after it
+// shift right; Notes trimmed by the same ~5 chars (min 140→105px) to keep the row
+// width balanced.
+const GRID_COLS = "30px 135px 120px 150px 96px 120px 110px 88px 46px 120px 100px minmax(105px,1fr)";
 const GRID_MIN = 1180;
 
 // Inputs were unstyled <input>s, so the browser rendered them with its default
