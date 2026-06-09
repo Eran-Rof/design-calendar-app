@@ -502,11 +502,16 @@ export default function InternalInventoryMatrix() {
     if (!styleId) return;
     fetch(`/api/internal/pim/styles/${encodeURIComponent(styleId)}/images`)
       .then((r) => (r.ok ? r.json() : []))
-      .then((imgs: Array<{color?: string | null; signedUrls?: {thumb?: string}; storage_path_thumb?: string}>) => {
+      // The PIM images endpoint returns `signed_urls` (snake_case) with renderable
+      // thumb/web URLs. (storage_path_thumb is a bucket-relative path, NOT a URL —
+      // never usable as an <img src>.) Shopify-pulled images are style-level
+      // (color = null) → they land under "__default__", and the per-color rows
+      // fall back to it, so the whole style shows its product image.
+      .then((imgs: Array<{color?: string | null; signed_urls?: {thumb?: string; web?: string} | null}>) => {
         const m = new Map<string, string>();
         for (const img of (Array.isArray(imgs) ? imgs : [])) {
           const key = (img.color || "").toLowerCase().trim() || "__default__";
-          const url = img.signedUrls?.thumb || img.storage_path_thumb || "";
+          const url = img.signed_urls?.thumb || img.signed_urls?.web || "";
           if (url && !m.has(key)) m.set(key, url); // first image per color wins
         }
         setStyleImages(m);
