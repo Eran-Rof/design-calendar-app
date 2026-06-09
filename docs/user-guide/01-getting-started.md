@@ -103,6 +103,8 @@ For security, the internal apps log you out automatically after **one hour of in
 
 The external Vendor Portal and B2B portal manage their own sessions separately and are not affected by this one-hour internal timeout.
 
+**If you have several internal tabs open** and they all time out, they don't each leave you on their own login screen. The suite collapses them to a **single sign-in tab** — the extra tabs close themselves automatically. Any tab the browser won't let close on its own shows a small **"You've been signed out — you can close this tab"** message (with a **Sign in here instead** button) rather than a duplicate login form, so you're never faced with a wall of identical sign-in screens.
+
 > **Tip:** if you come back to a tab and find yourself logged out, that's the idle timeout doing its job — just sign in again. Your work is saved continuously as you go, so you won't lose anything.
 
 ## Environment banners
