@@ -7,7 +7,11 @@
 // also skipped at the call site.
 //
 // All internal apps share `sessionStorage.plm_user` as the session token, so
-// clearing it + redirecting to "/" (PLM launcher login) is enough.
+// clearing it + redirecting to "/" (PLM launcher login) is enough. When several
+// tabs are open and each times out, collapseTabsToLogin() coordinates them
+// across the browser so only one login tab remains (the rest close).
+
+import { collapseTabsToLogin } from "./plmSessionTabs";
 
 const IDLE_MS = 60 * 60 * 1000;
 
@@ -25,8 +29,7 @@ export function installIdleLogout(): void {
   let logoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   function logout() {
-    sessionStorage.removeItem("plm_user");
-    window.location.href = "/";
+    collapseTabsToLogin();
   }
 
   function reset() {

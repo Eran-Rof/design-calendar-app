@@ -7,6 +7,7 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
+import { registerLoginPresence, SIGNED_OUT_PARAM } from "./utils/plmSessionTabs";
 import {
   ATS_REPORT_KEYS,
   type AtsReportKey,
@@ -321,6 +322,12 @@ export default function PLMApp() {
   const [resetToken] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get("reset_token"); } catch { return null; }
   });
+  // Set when a redundant idle tab was sent here after its session timed out and
+  // the browser wouldn't let it auto-close (see collapseTabsToLogin). Shows a
+  // "you can close this tab" stub instead of a duplicate login form.
+  const [signedOut] = useState<boolean>(() => {
+    try { return new URLSearchParams(window.location.search).get(SIGNED_OUT_PARAM) === "1"; } catch { return false; }
+  });
   const [showForgot, setShowForgot] = useState(false);
   const unreadAll = useAppUnreadCount({
     supabase: supabaseClient,
@@ -372,6 +379,15 @@ export default function PLMApp() {
       })
       .catch(() => { /* keep existing session snapshot */ });
   }, []);
+
+  // While the login screen is showing, announce this tab as the live login tab
+  // so other PLM tabs that time out retire themselves instead of each opening
+  // its own duplicate login screen. (Not the reset-password or signed-out stub.)
+  const showingLogin = !user && !resetToken && !signedOut;
+  useEffect(() => {
+    if (!showingLogin) return;
+    return registerLoginPresence();
+  }, [showingLogin]);
 
   async function handleLogin() {
     setLoginErr("");
@@ -430,6 +446,31 @@ export default function PLMApp() {
         <ROFLogoFull height={72} />
         <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 500, color: "#CDD1D7", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
         <ResetPasswordCard token={resetToken} />
+        <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
+          Ring of Fire Clothing © {new Date().getFullYear()}
+        </p>
+      </div>
+    </div>
+  );
+
+  // ── SIGNED-OUT STUB ──────────────────────────────────────────────────────────
+  // A redundant tab that timed out and couldn't be auto-closed lands here, so the
+  // user sees one clear "you can close this tab" message instead of a wall of
+  // duplicate login forms. One other tab is already open at the login screen.
+  if (signedOut && !user && !resetToken) return (
+    <div style={S.bg}>
+      <div style={S.loginWrap}>
+        <ROFLogoFull height={72} />
+        <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 500, color: "#CDD1D7", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
+        <div style={S.card}>
+          <p style={{ color: "#CDD1D7", fontSize: 16, fontWeight: 600, margin: "0 0 8px" }}>You've been signed out</p>
+          <p style={{ color: "#9CA3AF", fontSize: 13, lineHeight: 1.5, margin: "0 0 20px" }}>
+            Your session timed out. You can close this tab — a sign-in screen is already open in another tab.
+          </p>
+          <button style={S.btnPrimary} onClick={() => { window.location.href = "/"; }}>
+            Sign in here instead
+          </button>
+        </div>
         <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
           Ring of Fire Clothing © {new Date().getFullYear()}
         </p>
