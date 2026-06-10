@@ -408,12 +408,14 @@ export function renderStyledAoa(
   // Embedded images, anchored to (aoaRow + banner offset, col) with a small
   // inset so the thumbnail sits inside the cell. `oneCell` keeps it pinned to
   // the cell on row/col insert. A bad image is skipped — never crash an export.
+  const imgIdByData = new Map<string, number>(); // dedup bytes when rows share an image
   (opts.images ?? []).forEach((im) => {
     if (!im?.dataUrl) return;
     try {
       const { base64, extension } = parseImageDataUrl(im.dataUrl);
       if (!base64) return;
-      const id = wb.addImage({ base64, extension });
+      let id = imgIdByData.get(im.dataUrl);
+      if (id === undefined) { id = wb.addImage({ base64, extension }); imgIdByData.set(im.dataUrl, id); }
       ws.addImage(id, {
         tl: { col: im.col + 0.08, row: offset + im.aoaRow + 0.08 } as ExcelJS.Anchor,
         ext: { width: im.width, height: im.height },

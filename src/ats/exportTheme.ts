@@ -10,7 +10,7 @@
 // at the end to draw the thick outer rectangle + optional style-group
 // thick separators.
 
-import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, type ExcelJS } from "../shared/excelLogo";
+import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, type ExcelJS, type AoaImage } from "../shared/excelLogo";
 
 // ── Palette ────────────────────────────────────────────────────────────────
 export const PALETTE = {
@@ -331,6 +331,8 @@ export interface DownloadInput {
   autofilter?: string;
   /** Frozen-pane split (row 1 → xSplit:0, ySplit:1). */
   freeze?: { xSplit: number; ySplit: number };
+  /** Embedded images, AoA-relative (banner offset applied by the renderer). */
+  images?: AoaImage[];
 }
 
 // Render one ATS-family sheet onto an ExcelJS workbook: stamps the Ring of
@@ -347,6 +349,7 @@ function renderSheet(wb: ExcelJS.Workbook, sheetName: string, spec: Omit<Downloa
     merges: spec.merges,
     freeze: spec.freeze,
     autofilter: spec.autofilter,
+    images: spec.images,
   });
 }
 
