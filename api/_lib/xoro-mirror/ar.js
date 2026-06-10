@@ -156,11 +156,16 @@ export async function resolveCustomerId(supabase, { entity_id, src_customer_id }
   if (!legacy || !legacy.customer_code) {
     return { customer_id: null, code: null, name: legacy?.name || null };
   }
+  // Match on customer_code (the stable Xoro/external ref), NOT code: `code`
+  // is the internal display code (being migrated to CUST-NNNNN), while
+  // customer_code permanently holds the legacy EXCEL:/ATS: import key. Every
+  // customer has a customer_code; this match is value-identical to the old
+  // code-match today and survives the code -> CUST-NNNNN backfill.
   const { data: matched } = await supabase
     .from("customers")
     .select("id")
     .eq("entity_id", entity_id)
-    .eq("code", legacy.customer_code)
+    .eq("customer_code", legacy.customer_code)
     .maybeSingle();
   return {
     customer_id: matched?.id || null,

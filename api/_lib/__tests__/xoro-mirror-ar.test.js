@@ -170,7 +170,7 @@ function seedHappyPath(mirror_date = "2026-05-28") {
       { id: "ipc-1", customer_code: "CUST-A", name: "Customer A" },
     ],
     customers: [
-      { id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", name: "Customer A" },
+      { id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A", name: "Customer A" },
     ],
     ar_invoices: [],
     ar_invoice_lines: [],
@@ -319,10 +319,10 @@ describe("resolveCustomerId", () => {
     const r = await resolveCustomerId(sb, { entity_id: ENTITY_ID, src_customer_id: null });
     expect(r.customer_id).toBe(null);
   });
-  it("resolves via ip_customer_master.customer_code → customers.code", async () => {
+  it("resolves via ip_customer_master.customer_code → customers.customer_code", async () => {
     const { sb } = makeSupabase({
       ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-A", name: "A" }],
-      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A" }],
+      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A" }],
     });
     const r = await resolveCustomerId(sb, { entity_id: ENTITY_ID, src_customer_id: "ipc-1" });
     expect(r.customer_id).toBe("c-A");
@@ -337,7 +337,7 @@ describe("resolveCustomerId", () => {
   it("returns null when customers row missing in entity", async () => {
     const { sb } = makeSupabase({
       ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-X", name: "X" }],
-      customers: [{ id: "c-A", entity_id: OTHER_ENTITY_ID, code: "CUST-X" }],
+      customers: [{ id: "c-A", entity_id: OTHER_ENTITY_ID, code: "CUST-X", customer_code: "CUST-X" }],
     });
     const r = await resolveCustomerId(sb, { entity_id: ENTITY_ID, src_customer_id: "ipc-1" });
     expect(r.customer_id).toBe(null);
@@ -614,7 +614,7 @@ describe("mirrorArForDate — line composition edge cases", () => {
         srcRow({ id: "lone", invoice_number: "INV-EDGE", txn_date: "2026-05-28", qty: 3, unit_price: 4, net_amount: null, gross_amount: null }),
       ],
       ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-A", name: "A" }],
-      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A" }],
+      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A" }],
       ar_invoices: [],
       ar_invoice_lines: [],
     };
@@ -630,7 +630,7 @@ describe("mirrorArForDate — line composition edge cases", () => {
         srcRow({ id: "lone", invoice_number: "INV-G", txn_date: "2026-05-28", net_amount: null, gross_amount: 7.77 }),
       ],
       ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-A", name: "A" }],
-      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A" }],
+      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A" }],
       ar_invoices: [],
       ar_invoice_lines: [],
     };
