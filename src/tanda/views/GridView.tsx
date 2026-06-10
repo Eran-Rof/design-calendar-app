@@ -748,12 +748,19 @@ export function GridView({
     const mono = (b: any): any => ({ ...b, font: { ...b.font, name: "Courier New" } });
 
     const fixedHdrs1 = ["PO #", "Vendor", "Buyer", "Buyer PO", "DDP", "Days from DDP"];
-    const phaseHdrs1: string[] = [];
-    const phaseHdrs2: string[] = [];
-    phases.forEach(p => { phaseHdrs1.push(p, "", "", "", ""); phaseHdrs2.push("Due Date", "Status", "Status Date", "Days", "Notes"); });
+    const subLabels = ["Due Date", "Status", "Status Date", "Days", "Notes"];
+    // Lighter-blue (ATS spacer color) separator cell preceding each phase block.
+    const SPACER_WCH = 1.8;
+    const spacer = (): any => ({ v: "", t: "s", s: { fill: { fgColor: { rgb: "3278CC" }, patternType: "solid" }, border: {} } });
 
-    const row1 = [...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })), ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" } } }))];
-    const row2 = [...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })), ...phaseHdrs2.map(h => ({ v: h, t: "s", s: HDR2 }))];
+    const row1 = [
+      ...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })),
+      ...phases.flatMap(p => [spacer(), ...[p, "", "", "", ""].map(h => ({ v: h, t: "s", s: HDR }))]),
+    ];
+    const row2 = [
+      ...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })),
+      ...phases.flatMap(() => [spacer(), ...subLabels.map(h => ({ v: h, t: "s", s: HDR2 }))]),
+    ];
 
     const dataRows = rows.map((po, ri) => {
       const base = ri % 2 === 0 ? cellBase : cellAlt;
@@ -771,6 +778,7 @@ export function GridView({
       ];
       const phaseCells: any[] = [];
       phases.forEach(phase => {
+        phaseCells.push(spacer()); // separator preceding each Due Date column
         const m = phaseMap.get(phase);
         if (!m) { for (let i = 0; i < PHASE_COLS; i++) phaseCells.push({ v: "", t: "s", s: base }); return; }
         const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
@@ -792,10 +800,27 @@ export function GridView({
       return [...fixed, ...phaseCells];
     });
 
+    // Close the table with a defined rule under the last data row. Skip the
+    // separator columns so they stay clean vertical bands (no border).
+    const sepIdxs = new Set(phases.map((_, pi) => fixedHdrs1.length + pi * (PHASE_COLS + 1)));
+    const BOTTOM_RULE: any = { style: "medium", color: { rgb: "1F497D" } };
+    const lastRow = dataRows[dataRows.length - 1];
+    if (lastRow) {
+      for (let c = 0; c < lastRow.length; c++) {
+        if (sepIdxs.has(c)) continue;
+        const cell = lastRow[c];
+        lastRow[c] = { ...cell, s: { ...cell.s, border: { ...(cell.s?.border || {}), bottom: BOTTOM_RULE } } };
+      }
+    }
+
     const aoa = [row1, row2, ...dataRows];
     const fixedWidths = [12, 22, 18, 14, 12, 14];
-    const phaseWidths = phases.flatMap(() => [12, 14, 12, 10, 30]);
-    const merges = phases.map((_, pi) => ({ s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS }, e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 } }));
+    const phaseWidths = phases.flatMap(() => [SPACER_WCH, 12, 14, 12, 10, 30]); // leading spacer per phase
+    // Phase group-header merges, offset by the leading spacer in each block.
+    const merges = phases.map((_, pi) => {
+      const start = fixedHdrs1.length + pi * (PHASE_COLS + 1) + 1; // +1 = the leading spacer
+      return { s: { r: 0, c: start }, e: { r: 0, c: start + PHASE_COLS - 1 } };
+    });
     const wb = newWorkbook();
     renderStyledAoa(wb, "WIP Grid", aoa, {
       banner: { title: "WIP Grid", subtitle: `Production work-in-progress · ${new Date().toISOString().slice(0, 10)}`, cols: aoa[0].length },

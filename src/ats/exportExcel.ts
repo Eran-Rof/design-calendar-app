@@ -307,7 +307,8 @@ export function buildExportPayload(
   const totalColumnCount = nextCol - 1;
 
   // ── Style fills ────────────────────────────────────────────────────────
-  const HDR_TEXT_FILL  = "3278CC"; // text headers + every spacer
+  const HDR_TEXT_FILL  = "3278CC"; // text headers
+  const SPACER_FILL    = "2C69B2"; // separator columns — darker than 3278CC so they read clearly against the On Hand header (#4081D0)
   const HDR_ONHAND_FILL = "4081D0"; // On Hand only
   const HDR_DARK_FILL  = "1F497D"; // On Order, On PO, periods, Total
   const FILL_EVEN = "EEF3FA";       // zebra even data rows (text + period cols)
@@ -332,19 +333,30 @@ export function buildExportPayload(
   //     column outline.
   const THICK: any = { style: "medium", color: { rgb: "1F497D" } };
   const THIN: any  = { style: "thin",   color: { rgb: "4472C4" } };
-  const BORDER_BODY: any   = { top: THIN,  bottom: THIN,  left: THICK, right: THICK };
-  // Header column dividers use THIN so the joints between period header
-  // cells read lighter (planner asked for lighter / less heavy header
-  // dividers); top + bottom stay thick so the header band frames clearly.
+  // Interior gridlines are a single clean THIN weight: the heavy vertical
+  // column dividers drop from medium→thin (lighter than before) and every
+  // interior line stays a continuous solid. We don't go below thin — Excel's
+  // "hair" weight renders as a dotted line, not a thinner solid one. The
+  // outer frame (EXTRA_THICK, applied in the outline pass) and the line
+  // below the header (THICK) stay heavy.
+  const BORDER_BODY: any   = { top: THIN,  bottom: THIN,  left: THIN, right: THIN };
   const BORDER_HEADER: any = { top: THICK, bottom: THICK, left: THIN, right: THIN };
-  const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THICK, right: THICK };
+  const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THIN, right: THIN };
+  // Text-header column dividers in WHITE — the blue THIN (#4472C4) is
+  // invisible against the #3278CC text-header fill, so the Category / Sub
+  // Cat / Style / Description / Color splits don't read. Header row only;
+  // the data cells below keep their normal THIN dividers.
+  const WHITE_THIN: any = { style: "thin", color: { rgb: "FFFFFF" } };
+  const BORDER_HTEXT_FIRST: any = { top: THICK, bottom: THICK, left: THIN,       right: WHITE_THIN }; // Category (left = outer frame via outline)
+  const BORDER_HTEXT_MID:   any = { top: THICK, bottom: THICK, left: WHITE_THIN, right: WHITE_THIN };  // Sub Cat / Style / Description / Color
+  const BORDER_HSEP_FIRST:  any = { top: THICK, bottom: THICK, left: WHITE_THIN, right: THIN };        // first separator: white edge to its left (before On Hand)
 
   // ── Style factories ────────────────────────────────────────────────────
-  const headerStyle = (fill: string, align: "left" | "center", wrap: boolean = false): any => ({
+  const headerStyle = (fill: string, align: "left" | "center", wrap: boolean = false, border: any = BORDER_HEADER): any => ({
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: align, vertical: "center", wrapText: wrap },
-    border:    BORDER_HEADER,
+    border,
   });
   // Tracks whether ANY header cell was built with wrap enabled —
   // used downstream to decide the header row height.
@@ -353,10 +365,10 @@ export function buildExportPayload(
   // value longer than 10 chars. Sets wrapText at construction time
   // (not via post-walk mutation) so xlsx-js-style's aoa_to_sheet
   // serializer reliably picks it up.
-  const headerCell = (value: string, fill: string, align: "left" | "center") => {
+  const headerCell = (value: string, fill: string, align: "left" | "center", border?: any) => {
     const wrap = value.length > 10;
     if (wrap) headerHasWrap = true;
-    return { v: value, t: "s" as const, s: headerStyle(fill, align, wrap) };
+    return { v: value, t: "s" as const, s: headerStyle(fill, align, wrap, border) };
   };
   // For non-merged rows, alignment is left/center. For prepack pairs,
   // text + qty cols are merged across the pair so the value sits in
@@ -410,11 +422,11 @@ export function buildExportPayload(
     alignment: { horizontal: "center", vertical: "center" },
     border:    BORDER_BODY,
   });
-  // Spacer cell — always #3278CC top to bottom, no value. NO borders —
+  // Spacer cell — always #2C69B2 top to bottom, no value. NO borders —
   // spacers read as a clean colored gap between column groups (planner
   // asked for the spacer-column vertical borders to be removed).
   const spacerCellStyle = (): any => ({
-    fill:   { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
+    fill:   { fgColor: { rgb: SPACER_FILL }, patternType: "solid" },
     border: {},
   });
 
@@ -424,15 +436,15 @@ export function buildExportPayload(
   // wasn't always picked up by xlsx-js-style's aoa_to_sheet
   // serializer.)
   const headerRow: any[] = new Array(totalColumnCount);
-  headerRow[COL.category    - 1] = headerCell("Category",    HDR_TEXT_FILL, "left");
-  headerRow[COL.subCat      - 1] = headerCell("Sub Cat",     HDR_TEXT_FILL, "left");
-  headerRow[COL.style       - 1] = headerCell("Style",       HDR_TEXT_FILL, "left");
-  headerRow[COL.description - 1] = headerCell("Description", HDR_TEXT_FILL, "left");
-  headerRow[COL.color       - 1] = headerCell("Color",       HDR_TEXT_FILL, "left");
-  headerRow[COL.spacerF - 1] = headerCell("", HDR_TEXT_FILL, "center");
-  headerRow[COL.spacerH - 1] = headerCell("", HDR_TEXT_FILL, "center");
-  headerRow[COL.spacerJ - 1] = headerCell("", HDR_TEXT_FILL, "center");
-  headerRow[COL.spacerL - 1] = headerCell("", HDR_TEXT_FILL, "center");
+  headerRow[COL.category    - 1] = headerCell("Category",    HDR_TEXT_FILL, "left", BORDER_HTEXT_FIRST);
+  headerRow[COL.subCat      - 1] = headerCell("Sub Cat",     HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.style       - 1] = headerCell("Style",       HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.description - 1] = headerCell("Description", HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.color       - 1] = headerCell("Color",       HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.spacerF - 1] = headerCell("", SPACER_FILL, "center", BORDER_HSEP_FIRST);
+  headerRow[COL.spacerH - 1] = headerCell("", SPACER_FILL, "center");
+  headerRow[COL.spacerJ - 1] = headerCell("", SPACER_FILL, "center");
+  headerRow[COL.spacerL - 1] = headerCell("", SPACER_FILL, "center");
   headerRow[COL.onHand  - 1] = headerCell("On Hand",  HDR_ONHAND_FILL, "center");
   headerRow[COL.onOrder - 1] = headerCell("On Order", HDR_DARK_FILL, "center");
   if (COL_SO_PRC) headerRow[COL_SO_PRC - 1] = headerCell("SO Prc", HDR_DARK_FILL, "center");
@@ -1652,6 +1664,11 @@ export function buildExportPayload(
       if (r === tableTopRow) border.top = EXTRA_THICK;             // top of header
       if (r === lastAoaRow) border.bottom = EXTRA_THICK;           // bottom of total row
 
+      // Separator column at the header row: drop the bottom rule so the
+      // colored separator reads as one continuous band from header into
+      // the data, with no horizontal line cutting across it.
+      if (r === tableTopRow && isSpacer) delete border.bottom;
+
       // (b) Style-group outline — only on non-spacer columns.
       // Painting horizontal EXTRA_THICK across the spacer band would
       // chop the dark spacer column into bricks, which is exactly the
@@ -1952,7 +1969,8 @@ function buildSizeMatrixSheet(
   const NUMFMT = "#,##0";
   // Report palette (matches exportExcel's main sheet).
   const DARK = "1F497D";   // dark-blue header fill (On Order/PO/periods/Total)
-  const TEXTHDR = "3278CC"; // text headers + every spacer column
+  const TEXTHDR = "3278CC"; // text headers
+  const SPACER_FILL = "2C69B2"; // separator columns (matches main sheet)
   const QTY = "B4C7E7";    // qty-band data cells
   const EVEN = "EEF3FA";   // zebra even (text cols)
   const ODD = "FFFFFF";    // zebra odd (text cols)
@@ -1966,7 +1984,7 @@ function buildSizeMatrixSheet(
   // Header cells.
   const hDark = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "center", vertical: "center" }, border: HDR_BORDER } });
   const hText = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(TEXTHDR), alignment: { horizontal: "center", vertical: "center" }, border: HDR_BORDER } });
-  const hSpacer = () => ({ v: "", t: "s", s: { fill: fill(TEXTHDR), border: HDR_BORDER } });
+  const hSpacer = () => ({ v: "", t: "s", s: { fill: fill(SPACER_FILL), border: HDR_BORDER } });
   // Data cells.
   const dTxt = (v: string, z: string) => ({ v, t: "s", s: { font: { sz: 11, name: "Calibri" }, fill: fill(z), alignment: { horizontal: "left" }, border: CELL_BORDER } });
   const dNum = (v: number, rgb: string) => ({ v: v > 0 ? v : "", t: v > 0 ? "n" : "s", s: { numFmt: NUMFMT, font: { sz: 11, name: "Calibri" }, fill: fill(rgb), alignment: { horizontal: "right" }, border: CELL_BORDER } });
