@@ -8,6 +8,7 @@ import type { ATSRow, ATSSnapshot, ATSSkuData, ATSPoEvent, ATSSoEvent, UploadWar
 import { addDays, fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, skuSimilarity } from "./ats/helpers";
 import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
+import { excludeRows, onlyExcluded } from "./ats/exclude";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
 import { loadBrandCache, getAllBrandNames } from "./ats/brandLookup";
 import { preloadSalesHistory } from "./ats/exportSalesFetch";
@@ -92,7 +93,7 @@ function ATSReport() {
     lastSync, hoveredCell, pinnedSku, ctxMenu,
     summaryCtx, activeSort, sortCol, sortDir, mergeHistory, viewMode, showTotalsRow, showStatsCards, explodePpk, showImages, freezeKey, hiddenColumns, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
-    customerSearch, collapseLevel, expandedGroups,
+    customerSearch, collapseLevel, expandedGroups, excludedSkus,
   } = st;
   // Reflect the active grid pivot in the browser tab.
   useDocumentTitle(`${ATS_VIEW_LABELS[viewMode] ?? "ATS"} · ATS`);
@@ -164,6 +165,12 @@ function ATSReport() {
   const setCustomerSearch    = mk("customerSearch");
   const setCollapseLevel     = mk("collapseLevel");
   const setExpandedGroups    = mk("expandedGroups");
+  const setExcludedSkus      = mk("excludedSkus");
+  // Excluded ("X") row set — declared early so the report builders below
+  // (onNegInven / onAgedInven, which run over the full `rows`) can drop
+  // excluded skus. The calc-set derivations over `filtered` live further
+  // down, next to useRowFiltering.
+  const excludedSet = useMemo(() => new Set(excludedSkus), [excludedSkus]);
   const expandedGroupSet     = useMemo(() => new Set(expandedGroups), [expandedGroups]);
   const toggleExpandGroup    = useCallback((key: string) => {
     setExpandedGroups(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
@@ -240,6 +247,26 @@ function ATSReport() {
     // first Export Excel View / Download doesn't pay the round trip.
     // Errors are logged inside preloadSalesHistory — non-blocking.
     preloadSalesHistory().catch(() => { /* already logged */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load the persisted exclusion list (the "X" column) once on mount. It's a
+  // GLOBAL app_data blob (a business decision — these styles don't count for
+  // anyone), mirroring ats_merge_history. Tolerant of the legacy gzip-envelope
+  // shape used by saveAppDataBlob.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SB_URL}/rest/v1/app_data?key=eq.ats_excluded_skus&select=value`, { headers: SB_HEADERS });
+        if (!res.ok) return;
+        const rowsJson = await res.json();
+        if (cancelled || !rowsJson?.length) return;
+        let val: unknown = rowsJson[0].value;
+        if (typeof val === "string") { try { val = unpackGzipEnvelope(val); } catch { try { val = JSON.parse(val); } catch { /* leave */ } } }
+        if (Array.isArray(val)) setExcludedSkus(val.filter((s): s is string => typeof s === "string"));
+      } catch (e) { console.warn("[ats] failed to load excluded skus:", e); }
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -812,19 +839,24 @@ function ATSReport() {
     window.location.href = "/";
   }, [saveMergeHistory]);
 
-  const onNegInven = useCallback(() => {
+  // Both reports run over the full `rows` dataset. `includeExcluded`
+  // (passed from NavBar's report warning — Include vs Continue) decides
+  // whether the "X"-marked rows are counted; default excludes them.
+  const onNegInven = useCallback((includeExcluded = false) => {
     setActiveSort("negATS");
+    const src = includeExcluded ? rows : excludeRows(rows, excludedSet);
     // Return the report payload to NavBar so it can route it through
     // the preview modal. null = nothing to preview (no negative rows).
-    return exportNegInven(rows, displayPeriods, eventIndex);
-  }, [rows, displayPeriods, eventIndex]);
+    return exportNegInven(src, displayPeriods, eventIndex);
+  }, [rows, displayPeriods, eventIndex, excludedSet]);
 
-  const onAgedInven = useCallback((days: number, category: string) => {
+  const onAgedInven = useCallback((days: number, category: string, includeExcluded = false) => {
+    const src = includeExcluded ? rows : excludeRows(rows, excludedSet);
     // Returns "empty" when no rows qualify, otherwise a ReportPayload
     // for the preview modal (downloaded workbook still includes every
     // detail sheet — see exportAgedInven for sheet construction).
-    return exportAgedInven(rows, days, category);
-  }, [rows]);
+    return exportAgedInven(src, days, category);
+  }, [rows, excludedSet]);
 
   async function applyNormReview() {
     if (!normPendingData || !normChanges) return;
@@ -1006,25 +1038,47 @@ function ATSReport() {
     collapseLevel, expandedGroups: expandedGroupSet,
   });
 
-  // ── Summary stats (all based on filtered rows) ─────────────────────────
+  // ── Exclusion ("X" column) ─────────────────────────────────────────────
+  // Excluded rows STAY in `filtered`/`pageRows` so they still render in the
+  // grid (greyed, box checked) and can be unchecked — but they drop out of
+  // every AGGREGATION via these *calc* sets. `rows` (the full dataset, used
+  // by the Neg/Aged reports) gets its own exclusion filter at report time.
+  // (excludedSet is declared up top so the report builders can use it.)
+  const calcFiltered = useMemo(() => excludeRows(filtered, excludedSet), [filtered, excludedSet]);
+  const calcSortedFiltered = useMemo(() => excludeRows(sortedFiltered, excludedSet), [sortedFiltered, excludedSet]);
+  const calcSkuSet = useMemo(() => new Set(calcFiltered.map(r => r.sku)), [calcFiltered]);
+  // Distinct excluded rows currently loaded (for the report warning list).
+  // Keyed off the full `rows` so the warning reflects ALL exclusions, not
+  // just whatever the active grid filters happen to show.
+  const excludedReportRows = useMemo(() => onlyExcluded(rows, excludedSet), [rows, excludedSet]);
+  const onToggleExclude = useCallback((sku: string) => {
+    setExcludedSkus(prev => {
+      const next = prev.includes(sku) ? prev.filter(s => s !== sku) : [...prev, sku];
+      // Persist globally so exclusions survive reloads (fire-and-forget).
+      void saveAppDataBlob("ats_excluded_skus", next);
+      return next;
+    });
+  }, []);
+
+  // ── Summary stats (based on the calc set — excluded rows don't count) ───
   const todayKey     = fmtDate(today);
-  const totalSKUs    = filtered.length;
-  const zeroStock    = filtered.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
-  const lowStock     = filtered.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
-  const negATSCount  = filtered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q < 0; })).length;
-  const totalSoQty   = filtered.reduce((s, r) => s + r.onOrder, 0);
-  const totalPoQty   = filtered.reduce((s, r) => s + r.onPO, 0);
+  const totalSKUs    = calcFiltered.length;
+  const zeroStock    = calcFiltered.filter(r => (r.dates[todayKey] ?? r.onHand) <= 0).length;
+  const lowStock     = calcFiltered.filter(r => { const q = r.dates[todayKey] ?? r.onHand; return q > 0 && q <= 10; }).length;
+  const negATSCount  = calcFiltered.filter(r => displayPeriods.some(p => { const q = r.dates[p.endDate]; return q != null && q < 0; })).length;
+  const totalSoQty   = calcFiltered.reduce((s, r) => s + r.onOrder, 0);
+  const totalPoQty   = calcFiltered.reduce((s, r) => s + r.onPO, 0);
 
   const { totalSoValue, totalPoValue } = useMemo(() => {
     if (!excelData) return { totalSoValue: 0, totalPoValue: 0 };
     const isAll = storeFilter.includes("All");
-    const soV = excelData.sos.filter(s => (isAll || storeFilter.includes(s.store ?? "ROF")) && filteredSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || s.unitPrice * s.qty || 0), 0);
+    const soV = excelData.sos.filter(s => (isAll || storeFilter.includes(s.store ?? "ROF")) && calcSkuSet.has(s.sku)).reduce((a, s) => a + (s.totalPrice || s.unitPrice * s.qty || 0), 0);
     // Build avgCost lookup from inventory skus as fallback when PO has no unitCost
     const avgCostBySku: Record<string, number> = {};
     for (const s of excelData.skus) { if (s.avgCost) avgCostBySku[s.sku] = s.avgCost; }
-    const poV = excelData.pos.filter(p => (isAll || storeFilter.includes(p.store ?? "ROF")) && filteredSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || avgCostBySku[p.sku] || 0), 0);
+    const poV = excelData.pos.filter(p => (isAll || storeFilter.includes(p.store ?? "ROF")) && calcSkuSet.has(p.sku)).reduce((a, p) => a + p.qty * (p.unitCost || avgCostBySku[p.sku] || 0), 0);
     return { totalSoValue: soV, totalPoValue: poV };
-  }, [excelData, filteredSkuSet, storeFilter]);
+  }, [excelData, calcSkuSet, storeFilter]);
 
   const { marginDollars, marginPct } = useMemo(() => {
     if (!excelData || totalSoValue === 0) return { marginDollars: 0, marginPct: 0 };
@@ -1049,13 +1103,13 @@ function ATSReport() {
     // Sum cost of each SO line using that SKU's avg cost — same filter as totalSoValue
     let totalCost = 0;
     for (const s of excelData.sos) {
-      if (!filteredSkuSet.has(s.sku)) continue;
+      if (!calcSkuSet.has(s.sku)) continue;
       if (!isAll && !storeFilter.includes(s.store ?? "ROF")) continue;
       totalCost += (avgCostBySku[s.sku] ?? 0) * s.qty;
     }
     const margin = totalSoValue - totalCost;
     return { marginDollars: margin, marginPct: margin / totalSoValue };
-  }, [excelData, filteredSkuSet, totalSoValue, storeFilter]);
+  }, [excelData, calcSkuSet, totalSoValue, storeFilter]);
 
   // Sort by column header click — the actual sort happens inside useRowFiltering.
   function handleThClick(col: string) {
@@ -1105,7 +1159,7 @@ function ATSReport() {
     summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
     ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered,
-    statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
+    statFiltered, sortedFiltered, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey,

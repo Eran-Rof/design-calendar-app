@@ -85,6 +85,28 @@ calls `POST /api/internal/pim/style-thumbs-by-code` (a code-keyed sibling of
 page only, so styles gain images automatically as they're added in the
 Tangerine PIM.
 
+## Row exclusion ("X" column)
+
+A checkbox column between Sub Cat and Style (`STICKY_COL_META` key `exclude`)
+lets the operator drop a row from every aggregation. State lives in
+`ATSState.excludedSkus` (a SKU list), persisted globally to the `app_data`
+key `ats_excluded_skus` so exclusions survive reloads. The split is done by
+two pure helpers in `src/ats/exclude.ts` (`excludeRows` / `onlyExcluded`):
+
+- **Display** keeps excluded rows (`filtered` / `pageRows`) — they render
+  greyed with the box checked so they can be unchecked.
+- **Calc set** (`calcFiltered` / `calcSortedFiltered`, and `calcSkuSet` for
+  the SO/PO/margin value memos) drops them, and feeds the totals row
+  (`GridTable totalsRows`), the stat cards, and every report/export.
+
+Before any report runs, `NavBar` shows a warning listing the excluded styles
+with **Continue** (run excluding — uses the calc set), **Include them** (run
+counting them this once — swaps in `fullFiltered`), or **Cancel**. Every
+report builder (`onNegInven` / `onAgedInven` / incomplete / stock-vs-SO /
+Excel export / Sales Comps) takes an `includeExcluded` flag that selects the
+row set; `onNegInven`/`onAgedInven` filter the full `rows` set since they
+report over the whole dataset, not the grid filter.
+
 ## Column sort
 
 The main ATS grid is a custom virtualized / sticky-left-column grid with a

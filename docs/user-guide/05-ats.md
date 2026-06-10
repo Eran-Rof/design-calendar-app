@@ -68,6 +68,7 @@ The grid is frozen on the left so the identity and summary columns stay put whil
 |---|---|
 | **Category** | Top-level grouping (from the master) |
 | **Sub Cat** | Sub-category |
+| **X** | Exclude checkbox. Tick it to drop that row from **every total, calculation, and report** — On Hand / On Order / On PO sums, ATS availability, the totals row, the stat cards, and all exports. The row stays visible (greyed) so you can untick it. Exclusions are saved and persist across reloads. See [Excluding rows](#excluding-rows-the-x-column). |
 | **Style** | Style code |
 | **Description** | Style description |
 | **Color** | Colour |
@@ -75,7 +76,24 @@ The grid is frozen on the left so the identity and summary columns stay put whil
 | **On Order** | Units committed to open sales orders |
 | **On PO** | Units incoming on open purchase orders |
 
-You can **hide any of these** columns and **freeze through** any of them — see [Tailoring the grid](#tailoring-the-grid).
+You can **hide any of these** columns and **freeze through** any of them — see [Tailoring the grid](#tailoring-the-grid). (The **X** exclude column is always shown.)
+
+### Excluding rows (the X column)
+
+The **X** checkbox between **Sub Cat** and **Style** lets you take a row out of play. Tick it and that row is **dropped from every number on the page**:
+
+- the **totals row** (Qty / Cost / Sale / Margin / B-Inven / E-Inven),
+- the **stat cards** (Total SKUs, Low / Zero stock, Negative ATS, Units on Order, SO / PO value, margin),
+- the **On Hand / On Order / On PO** column totals and ATS availability totals,
+- and **every report and export**.
+
+The excluded row itself **stays visible** in the grid (greyed out, box ticked) so you can always find it and untick it. Its own per-row numbers still show — only the *roll-ups* ignore it. Exclusions are **saved** and persist across reloads (they're a shared business setting, like "these sample/discontinued styles don't count").
+
+**Before any report or export runs**, if you have rows excluded you'll see a warning listing the excluded styles (style number + description) with three choices:
+
+- **Continue** — run the report **without** the excluded styles (the normal case).
+- **Include them** — count the excluded styles **just for this one report** (they stay excluded everywhere else).
+- **Cancel** — don't run it.
 
 ### Date (period) columns
 
