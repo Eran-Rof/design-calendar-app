@@ -32,9 +32,16 @@ function str(v) {
   return v == null ? "" : String(v).trim();
 }
 
-// Xoro emits 'MM/DD/YYYY' (already split off any time component upstream).
-// Returns 'YYYY-MM-DD' or null. The 0001 sentinel = "no date".
+// Returns 'YYYY-MM-DD' or null. Handles three input shapes:
+//   - JS Date object (from XLSX cellDates:true)
+//   - 'MM/DD/YYYY' string (Xoro native format)
+//   - 'YYYY-MM-DD' string (already ISO)
+// The 0001 sentinel = "no date".
 export function toIsoDate(raw) {
+  if (raw instanceof Date) {
+    if (!Number.isFinite(raw.getTime())) return null;
+    return raw.toISOString().slice(0, 10);
+  }
   const s = str(raw);
   if (!s || s.startsWith("01/01/0001")) return null;
   const datePart = s.split(" ")[0];
@@ -43,7 +50,6 @@ export function toIsoDate(raw) {
     const [, mm, dd, yyyy] = m;
     return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
   }
-  // Already ISO?
   if (/^\d{4}-\d{2}-\d{2}/.test(datePart)) return datePart.slice(0, 10);
   return null;
 }

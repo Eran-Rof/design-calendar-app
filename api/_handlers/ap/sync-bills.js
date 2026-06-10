@@ -58,7 +58,7 @@ function decompressIfGzipped(file) {
 
 function readCsvRows(filepath) {
   const buffer = readFileSync(filepath);
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: false });
+  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
 }
 
