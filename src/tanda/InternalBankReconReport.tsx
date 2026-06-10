@@ -16,6 +16,8 @@ import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const TABLE_KEY = "tanda.bank_recon_report";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -197,6 +199,31 @@ export default function InternalBankReconReport() {
 
   const reconciledCount = useMemo(() => runs.filter((r) => r.status === "reconciled").length, [runs]);
 
+  // Export rows mirror the displayed recon table — account label resolved,
+  // cents kept in cents for currency formatting.
+  const exportRows = useMemo(
+    () =>
+      runs.map((r) => ({
+        account: `${r.bank_accounts.name}${r.bank_accounts.mask ? ` ••${r.bank_accounts.mask}` : ""}`,
+        gl_balance_cents: r.gl_balance_cents,
+        uncleared_cents: r.uncleared_txn_cents,
+        bank_statement_cents: r.bank_statement_balance_cents,
+        diff_cents: r.reconciled_diff_cents,
+        status: r.status,
+        reconciled_at: r.reconciled_at || "",
+      })),
+    [runs],
+  );
+  const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
+    { key: "account",              header: "Account" },
+    { key: "gl_balance_cents",     header: "GL Balance", format: "currency_cents" },
+    { key: "uncleared_cents",      header: "+ Uncleared", format: "currency_cents" },
+    { key: "bank_statement_cents", header: "Bank Statement", format: "currency_cents" },
+    { key: "diff_cents",           header: "Diff", format: "currency_cents" },
+    { key: "status",               header: "Status" },
+    { key: "reconciled_at",        header: "Reconciled At", format: "date" },
+  ];
+
   return (
     <div style={{ color: C.text }}>
       <h2 style={{ margin: "0 0 16px", fontSize: 22 }}>Bank Reconciliation Report</h2>
@@ -228,6 +255,9 @@ export default function InternalBankReconReport() {
             onReset={resetToDefault}
             onSetAll={setAllVisible}
           />
+        )}
+        {periodId && runs.length > 0 && (
+          <ExportButton rows={exportRows} filename="bank-reconciliation" sheetName="Bank Reconciliation" columns={exportColumns} />
         )}
       </div>
 

@@ -14,6 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import CustomerScorecard from "./CustomerScorecard";
 import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -57,9 +59,21 @@ export default function InternalCustomerScorecard() {
     [customers],
   );
 
+  const exportColumns: ExportColumn<{ code: string; name: string }>[] = [
+    { key: "code", header: "Customer Code" },
+    { key: "name", header: "Customer Name" },
+  ];
+  const exportRows = customers.map((c) => ({
+    code: displayCustomerCode(c.customer_code ?? c.code ?? null) || "",
+    name: c.name,
+  }));
+
   return (
     <div style={{ padding: 20, color: C.text }}>
-      <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🤝 Customer Scorecard</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🤝 Customer Scorecard</h2>
+        <ExportButton rows={exportRows} filename="customers" sheetName="Customers" columns={exportColumns} />
+      </div>
       <p style={{ margin: "0 0 16px", color: C.textMuted, fontSize: 13 }}>
         Pick a customer to view its scorecard — balance, purchases, margin, dilution, commission, invoices, SOs, and JE.
       </p>

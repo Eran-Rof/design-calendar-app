@@ -15,6 +15,8 @@ import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SO_TABLE_KEY = "tangerine:salesorders:columns";
@@ -101,6 +103,31 @@ export default function InternalSalesOrders() {
     return m;
   }, [customers]);
 
+  // Export rows mirror the displayed list (same filter/search), with ids
+  // resolved to human labels and cents kept in cents for currency formatting.
+  const exportRows = useMemo(
+    () =>
+      rows.map((so) => ({
+        so_number: so.so_number || "(draft)",
+        customer: customerName[so.customer_id] || "—",
+        order_date: so.order_date,
+        start_ship: so.requested_ship_date || "",
+        status: so.status,
+        factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
+        total_cents: Number(so.total_cents ?? 0),
+      })),
+    [rows, customerName],
+  );
+  const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
+    { key: "so_number",  header: "SO #" },
+    { key: "customer",   header: "Customer" },
+    { key: "order_date", header: "Order date", format: "date" },
+    { key: "start_ship", header: "Start Ship", format: "date" },
+    { key: "status",     header: "Status" },
+    { key: "factor",     header: "Factor" },
+    { key: "total_cents", header: "Total", format: "currency_cents" },
+  ];
+
   async function load() {
     setLoading(true); setErr(null);
     try {
@@ -146,6 +173,7 @@ export default function InternalSalesOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
+        <ExportButton rows={exportRows} filename="sales-orders" sheetName="Sales Orders" columns={exportColumns} />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}

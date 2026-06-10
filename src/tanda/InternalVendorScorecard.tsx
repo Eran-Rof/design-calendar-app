@@ -12,6 +12,8 @@
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import VendorScorecard from "./VendorScorecard";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -55,9 +57,18 @@ export default function InternalVendorScorecard() {
     [vendors],
   );
 
+  const exportColumns: ExportColumn<{ code: string; name: string }>[] = [
+    { key: "code", header: "Vendor Code" },
+    { key: "name", header: "Vendor Name" },
+  ];
+  const exportRows = vendors.map((v) => ({ code: v.code || "", name: v.name }));
+
   return (
     <div style={{ padding: 20, color: C.text }}>
-      <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🏭 Vendor Scorecard</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🏭 Vendor Scorecard</h2>
+        <ExportButton rows={exportRows} filename="vendors" sheetName="Vendors" columns={exportColumns} />
+      </div>
       <p style={{ margin: "0 0 16px", color: C.textMuted, fontSize: 13 }}>
         Pick a vendor to view its scorecard — lead time, on-time %, purchases, AP balance, invoices, and POs.
       </p>

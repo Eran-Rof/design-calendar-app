@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -65,6 +67,13 @@ export default function InternalAnalytics() {
   if (err) return <div style={{ color: C.danger }}>Error: {err}</div>;
   if (!spend || !forecast) return null;
 
+  // Export the per-vendor spend breakdown backing the "Top vendors" chart.
+  // Spend values arrive in dollars (not cents) from the analytics endpoint.
+  const spendByVendorColumns: ExportColumn<{ vendor: string; spend: number }>[] = [
+    { key: "vendor", header: "Vendor" },
+    { key: "spend",  header: "Spend", format: "currency_dollars" },
+  ];
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
@@ -74,6 +83,12 @@ export default function InternalAnalytics() {
           <span style={{ color: C.textMuted }}>→</span>
           <AppDatePicker value={to} onCommit={setTo} style={inp} />
           <button onClick={() => void load()} style={btnPrimary}>Apply</button>
+          <ExportButton
+            rows={spend.by_vendor.map((v) => ({ vendor: v.name, spend: v.spend }))}
+            filename="spend-by-vendor"
+            sheetName="Spend by Vendor"
+            columns={spendByVendorColumns}
+          />
         </div>
       </div>
 
