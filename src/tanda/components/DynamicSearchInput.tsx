@@ -192,7 +192,7 @@ export function DynamicSearchInput(props: DynamicSearchInputProps): React.ReactE
       </span>
       <input
         ref={inputRef}
-        type="search"
+        type="text"
         role="searchbox"
         value={displayValue}
         onChange={handleChange}
