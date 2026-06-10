@@ -268,12 +268,12 @@ export function NavDrawer({
   // render UN-highlighted (favSelected) while the favorites row stays highlighted.
   const rowStyle = (key: string, active: boolean = activeModule === key): React.CSSProperties => ({
     display: "flex", alignItems: "center", gap: 8,
-    padding: collapsed ? "7px 0" : "4px 10px 4px 22px",
+    padding: collapsed ? "7px 0" : "9px 10px 9px 22px",
     justifyContent: collapsed ? "center" : "flex-start",
-    borderRadius: 5, cursor: "pointer", fontSize: 13,
+    borderRadius: 5, cursor: "pointer", fontSize: 14,
     fontWeight: active ? 600 : 400,
     background: active ? C.bgActive : "transparent",
-    color: active ? "#fff" : C.text,
+    color: active ? "#fff" : C.textMuted,
     userSelect: "none", whiteSpace: "nowrap", overflow: "hidden",
     transition: "background 0.1s",
   });
@@ -401,7 +401,6 @@ export function NavDrawer({
                   onClick={e => onNavClick(e, m.key)}
                   onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
                 >
-                  <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
                   <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>
                 </a>
               ))
@@ -435,7 +434,7 @@ export function NavDrawer({
                 onClick={e => onFavClick(e, m.key)}
                 onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
               >
-                <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
+                {collapsed && <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>}
                 {!collapsed && <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>}
               </a>
             ))}
@@ -459,7 +458,7 @@ export function NavDrawer({
               onClick={e => onNavClick(e, m.key)}
               onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
             >
-              <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>
+              {collapsed && <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>}
               <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>
               {(counts[m.key] ?? 0) > 0 && (
                 <span style={{ fontSize:10, color:C.textMuted, flexShrink:0 }}>{counts[m.key]}</span>
@@ -485,9 +484,9 @@ export function NavDrawer({
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = hasActive && !isOpen ? "rgba(29,78,216,0.15)" : "transparent"; }}
               >
                 <div style={{ display:"flex", alignItems:"center", gap:7 }}>
-                  <span style={{ fontSize:14 }}>{sec.emoji}</span>
+                  {collapsed && <span style={{ fontSize:14 }}>{sec.emoji}</span>}
                   {!collapsed && (
-                    <span style={{ fontSize:12, fontWeight:600, color: hasActive ? C.text : C.section, letterSpacing:0.5, textTransform:"uppercase", whiteSpace:"nowrap" }}>
+                    <span style={{ fontSize:13, fontWeight:600, color: hasActive ? C.text : C.textMuted, letterSpacing:0.5, textTransform:"uppercase", whiteSpace:"nowrap" }}>
                       {sec.section}
                     </span>
                   )}
@@ -504,16 +503,19 @@ export function NavDrawer({
               {!collapsed && isOpen && !showGroupHeaders && mods.map(renderRow)}
               {!collapsed && isOpen && showGroupHeaders && groups.map((g, gi) => (
                 <div key={g.group}>
-                  <div style={{
-                    display:"flex", alignItems:"center", gap:6,
-                    padding:"6px 10px 3px", marginTop: gi === 0 ? 0 : 4,
-                    borderTop: gi === 0 ? "none" : `1px solid ${C.border}`,
-                  }}>
-                    {groupIcons?.[g.group] && <span style={{ fontSize:11 }}>{groupIcons[g.group]}</span>}
-                    <span style={{ fontSize:10, fontWeight:700, color:C.textMuted, letterSpacing:0.6, textTransform:"uppercase", whiteSpace:"nowrap" }}>
-                      {g.group}
-                    </span>
-                  </div>
+                  {/* Skip the group header when it duplicates the section name
+                      (the duplicate "header again on expand" the operator flagged). */}
+                  {g.group !== sec.section && (
+                    <div style={{
+                      display:"flex", alignItems:"center", gap:6,
+                      padding:"6px 10px 3px", marginTop: gi === 0 ? 0 : 4,
+                      borderTop: gi === 0 ? "none" : `1px solid ${C.border}`,
+                    }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:C.textMuted, letterSpacing:0.6, textTransform:"uppercase", whiteSpace:"nowrap" }}>
+                        {g.group}
+                      </span>
+                    </div>
+                  )}
                   {g.mods.map(renderRow)}
                 </div>
               ))}
