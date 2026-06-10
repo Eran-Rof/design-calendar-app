@@ -289,6 +289,32 @@ export interface RenderAoaOpts {
   autofilter?: string;
   /** Thin-border rectangles (0-based, inclusive) applied after cells. */
   gridBorders?: Array<{ r0: number; r1: number; c0: number; c1: number; color?: string }>;
+  /** Embedded images anchored to cells (0-based, pre-banner coords). The
+   *  banner offset is applied internally. A bad/empty image is skipped, never
+   *  fatal. dataUrl may be a full `data:image/...;base64,...` URL or raw base64. */
+  images?: AoaImage[];
+}
+
+export interface AoaImage {
+  /** 0-based AoA row the image anchors to (pre-banner). */
+  aoaRow: number;
+  /** 0-based column index. */
+  col: number;
+  /** `data:image/png;base64,...` (or jpeg/gif), or raw base64. */
+  dataUrl: string;
+  /** Embedded thumbnail size in pixels. */
+  width: number;
+  height: number;
+}
+
+// Split a data URL (or raw base64) into ExcelJS's { base64, extension }.
+function parseImageDataUrl(d: string): { base64: string; extension: "png" | "jpeg" | "gif" } {
+  const m = /^data:image\/(png|jpe?g|gif);base64,(.*)$/i.exec(d);
+  if (m) {
+    const ext = m[1].toLowerCase();
+    return { base64: m[2], extension: ext === "jpg" ? "jpeg" : (ext as "png" | "jpeg" | "gif") };
+  }
+  return { base64: d.replace(/^data:[^,]*,/, ""), extension: "png" };
 }
 
 // Bump the ROW number of every (relative) A1 cell reference by `offset` so
@@ -378,6 +404,24 @@ export function renderStyledAoa(
 
   (opts.cols ?? []).forEach((w, i) => { ws.getColumn(i + 1).width = w; });
   (opts.rowHeights ?? []).forEach((h, i) => { if (h != null) ws.getRow(offset + i + 1).height = h; });
+
+  // Embedded images, anchored to (aoaRow + banner offset, col) with a small
+  // inset so the thumbnail sits inside the cell. `oneCell` keeps it pinned to
+  // the cell on row/col insert. A bad image is skipped — never crash an export.
+  (opts.images ?? []).forEach((im) => {
+    if (!im?.dataUrl) return;
+    try {
+      const { base64, extension } = parseImageDataUrl(im.dataUrl);
+      if (!base64) return;
+      const id = wb.addImage({ base64, extension });
+      ws.addImage(id, {
+        tl: { col: im.col + 0.08, row: offset + im.aoaRow + 0.08 } as ExcelJS.Anchor,
+        ext: { width: im.width, height: im.height },
+        editAs: "oneCell",
+      });
+    } catch { /* malformed image data — skip */ }
+  });
+
   if (opts.freeze) ws.views = [{ state: "frozen", xSplit: opts.freeze.xSplit, ySplit: offset + opts.freeze.ySplit }];
   if (opts.autofilter) ws.autoFilter = shiftA1Rows(opts.autofilter, offset);
   return ws;
