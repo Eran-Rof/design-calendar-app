@@ -6,7 +6,9 @@ URL: `/tangerine` → top nav → 📆 **Payment Terms** (Master Data group).
 
 ## What payment terms are and how they're used
 
-Each row is `(code, name, due_days, discount_pct, discount_days, is_active)`. The only fields the posting flow consumes today are `code`, `name`, and `due_days`; the discount fields are reserved for an early-payment workflow that lands in a later P-phase.
+Each row is `(code, name, due_days, discount_pct, discount_days, is_active)`. The only fields the posting flow consumes today are `name` and `due_days`; the discount fields are reserved for an early-payment workflow that lands in a later P-phase.
+
+**Codes are server-generated and read-only.** Every row gets an organized sequential code `TERM-00001`, `TERM-00002`, … assigned automatically on save (you never type it). The codes are display labels only — nothing in the app matches on the code value (vendors, customers, invoices, and costing all reference a term by its internal id or by `name`). The existing rows were renumbered into one contiguous `TERM-NNNNN` block, and each new term continues the sequence.
 
 The chain at posting time:
 
@@ -20,29 +22,29 @@ Each vendor and customer can have a default `payment_terms_id`. The invoice's ow
 
 ## Seeded defaults
 
-The migration seeds 9 common terms for the ROF entity on first deploy:
+The migration seeds the common terms for the ROF entity on first deploy (originally with semantic codes like `NET30` / `COD`; these were later renumbered to the organized `TERM-NNNNN` scheme — the **Name** is now the human-facing identifier):
 
-| Code | Name | Due days | Discount % | Discount days |
-|---|---|---:|---:|---:|
-| `COD` | Cash on Delivery | 0 | — | — |
-| `DUE_ON_RECEIPT` | Due on Receipt | 0 | — | — |
-| `NET10` | Net 10 | 10 | — | — |
-| `NET15` | Net 15 | 15 | — | — |
-| `NET30` | Net 30 | 30 | — | — |
-| `NET45` | Net 45 | 45 | — | — |
-| `NET60` | Net 60 | 60 | — | — |
-| `NET90` | Net 90 | 90 | — | — |
-| `2_10_NET30` | 2/10 Net 30 | 30 | 2.00% | 10 |
+| Name | Due days | Discount % | Discount days |
+|---|---:|---:|---:|
+| Cash on Delivery | 0 | — | — |
+| Due on Receipt | 0 | — | — |
+| Net 10 | 10 | — | — |
+| Net 15 | 15 | — | — |
+| Net 30 | 30 | — | — |
+| Net 45 | 45 | — | — |
+| Net 60 | 60 | — | — |
+| Net 90 | 90 | — | — |
+| 2/10 Net 30 | 30 | 2.00% | 10 |
 
-The seed is defensive — it skips if any `payment_terms` rows already exist for ROF, so re-running the migration is safe.
+The seed is defensive — it skips if any `payment_terms` rows already exist for ROF, so re-running the migration is safe. Operators have since added the DDP / longer-net variants (DDP 30…180, Net 120/150/180) directly in the panel.
 
-## Adding a new term (e.g. NET75)
+## Adding a new term (e.g. Net 75)
 
 1. **Open the panel.** `/tangerine` → 📆 **Payment Terms**.
 2. **Click `+ Add term`.**
 3. **Fill in:**
-   - **Code:** `NET75` — uppercase, letters/digits/underscores only, UNIQUE per entity. Cannot be edited after creation.
-   - **Name:** `Net 75` — anything human-readable; this is what appears in the vendor / customer dropdowns.
+   - **Code:** read-only — shows `(auto-generated on save)` and is stamped with the next `TERM-NNNNN` automatically. The Code box in the add/edit form matches the Due Date field's width and the Name field's height.
+   - **Name:** `Net 75` — anything human-readable; this is what appears in the vendor / customer dropdowns and is the identifier the rest of the app keys off.
    - **Due days:** `75` — integer, ≥ 0.
    - **Discount % / Discount days:** leave at 0 unless you're encoding a discount like `5/15 Net 60` (`discount_pct=0.05`, `discount_days=15`, `due_days=60`).
    - **Active:** checked.
@@ -50,7 +52,7 @@ The seed is defensive — it skips if any `payment_terms` rows already exist for
 
 ## Editing or retiring a term
 
-- **Edit** lets you change the name, due days, discount fields, and active flag. The `code` is locked post-creation; if you got it wrong, deactivate it and create a new one with the correct code.
+- **Edit** lets you change the name, due days, discount fields, and active flag. The `code` is server-generated and read-only at all times — there's nothing to get wrong; just edit the **Name** if the label is off.
 - **Delete** does a hard delete, but only if no vendor / customer / invoice references the row. If any do, the panel surfaces a 409 with counts:
   > Cannot delete — still referenced by:
   > 3 vendor(s)

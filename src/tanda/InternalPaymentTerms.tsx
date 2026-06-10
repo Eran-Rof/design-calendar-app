@@ -64,11 +64,18 @@ const inputStyle: React.CSSProperties = {
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+// Sized to match its siblings in the add/edit grid: SAME WIDTH as the Due Date
+// (Due days) input — full column, width:100% like inputStyle — and SAME HEIGHT
+// as the Name input — box-sizing:border-box + flex-centering and no fixed
+// minHeight so the box height equals a single-line text input (pattern from
+// InternalFabricCodes.tsx readonlyCodeStyle).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  width: "100%", boxSizing: "border-box",
+  display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
