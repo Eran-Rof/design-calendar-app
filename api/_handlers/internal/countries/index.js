@@ -2,7 +2,8 @@
 //
 // GET  — list country_master rows. By default returns is_active=true rows
 //        only; ?include_inactive=true returns all. ?q=<search> ilike on
-//        iso2 or name. Ordered sort_order, name.
+//        iso2 or name. Ordered alphabetically by name (countries have no
+//        manual sort-order concept in the UI).
 // POST — create one country_master row. Body:
 //          { iso2 (required, 2-char, uppercased), name (required),
 //            sort_order (>=0, optional, default 0), is_active (default true) }
@@ -42,7 +43,6 @@ export default async function handler(req, res) {
     let query = admin
       .from("country_master")
       .select("*")
-      .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
 
     if (!includeInactive) query = query.eq("is_active", true);

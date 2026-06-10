@@ -72,6 +72,7 @@ import r_internal_ai_documents from "./internal/ai/documents.js";
 import r_internal_ai_insights from "./internal/ai/insights.js";
 import r_internal_ai_mention_suggest from "./internal/ai/mention-suggest.js";
 import r_internal_ai_ops_summary from "./internal/ai/ops-summary.js";
+import r_internal_ai_suggest_iso2 from "./internal/ai/suggest-iso2.js";
 import r_internal_ai_user_facts from "./internal/ai/user-facts.js";
 import r_internal_allocations_index from "./internal/allocations/index.js";
 import r_internal_allocations_preview from "./internal/allocations/preview.js";
@@ -907,6 +908,7 @@ export const ROUTES = [
   { pattern: "/api/internal/shopify/backfill", handler: r_internal_shopify_backfill },
   { pattern: "/api/internal/tax/calculations", handler: r_internal_tax_calculations },
   { pattern: "/api/vendor/compliance/summary", handler: r_vendor_compliance_summary },
+  { pattern: "/api/internal/ai/suggest-iso2", handler: r_internal_ai_suggest_iso2 },
   { pattern: "/api/internal/analytics/spend", handler: r_internal_analytics_spend },
   { pattern: "/api/internal/ar-backfill/run", handler: r_internal_ar_backfill_run },
   { pattern: "/api/internal/fba/sync-orders", handler: r_internal_fba_sync_orders },

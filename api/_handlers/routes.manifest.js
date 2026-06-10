@@ -324,6 +324,7 @@ export default [
   ["/api/internal/ap-invoices/:id"                           , "./internal/ap-invoices/[id].js"],
   ["/api/internal/ap-invoices"                               , "./internal/ap-invoices/index.js"],
   ["/api/internal/ap-payments"                               , "./internal/ap-payments/index.js"],
+  ["/api/internal/ai/suggest-iso2"                           , "./internal/ai/suggest-iso2.js"],
   ["/api/internal/hts/suggest"                               , "./internal/hts/suggest.js"],
   ["/api/internal/hts-codes/:id"                             , "./internal/hts-codes/[id].js"],
   ["/api/internal/hts-codes"                                 , "./internal/hts-codes/index.js"],
