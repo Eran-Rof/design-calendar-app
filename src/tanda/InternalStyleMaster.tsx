@@ -118,6 +118,7 @@ type Style = {
   size_scale_id: string | null;
   rise: string | null;
   hts_code: string | null;
+  duty_rate_pct: number | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -673,6 +674,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     size_scale_id:        style?.size_scale_id         ?? "",
     rise:                 style?.rise                  ?? "",
     hts_code:             style?.hts_code              ?? "",
+    duty_rate_pct:        style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "",
   });
   // AI HTS classification state (Claude Haiku via /api/internal/hts/suggest).
   type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
@@ -883,6 +885,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         size_scale_id:        form.size_scale_id || null,
         rise:                 form.rise.trim() || null,
         hts_code:             form.hts_code.trim() || null,
+        duty_rate_pct:        form.duty_rate_pct.trim() === "" ? null : Number(form.duty_rate_pct),
       };
       let url: string;
       let method: string;
@@ -966,7 +969,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // Pick a suggestion → set the style's hts_code AND auto-fill the HTS Master
   // reference table (best-effort; a 409/dup or error never blocks).
   async function pickHtsSuggestion(s: HtsSuggestion) {
-    setForm((f) => ({ ...f, hts_code: s.code }));
+    setForm((f) => ({
+      ...f,
+      hts_code: s.code,
+      duty_rate_pct: s.duty_rate_pct != null ? String(s.duty_rate_pct) : f.duty_rate_pct,
+    }));
     setHtsSuggestions([]);
     const digits = String(s.code).replace(/\D/g, "");
     try {
@@ -1153,15 +1160,28 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             )}
           </Field>
-          <Field label="HTS code">
+          <Field label="HTS code  ·  Duty rate">
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                type="text"
-                value={form.hts_code}
-                onChange={(e) => { setForm({ ...form, hts_code: e.target.value }); setHtsSuggestions([]); }}
-                style={{ ...inputStyle, flex: 1 }}
-                placeholder="e.g. 6203.42.4011"
-              />
+              {/* 75% HTS code + 25% duty rate, ~4 spaces (28px) between them. */}
+              <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 28, minWidth: 0 }}>
+                <input
+                  type="text"
+                  value={form.hts_code}
+                  onChange={(e) => { setForm({ ...form, hts_code: e.target.value }); setHtsSuggestions([]); }}
+                  style={{ ...inputStyle, flex: 3, minWidth: 0 }}
+                  placeholder="e.g. 6203.42.4011"
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={form.duty_rate_pct}
+                  onChange={(e) => setForm({ ...form, duty_rate_pct: e.target.value })}
+                  style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                  placeholder="Duty %"
+                  title="HTS duty rate %"
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => void fetchHtsSuggestions()}
