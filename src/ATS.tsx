@@ -9,6 +9,7 @@ import { addDays, fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQ
 import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
 import { excludeRows, onlyExcluded } from "./ats/exclude";
+import { backToPlmHome } from "./ats/backToPlm";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
 import { loadBrandCache, getAllBrandNames } from "./ats/brandLookup";
 import { preloadSalesHistory } from "./ats/exportSalesFetch";
@@ -836,7 +837,10 @@ function ATSReport() {
   const clearMergeAndNavigate = useCallback(async () => {
     setMergeHistory([]);
     await saveMergeHistory([]);
-    window.location.href = "/";
+    // Return to the launcher tab we came from (focus it + close this tab)
+    // instead of navigating THIS tab to "/", which would leave a duplicate
+    // launcher open. See backToPlm.ts.
+    backToPlmHome();
   }, [saveMergeHistory]);
 
   // Both reports run over the full `rows` dataset. `includeExcluded`
@@ -1059,6 +1063,19 @@ function ATSReport() {
       return next;
     });
   }, []);
+  // Bulk exclude/include — driven by clicking the grid's "X" column HEADER.
+  // `exclude=true` adds every passed sku, `false` removes them. Used to
+  // select-all / clear-all the currently-visible rows in one click.
+  const onToggleExcludeAll = useCallback((skus: string[], exclude: boolean) => {
+    setExcludedSkus(prev => {
+      const set = new Set(prev);
+      if (exclude) for (const s of skus) set.add(s);
+      else for (const s of skus) set.delete(s);
+      const next = [...set];
+      void saveAppDataBlob("ats_excluded_skus", next);
+      return next;
+    });
+  }, []);
 
   // ── Summary stats (based on the calc set — excluded rows don't count) ───
   const todayKey     = fmtDate(today);
@@ -1159,7 +1176,7 @@ function ATSReport() {
     summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
     ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered,
-    statFiltered, sortedFiltered, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
+    statFiltered, sortedFiltered, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, onToggleExcludeAll, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey,

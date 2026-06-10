@@ -151,6 +151,9 @@ interface GridTableProps {
   // greyed with the box checked, and drop out of every total.
   excludedSet: ReadonlySet<string>;
   onToggleExclude: (sku: string) => void;
+  // Bulk toggle from clicking the "X" column header — select-all / clear-all
+  // the currently-filtered (visible, non-aggregate) rows.
+  onToggleExcludeAll: (skus: string[], exclude: boolean) => void;
   displayPeriods: Period[];
   tableRef: React.RefObject<HTMLDivElement>;
 
@@ -212,7 +215,7 @@ interface GridTableProps {
 }
 
 export const GridTable: React.FC<GridTableProps> = ({
-  loading, filtered, totalsRows, pageRows, excludedSet, onToggleExclude, displayPeriods, tableRef,
+  loading, filtered, totalsRows, pageRows, excludedSet, onToggleExclude, onToggleExcludeAll, displayPeriods, tableRef,
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
@@ -238,6 +241,20 @@ export const GridTable: React.FC<GridTableProps> = ({
   // per-cell render guards below.
   const hidden = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
   const isHidden = (key: StickyKey) => hidden.has(key);
+
+  // "X" header select-all / clear-all. Operates on every currently-FILTERED
+  // leaf row (not just the page, and skipping aggregate roll-ups). If they're
+  // all already excluded, clicking the header includes them all; otherwise it
+  // excludes them all.
+  const excludableLeafSkus = useMemo(
+    () => filtered.filter(r => !r.__collapsed).map(r => r.sku),
+    [filtered],
+  );
+  const allVisibleExcluded = excludableLeafSkus.length > 0 && excludableLeafSkus.every(s => excludedSet.has(s));
+  const someVisibleExcluded = excludableLeafSkus.some(s => excludedSet.has(s));
+  const toggleAllExclude = () => {
+    if (excludableLeafSkus.length > 0) onToggleExcludeAll(excludableLeafSkus, !allVisibleExcluded);
+  };
 
   // Derived freeze guard + override. Columns past the freeze line
   // get an inline override that disables sticky positioning while
@@ -614,27 +631,36 @@ export const GridTable: React.FC<GridTableProps> = ({
               const isActive = sortCol === c.key;
               // Numeric buckets + the X checkbox column center; text cols left.
               const centered = c.key === "exclude" || c.key === "onHand" || c.key === "onOrder" || c.key === "onPO";
-              // The X column is a checkbox toggle, not a sort key.
-              const sortable = c.key !== "exclude";
+              // The X column header is a select-all / clear-all toggle, not a sort key.
+              const isExcludeCol = c.key === "exclude";
+              const sortable = !isExcludeCol;
+              // X header reflects + flips the exclusion of every visible row.
+              const excludeTitle = allVisibleExcluded
+                ? `Click to INCLUDE all ${excludableLeafSkus.length} visible row(s) — they're all excluded from totals & reports right now`
+                : `Click to EXCLUDE all ${excludableLeafSkus.length} visible row(s) from every total, calculation & report${someVisibleExcluded ? " (some already excluded)" : ""}`;
+              const excludeColor = allVisibleExcluded ? "#F87171" : someVisibleExcluded ? "#FBBF24" : "#6B7280";
               return (
                 <th
                   key={c.key}
-                  title={c.key === "exclude" ? "Exclude rows from all totals, calculations, and reports — tick the box on a row" : undefined}
+                  title={isExcludeCol ? excludeTitle : undefined}
                   style={{
                     ...S.th, ...S.stickyCol,
                     top: headerRowTop,
                     left, minWidth: stickyWidths[c.key], zIndex: 3,
                     textAlign: centered ? "center" : "left",
-                    cursor: sortable ? "pointer" : "default",
+                    cursor: (sortable || isExcludeCol) ? "pointer" : "default",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     // backgroundColor (not shorthand) so S.stickyCol's
                     // gradient stripe survives — see styles.ts:stickyCol.
                     backgroundColor: isActive ? "#243048" : "#1E293B",
+                    userSelect: isExcludeCol ? "none" : undefined,
                     ...unfreezeStyle(c.key),
                   }}
-                  onClick={sortable ? () => handleThClick(c.key) : undefined}
+                  onClick={isExcludeCol ? () => toggleAllExclude() : (sortable ? () => handleThClick(c.key) : undefined)}
                 >
-                  {c.label}{sortable && isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  {isExcludeCol
+                    ? <span style={{ color: excludeColor, fontWeight: 800, fontSize: 13 }}>X</span>
+                    : <>{c.label}{sortable && isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</>}
                 </th>
               );
             })}
