@@ -15,6 +15,8 @@
 
 import { useEffect, useState } from "react";
 import { ChartCard, HBarChart, DonutChart, TrendChart, Sparkline } from "./components/MiniCharts";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -159,11 +161,25 @@ export default function InternalReportsHub() {
   const noFinance = !loading && arCents === 0 && apCents === 0 && invCents === 0;
   const noSpend = !spendLoading && (!spend || spend.by_vendor.length === 0);
 
+  // Export the full per-vendor spend breakdown backing the "Top vendors" chart
+  // (vendor name resolved; spend is in dollars from /reports/spend).
+  const spendExportRows = (spend?.by_vendor || []).map((v) => ({
+    vendor: v.vendor_name || "Unknown",
+    spend: v.total,
+  }));
+  const spendExportColumns: ExportColumn<{ vendor: string; spend: number }>[] = [
+    { key: "vendor", header: "Vendor" },
+    { key: "spend",  header: "Spend (YTD)", format: "currency_dollars" },
+  ];
+
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>📊 Reports & Analytics</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>executive KPIs, BI charts + every report in one place</span>
+        <span style={{ marginLeft: "auto" }}>
+          <ExportButton rows={spendExportRows} filename="vendor-spend" sheetName="Vendor Spend" columns={spendExportColumns} />
+        </span>
       </div>
 
       {/* Headline KPI tiles (the original 4 + period) */}
