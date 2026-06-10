@@ -22,8 +22,9 @@ function client() {
   return u && k ? createClient(u, k, { auth: { persistSession: false } }) : null;
 }
 const LIST_COLS =
-  "id, entity_id, code, name, currency, customer_id, customer_tier, is_default, is_active, created_at, updated_at, " +
-  "customer:customers!price_lists_customer_id_fkey(id, name, customer_code)";
+  "id, entity_id, code, name, currency, customer_id, customer_tier, brand_id, is_default, is_active, created_at, updated_at, " +
+  "customer:customers!price_lists_customer_id_fkey(id, name, customer_code), " +
+  "brand:brand_master!price_lists_brand_id_fkey(id, name, code)";
 const ITEM_COLS =
   "id, price_list_id, style_id, price_cents, min_qty, effective_from, effective_to, is_active, " +
   "style:style_master!price_list_items_style_id_fkey(id, style_code, style_name)";

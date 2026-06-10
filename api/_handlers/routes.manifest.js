@@ -261,6 +261,7 @@ export default [
   ["/api/internal/allocations/preview"                       , "./internal/allocations/preview.js"],
   ["/api/internal/allocations"                               , "./internal/allocations/index.js"],
   ["/api/internal/pricing/resolve"                           , "./internal/pricing/resolve.js"],
+  ["/api/internal/price-lists/style-cost"                    , "./internal/price-lists/style-cost.js"],
   ["/api/internal/price-lists/:id"                           , "./internal/price-lists/[id].js"],
   ["/api/internal/price-lists"                               , "./internal/price-lists/index.js"],
   ["/api/internal/price-list-items/:id"                      , "./internal/price-list-items/[id].js"],
