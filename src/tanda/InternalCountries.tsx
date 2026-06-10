@@ -230,6 +230,33 @@ function CountryFormModal({ mode, country, onClose, onSaved }: ModalProps) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [isoLoading, setIsoLoading] = useState(false);
+  const [isoErr, setIsoErr] = useState<string | null>(null);
+
+  // AI ISO-2 suggestion — derive the ISO 3166-1 alpha-2 code from the typed
+  // country name via Claude. Sets the ISO2 field (uppercased, 2 letters).
+  async function suggestIso2() {
+    const name = form.name.trim();
+    if (!name) { setIsoErr("Enter a country name first."); return; }
+    setIsoLoading(true);
+    setIsoErr(null);
+    try {
+      const r = await fetch("/api/internal/ai/suggest-iso2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const code = String(data.code || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+      if (!code) { setIsoErr(data.note || "No ISO-2 code found for that name."); return; }
+      setForm((f) => ({ ...f, iso2: code }));
+    } catch (e: unknown) {
+      setIsoErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsoLoading(false);
+    }
+  }
 
   async function submit() {
     setSubmitting(true);
@@ -265,7 +292,21 @@ function CountryFormModal({ mode, country, onClose, onSaved }: ModalProps) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="ISO2 *">
             {mode === "add" ? (
-              <input type="text" value={form.iso2} onChange={(e) => setForm({ ...form, iso2: e.target.value.toUpperCase().slice(0, 2) })} style={inputStyle} placeholder="US" autoFocus maxLength={2} />
+              <>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input type="text" value={form.iso2} onChange={(e) => { setForm({ ...form, iso2: e.target.value.toUpperCase().slice(0, 2) }); setIsoErr(null); }} style={{ ...inputStyle, flex: 1, minWidth: 0 }} placeholder="US" autoFocus maxLength={2} />
+                  <button
+                    type="button"
+                    onClick={() => void suggestIso2()}
+                    disabled={isoLoading}
+                    style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
+                    title="Use Claude AI to suggest the ISO 3166-1 alpha-2 code from the country name"
+                  >
+                    {isoLoading ? "…" : "🤖 Suggest"}
+                  </button>
+                </div>
+                {isoErr && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{isoErr}</div>}
+              </>
             ) : (
               <input type="text" value={form.iso2} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
