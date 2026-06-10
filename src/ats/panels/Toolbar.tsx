@@ -234,6 +234,12 @@ interface ToolbarProps {
   styles: string[];
   filterGender: string[];
   setFilterGender: (v: string[]) => void;
+  // Multi-select Brand filter. brandOptions is the full brand_master
+  // name list (every brand the Tangerine app knows about), so the
+  // dropdown lists all brands regardless of what's loaded in the grid.
+  filterBrand: string[];
+  setFilterBrand: (v: string[]) => void;
+  brandOptions: string[];
   // Status filter — driven by the colored stat-card pills (Negative ATS,
   // Aged Inven, etc.). Cleared by the toolbar's Clear button so a stuck
   // pill doesn't keep the grid filtered after the planner expects a reset.
@@ -295,6 +301,10 @@ interface ToolbarProps {
   // the operator can flip mental gears without recomputing.
   explodePpk: boolean;
   setExplodePpk: (v: boolean) => void;
+  // Show per-row style image thumbnails inside the Style column. ON by
+  // default; OFF hides them for a denser grid.
+  showImages: boolean;
+  setShowImages: (v: boolean) => void;
   // Freeze through column: pin leftmost columns up through the
   // chosen one when scrolling horizontally. null = no freeze.
   freezeKey: "category" | "subCategory" | "style" | "description" | "color" | "onHand" | "onOrder" | "onPO" | null;
@@ -312,7 +322,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterSubCategory, setFilterSubCategory, subCategories,
   filterStyle, setFilterStyle, styles,
-  filterGender, setFilterGender, setFilterStatus,
+  filterGender, setFilterGender,
+  filterBrand, setFilterBrand, brandOptions,
+  setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
   minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, startDate, setStartDate,
@@ -323,6 +335,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   viewMode, setViewMode,
   showTotalsRow, setShowTotalsRow,
   explodePpk, setExplodePpk,
+  showImages, setShowImages,
   freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
@@ -353,6 +366,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setFilterSubCategory([]);
     setFilterStyle([]);
     setFilterGender([]);
+    setFilterBrand([]);
     setFilterStatus("All");
     setStoreFilter(["ROF"]);
     setMinATS("");
@@ -442,6 +456,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       options={["M", "B", "C", "Wms", "G"]}
       onChange={setFilterGender}
       getLabel={v => ({ M: "Mens", B: "Boys", C: "Child", Wms: "Women's", G: "Girls" } as Record<string, string>)[v] ?? v}
+    />
+    <MultiSelectDropdown
+      label="Brand"
+      value={filterBrand}
+      options={brandOptions}
+      onChange={setFilterBrand}
+      placeholder="Search brands…"
     />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Collapse:</span>
@@ -645,6 +666,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     >
       <input type="checkbox" checked={explodePpk} onChange={e => setExplodePpk(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 14, height: 14 }} />
       <span style={{ color: explodePpk ? "#C4B5FD" : "#9CA3AF", fontSize: 12, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
+    </label>
+
+    {/* IMAGES toggle — ON shows a per-row style thumbnail inside the
+        Style column (click to open the full gallery: enlarge / download
+        / print). OFF hides them for a denser grid. */}
+    <label
+      title={showImages ? "Showing style image thumbnails in the Style column. Click a thumbnail to view all images. Click here to hide images." : "Style images hidden. Click to show per-row thumbnails."}
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${showImages ? "#0EA5E9" : "#334155"}`, background: showImages ? "rgba(14,165,233,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <input type="checkbox" checked={showImages} onChange={e => setShowImages(e.target.checked)} style={{ accentColor: "#0EA5E9", cursor: "pointer", width: 14, height: 14 }} />
+      <span style={{ color: showImages ? "#7DD3FC" : "#9CA3AF", fontSize: 12, fontWeight: showImages ? 700 : 400 }}>IMAGES</span>
     </label>
 
     {/* Freeze-through dropdown — pin leftmost columns when scrolling.

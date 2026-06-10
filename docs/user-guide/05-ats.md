@@ -125,7 +125,7 @@ The toolbar holds every control for narrowing and shaping the grid. All filters 
 |---|---|
 | **✕ Clear all** | Resets search, all filters, store (back to ROF), and collapse. **Keeps** your date range and units — those describe the planning horizon, not a filter. |
 | **Search SKU or description** | Free-text match on SKU code or description |
-| **Category / Sub Cat / Style / Gender** | Multi-select dropdowns. Each shows a search box; tick as many as you like. The header reads *All*, the one name, or *N selected*. Click the **×** in the header to clear that filter. Gender labels read Mens / Boys / Child / Women's / Girls. |
+| **Category / Sub Cat / Style / Gender / Brand** | Multi-select dropdowns. Each shows a search box; tick as many as you like. The header reads *All*, the one name, or *N selected*. Click the **×** in the header to clear that filter. Gender labels read Mens / Boys / Child / Women's / Girls. **Brand** lists every brand from the Tangerine app (Ring of Fire, Psycho Tuna, Departed, …) and matches each row to its style's brand. |
 | **Collapse** | Roll rows up to **Category**, **Sub Cat**, or **Style** subtotals (or **None** for full detail) |
 | **Store** | Tick which sales channels to include — **ROF**, **ROF ECOM**, **PT**, **PT ECOM**, or **All**. Defaults to **ROF**. |
 | **Min ATS** | Hide any row whose availability is below this number in **any** visible period |
@@ -151,6 +151,7 @@ Two controls define how far out the period columns reach:
 | **View** | ATS / On SO / On PO Receipt — see [Date columns](#date-period-columns) |
 | **TOTALS** | Show a totals strip above the headers with Qty, Cost, Sale, and Margin summed across the filtered set |
 | **EXPLODE PPK** | On (default): show prepacks as **units** (5 packs of a 24-pack = 120). Off: show **pack counts** with a faded "PPK24 = 120" hint |
+| **IMAGES** | On (default): show a small **style image thumbnail** on each row inside the Style column, colour-matched to the row's colour when that colour has its own picture. Click a thumbnail to open the full image gallery — **enlarge, download, or print**. Images come straight from the Tangerine PIM, so styles gain pictures automatically as they're added there; styles with no image show a blank tile. Off: hide thumbnails for a denser grid. |
 | **Freeze through …** | Pin the sticky columns up to and including the one you pick, for horizontal scrolling |
 | **Columns** | Show or hide any individual sticky column (Category through On PO). A badge shows how many are hidden; **Show all columns** resets |
 | **MARGIN %** | (Visible only with TOTALS on) The target gross margin used as a fallback in the totals row when a SKU has no sale price or cost. Default 21%; it lights up blue once you change it |

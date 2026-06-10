@@ -6,6 +6,8 @@ import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 import { computeGridTotals } from "../computeTotals";
 import { periodAvail } from "../compute";
+import { StyleThumb } from "../../shared/ui/StyleThumb";
+import { useStyleThumbsByCode } from "../hooks/useStyleThumbsByCode";
 
 // Renders a qty cell that shows either the unit-grain or pack-grain
 // number based on the EXPLODE PPK toggle, with a small faded hint
@@ -94,6 +96,12 @@ const TEXT_CHAR_PX = 7;
 const MONO_CHAR_PX = 8.5;
 const PAD_CHARS = 4;
 
+// Pixel size of the per-row style thumbnail + the widened Style column
+// width that hosts it. Style is normally 90px (fixedPx); when images are
+// on it grows to fit the 32px tile beside the style code.
+const STYLE_THUMB_PX = 32;
+const STYLE_COL_IMG_PX = 138;
+
 // Compute left offset for a given column given the visible widths
 // map and the current hidden set. Hidden columns drop their width
 // out of the running sum so visible siblings reflow flush.
@@ -165,6 +173,10 @@ interface GridTableProps {
   // ON shows packs × units-per-pack; OFF shows pack count + faded
   // "PPKn = N" hint with the unit-grain equivalent.
   explodePpk: boolean;
+  // Show a per-row style image thumbnail inside the Style column.
+  // Thumbnails are fetched live (by style code) from the PIM; click one
+  // to open the full image gallery. OFF hides them for a denser grid.
+  showImages: boolean;
   // Rightmost column that should remain sticky-left when scrolling
   // horizontally. null = no freeze (no sticky columns); a key from
   // STICKY_COL_META = freeze through that column inclusive.
@@ -193,13 +205,23 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, viewMode, showTotalsRow, explodePpk, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, viewMode, showTotalsRow, explodePpk, showImages, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
   // Wire arrow / pgup-pgdn / shift-home/end to scroll the grid when
   // no input has focus. See useArrowKeyScroll above.
   useArrowKeyScroll(tableRef);
+
+  // Per-row style thumbnails. Fetch primary thumbs for the styles on the
+  // CURRENT PAGE only (page size is bounded, so the request stays small)
+  // keyed by style code. Gated on showImages so the toggle-off path makes
+  // no network call. Re-fetches only when the visible style set changes.
+  const visibleStyleCodes = useMemo(
+    () => (showImages ? pageRows.map(r => r.master_style).filter((s): s is string => !!s) : []),
+    [showImages, pageRows],
+  );
+  const styleThumbs = useStyleThumbsByCode(visibleStyleCodes);
 
   // Convert hiddenColumns to a Set for O(1) lookups in colLeft + the
   // per-cell render guards below.
@@ -245,7 +267,10 @@ export const GridTable: React.FC<GridTableProps> = ({
     const w: Record<StickyKey, number> = {} as Record<StickyKey, number>;
     for (const meta of STICKY_COL_META) {
       if (!meta.autoFit) {
-        w[meta.key] = meta.fixedPx;
+        // The Style column hosts the per-row image thumbnail; widen it
+        // when images are on so the 32px tile sits beside the style code
+        // (+ optional expand triangle / store badge) without crowding.
+        w[meta.key] = (meta.key === "style" && showImages) ? STYLE_COL_IMG_PX : meta.fixedPx;
         continue;
       }
       let maxLen = meta.label.length;
@@ -292,7 +317,7 @@ export const GridTable: React.FC<GridTableProps> = ({
       w[meta.key] = Math.max(meta.minPx, Math.ceil((maxLen + PAD_CHARS) * charPx));
     }
     return w;
-  }, [filtered, showTotalsRow, sums]);
+  }, [filtered, showTotalsRow, sums, showImages]);
 
   // Slim status bar instead of the centered "no SKUs" card. The card
   // dominated the page on initial load (when data hadn't streamed in
@@ -750,6 +775,31 @@ export const GridTable: React.FC<GridTableProps> = ({
                           {isExpanded ? "▼" : "▶"}
                         </button>
                       )}
+                      {/* Per-row style thumbnail. Color-matched (uses the
+                          row's color image when the style has one, else the
+                          style default). A blank tile reserves the same
+                          space for styles with no image so the column stays
+                          aligned. Click opens the full gallery. */}
+                      {showImages && (() => {
+                        const code = (row.master_style ?? "").toUpperCase();
+                        const info = code ? styleThumbs.get(code) : undefined;
+                        const colorKey = (displayColor(row) || "").toLowerCase().trim();
+                        const url = info ? (info.byColor[colorKey] ?? info.default) : null;
+                        // Fixed-width wrapper so StyleThumb's `margin: 0 auto`
+                        // resolves within the tile's own width instead of
+                        // absorbing the flex row's free space (which would
+                        // shove the style code to the right).
+                        return (
+                          <span style={{ width: STYLE_THUMB_PX, flexShrink: 0, display: "block" }}>
+                            <StyleThumb
+                              styleId={info?.style_id ?? ""}
+                              label={row.master_style ?? ""}
+                              url={url}
+                              size={STYLE_THUMB_PX}
+                            />
+                          </span>
+                        );
+                      })()}
                       <span style={{ fontFamily: "monospace", color: "#60A5FA", fontSize: 12, fontWeight: 700 }}>
                         {row.master_style ?? "—"}
                       </span>

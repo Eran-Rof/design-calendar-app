@@ -24,6 +24,7 @@ import type { AgedInvenResult } from "./exportAgedInven";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
+import { StyleGalleryHost } from "../shared/ui/StyleImageGallery";
 import type { NormChange } from "./normalize";
 
 // Functional-updater-aware setter, matches the shape produced by ATS.tsx's `mk()`
@@ -70,6 +71,9 @@ interface ATSDerivedCtx {
   // master_style values scoped to the active Category + Sub Cat filters
   // (see ATS.tsx). Drives the Style multi-select dropdown in the toolbar.
   styles: string[];
+  // Full brand_master name list (every brand the Tangerine app knows
+  // about). Drives the Brand multi-select dropdown in the toolbar.
+  brandOptions: string[];
   unmatchedRows: ATSRow[];
   filteredSkuSet: Set<string>;
   todayKey: string;
@@ -146,12 +150,13 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterBrand, setFilterBrand, brandOptions, filterStatus, setFilterStatus, minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
   showStatsCards, setShowStatsCards,
   explodePpk, setExplodePpk,
+  showImages, setShowImages,
   freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
@@ -438,6 +443,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           filterSubCategory={filterSubCategory} setFilterSubCategory={setFilterSubCategory} subCategories={subCategories}
           filterStyle={filterStyle ?? []} setFilterStyle={setFilterStyle!} styles={styles ?? []}
           filterGender={filterGender} setFilterGender={setFilterGender}
+          filterBrand={filterBrand ?? []} setFilterBrand={setFilterBrand!} brandOptions={brandOptions ?? []}
           setFilterStatus={setFilterStatus}
           STORES={STORES} storeFilter={storeFilter} setStoreFilter={setStoreFilter}
           poDropOpen={poDropOpen} setPoDropOpen={setPoDropOpen} setSoDropOpen={setSoDropOpen}
@@ -456,6 +462,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           viewMode={viewMode ?? "ats"} setViewMode={setViewMode!}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
           explodePpk={explodePpk ?? true} setExplodePpk={setExplodePpk!}
+          showImages={showImages ?? true} setShowImages={setShowImages!}
           freezeKey={freezeKey ?? null} setFreezeKey={setFreezeKey!}
           hiddenColumns={hiddenColumns ?? []} setHiddenColumns={setHiddenColumns!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
@@ -492,6 +499,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             todayKey={todayKey} viewMode={viewMode ?? "ats"}
             showTotalsRow={showTotalsRow}
             explodePpk={explodePpk ?? true}
+            showImages={showImages ?? true}
             freezeKey={freezeKey ?? null}
             hiddenColumns={hiddenColumns ?? []}
             generalMarginPct={generalMarginPct ?? 21}
@@ -561,6 +569,12 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
 
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
       <GlobalSearchPaletteAuto />
+
+      {/* Image gallery host — openStyleGallery() (from the per-row style
+          thumbnails) renders its lightbox into this singleton. Mounted
+          here so the ATS app gets the same enlarge / download / print
+          gallery the Tangerine app uses. */}
+      <StyleGalleryHost />
     </div>
   );
 }

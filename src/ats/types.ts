@@ -32,6 +32,13 @@ export interface ATSRow {
   // prefer this over `description` to avoid showing the SKU + color +
   // size composite Xoro packs into variant descriptions.
   master_description?: string | null;
+  // Brand resolved from ip_item_master.brand_id → brand_master. Both the
+  // id and the human NAME are carried: the grid filter compares on the
+  // name (what the Brand dropdown lists), the id is kept for any future
+  // brand-keyed lookups. Null when the row is unmatched or the master row
+  // carries no brand.
+  master_brand_id?: string | null;
+  master_brand?: string | null;
   master_match_source?: "sku" | "style" | null;
   // Phase 3 collapse mode: present on synthetic aggregate rows produced by
   // collapseRows(). Leaf rows from compute.ts never set this. UI uses it to

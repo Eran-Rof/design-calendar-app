@@ -15,6 +15,11 @@ export interface RowFilterOpts {
   // Multi-select on attributes.gender. Empty array = no filter; otherwise
   // the row's gender must be in the set (case-/whitespace-tolerant).
   filterGender: string[];
+  // Multi-select on master_brand (the brand NAME resolved from
+  // ip_item_master.brand_id). Optional + defaults to no filter so the
+  // export / NavBar / test call sites that predate it keep working
+  // without passing it.
+  filterBrand?: string[];
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -91,6 +96,12 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
   const wantGender = opts.filterGender.length === 0
     ? null
     : new Set(opts.filterGender.map(normForCompare));
+  // Brand filter compares on the resolved brand NAME. Empty / absent = no
+  // filter. Names come from brand_master verbatim, so an exact-match Set
+  // (no normalization) is correct.
+  const wantBrand = !opts.filterBrand || opts.filterBrand.length === 0
+    ? null
+    : new Set(opts.filterBrand);
   // Empty array = no filter; otherwise build a set for O(1) membership.
   const wantCategory = opts.filterCategory.length === 0
     ? null
@@ -117,6 +128,7 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
       if (!wantStyle.has(r.master_style ?? "")) return false;
     }
     if (wantGender !== null && !wantGender.has(normForCompare(r.gender))) return false;
+    if (wantBrand !== null && !wantBrand.has(r.master_brand ?? "")) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;
     if (opts.filterStatus !== "All") {
       if (opts.filterStatus === "Out" && !(todayQty <= 0)) return false;

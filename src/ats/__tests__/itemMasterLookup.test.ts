@@ -14,6 +14,7 @@ function makeRecord(overrides: Partial<ItemMasterRecord> = {}): ItemMasterRecord
     color: overrides.color ?? null,
     size: overrides.size ?? null,
     description: overrides.description ?? null,
+    brand_id: overrides.brand_id ?? null,
     attributes: overrides.attributes ?? null,
   };
 }
@@ -61,6 +62,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       size: null,
       description: null,
       pack_size: 1,
+      brand_id: null,
       match_source: "sku",
     });
   });
@@ -106,6 +108,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       size: null,
       description: null,
       pack_size: 1,
+      brand_id: null,
       match_source: "style",
     });
   });
@@ -124,8 +127,21 @@ describe("itemMasterLookup.resolveStyle", () => {
       size: null,
       description: null,
       pack_size: 1,
+      brand_id: null,
       match_source: null,
     });
+  });
+
+  it("resolves brand_id from the matched record, with style-level fallback", () => {
+    __setCacheForTest([
+      // Variant row carries its own brand_id.
+      makeRecord({ id: "b1", sku_code: "BR100 - Black", style_code: "BR100", color: "Black", brand_id: "brand-pt" }),
+      // Variant with no brand_id inherits from the style-level row.
+      makeRecord({ id: "b2s", sku_code: "BR200", style_code: "BR200", brand_id: "brand-rof" }),
+      makeRecord({ id: "b2v", sku_code: "BR200 - White", style_code: "BR200", color: "White", brand_id: null }),
+    ]);
+    expect(resolveStyle("BR100 - Black").brand_id).toBe("brand-pt");
+    expect(resolveStyle("BR200 - White").brand_id).toBe("brand-rof"); // style-level fallback
   });
 
   it("returns all-null without throwing when cache is empty", () => {
@@ -139,6 +155,7 @@ describe("itemMasterLookup.resolveStyle", () => {
       size: null,
       description: null,
       pack_size: 1,
+      brand_id: null,
       match_source: null,
     });
   });

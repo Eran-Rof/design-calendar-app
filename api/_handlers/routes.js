@@ -324,6 +324,7 @@ import r_internal_pim_attribute_defs_index from "./internal/pim/attribute-defs/i
 import r_internal_pim_categories_id from "./internal/pim/categories/[id].js";
 import r_internal_pim_categories_index from "./internal/pim/categories/index.js";
 import r_internal_pim_style_colors_index from "./internal/pim/style-colors/index.js";
+import r_internal_pim_style_thumbs_by_code from "./internal/pim/style-thumbs-by-code.js";
 import r_internal_pim_style_thumbs from "./internal/pim/style-thumbs.js";
 import r_internal_pim_styles_style_id from "./internal/pim/styles/[style_id].js";
 import r_internal_pim_styles_style_id_attributes from "./internal/pim/styles/[style_id]/attributes.js";
@@ -829,6 +830,7 @@ export const ROUTES = [
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },
   { pattern: "/api/internal/discount-offers/generate", handler: r_internal_discount_offers_generate },
+  { pattern: "/api/internal/pim/style-thumbs-by-code", handler: r_internal_pim_style_thumbs_by_code },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: r_internal_style_matrix_resolve_sku },
   { pattern: "/api/internal/walmart/sync-settlements", handler: r_internal_walmart_sync_settlements },
   { pattern: "/api/xoro/writeback/create-buy-request", handler: r_xoro_writeback_create_buy_request },

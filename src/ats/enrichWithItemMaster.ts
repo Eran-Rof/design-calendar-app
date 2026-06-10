@@ -1,5 +1,6 @@
 import type { ATSRow } from "./types";
 import { resolveStyle, isItemMasterLoaded } from "./itemMasterLookup";
+import { brandNameById } from "./brandLookup";
 
 export interface EnrichmentSummary {
   total: number;
@@ -50,6 +51,8 @@ export function enrichRowsWithItemMaster(rows: ATSRow[]): { rows: ATSRow[]; summ
       master_style: resolved.style,
       master_color: resolved.color,
       master_description: resolved.description,
+      master_brand_id: resolved.brand_id,
+      master_brand: brandNameById(resolved.brand_id),
       master_match_source: resolved.match_source,
     };
   });
