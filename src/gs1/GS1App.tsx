@@ -101,25 +101,32 @@ export default function GS1App() {
         collapsed={collapsed}
         onToggleCollapsed={toggleDrawer}
         headerSlot={
-          <button
-            onClick={() => setActiveTab("notifications")}
-            title="Notifications"
-            style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: activeTab === "notifications" ? "rgba(59,130,246,0.16)" : "transparent",
-              color: activeTab === "notifications" ? "#fff" : "#94a3b8",
-              border: "none", borderRadius: 5, padding: "8px 10px", fontSize: 13, cursor: "pointer",
-            }}
-          >
-            <span>Notifications</span>
-            {unread > 0 && (
-              <span style={{
-                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
-                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-              }}>{unread > 9 ? "9+" : unread}</span>
-            )}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <a
+              href="/"
+              title="Back to PLM launcher"
+              style={{ color: "#94a3b8", textDecoration: "none", fontSize: 12, padding: "2px 4px" }}
+            >← PLM</a>
+            <button
+              onClick={() => setActiveTab("notifications")}
+              title="Notifications"
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: activeTab === "notifications" ? "rgba(59,130,246,0.16)" : "transparent",
+                color: activeTab === "notifications" ? "#fff" : "#94a3b8",
+                border: "none", borderRadius: 5, padding: "6px 4px", fontSize: 13, cursor: "pointer",
+              }}
+            >
+              <span>Notifications</span>
+              {unread > 0 && (
+                <span style={{
+                  minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                  background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>{unread > 9 ? "9+" : unread}</span>
+              )}
+            </button>
+          </div>
         }
       />
 
