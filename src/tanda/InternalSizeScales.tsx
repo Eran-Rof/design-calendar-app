@@ -63,9 +63,13 @@ const inputStyle: React.CSSProperties = {
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  // Narrower than the full grid column (the code is always ~11 chars), and
+  // flex-centered with no extra minHeight so its height matches the Name input.
+  width: "calc(100% - 10ch)", boxSizing: "border-box",
+  display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -470,7 +474,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
               step="1"
               value={form.sort_order}
               onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
-              style={inputStyle}
+              style={{ ...inputStyle, width: "calc(100% - 10ch)", boxSizing: "border-box" }}
               placeholder="0"
             />
           </Field>
