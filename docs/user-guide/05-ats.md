@@ -125,7 +125,7 @@ The toolbar holds every control for narrowing and shaping the grid. All filters 
 |---|---|
 | **✕ Clear all** | Resets search, all filters, store (back to ROF), and collapse. **Keeps** your date range and units — those describe the planning horizon, not a filter. |
 | **Search SKU or description** | Free-text match on SKU code or description |
-| **Category / Sub Cat / Style / Gender / Brand** | Multi-select dropdowns. Each shows a search box; tick as many as you like. The header reads *All*, the one name, or *N selected*. Click the **×** in the header to clear that filter. Gender labels read Mens / Boys / Child / Women's / Girls. **Brand** lists every brand from the Tangerine app (Ring of Fire, Psycho Tuna, Departed, …) and matches each row to its style's brand. |
+| **Category / Sub Cat / Style / Gender / Brand** | Multi-select dropdowns. Each shows a search box; tick as many as you like. The header reads *All*, the one name, or *N selected*. Click the **×** in the header to clear that filter. Gender labels read Mens / Boys / Child / Women's / Girls. **Brand** lists every brand from the Tangerine app (Ring of Fire, Psycho Tuna, Axe Crown, …) and matches each row to **its style's brand as set in Tangerine** (the Style Master) — so e.g. Psycho Tuna styles filter correctly even though the underlying Xoro catalog labels everything Ring of Fire. |
 | **Collapse** | Roll rows up to **Category**, **Sub Cat**, or **Style** subtotals (or **None** for full detail) |
 | **Store** | Tick which sales channels to include — **ROF**, **ROF ECOM**, **PT**, **PT ECOM**, or **All**. Defaults to **ROF**. |
 | **Min ATS** | Hide any row whose availability is below this number in **any** visible period |

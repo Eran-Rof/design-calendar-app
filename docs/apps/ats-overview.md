@@ -64,9 +64,17 @@ overview).
 
 The toolbar's **Brand** multi-select is populated from `brand_master` (via
 `src/ats/brandLookup.ts`, loaded once on mount alongside the item-master
-cache). ATS rows resolve their brand from `ip_item_master.brand_id` →
-`brand_master` inside `itemMasterLookup`/`enrichWithItemMaster`
-(`row.master_brand`), and `filter.ts` matches on the brand name.
+cache). Each row's brand is resolved by **matching its style code to
+Tangerine's `style_master.brand_id`** — `brandLookup` also loads a
+`style_code → brand` map from `style_master` (paginated past the 1000-row
+cap), and `enrichWithItemMaster` stamps `row.master_brand` via
+`brandNameForStyle(style)`. `filter.ts` matches on the brand name.
+
+> **Why not `ip_item_master.brand_id`?** That Xoro-fed column is backfilled
+> to the ROF default on every row (100% "Ring of Fire" in prod), so it can't
+> distinguish brands. The authoritative per-style brand lives in Tangerine's
+> `style_master`; `ip_item_master.brand_id` is only a last-resort fallback for
+> styles absent from `style_master`.
 
 The **IMAGES** toggle renders a per-row style thumbnail inside the Style
 column. Because ATS works off style **codes** (not `style_master` uuids), it
