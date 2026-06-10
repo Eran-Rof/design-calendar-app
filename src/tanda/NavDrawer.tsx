@@ -88,6 +88,9 @@ interface Props {
   /** Query param in menu_key routes that carries the module key (Tangerine="m",
    *  GS1="tab", Costing="view", …). Used to resolve favorites/telemetry. */
   moduleParam?: string;
+  /** Optional app-specific content rendered below the app name and above the
+   *  user section (e.g. a notifications bell). Hidden when collapsed. */
+  headerSlot?: React.ReactNode;
 }
 
 // ── avatar helpers ────────────────────────────────────────────────────────
@@ -125,6 +128,7 @@ export function NavDrawer({
   appLabel = "Tangerine",
   logoText = "T",
   moduleParam = "m",
+  headerSlot,
 }: Props) {
   const { favorites, toggleFavorite, logClick } = usePersonalization();
   const modToMenuKey = useMemo<Record<string, string>>(() => {
@@ -348,6 +352,14 @@ export function NavDrawer({
           </>
         )}
       </div>
+
+      {/* App-specific header slot (e.g. notifications) — below the app name,
+          above the user section. Hidden when collapsed. */}
+      {!collapsed && headerSlot && (
+        <div style={{ padding:"8px 10px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+          {headerSlot}
+        </div>
+      )}
 
       {/* ── User info (name only, no email) ───────────────────────── */}
       <div
