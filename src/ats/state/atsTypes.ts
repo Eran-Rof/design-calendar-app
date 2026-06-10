@@ -130,6 +130,16 @@ export interface ATSState {
   // fallback when a SKU is missing SO sale prices or cost basis,
   // so the header still produces a meaningful Sale / Cost / Mrgn.
   generalMarginPct: number;
+  // Operator-managed exclusion list. Each entry is a row SKU
+  // (style+color, the grid's row identity) marked via the "X" checkbox
+  // column. Excluded rows STAY VISIBLE in the grid (greyed, box checked,
+  // so they can be unchecked) but are dropped from EVERY aggregation —
+  // the totals row, the stat cards, On Hand / On SO / On PO / margin
+  // values, and from report/export data. Persisted globally to app_data
+  // (`ats_excluded_skus`) so the exclusions stick across reloads. Before
+  // a report runs, the operator is warned and can Continue (exclude),
+  // Cancel, or Include them for that one run.
+  excludedSkus: string[];
   // Phase 3: row collapse mode + per-group expand toggles. "none" = leaf
   // rows only (current behavior); other levels group + sum upward and
   // expandedGroups carries the keys of groups the user has drilled into.
@@ -232,5 +242,6 @@ export function createInitialState(startDate: string, initialSearch = ""): ATSSt
     generalMarginPct: 21,
     collapseLevel: "none",
     expandedGroups: [],
+    excludedSkus: [],
   };
 }

@@ -64,6 +64,16 @@ interface ATSDerivedCtx {
   filtered: ATSRow[];
   statFiltered: ATSRow[];
   sortedFiltered: ATSRow[];
+  // Calc sets = filtered/sortedFiltered MINUS excluded ("X") rows. Feed
+  // every aggregation + report; the grid display still uses filtered/pageRows
+  // so excluded rows stay visible (greyed) and can be unchecked.
+  calcFiltered: ATSRow[];
+  calcSortedFiltered: ATSRow[];
+  // Distinct excluded rows currently loaded — drives the pre-report warning.
+  excludedReportRows: ATSRow[];
+  // Excluded SKU set + per-row toggle, threaded to the grid's "X" column.
+  excludedSet: ReadonlySet<string>;
+  onToggleExclude: (sku: string) => void;
   pageRows: ATSRow[];
   totalPages: number;
   categories: string[];
@@ -139,8 +149,8 @@ interface ATSDerivedCtx {
   // Both report handlers now return a payload (or sentinel) so the
   // NavBar can route them through the shared preview-before-download
   // modal.
-  onNegInven: () => ReportPayload | null;
-  onAgedInven: (days: number, category: string) => AgedInvenResult;
+  onNegInven: (includeExcluded?: boolean) => ReportPayload | null;
+  onAgedInven: (days: number, category: string, includeExcluded?: boolean) => AgedInvenResult;
   unreadNotifs: number;
   showingNotifications: boolean;
   onToggleNotifications: () => void;
@@ -150,7 +160,7 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterBrand, setFilterBrand, brandOptions, filterStatus, setFilterStatus, minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterBrand, setFilterBrand, brandOptions, filterStatus, setFilterStatus, minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
@@ -325,7 +335,9 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         purFile={purFile}
         ordFile={ordFile}
         exportToExcel={exportToExcel}
-        filtered={sortedFiltered}
+        filtered={calcSortedFiltered}
+        fullFiltered={sortedFiltered}
+        excludedRows={excludedReportRows}
         displayPeriods={displayPeriods}
         hiddenColumns={hiddenColumns ?? []}
         showTotalsRow={showTotalsRow ?? false}
@@ -338,8 +350,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         // downloading directly) so the NavBar can route them through
         // the shared preview-before-download modal. Excel output is
         // unchanged — the modal flushes the same workbook on Download.
-        onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
-        onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
+        onDownloadIncompleteSkus={(includeExcluded) => exportIncompleteSkus(includeExcluded ? filtered : calcFiltered, eventIndex)}
+        onDownloadStockVsSo={(includeExcluded) => exportStockVsSo(includeExcluded ? filtered : calcFiltered, eventIndex)}
         categories={categories}
         subCategories={subCategories}
         styles={styles ?? []}
@@ -489,7 +501,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             loading={loading
               || (excelData != null && excelData.skus.length > 0 && rows.length === 0)
               || (excelData != null && excelData.skus.length > 0 && !masterReady && filtered.length === 0)
-            } filtered={filtered} pageRows={pageRows}
+            } filtered={filtered} totalsRows={calcFiltered} pageRows={pageRows}
+            excludedSet={excludedSet} onToggleExclude={onToggleExclude}
             displayPeriods={displayPeriods} tableRef={tableRef}
             sortCol={sortCol} sortDir={sortDir} handleThClick={handleThClick} rangeUnit={rangeUnit}
             pinnedSku={pinnedSku} setPinnedSku={setPinnedSku}

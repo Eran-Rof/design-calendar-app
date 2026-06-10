@@ -80,6 +80,9 @@ const TOTALS_ROW_HEIGHT = 120;
 const STICKY_COL_META = [
   { key: "category",    label: "Category",    charType: "text", autoFit: false, minPx:  90, fixedPx:  90 },
   { key: "subCategory", label: "Sub Cat",     charType: "text", autoFit: false, minPx: 100, fixedPx: 100 },
+  // "X" exclude checkbox column — between Sub Cat and Style. Narrow,
+  // fixed width; checked rows are dropped from every aggregation + report.
+  { key: "exclude",     label: "X",           charType: "text", autoFit: false, minPx:  34, fixedPx:  34 },
   { key: "style",       label: "Style",       charType: "mono", autoFit: false, minPx:  90, fixedPx:  90 },
   { key: "description", label: "Description", charType: "text", autoFit: false, minPx: 160, fixedPx: 160 },
   { key: "color",       label: "Color",       charType: "text", autoFit: false, minPx: 110, fixedPx: 110 },
@@ -139,7 +142,15 @@ interface Period {
 interface GridTableProps {
   loading: boolean;
   filtered: ATSRow[];
+  // Rows that feed the TOTALS row — the filtered set MINUS excluded ("X")
+  // rows. Display (pageRows) still includes excluded rows; only the
+  // aggregation excludes them. Falls back to `filtered` when omitted.
+  totalsRows?: ATSRow[];
   pageRows: ATSRow[];
+  // SKUs the operator has excluded via the "X" column. Excluded rows render
+  // greyed with the box checked, and drop out of every total.
+  excludedSet: ReadonlySet<string>;
+  onToggleExclude: (sku: string) => void;
   displayPeriods: Period[];
   tableRef: React.RefObject<HTMLDivElement>;
 
@@ -201,7 +212,7 @@ interface GridTableProps {
 }
 
 export const GridTable: React.FC<GridTableProps> = ({
-  loading, filtered, pageRows, displayPeriods, tableRef,
+  loading, filtered, totalsRows, pageRows, excludedSet, onToggleExclude, displayPeriods, tableRef,
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
@@ -249,13 +260,16 @@ export const GridTable: React.FC<GridTableProps> = ({
   // Totals across the filtered set (not just the current page). The
   // computation lives in ./computeTotals so the Excel export can reuse
   // it — the two views always see the same numbers.
+  // Totals exclude the "X"-marked rows: use totalsRows (filtered minus
+  // excluded) when provided, falling back to the full filtered set.
+  const rowsForTotals = totalsRows ?? filtered;
   const sums = useMemo(() => computeGridTotals({
-    filtered,
+    filtered: rowsForTotals,
     displayPeriods,
     viewMode,
     eventIndex,
     generalMarginPct: generalMarginPct ?? 50,
-  }), [filtered, displayPeriods, viewMode, eventIndex, generalMarginPct]);
+  }), [rowsForTotals, displayPeriods, viewMode, eventIndex, generalMarginPct]);
 
   // Per-column widths. Auto-fit columns (numeric: onHand/onOrder/onPO)
   // compute width from the largest content + 2 char-widths padding on
@@ -456,8 +470,8 @@ export const GridTable: React.FC<GridTableProps> = ({
              siblings reflow consistently. */}
           {showTotalsRow && (
           <tr>
-            {/* Empty placeholders for the four ID columns + Color */}
-            {(["category","subCategory","style","description","color"] as const).map(k => {
+            {/* Empty placeholders for the ID columns (incl. the X column) + Color */}
+            {(["category","subCategory","exclude","style","description","color"] as const).map(k => {
               if (isHidden(k)) return null;
               const left = colLeftFrom(k, stickyWidths, hidden) ?? 0;
               return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: stickyWidths[k], zIndex: 4, ...unfreezeStyle(k) }} />;
@@ -594,28 +608,33 @@ export const GridTable: React.FC<GridTableProps> = ({
                 via the Toolbar's "Columns" dropdown) are dropped here
                 and their widths fall out of the cumulative `left`
                 offset, so visible siblings shift left to fill the gap. */}
-            {STICKY_COL_META.map((c, ci) => {
+            {STICKY_COL_META.map((c) => {
               if (isHidden(c.key)) return null;
               const left = colLeftFrom(c.key, stickyWidths, hidden) ?? 0;
               const isActive = sortCol === c.key;
+              // Numeric buckets + the X checkbox column center; text cols left.
+              const centered = c.key === "exclude" || c.key === "onHand" || c.key === "onOrder" || c.key === "onPO";
+              // The X column is a checkbox toggle, not a sort key.
+              const sortable = c.key !== "exclude";
               return (
                 <th
                   key={c.key}
+                  title={c.key === "exclude" ? "Exclude rows from all totals, calculations, and reports — tick the box on a row" : undefined}
                   style={{
                     ...S.th, ...S.stickyCol,
                     top: headerRowTop,
                     left, minWidth: stickyWidths[c.key], zIndex: 3,
-                    textAlign: ci >= 5 ? "center" : "left",
-                    cursor: "pointer",
+                    textAlign: centered ? "center" : "left",
+                    cursor: sortable ? "pointer" : "default",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     // backgroundColor (not shorthand) so S.stickyCol's
                     // gradient stripe survives — see styles.ts:stickyCol.
                     backgroundColor: isActive ? "#243048" : "#1E293B",
                     ...unfreezeStyle(c.key),
                   }}
-                  onClick={() => handleThClick(c.key)}
+                  onClick={sortable ? () => handleThClick(c.key) : undefined}
                 >
-                  {c.label}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  {c.label}{sortable && isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                 </th>
               );
             })}
@@ -653,6 +672,9 @@ export const GridTable: React.FC<GridTableProps> = ({
             const isDragging = dragSku === row.sku;
             const isDropTarget = dragOverSku === row.sku && dragSku !== row.sku;
             const isAggregate = !!row.__collapsed;
+            // Excluded ("X") leaf rows stay visible but greyed, so the
+            // operator can see + uncheck them. Aggregates can't be excluded.
+            const isExcluded = !isAggregate && excludedSet.has(row.sku);
             const aggLevel = row.__collapsed?.level ?? null;
             const aggKey = row.__collapsed?.key ?? "";
             const isExpanded = aggKey ? expandedGroupSet.has(aggKey) : false;
@@ -709,7 +731,8 @@ export const GridTable: React.FC<GridTableProps> = ({
                 }}
                 style={{
                   background: isDropTarget ? "#1e3a2a" : stickyBg,
-                  opacity: isDragging ? 0.45 : 1,
+                  // Excluded rows dim to read as "not counted"; dragging also dims.
+                  opacity: isDragging ? 0.45 : isExcluded ? 0.4 : 1,
                   outline: isDropTarget ? "2px solid #10B981" : "none",
                   transition: "background 0.1s, opacity 0.1s",
                   cursor: isAggregate ? "default" : "grab",
@@ -754,6 +777,27 @@ export const GridTable: React.FC<GridTableProps> = ({
                       )}
                       <span style={{ color: isAggregate ? "#F1F5F9" : "#9CA3AF" }}>{row.master_sub_category ?? "—"}</span>
                     </div>
+                  )}
+                </td>
+                )}
+                {/* X — exclude checkbox. Aggregate rows can't be excluded
+                    (they're synthetic roll-ups). Full opacity even on a
+                    greyed (excluded) row so the operator can always see +
+                    click it to re-include. Stops propagation so toggling
+                    doesn't also pin/expand the row. */}
+                {!isHidden("exclude") && (
+                <td
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("exclude", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.exclude, backgroundColor: stickyBg, textAlign: "center", padding: "4px 2px", opacity: 1, ...unfreezeStyle("exclude") }}
+                  onClick={e => e.stopPropagation()}
+                  title={isAggregate ? undefined : (isExcluded ? "Excluded from all totals & reports — click to include" : "Exclude this row from all totals, calculations, and reports")}
+                >
+                  {!isAggregate && (
+                    <input
+                      type="checkbox"
+                      checked={isExcluded}
+                      onChange={e => { e.stopPropagation(); onToggleExclude(row.sku); }}
+                      style={{ accentColor: "#EF4444", cursor: "pointer", width: 14, height: 14 }}
+                    />
                   )}
                 </td>
                 )}

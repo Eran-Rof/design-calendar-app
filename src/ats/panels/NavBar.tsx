@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import S from "../styles";
 import { fmtDateDisplay } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
@@ -219,7 +219,18 @@ interface NavBarProps {
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
   explodePpk: boolean;
+  // The CALC set — filtered rows MINUS the operator's excluded ("X") rows.
+  // This is what every report/export consumes by default, so exclusions
+  // flow through automatically. The "Include" choice in the exclusion
+  // warning swaps in `fullFiltered`.
   filtered: ATSRow[];
+  // The full filtered set INCLUDING excluded rows — used only when the
+  // operator picks "Include" in the pre-report exclusion warning.
+  fullFiltered: ATSRow[];
+  // Rows the operator has excluded via the "X" column (for the warning
+  // list shown before a report runs). Empty = no warning, reports run
+  // straight through.
+  excludedRows: ATSRow[];
   // Auto-default for the export-options modal's customer dropdown.
   // Picks up whatever the grid toolbar currently has selected.
   customerFilter: string;
@@ -259,10 +270,12 @@ interface NavBarProps {
   // to the modal's Download button so every ATS report gets a
   // view-before-download flow with app-themed preview colors. The
   // downloaded .xlsx keeps the Excel-native palette unchanged.
-  onNegInven: () => ReportPayload | null;
-  onAgedInven: (days: number, category: string) => "empty" | ReportPayload;
-  onDownloadIncompleteSkus: () => IncompleteSkusResult;
-  onDownloadStockVsSo: () => StockVsSoResult;
+  // includeExcluded (from the pre-report exclusion warning) decides whether
+  // the "X"-marked rows are counted in the report; default excludes them.
+  onNegInven: (includeExcluded?: boolean) => ReportPayload | null;
+  onAgedInven: (days: number, category: string, includeExcluded?: boolean) => "empty" | ReportPayload;
+  onDownloadIncompleteSkus: (includeExcluded?: boolean) => IncompleteSkusResult;
+  onDownloadStockVsSo: (includeExcluded?: boolean) => StockVsSoResult;
   categories: string[];
   // Full filter option lists from the broader dataset — used by Sales
   // Comps so the operator can broaden the report past the grid's
@@ -308,7 +321,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, fullFiltered, excludedRows, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, subCategories, styles, STORES, filterCategory,
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
@@ -393,6 +406,40 @@ export const NavBar: React.FC<NavBarProps> = ({
   // same handler that the dedicated buttons used to fire; the Aged Inven
   // entry still opens the days/category modal before downloading.
   const [reportsOpen, setReportsOpen] = useState(false);
+  // ── Pre-report exclusion warning ──────────────────────────────────────
+  // When any report/export runs while rows are excluded ("X" column), we
+  // first show a warning listing the excluded styles with Continue (run
+  // excluding them) / Cancel / Include (count them this once). `excludeGate`
+  // holds the pending runner (a fn of `includeExcluded`); `reportInclude`
+  // carries the choice into the deferred modal-based reports (Export Excel,
+  // Sales Comps) that read it at build time.
+  const hasExclusions = (excludedRows?.length ?? 0) > 0;
+  const [excludeGate, setExcludeGate] = useState<{ run: (include: boolean) => void } | null>(null);
+  const [reportInclude, setReportInclude] = useState(false);
+  // Run a report through the exclusion gate. No exclusions → run straight
+  // through (excluding nothing). Otherwise stash the runner and open the
+  // warning modal.
+  const gateReport = (run: (include: boolean) => void) => {
+    if (hasExclusions) { setReportsOpen(false); setExcludeGate({ run }); }
+    else run(false);
+  };
+  const resolveGate = (include: boolean) => {
+    const g = excludeGate;
+    setExcludeGate(null);
+    g?.run(include);
+  };
+  // Distinct excluded styles for the warning list (style # + description).
+  const excludedStyleList = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Array<{ style: string; description: string }> = [];
+    for (const r of excludedRows ?? []) {
+      const style = r.master_style ?? r.sku;
+      if (seen.has(style)) continue;
+      seen.add(style);
+      out.push({ style, description: r.master_description ?? r.description ?? "" });
+    }
+    return out.sort((a, b) => a.style.localeCompare(b.style));
+  }, [excludedRows]);
   // Per-report permission gate (default-true semantics — see
   // getAtsReportPermissionsFromSession). Resolved once per render; the
   // session payload only changes on login/logout so there's no value in
@@ -418,7 +465,10 @@ export const NavBar: React.FC<NavBarProps> = ({
   // sales pre-fetch failed catastrophically (the modal stays open so
   // the operator can retry or adjust).
   async function prepareExportArgs(opts: ExportOptions) {
-    let rowsForExport = filtered.filter(r => !r.__collapsed);
+    // Base set respects the exclusion choice: default = calc set (excluded
+    // dropped); "Include" = full filtered set.
+    const baseRows = reportInclude ? fullFiltered : filtered;
+    let rowsForExport = baseRows.filter(r => !r.__collapsed);
 
     // Hydrate avgCost for rows the ATS snapshot left blank — typically
     // SKUs that are currently out-of-stock but have incoming POs (the
@@ -1105,21 +1155,21 @@ export const NavBar: React.FC<NavBarProps> = ({
                 menuKey: "ats/reports/export-excel",
                 label: "Export Excel…",
                 sub: "Pick subtotals / cost / trailing options, then view + download",
-                onClick: () => { setExportOptsOpen(true); setReportsOpen(false); },
+                onClick: () => gateReport((include) => { setReportInclude(include); setExportOptsOpen(true); }),
               },
               {
                 key: "negInven",
                 menuKey: "ats/reports/neg-inven",
                 label: "Neg Inven",
                 sub: "Preview the negative-inventory report, then download",
-                onClick: () => {
-                  const payload = onNegInven();
+                onClick: () => gateReport((include) => {
+                  const payload = onNegInven(include);
                   if (!payload) {
                     alert("No negative-ATS rows in the current grid filter.");
                     return;
                   }
                   openPreview(payload);
-                },
+                }),
               },
               {
                 key: "agedInven",
@@ -1133,18 +1183,18 @@ export const NavBar: React.FC<NavBarProps> = ({
                 menuKey: "ats/reports/no-mrgn",
                 label: "NO Mrgn Data",
                 sub: "Styles with no open SO, no avg cost, no PO cost (the red Mrgn:* asterisks)",
-                onClick: () => {
-                  const { payload } = onDownloadIncompleteSkus();
+                onClick: () => gateReport((include) => {
+                  const { payload } = onDownloadIncompleteSkus(include);
                   openPreview(payload);
-                },
+                }),
               },
               {
                 key: "stockVsSo",
                 menuKey: "ats/reports/stock-vs-so",
                 label: "Stock Vs SO",
                 sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
-                onClick: () => {
-                  const result = onDownloadStockVsSo();
+                onClick: () => gateReport((include) => {
+                  const result = onDownloadStockVsSo(include);
                   if (result.kind === "no-events") {
                     alert("No event data loaded — open the ATS report and let the data finish loading first.");
                     return;
@@ -1154,14 +1204,14 @@ export const NavBar: React.FC<NavBarProps> = ({
                     return;
                   }
                   openPreview(result.payload);
-                },
+                }),
               },
               {
                 key: "salesComps",
                 menuKey: "ats/reports/sales-comps",
                 label: "Sales Comps…",
                 sub: "TY vs same-period-LY for the date range + filters you pick",
-                onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
+                onClick: () => gateReport((include) => { setReportInclude(include); setSalesCompsOpen(true); }),
               },
             ] as const)
               // Per-report permission gate. atsReportsPerm[key] is true unless
@@ -1280,7 +1330,7 @@ export const NavBar: React.FC<NavBarProps> = ({
             min={1}
             value={agedDays}
             onChange={e => setAgedDays(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } } } }}
+            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) gateReport((include) => { const r = onAgedInven(d, agedCategory, include); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } }); } }}
             autoFocus
             style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 15, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 16 }}
           />
@@ -1303,7 +1353,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               Cancel
             </button>
             <button
-              onClick={() => { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } } }}
+              onClick={() => { const d = parseInt(agedDays); if (d > 0) gateReport((include) => { const r = onAgedInven(d, agedCategory, include); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } }); }}
               style={{ background: "#1D6F42", border: "1px solid #155734", color: "#fff", borderRadius: 6, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               View Report
             </button>
@@ -1396,10 +1446,63 @@ export const NavBar: React.FC<NavBarProps> = ({
         allSubCategories={subCategories}
         allStyles={styles}
         allStores={STORES}
-        rows={filtered}
+        rows={reportInclude ? fullFiltered : filtered}
         excelData={excelData}
         explodePpk={explodePpk}
       />
+    )}
+
+    {/* Pre-report exclusion warning — lists the excluded ("X") styles and
+        lets the operator Continue (run excluding them), Cancel, or Include
+        them for this one run. Shown before ANY report/export when rows are
+        excluded. */}
+    {excludeGate && (
+      <div
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        onClick={() => setExcludeGate(null)}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 12, width: "min(560px, 95vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 16px 48px rgba(0,0,0,0.5)" }}
+        >
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>⚠️</span>
+            <span style={{ color: "#F1F5F9", fontSize: 15, fontWeight: 700 }}>This report excludes {excludedStyleList.length} style{excludedStyleList.length === 1 ? "" : "s"}</span>
+          </div>
+          <div style={{ padding: "14px 20px", overflowY: "auto", flex: 1 }}>
+            <div style={{ color: "#94A3B8", fontSize: 13, marginBottom: 10 }}>
+              The following styles are marked excluded (the “X” column) and will be left out of this report and all totals. Continue to run without them, Include to count them this once, or Cancel.
+            </div>
+            <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+              {excludedStyleList.map((s, i) => (
+                <div
+                  key={s.style}
+                  style={{ display: "flex", gap: 10, padding: "7px 12px", fontSize: 12, background: i % 2 ? "#1E293B" : "#162032", borderBottom: i < excludedStyleList.length - 1 ? "1px solid #243048" : "none" }}
+                >
+                  <span style={{ fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, minWidth: 96 }}>{s.style}</span>
+                  <span style={{ color: "#CBD5E1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.description || "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ padding: "14px 20px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button
+              onClick={() => setExcludeGate(null)}
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#CBD5E1", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >Cancel</button>
+            <button
+              onClick={() => resolveGate(true)}
+              title="Run this report counting the excluded styles, just this once (they stay excluded everywhere else)"
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #B45309", background: "rgba(245,158,11,0.15)", color: "#FCD34D", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >Include them</button>
+            <button
+              onClick={() => resolveGate(false)}
+              title="Run this report without the excluded styles"
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #047857", background: "rgba(16,185,129,0.15)", color: "#6EE7B7", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+            >Continue</button>
+          </div>
+        </div>
+      </div>
     )}
     {exportLoading && (
       <div style={{
