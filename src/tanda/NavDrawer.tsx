@@ -124,7 +124,7 @@ export function NavDrawer({
   canPlanning,
   collapsed, onToggleCollapsed,
 }: Props) {
-  const { favorites, toggleFavorite, logClick } = usePersonalization();
+  const { favorites, logClick } = usePersonalization();
   const [counts, setCounts]     = useState<Record<string, number>>(loadCounts);
   const [search, setSearch]     = useState("");
   const [userOpen, setUserOpen] = useState(false);
@@ -251,7 +251,6 @@ export function NavDrawer({
     [favorites, modules],
   );
   const activeMenuKey = activeModule ? modToMenuKey[activeModule] : null;
-  const isActiveFav   = !!activeMenuKey && favorites.includes(activeMenuKey);
 
   // ── search ────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
@@ -416,13 +415,6 @@ export function NavDrawer({
               : (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 10px 4px" }}>
                   <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>⭐ Favorites</span>
-                  {activeModule && (
-                    <button
-                      title={isActiveFav ? "Remove from favorites" : "Star this view"}
-                      onClick={e => { e.stopPropagation(); const mk = modToMenuKey[activeModule ?? ""]; if (mk) void toggleFavorite(mk); }}
-                      style={{ background:"none", border:"none", cursor:"pointer", fontSize:15, color: isActiveFav ? C.star : C.textMuted, padding:0, lineHeight:1 }}
-                    >{isActiveFav ? "★" : "☆"}</button>
-                  )}
                 </div>
               )
             }
