@@ -415,7 +415,7 @@ export function NavDrawer({
               ? <div title="Favorites" style={{ textAlign:"center", padding:"9px 0 4px", color:C.star, fontSize:14 }}>⭐</div>
               : (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 10px 4px" }}>
-                  <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>⭐ Favorites</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>Favorites</span>
                   {activeModule && (
                     <button
                       title={isActiveFav ? "Remove from favorites" : "Star this view"}
