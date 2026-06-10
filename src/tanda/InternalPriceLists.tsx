@@ -26,11 +26,32 @@ const btnSecondary: React.CSSProperties = { background: "transparent", color: C.
 const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borderColor: "#7f1d1d", padding: "2px 8px" };
 
 type EmbeddedCustomer = { id: string; name: string; customer_code: string | null } | null;
+type EmbeddedBrand = { id: string; name: string; code: string | null } | null;
 type EmbeddedStyle = { id: string; style_code: string | null; style_name: string | null } | null;
-type PriceList = { id: string; code: string; name: string; currency: string; customer_id: string | null; customer_tier: string | null; is_default: boolean; is_active: boolean; customer: EmbeddedCustomer; item_count?: number };
+type PriceList = { id: string; code: string; name: string; currency: string; customer_id: string | null; customer_tier: string | null; brand_id: string | null; is_default: boolean; is_active: boolean; customer: EmbeddedCustomer; brand: EmbeddedBrand; item_count?: number };
 type Item = { id: string; price_list_id: string; style_id: string; price_cents: number | string; min_qty: number | string; effective_from: string | null; effective_to: string | null; is_active: boolean; style: EmbeddedStyle };
 type Customer = { id: string; name: string; customer_code?: string | null };
+type Brand = { id: string; name: string; code?: string | null };
 type Style = { id: string; style_code: string | null; style_name?: string | null };
+
+// Cost-aware add-item helper response from /api/internal/price-lists/style-cost.
+type StyleCost = {
+  style_id: string;
+  brand: EmbeddedBrand;
+  cost_cents: number | null;
+  cost_source: "onhand" | "open_po" | null;
+  suggested_cents: number | null;
+  brand_default: { list_id: string; price_cents: number } | null;
+};
+
+// Shared pricing math (mirrors the seed + style-cost.js).
+const roundUp5 = (cents: number) => Math.ceil(cents / 5) * 5;
+// margin on sell: price = cost / (1 - margin/100), rounded UP to nearest 5 cents.
+// (23% margin → cost/0.77, the default suggestion.)
+const priceFromCostMargin = (costCents: number, marginPct: number) => {
+  const m = Math.min(Math.max(marginPct, 0), 99.99);
+  return roundUp5(Math.ceil(costCents / (1 - m / 100)));
+};
 
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0);
@@ -39,7 +60,8 @@ function fmtCents(c: number | string | null | undefined): string {
 function scopeLabel(l: PriceList): string {
   if (l.customer_id) return `Customer: ${l.customer?.name || "—"}`;
   if (l.customer_tier) return `Tier: ${l.customer_tier}`;
-  if (l.is_default) return "Default (fallback)";
+  if (l.brand_id) return `Brand: ${l.brand?.name || "—"}`;
+  if (l.is_default) return "Default — all brands (fallback)";
   return "—";
 }
 const styleLabel = (s: EmbeddedStyle | Style | null) => !s ? "—" : (s.style_name ? `${s.style_code || "—"} — ${s.style_name}` : (s.style_code || "—"));
@@ -47,6 +69,7 @@ const styleLabel = (s: EmbeddedStyle | Style | null) => !s ? "—" : (s.style_na
 export default function InternalPriceLists() {
   const [rows, setRows] = useState<PriceList[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [styles, setStyles] = useState<Style[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -71,6 +94,7 @@ export default function InternalPriceLists() {
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=5000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
     fetch("/api/internal/style-master?limit=10000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
+    fetch("/api/internal/brands").then((r) => r.json()).then((j) => { if (Array.isArray(j?.brands)) setBrands(j.brands); }).catch(() => {});
   }, []);
 
   return (
@@ -111,8 +135,8 @@ export default function InternalPriceLists() {
         </table>
       </div>
 
-      {newOpen && <ListModal list={null} customers={customers} onClose={() => setNewOpen(false)} onSaved={() => { setNewOpen(false); void load(); }} />}
-      {detail && <ListModal list={detail} customers={customers} styles={styles} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); void load(); }} />}
+      {newOpen && <ListModal list={null} customers={customers} brands={brands} onClose={() => setNewOpen(false)} onSaved={() => { setNewOpen(false); void load(); }} />}
+      {detail && <ListModal list={detail} customers={customers} brands={brands} styles={styles} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); void load(); }} />}
     </div>
   );
 }
@@ -121,16 +145,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>{children}</div>;
 }
 
-function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceList | null; customers: Customer[]; styles?: Style[]; onClose: () => void; onSaved: () => void }) {
+function ListModal({ list, customers, brands, styles, onClose, onSaved }: { list: PriceList | null; customers: Customer[]; brands: Brand[]; styles?: Style[]; onClose: () => void; onSaved: () => void }) {
   const isNew = list === null;
   // Code is auto-generated server-side (PL-NNNNN) + immutable — display only, never edited here.
   const code = list?.code || "";
   const [name, setName] = useState(list?.name || "");
   const [currency, setCurrency] = useState(list?.currency || "USD");
-  const [scope, setScope] = useState<"default" | "tier" | "customer">(list?.customer_id ? "customer" : list?.customer_tier ? "tier" : list?.is_default ? "default" : "default");
+  const [scope, setScope] = useState<"default" | "brand" | "tier" | "customer">(list?.customer_id ? "customer" : list?.customer_tier ? "tier" : list?.brand_id ? "brand" : list?.is_default ? "default" : "default");
   const [tier, setTier] = useState(list?.customer_tier || "");
   const [customerId, setCustomerId] = useState(list?.customer_id || "");
+  const [brandId, setBrandId] = useState(list?.brand_id || "");
   const [isActive, setIsActive] = useState(list?.is_active ?? true);
+  // Customer lists are mixed-brand (brand_id NULL); they get the "Copy from Default" add path.
+  const isCustomerList = scope === "customer";
   const [items, setItems] = useState<Item[]>([]);
   const [itemModal, setItemModal] = useState<Item | "new" | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -145,7 +172,9 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
 
   async function saveList() {
     setErr(null);
-    if (!code.trim() || !name.trim()) { setErr("Code and name are required."); return; }
+    if (!name.trim()) { setErr("Name is required."); return; }
+    if (scope === "brand" && !brandId) { setErr("Pick a brand for a per-brand list."); return; }
+    if (scope === "customer" && !customerId) { setErr("Pick a customer for a customer list."); return; }
     setSubmitting(true);
     try {
       // code is auto-generated (PL-NNNNN) server-side + immutable — never sent.
@@ -154,6 +183,7 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
         is_default: scope === "default",
         customer_id: scope === "customer" ? (customerId || null) : null,
         customer_tier: scope === "tier" ? (tier.trim() || null) : null,
+        brand_id: scope === "brand" ? (brandId || null) : null,
       };
       const r = await fetch(isNew ? "/api/internal/price-lists" : `/api/internal/price-lists/${list!.id}`,
         { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -193,15 +223,18 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
           <Field label="Scope">
-            <select value={scope} onChange={(e) => setScope(e.target.value as "default" | "tier" | "customer")} style={inputStyle}>
-              <option value="default">Default (fallback)</option>
+            <select value={scope} onChange={(e) => setScope(e.target.value as "default" | "brand" | "tier" | "customer")} style={inputStyle}>
+              <option value="default">Default — all brands (fallback)</option>
+              <option value="brand">Per-brand default</option>
               <option value="tier">Customer tier</option>
               <option value="customer">Specific customer</option>
             </select>
           </Field>
+          {scope === "brand" && <Field label="Brand"><SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)} options={[{ value: "", label: "(pick brand)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.name} ${b.code || ""}` }))]} placeholder="(pick brand)" /></Field>}
           {scope === "tier" && <Field label="Customer tier"><input value={tier} onChange={(e) => setTier(e.target.value)} style={inputStyle} placeholder="distributor" /></Field>}
           {scope === "customer" && <Field label="Customer"><SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v)} options={[{ value: "", label: "(pick customer)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(pick customer)" /></Field>}
-          {scope === "default" && <div style={{ alignSelf: "end", fontSize: 11, color: C.textMuted }}>Applied when a customer has no own / assigned / tier list pricing the style.</div>}
+          {scope === "default" && <div style={{ alignSelf: "end", fontSize: 11, color: C.textMuted }}>Applied when a customer has no own / assigned / tier / brand list pricing the style.</div>}
+          {scope === "brand" && <div style={{ alignSelf: "end", fontSize: 11, color: C.textMuted }}>Holds this brand&rsquo;s styles at the standard 23% margin. Customer lists can copy these prices.</div>}
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, marginBottom: 12 }}>
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active
@@ -243,13 +276,13 @@ function ListModal({ list, customers, styles, onClose, onSaved }: { list: PriceL
           </div>
         </div>
 
-        {itemModal && list && <ItemModal listId={list.id} item={itemModal === "new" ? null : itemModal} styles={styles || []} onClose={() => setItemModal(null)} onSaved={() => { setItemModal(null); void loadItems(); }} />}
+        {itemModal && list && <ItemModal listId={list.id} item={itemModal === "new" ? null : itemModal} styles={styles || []} isCustomerList={isCustomerList} onClose={() => setItemModal(null)} onSaved={() => { setItemModal(null); void loadItems(); }} />}
       </div>
     </div>
   );
 }
 
-function ItemModal({ listId, item, styles, onClose, onSaved }: { listId: string; item: Item | null; styles: Style[]; onClose: () => void; onSaved: () => void }) {
+function ItemModal({ listId, item, styles, isCustomerList, onClose, onSaved }: { listId: string; item: Item | null; styles: Style[]; isCustomerList: boolean; onClose: () => void; onSaved: () => void }) {
   const isNew = item === null;
   const [styleId, setStyleId] = useState(item?.style_id || "");
   const [priceDollars, setPriceDollars] = useState(item ? (Number(item.price_cents) / 100).toFixed(2) : "");
@@ -259,12 +292,39 @@ function ItemModal({ listId, item, styles, onClose, onSaved }: { listId: string;
   const [isActive, setIsActive] = useState(item?.is_active ?? true);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Cost-aware suggestion (loaded when a style is picked on a NEW item).
+  const [cost, setCost] = useState<StyleCost | null>(null);
+  const [costLoading, setCostLoading] = useState(false);
+  const [margin, setMargin] = useState("23"); // % for the no-cost cost+margin entry path
+
+  // Fetch cost / brand-default whenever the picked style changes (new items only).
+  useEffect(() => {
+    if (!isNew || !styleId) { setCost(null); return; }
+    let cancelled = false;
+    setCostLoading(true); setCost(null);
+    fetch(`/api/internal/price-lists/style-cost?style_id=${encodeURIComponent(styleId)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((j: StyleCost | null) => {
+        if (cancelled || !j) return;
+        setCost(j);
+        // Pre-fill the suggested price (editable) when a cost exists and price is blank.
+        if (j.suggested_cents != null && !priceDollars) setPriceDollars((j.suggested_cents / 100).toFixed(2));
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setCostLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleId, isNew]);
+
+  const applyCents = (cents: number) => setPriceDollars((cents / 100).toFixed(2));
+  const hasCost = cost?.cost_cents != null && cost.cost_cents > 0;
 
   async function save() {
     setErr(null);
     if (isNew && !styleId) { setErr("Pick a style."); return; }
-    const cents = Math.round((Number(priceDollars) || 0) * 100);
-    if (!Number.isFinite(cents) || cents < 0) { setErr("Price must be ≥ 0."); return; }
+    // Round the saved price UP to the nearest 5¢ (matches the formula everywhere).
+    const cents = roundUp5(Math.round((Number(priceDollars) || 0) * 100));
+    if (!Number.isFinite(cents) || cents <= 0) { setErr("Enter a price greater than $0."); return; }
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { price_cents: cents, min_qty: Number(minQty) || 0, effective_from: from || null, effective_to: to || null, is_active: isActive };
@@ -287,8 +347,56 @@ function ItemModal({ listId, item, styles, onClose, onSaved }: { listId: string;
               options={[{ value: "", label: "(pick style)" }, ...styles.map((s) => ({ value: s.id, label: styleLabel(s), searchHaystack: `${s.style_code || ""} ${s.style_name || ""}` }))]} placeholder="(pick style)" />
           </Field>
         </div>
+
+        {/* Cost-aware suggestion panel — shown after a style is picked on a new item. */}
+        {isNew && styleId && (
+          <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12 }}>
+            {costLoading && <div style={{ color: C.textMuted }}>Looking up cost…</div>}
+            {!costLoading && cost && (
+              <>
+                {cost.brand?.name && <div style={{ color: C.textMuted, marginBottom: 6 }}>Brand: <span style={{ color: C.textSub }}>{cost.brand.name}</span></div>}
+                {hasCost ? (
+                  <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                    <span style={{ color: C.textSub }}>Cost <b style={{ color: C.text }}>{fmtCents(cost.cost_cents)}</b>
+                      <span style={{ color: C.textMuted }}> ({cost.cost_source === "open_po" ? "open PO" : "on-hand avg"})</span></span>
+                    <span style={{ color: C.success }}>Suggested @ 23% margin: <b>{fmtCents(cost.suggested_cents)}</b></span>
+                    <button type="button" style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12 }}
+                      onClick={() => cost.suggested_cents != null && applyCents(cost.suggested_cents)}>Use suggested</button>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ color: C.warn, marginBottom: 6 }}>No cost on file for this style. Enter the price directly below, or compute from a cost + margin:</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ color: C.textMuted }}>Cost $</span>
+                      <input type="text" inputMode="decimal" id="pl-cost-in" placeholder="0.00" style={{ ...inputStyle, width: 80 }}
+                        onChange={(e) => { (e.target as HTMLInputElement).dataset.v = e.target.value; }} />
+                      <span style={{ color: C.textMuted }}>Margin %</span>
+                      <input type="text" inputMode="decimal" value={margin} onChange={(e) => setMargin(e.target.value)} style={{ ...inputStyle, width: 64 }} />
+                      <button type="button" style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12 }}
+                        onClick={() => {
+                          const el = document.getElementById("pl-cost-in") as HTMLInputElement | null;
+                          const c = Math.round((Number(el?.value) || 0) * 100);
+                          const m = Number(margin) || 0;
+                          if (c > 0) applyCents(priceFromCostMargin(c, m));
+                        }}>Compute price</button>
+                    </div>
+                  </div>
+                )}
+                {/* Copy from Default — only on customer (mixed-brand) lists, when the brand default has this style. */}
+                {isCustomerList && cost.brand_default && (
+                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: C.textSub }}>Brand default ({cost.brand?.name || "—"}): <b>{fmtCents(cost.brand_default.price_cents)}</b></span>
+                    <button type="button" style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12 }}
+                      onClick={() => cost.brand_default && applyCents(cost.brand_default.price_cents)}>Copy from Default</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Price ($)"><input type="text" inputMode="decimal" value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)} style={inputStyle} placeholder="24.00" /></Field>
+          <Field label="Price ($) — rounded up to 5¢ on save"><input type="text" inputMode="decimal" value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)} style={inputStyle} placeholder="24.00" /></Field>
           <Field label="Min qty (break)"><input type="text" inputMode="decimal" value={minQty} onChange={(e) => setMinQty(e.target.value)} style={inputStyle} placeholder="0" /></Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>

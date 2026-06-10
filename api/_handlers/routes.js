@@ -348,6 +348,7 @@ import r_internal_price_list_items_id from "./internal/price-list-items/[id].js"
 import r_internal_price_list_items_index from "./internal/price-list-items/index.js";
 import r_internal_price_lists_id from "./internal/price-lists/[id].js";
 import r_internal_price_lists_index from "./internal/price-lists/index.js";
+import r_internal_price_lists_style_cost from "./internal/price-lists/style-cost.js";
 import r_internal_price_promotions_id from "./internal/price-promotions/[id].js";
 import r_internal_price_promotions_index from "./internal/price-promotions/index.js";
 import r_internal_pricing_resolve from "./internal/pricing/resolve.js";
@@ -841,6 +842,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/recon-inbox", handler: r_internal_procurement_recon_inbox_index },
   { pattern: "/api/internal/style-master/dim-values", handler: r_internal_style_master_dim_values },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
+  { pattern: "/api/internal/price-lists/style-cost", handler: r_internal_price_lists_style_cost },
   { pattern: "/api/internal/xoro-mirror/summary-je", handler: r_internal_xoro_mirror_summary_je },
   { pattern: "/api/vendor/mobile/deregister-device", handler: r_vendor_mobile_deregister_device },
   { pattern: "/api/internal/bank-feeds/csv-upload", handler: r_internal_bank_feeds_csv_upload },
