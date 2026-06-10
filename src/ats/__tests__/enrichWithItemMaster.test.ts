@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { enrichRowsWithItemMaster } from "../enrichWithItemMaster";
 import { __setCacheForTest, clearItemMasterCache, type ItemMasterRecord } from "../itemMasterLookup";
+import { __setBrandCacheForTest } from "../brandLookup";
 import type { ATSRow } from "../types";
 
 function makeRow(sku: string, overrides: Partial<ATSRow> = {}): ATSRow {
@@ -150,6 +151,36 @@ describe("enrichRowsWithItemMaster", () => {
     expect(listCall).toBeDefined();
     expect(listCall?.[0]).toContain("unmatched skus (1)");
     expect(listCall?.[0]).toContain("NOPE000 - Whatever");
+  });
+
+  it("resolves master_brand from the Tangerine style_master, not the defaulted ipm brand_id", () => {
+    // ip_item_master row carries the (useless) ROF-default brand_id; the real
+    // brand lives in style_master keyed by style code.
+    __setCacheForTest([
+      makeMasterRec({ sku_code: "PTSTYLE - Black", style_code: "PTSTYLE", color: "Black", brand_id: "id-rof-default" }),
+      makeMasterRec({ sku_code: "ORPHAN - Blue", style_code: "ORPHAN", color: "Blue", brand_id: "id-rof-default" }),
+    ]);
+    __setBrandCacheForTest(
+      [
+        { id: "id-rof-default", code: "ROF", name: "Ring of Fire", sort_order: 10 },
+        { id: "id-pt", code: "PT", name: "Psycho Tuna", sort_order: 20 },
+      ],
+      { PTSTYLE: "id-pt" }, // ORPHAN intentionally absent from style_master
+    );
+
+    const { rows: out } = enrichRowsWithItemMaster([
+      makeRow("PTSTYLE - Black"),
+      makeRow("ORPHAN - Blue"),
+    ]);
+
+    // Style present in Tangerine → its real brand wins over the ipm default.
+    expect((out[0] as any).master_brand).toBe("Psycho Tuna");
+    expect((out[0] as any).master_brand_id).toBe("id-pt");
+    // Style absent from Tangerine → falls back to the ipm brand.
+    expect((out[1] as any).master_brand).toBe("Ring of Fire");
+    expect((out[1] as any).master_brand_id).toBe("id-rof-default");
+
+    __setBrandCacheForTest([]); // reset brand cache for other tests
   });
 
   it("treats every row as unmatched when the cache is empty", () => {
