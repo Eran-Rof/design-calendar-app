@@ -846,6 +846,58 @@ export default function InternalInventoryMatrix() {
     return cols;
   }, [sizeOrder, showRise, byInseam]);
 
+  // Brand / all-styles export — flat rows across every loaded style. Each style
+  // may have a different size scale, so the size columns are the union of all
+  // scales' sizes (first-seen order). Non-inseam matrix grain, honoring the
+  // warehouse + hide-zeros filters, mirroring the on-screen brand blocks.
+  const brandExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(() => {
+    const sizeKeys: string[] = [];
+    for (const { payload: bp } of brandPayloads) {
+      const order = bp.sizes.length
+        ? bp.sizes
+        : bp.skus.reduce<string[]>((acc, sk) => { if (sk.size && !acc.includes(sk.size)) acc.push(sk.size); return acc; }, []);
+      for (const sz of order) if (!sizeKeys.includes(sz)) sizeKeys.push(sz);
+    }
+    const cols: ExportColumn<Record<string, unknown>>[] = [
+      { key: "style_code", header: "Style" },
+      { key: "style_name", header: "Style Name" },
+      { key: "color", header: "Color" },
+    ];
+    for (const sz of sizeKeys) cols.push({ key: `size_${sz}`, header: sz, format: "number" });
+    cols.push({ key: "total_qty", header: "Total", format: "number" });
+    cols.push({ key: "avg_cost_cents", header: "Avg Cost", format: "currency_cents" });
+    cols.push({ key: "total_cost_cents", header: "Total Cost", format: "currency_cents" });
+    cols.push({ key: "last_received", header: "Last Received", format: "date" });
+    return cols;
+  }, [brandPayloads]);
+
+  const brandExportRows = useMemo<Array<Record<string, unknown>>>(() => {
+    const out: Array<Record<string, unknown>> = [];
+    for (const { style: bStyle, payload: bp } of brandPayloads) {
+      const bSkuQty = (s: MatrixSku) =>
+        warehouse !== ALL_WAREHOUSES ? num((s.on_hand_by_wh || {})[warehouse]) : num(s.on_hand_qty);
+      const bCellQty = (c: ExplodeCell) =>
+        warehouse !== ALL_WAREHOUSES ? num((c.by_wh || {})[warehouse]) : num(c.qty);
+      const bShowRise = (bp.rises ?? []).length > 1;
+      const bRows = buildMatrixRows(bp, [], bShowRise, bSkuQty, bCellQty, false)
+        .filter((r) => !hideZeros || r.totalQty !== 0);
+      for (const r of bRows) {
+        const row: Record<string, unknown> = {
+          style_code: bStyle.style_code,
+          style_name: bStyle.style_name ?? "",
+          color: r.color,
+        };
+        for (const [sz, q] of Object.entries(r.sizes)) row[`size_${sz}`] = q || 0;
+        row.total_qty = r.totalQty;
+        row.avg_cost_cents = r.avgCostCents == null ? "" : r.avgCostCents;
+        row.total_cost_cents = r.totalCostCents;
+        row.last_received = r.lastReceived ?? "";
+        out.push(row);
+      }
+    }
+    return out;
+  }, [brandPayloads, warehouse, hideZeros]);
+
   // The footer's "Grand Total" label cell spans the non-image leading data
   // columns: Base Part + Description + Color (= 3), plus the Rise/Inseam secondary
   // column when shown (= 4). The Image column is a separate empty <td /> that
@@ -1084,6 +1136,20 @@ export default function InternalInventoryMatrix() {
                 filename={`inventory-matrix-${payload.style.style_code}`}
                 sheetName="Inventory Matrix"
                 columns={exportColumns}
+              />
+            </>
+          )}
+
+          {/* All-styles / brand view (no single style picked) — export every
+              loaded style's matrix in one flat sheet (union of size columns). */}
+          {!styleId && viewMode === "matrix" && brandPayloads.length > 0 && (
+            <>
+              <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
+              <ExportButton
+                rows={brandExportRows}
+                filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`}
+                sheetName="Inventory Matrix"
+                columns={brandExportColumns}
               />
             </>
           )}
