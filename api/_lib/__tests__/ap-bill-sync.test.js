@@ -31,6 +31,11 @@ describe("toIsoDate", () => {
     expect(toIsoDate("06/02/2026")).toBe("2026-06-02");
     expect(toIsoDate("11/29/2026")).toBe("2026-11-29");
   });
+  it("handles JS Date objects from XLSX cellDates:true", () => {
+    expect(toIsoDate(new Date("2026-06-03T00:00:00Z"))).toBe("2026-06-03");
+    expect(toIsoDate(new Date("2026-11-30T00:00:00Z"))).toBe("2026-11-30");
+    expect(toIsoDate(new Date("invalid"))).toBeNull();
+  });
   it("handles the 0001 sentinel + blanks as null", () => {
     expect(toIsoDate("01/01/0001")).toBeNull();
     expect(toIsoDate("")).toBeNull();
