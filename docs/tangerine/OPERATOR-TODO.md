@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-09 (Shopify store connected + images pulled — done; added API-auth hardening security follow-up after moving the app to apps.ringoffire.com)
+**Last updated:** 2026-06-09 (both Shopify stores pulled — done; added style-image repository for the 1,657 non-Shopify styles + API-auth hardening security follow-up)
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Item | Needed for | Detail |
 |---|---|---|
-| ~~**Shopify store + Admin API token**~~ ✅ DONE 2026-06-09 | P11 Shopify (orders + COGS + product images) | ~~`shopify_stores` empty~~ → **rof-clothing.myshopify.com connected** (Connect Store panel; token encrypted). Bulk image pull ran: **256 styles linked, 2,602 images re-hosted, 256 descriptions, 1,280 attributes, 678 color-tagged**. Re-runnable from Connect Store → 🖼️ Bulk pull. (Orders/refund/payout webhooks now have a live store too.) |
+| ~~**Shopify store + Admin API token**~~ ✅ DONE 2026-06-09 | P11 Shopify (orders + COGS + product images) | ~~`shopify_stores` empty~~ → **2 stores connected** (rof-clothing + psychotuna; tokens encrypted). Bulk pull ran for both: **443 styles linked, 3,344 images re-hosted, 443 descriptions (Description tab: long/short/bullets/SEO), attributes + per-color tagging**. Draft/archived sweep run to recover any non-active products. Re-runnable per-store from Connect Store → 🖼️ Bulk pull (Store dropdown). |
 | **`VENDOR_DATA_ENCRYPTION_KEY` on Preview** | Vendor portal field crypto on preview deploys | Set on Vercel **prod + dev**; the **Preview** environment still needs it or banking/card submit fails with "Encryption failed". ⚠️ Never change once data is encrypted (orphans all ciphertext). |
 | **Paycor access** | M51 Payroll | Confirm your Paycor plan exposes a **GL export** (preferred) **or the API**, and get credentials (API key/OAuth, or SFTP). Usually a plan-tier/partner gate — ask your Paycor rep. Then: the **pay-code→GL mapping**, a **Net-Pay-Clearing vs Cash** choice, and whether to **brand-allocate labor** on day one. *(arch: `payroll-paycor-integration-architecture.md`)* |
 | **Plaid credentials** | M7/M8 Bank feeds + reconciliation (live) | Live Plaid API keys / item link so bank + CC feeds pull real transactions (recon engine is built; needs the live connection). |
@@ -66,6 +66,17 @@ Everything below is **built and inert today**; flipping the flag turns it on. Do
 4. ~~Build partition-aware FIFO consumption~~ ✅ **DONE (#692)** — a sale draws from its brand pool when enforcing; inert (draws all layers) until then. **No remaining P15 dev work** — the steps above/below are operator config only.
 5. **Set `BRAND_SCOPE_MODE=log`** on Vercel; watch the silent-log telemetry for a few days; spot-check that a brand-filtered Income Statement / AR aging foots to the "All brands" total.
 6. **Flip to `enforce`.** From then on: manual JE + AP postings auto-split by allocation %, reports filter by the brand switcher, and inventory separates by pool.
+
+## 🖼️ Style image repository to supply (bulk import for non-Shopify styles)
+
+**Status:** ~1,657 of 2,100 styles have **no image** — these are the styles that are **not active products on either Shopify store**, so there's no online source to auto-pull from. (All 443 Shopify-linked styles are fully covered: images + descriptions + attributes.)
+
+**What you do:** drop image files into one repository/folder, **named by style code** so they can be matched automatically. Then tell the agent where it is and it builds + runs a bulk import (filename → style code → re-host into the `pim-images` bucket → `product_images`, same pipeline as the Shopify pull, so the gallery/matrix/PIM all light up).
+
+- **Naming:** start each filename with the **style code** (e.g. `RYB0043.jpg`, `RYB0043-front.png`, `RYB0043_Black.jpg`). Multiple images per style are fine — use a suffix after the code. Color tagging: include the color in the suffix (e.g. `RYB0043-Black-1.jpg`) and the agent can map it to `product_images.color`.
+- **Format:** JPG or PNG; the importer makes the thumb/web/print derivatives automatically (no need to pre-size).
+- **Where:** a shared folder (Dropbox/Drive) or a zip — whatever's easiest. Give the agent the path/link.
+- **Agent then:** matches filename→style, skips styles that already have images (unless you say overwrite), reports matched/unmatched, and lists any filenames whose code doesn't exist in Style Master so you can fix the name.
 
 ## 🖼️ User-guide screenshots to supply
 
