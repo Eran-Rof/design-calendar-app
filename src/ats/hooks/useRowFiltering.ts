@@ -11,6 +11,7 @@ interface UseRowFilteringOpts {
   filterSubCategory: string[];
   filterStyle: string[];
   filterGender: string[];
+  filterBrand: string[];
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -44,6 +45,7 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     filterSubCategory: opts.filterSubCategory,
     filterStyle: opts.filterStyle,
     filterGender: opts.filterGender,
+    filterBrand: opts.filterBrand,
     filterStatus: opts.filterStatus,
     minATS: opts.minATS,
     storeFilter: opts.storeFilter,
@@ -51,7 +53,7 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     today: opts.today,
     displayPeriods: opts.displayPeriods,
   }), [
-    opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterStyle, opts.filterGender, opts.filterStatus,
+    opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterStyle, opts.filterGender, opts.filterBrand, opts.filterStatus,
     opts.minATS, opts.storeFilter, customerSkuSet, opts.today, opts.displayPeriods,
   ]);
 

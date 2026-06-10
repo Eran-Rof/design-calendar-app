@@ -103,6 +103,27 @@ describe("filterRows", () => {
     const out = filterRows([r], { ...defaults, filterStatus: "Low" });
     expect(out).toHaveLength(1);
   });
+
+  describe("brand filter", () => {
+    const branded = [
+      row({ sku: "A", master_brand: "Ring of Fire", dates: { "2026-04-10": 5 }, onHand: 5 }),
+      row({ sku: "B", master_brand: "Psycho Tuna",  dates: { "2026-04-10": 5 }, onHand: 5 }),
+      row({ sku: "C", master_brand: null,           dates: { "2026-04-10": 5 }, onHand: 5 }),
+    ];
+    it("empty / absent filterBrand passes every row", () => {
+      expect(filterRows(branded, defaults).map(r => r.sku)).toEqual(["A", "B", "C"]);
+      expect(filterRows(branded, { ...defaults, filterBrand: [] }).map(r => r.sku)).toEqual(["A", "B", "C"]);
+    });
+    it("single brand narrows to that brand", () => {
+      expect(filterRows(branded, { ...defaults, filterBrand: ["Psycho Tuna"] }).map(r => r.sku)).toEqual(["B"]);
+    });
+    it("multiple brands match any (set membership)", () => {
+      expect(filterRows(branded, { ...defaults, filterBrand: ["Ring of Fire", "Psycho Tuna"] }).map(r => r.sku)).toEqual(["A", "B"]);
+    });
+    it("rows with no brand never match a brand filter", () => {
+      expect(filterRows(branded, { ...defaults, filterBrand: ["Ring of Fire"] }).map(r => r.sku)).toEqual(["A"]);
+    });
+  });
 });
 
 describe("statFilterRows", () => {

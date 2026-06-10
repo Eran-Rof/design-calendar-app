@@ -518,6 +518,7 @@ export default [
   ["/api/internal/xoro-mirror/summary-je"                    , "./internal/xoro-mirror/summary-je.js"],
   ["/api/cron/xoro-mirror-nightly"                           , "../cron/xoro-mirror-nightly.js"],
   ["/api/cron/menu-usage-decay"                              , "../cron/menu-usage-decay.js"],
+  ["/api/internal/pim/style-thumbs-by-code"                  , "./internal/pim/style-thumbs-by-code.js"],
   ["/api/internal/pim/style-thumbs"                          , "./internal/pim/style-thumbs.js"],
   ["/api/internal/pim/styles/:style_id/images/:id/signed-url", "./internal/pim/styles/[style_id]/images/[id]/signed-url.js"],
   ["/api/internal/pim/styles/:style_id/images/:id/delete"    , "./internal/pim/styles/[style_id]/images/[id]/delete.js"],

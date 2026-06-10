@@ -60,6 +60,23 @@ same code path (`POST /api/planning/sync-on-hand`). Planning keeps ATS supply at
 separate source; see [po-wip-overview.md](po-wip-overview.md) and the Planning
 overview).
 
+## Brand filter & style images
+
+The toolbar's **Brand** multi-select is populated from `brand_master` (via
+`src/ats/brandLookup.ts`, loaded once on mount alongside the item-master
+cache). ATS rows resolve their brand from `ip_item_master.brand_id` →
+`brand_master` inside `itemMasterLookup`/`enrichWithItemMaster`
+(`row.master_brand`), and `filter.ts` matches on the brand name.
+
+The **IMAGES** toggle renders a per-row style thumbnail inside the Style
+column. Because ATS works off style **codes** (not `style_master` uuids), it
+calls `POST /api/internal/pim/style-thumbs-by-code` (a code-keyed sibling of
+`style-thumbs`) via `useStyleThumbsByCode`; the response carries the
+`style_id` so clicking a thumb opens the shared `StyleImageGallery`
+(enlarge / download / print). Thumbnails are fetched live for the current
+page only, so styles gain images automatically as they're added in the
+Tangerine PIM.
+
 ## Column sort
 
 The main ATS grid is a custom virtualized / sticky-left-column grid with a

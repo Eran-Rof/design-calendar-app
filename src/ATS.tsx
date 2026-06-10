@@ -9,6 +9,7 @@ import { addDays, fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQ
 import { computeRowsFromExcelData, applyPpkMultiplierToRow } from "./ats/compute";
 import { enrichRowsWithItemMaster } from "./ats/enrichWithItemMaster";
 import { loadItemMasterCache } from "./ats/itemMasterLookup";
+import { loadBrandCache, getAllBrandNames } from "./ats/brandLookup";
 import { preloadSalesHistory } from "./ats/exportSalesFetch";
 import { mergeExcelDataSkus, mergeRows, dedupeExcelData } from "./ats/merge";
 import { useMergeHistory } from "./ats/hooks/useMergeHistory";
@@ -84,12 +85,12 @@ function ATSReport() {
   const today = new Date();
   // ── State → useATSState() + useATSDispatch() (see ats/state/) ──
   const {
-    startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus,
+    startDate, rangeUnit, rangeValue, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterBrand, filterStatus,
     minATS, soWinFrom, soWinTo, storeFilter, poDropOpen, soDropOpen, rows, loading, mockMode,
     page, excelData, uploadingFile, uploadProgress, uploadSuccess, uploadError,
     uploadWarnings, pendingUploadData, showUpload, invFile, purFile, ordFile,
     lastSync, hoveredCell, pinnedSku, ctxMenu,
-    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, viewMode, showTotalsRow, showStatsCards, explodePpk, freezeKey, hiddenColumns, generalMarginPct,
+    summaryCtx, activeSort, sortCol, sortDir, mergeHistory, viewMode, showTotalsRow, showStatsCards, explodePpk, showImages, freezeKey, hiddenColumns, generalMarginPct,
     normChanges, normPendingData, normSource, customerFilter, customerDropOpen,
     customerSearch, collapseLevel, expandedGroups,
   } = st;
@@ -103,6 +104,7 @@ function ATSReport() {
   const setFilterSubCategory = mk("filterSubCategory");
   const setFilterStyle       = mk("filterStyle");
   const setFilterGender      = mk("filterGender");
+  const setFilterBrand       = mk("filterBrand");
   const setFilterStatus      = mk("filterStatus");
   const setMinATS            = mk("minATS");
   const setSoWinFrom         = mk("soWinFrom");
@@ -150,6 +152,7 @@ function ATSReport() {
   const setShowTotalsRow     = mk("showTotalsRow");
   const setShowStatsCards    = mk("showStatsCards");
   const setExplodePpk        = mk("explodePpk");
+  const setShowImages        = mk("showImages");
   const setFreezeKey         = mk("freezeKey");
   const setHiddenColumns     = mk("hiddenColumns");
   const setGeneralMarginPct  = mk("generalMarginPct");
@@ -217,11 +220,22 @@ function ATSReport() {
   // master_* fields yet). Once loaded, we flip masterReady so the row-compute
   // useEffect re-runs and enriches rows for real.
   const [masterReady, setMasterReady] = useState(false);
+  // Brand dropdown options — the full brand_master list (every brand the
+  // Tangerine app knows about), loaded once on mount alongside the item
+  // master. Captured into state so the Toolbar re-renders with the real
+  // option set the moment the cache resolves.
+  const [brandOptions, setBrandOptions] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
-    loadItemMasterCache()
-      .catch(e => console.error("[ats master] cache load failed:", e))
-      .finally(() => { if (!cancelled) setMasterReady(true); });
+    // Load the item master AND the brand list together so the first
+    // enrichment pass (gated on masterReady) already has brand names to
+    // resolve. A brand-load failure must NOT block masterReady — the grid
+    // still works without the Brand filter populated.
+    Promise.all([
+      loadItemMasterCache().catch(e => console.error("[ats master] cache load failed:", e)),
+      loadBrandCache().catch(e => console.error("[ats brand] cache load failed:", e)),
+    ])
+      .finally(() => { if (!cancelled) { setMasterReady(true); setBrandOptions(getAllBrandNames()); } });
     // Kick off the 15-month sales-history preload in parallel so the
     // first Export Excel View / Download doesn't pay the round trip.
     // Errors are logged inside preloadSalesHistory — non-blocking.
@@ -986,7 +1000,7 @@ function ATSReport() {
   const {
     customerSkuSet, filtered, statFiltered, sortedFiltered, pageRows, totalPages, filteredSkuSet,
   } = useRowFiltering({
-    rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus, minATS, storeFilter,
+    rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterBrand, filterStatus, minATS, storeFilter,
     customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
     pageSize: PAGE_SIZE, page,
     collapseLevel, expandedGroups: expandedGroupSet,
@@ -1050,7 +1064,7 @@ function ATSReport() {
   }
 
   // Reset to page 0 whenever filters/search/sort change
-  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterStyle, filterGender, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter, collapseLevel]);
+  useEffect(() => { setPage(0); }, [search, filterCategory, filterSubCategory, filterStyle, filterGender, filterBrand, filterStatus, minATS, poStores, soStores, rows, activeSort, sortCol, sortDir, customerFilter, collapseLevel]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Notifications: in-app view + bell badge (ATS-relevant events only)
@@ -1080,7 +1094,7 @@ function ATSReport() {
   // the panel's existing layout.
   const panel = atsRenderPanel({
     startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue,
-    search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus,
+    search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterBrand, setFilterBrand, brandOptions, filterStatus, setFilterStatus,
     minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen,
     soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage,
     excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess,
@@ -1105,6 +1119,7 @@ function ATSReport() {
     showTotalsRow, setShowTotalsRow,
     showStatsCards, setShowStatsCards,
     explodePpk, setExplodePpk,
+    showImages, setShowImages,
     freezeKey, setFreezeKey,
     hiddenColumns, setHiddenColumns,
     generalMarginPct, setGeneralMarginPct,
