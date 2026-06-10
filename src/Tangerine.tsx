@@ -1178,8 +1178,8 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                           onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
                           style={{
                             background: hovered ? "rgba(59, 130, 246, 0.14)" : active ? "#0b1220" : "transparent",
-                            border: 0, color: hovered || active ? C.text : C.textSub,
-                            padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
+                            border: 0, color: hovered || active ? C.textSub : C.textMuted,
+                            padding: "14px 12px", borderRadius: 4, fontSize: 14, cursor: "pointer",
                             textAlign: "left", display: "flex", alignItems: "center", gap: 8,
                             transition: "background 80ms ease, color 80ms ease",
                             textDecoration: "none",
