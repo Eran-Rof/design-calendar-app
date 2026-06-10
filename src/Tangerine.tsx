@@ -1485,12 +1485,18 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
 
           const containsActive = subGroups.some((sg) => sg.modules.some((m) => m.key === activeModule));
           const isOpen = openGroup === sec.section;
+          // The sub-group that shares the section's name is redundant with the
+          // section trigger above (e.g. "Master Data" section → "Master Data"
+          // group). Omit it from the left rail and make its modules the DEFAULT
+          // pane, so the header isn't duplicated. The left rail lists only the
+          // OTHER sub-categories (EDI, Reports, Approvals, …).
+          const leftRailGroups = subGroups.filter((sg) => sg.group !== sec.section);
           const multi = subGroups.length > 1;
-          // Sub-group whose items fill the flyout pane: hovered (if in this
-          // section) → the one holding the active module → first.
+          // Pane to show: hovered → active-holding → the section-named group → first.
           const shown =
             subGroups.find((sg) => sg.group === hoverSub) ||
             subGroups.find((sg) => sg.modules.some((m) => m.key === activeModule)) ||
+            subGroups.find((sg) => sg.group === sec.section) ||
             subGroups[0];
 
           return (
@@ -1517,7 +1523,6 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
               >
-                <span>{sec.emoji}</span>
                 <span>{sec.section}</span>
                 <span style={{ fontSize: 10 }}>{isOpen ? "▴" : "▾"}</span>
               </button>
@@ -1535,8 +1540,8 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                 >
                   {/* Left rail: sub-group picker (only when >1 sub-group). */}
                   {multi && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 168, borderRight: `1px solid ${C.cardBdr}`, paddingRight: 6 }}>
-                      {subGroups.map((sg) => {
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 168, borderRight: `1px solid ${C.cardBdr}`, paddingRight: 6 }}>
+                      {leftRailGroups.map((sg) => {
                         const isShown = sg.group === shown.group;
                         const hasActive = sg.modules.some((m) => m.key === activeModule);
                         return (
@@ -1548,15 +1553,12 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                             style={{
                               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
                               background: isShown ? "#0b1220" : "transparent", border: 0,
-                              color: hasActive ? "#60A5FA" : isShown ? C.text : C.textSub,
-                              padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
+                              color: hasActive ? "#60A5FA" : isShown ? C.textSub : C.textMuted,
+                              padding: "14px 10px", borderRadius: 4, fontSize: 14, cursor: "pointer",
                               textAlign: "left", fontWeight: hasActive ? 700 : 500,
                             }}
                           >
-                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ width: 18, display: "inline-block" }}>{GROUP_ICON[sg.group]}</span>
-                              {sg.group}
-                            </span>
+                            <span>{sg.group}</span>
                             <span style={{ fontSize: 10, opacity: 0.6 }}>▸</span>
                           </button>
                         );
@@ -1569,7 +1571,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                       module in a NEW tab instead, so the in-progress modal is never
                       lost. cmd/ctrl/shift/middle-click always open a new tab
                       natively (href is present; we don't preventDefault those). */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 224 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 224 }}>
                     {shown.modules.map((m) => {
                       const active = activeModule === m.key;
                       const hovered = hoveredKey === m.key;
@@ -1608,7 +1610,6 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                             textDecoration: "none",
                           }}
                         >
-                          <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
                           <span>{m.label}</span>
                         </a>
                       );
@@ -1795,19 +1796,19 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       </div>
 
       <Section title="Master Data">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {masterModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Accounting">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {acctModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Vendors">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
           {/* External vendor-facing portal (separate Supabase auth) — open in a new tab. */}
           <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="🌐" sublabel="External · new tab" />
@@ -1816,37 +1817,37 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       </Section>
 
       <Section title="CRM (P8)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {crmModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Reports (P7-7)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {reportsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Approvals (P2)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {approvalsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Notifications (P2)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {notifModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="HR (P2)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {hrModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Inventory (P3)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {inventoryModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
@@ -1856,7 +1857,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
           tab. Gated by the shared planning permission. */}
       {canAccessAppFromSession("planning") && (
         <Section title="Planning (M31)">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
             {PLANNING_SCREENS.map((s) => (
               <ExternalLinkCard key={s.href} href={s.href} label={s.label} emoji={s.emoji} sublabel={s.description} />
             ))}
@@ -1865,19 +1866,19 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       )}
 
       <Section title="Customer Service (P7)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {csModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Marketplaces (P11–P12)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {marketplacesModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Shadow Mirror (T10)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {mirrorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
@@ -1936,20 +1937,19 @@ function ModuleCard({ module, onClick }: { module: ModuleDef; onClick: () => voi
         background: C.card,
         border: `1px solid ${C.cardBdr}`,
         borderRadius: 10,
-        padding: 16,
+        padding: 24,
         textAlign: "left",
         color: C.text,
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: 12,
         transition: "border-color 0.15s, transform 0.05s",
       }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.tangerine; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.cardBdr; }}
     >
-      <div style={{ fontSize: 32 }}>{module.emoji}</div>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{module.label}</div>
+      <div style={{ fontSize: 17, fontWeight: 600, color: C.textSub }}>{module.label}</div>
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{module.group}</div>
     </button>
   );
