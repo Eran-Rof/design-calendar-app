@@ -1,10 +1,9 @@
-import XLSXStyle from "xlsx-js-style";
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, EXTRA_THICK,
   headerStyle, bodyTextStyle, bodyStyleStyle, bodyNumStyle,
-  autofitColumns, zebraFill, numOrBlank,
+  autofitColumns, zebraFill, numOrBlank, buildMultiSheetWorkbook,
 } from "./exportTheme";
 import type { ReportPayload } from "./reportPayload";
 
@@ -227,11 +226,9 @@ export function exportNegInven(
     }
   });
 
-  // ── Build worksheet ──────────────────────────────────────────────────────
-  const ws: any = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
-
-  // ── Merges (title banner + group label spans) ────────────────────────────
-  ws["!merges"] = [
+  // ── Merges (title banner + group label spans), in AOA coords ─────────────
+  // (buildMultiSheetWorkbook stamps the logo banner on top and offsets these.)
+  const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: TC - 1 } },              // title
     { s: { r: 1, c: COL.sku },     e: { r: 1, c: COL.store } }, // SKU group span
     { s: { r: 1, c: COL.onHand },  e: { r: 1, c: COL.onPO } },  // INVENTORY span
@@ -240,10 +237,11 @@ export function exportNegInven(
       : []),
   ];
 
-  // ── Outer + group-column outlines ───────────────────────────────────────
+  // ── Outer + group-column outlines (applied to the AOA cells directly) ────
   // Three column groups: A-D (SKU info), E-G (Inventory qty), H+ (ATS
   // periods). Each gets a thick LEFT/RIGHT outline; outer rectangle
-  // closes the whole sheet.
+  // closes the whole sheet. Each cell is cloned so shared style refs in
+  // the group-label row don't bleed borders across columns.
   const GROUPS: [number, number][] = [
     [COL.sku, COL.store],
     [COL.onHand, COL.onPO],
@@ -253,9 +251,7 @@ export function exportNegInven(
   const LAST_R = aoa.length - 1;
   for (let r = 0; r <= LAST_R; r++) {
     for (let c = 0; c < TC; c++) {
-      const addr = XLSXStyle.utils.encode_cell({ r, c });
-      if (!ws[addr]) ws[addr] = { v: "", t: "s", s: {} };
-      const cell = ws[addr];
+      const cell = aoa[r][c] ?? { v: "", t: "s", s: {} };
       const existing = cell.s?.border ?? { ...BORDER_BODY };
       const border: any = { ...existing };
       // Outer rectangle.
@@ -271,7 +267,7 @@ export function exportNegInven(
       // Thick bottom under the column header row (visually closes the
       // 3-row header band).
       if (r === HEADER_ROW_COUNT - 1) border.bottom = EXTRA_THICK;
-      cell.s = { ...cell.s, border };
+      aoa[r][c] = { ...cell, s: { ...cell.s, border } };
     }
   }
 
@@ -280,9 +276,9 @@ export function exportNegInven(
   // existing labels (e.g. "ATS BY MONTH" + period names).
   const headerForFit = aoa[2];          // col-headers row drives most widths
   const bodyForFit = aoa.slice(3);
-  ws["!cols"] = autofitColumns({ headerRow: headerForFit, bodyRows: bodyForFit });
+  const cols = autofitColumns({ headerRow: headerForFit, bodyRows: bodyForFit });
 
-  ws["!rows"] = [
+  const rowHeights = [
     { hpt: ROW_HEIGHTS.HEADER },
     { hpt: ROW_HEIGHTS.BODY },
     { hpt: ROW_HEIGHTS.HEADER },
@@ -291,15 +287,20 @@ export function exportNegInven(
     ),
   ];
 
-  ws["!freeze"] = { xSplit: 0, ySplit: HEADER_ROW_COUNT };
-
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "Neg Inventory Report");
+  const filename = `Neg_Inventory_${fmtDate(today)}.xlsx`;
+  const { wb } = buildMultiSheetWorkbook(filename, [{
+    sheetName: "Neg Inventory Report",
+    allRows: aoa,
+    cols,
+    rowHeights,
+    merges,
+    freeze: { xSplit: 0, ySplit: HEADER_ROW_COUNT },
+  }]);
 
   return {
     title: "Negative Inventory",
     aoa,
     wb,
-    filename: `Neg_Inventory_${fmtDate(today)}.xlsx`,
+    filename,
   };
 }

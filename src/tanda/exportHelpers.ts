@@ -52,9 +52,37 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
 
   // ── Canonical "ATS look" palette ──
   const BRAND = "1F497D"; const WHITE = "FFFFFF"; const LIGHT_GRAY = "EEF3FA"; const GRY = "D0D8E4"; const BODY = "1A202C";
+  const SPACER = "3278CC"; // lighter-blue ATS spacer column
+  const SPACER_WCH = 1.8;
   const allBorder = { top: xthin(GRY), bottom: xthin(GRY), left: xthin(GRY), right: xthin(GRY) };
   const FMT_QTY = "#,##0";
   const FMT_USD = "$#,##0.00";
+
+  // Insert lighter-blue spacer columns AFTER each given (original) column index,
+  // splitting the grid into ATS-style sections. Returns the widened rows/widths
+  // plus the spacer-column set and remapped dollar/qty column indices.
+  function withSpacers(rows: any[][], widths: number[], breakAfter: number[], dollarCols: number[], qtyCols: number[]) {
+    const breaks = new Set(breakAfter);
+    const origLen = Math.max(widths.length, ...rows.map((r) => r.length));
+    const map: number[] = [];
+    const newRows: any[][] = rows.map(() => []);
+    const newWidths: number[] = [];
+    const spacerCols = new Set<number>();
+    let ni = 0;
+    for (let oi = 0; oi < origLen; oi++) {
+      map[oi] = ni;
+      rows.forEach((row, ri) => { newRows[ri][ni] = row[oi] ?? ""; });
+      newWidths[ni] = widths[oi] ?? 14;
+      ni++;
+      if (breaks.has(oi)) {
+        spacerCols.add(ni);
+        rows.forEach((row, ri) => { newRows[ri][ni] = ""; });
+        newWidths[ni] = SPACER_WCH;
+        ni++;
+      }
+    }
+    return { rows: newRows, widths: newWidths, spacerCols, dollarCols: dollarCols.map((c) => map[c]), qtyCols: qtyCols.map((c) => map[c]) };
+  }
 
   const poInfoBlock: any[][] = [
     ["PO Number", po.PoNumber ?? "", "Vendor", po.VendorName ?? "", "Status", po.StatusName ?? ""],
@@ -66,10 +94,12 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
   const wb = newWorkbook();
 
   // Build one styled, logo'd worksheet from a header+data table.
-  function styleSheet(name: string, tableData: any[][], colWidths: number[], opts?: { totalRow?: boolean; dollarCols?: number[]; qtyCols?: number[] }) {
+  function styleSheet(name: string, tableData: any[][], colWidths: number[], opts?: { totalRow?: boolean; dollarCols?: number[]; qtyCols?: number[]; spacerCols?: Set<number> }) {
     const cols = Math.max(tableData[0]?.length || 2, 6);
     const ws = wb.addWorksheet(name);
     const start = addLogoBanner(wb, ws, { cols }); // rows 1-2 logo; report has its own title
+    const isSpacer = (c: number) => opts?.spacerCols?.has(c) ?? false;
+    const spacerCell = (cell: ExcelJS.Cell) => { cell.value = ""; cell.fill = xfill(SPACER); cell.border = {}; };
 
     ws.mergeCells(start, 1, start, cols);
     const tc = ws.getCell(start, 1);
@@ -87,19 +117,48 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
     ws.getRow(subR).height = 18;
 
     let r = subR + 1;
+    // Lay the PO info block over the NON-spacer columns only, merging each
+    // value across its group. Without this, the matrix/line-items separator
+    // column (≈1.8 wide) would trap an info value (e.g. the vendor name) and
+    // clip it. Falls back to the plain even layout when there are no spacers.
+    const usableCols: number[] = [];
+    for (let c = 0; c < cols; c++) if (!isSpacer(c)) usableCols.push(c);
+    const labelFont: any = { bold: true, size: 11, color: { argb: argb(BRAND) }, name: "Calibri" };
+    const valueFont: any = { size: 11, color: { argb: argb(BODY) }, name: "Calibri" };
     poInfoBlock.forEach((info, idx) => {
-      const isEven = idx % 2 === 0;
-      for (let c = 0; c < cols; c++) {
-        const cell = ws.getCell(r, c + 1);
-        cell.value = (info[c] ?? "") as ExcelJS.CellValue;
-        cell.fill = xfill(isEven ? LIGHT_GRAY : WHITE);
-        cell.border = allBorder;
-        cell.alignment = { vertical: "middle" };
-        cell.font = c % 2 === 0
-          ? { bold: true, size: 11, color: { argb: argb(BRAND) }, name: "Calibri" }
-          : { size: 11, color: { argb: argb(BODY) }, name: "Calibri" };
+      const fill = xfill(idx % 2 === 0 ? LIGHT_GRAY : WHITE);
+      for (let c = 0; c < cols; c++) { const cell = ws.getCell(r, c + 1); cell.value = ""; cell.fill = fill; cell.border = allBorder; cell.alignment = { vertical: "middle" }; }
+      const pairs: Array<[string, string]> = [];
+      for (let i = 0; i < 6; i += 2) if (info[i] != null && info[i] !== "") pairs.push([String(info[i]), String(info[i + 1] ?? "")]);
+      if (pairs.length === 0) { r++; return; }
+      // When there aren't enough non-spacer columns for a label + value cell
+      // per pair, combine each pair into one "Label: value" cell so nothing
+      // is dropped or clipped.
+      const separate = usableCols.length >= pairs.length * 2;
+      const placeCells: Array<{ text: string; bold: boolean }> = [];
+      for (const [lbl, val] of pairs) {
+        if (separate) { placeCells.push({ text: lbl, bold: true }); placeCells.push({ text: val, bold: false }); }
+        else placeCells.push({ text: val ? `${lbl}: ${val}` : lbl, bold: true });
       }
-      if (po.Memo && idx === poInfoBlock.length - 1) ws.mergeCells(r, 2, r, cols);
+      // Greedily assign non-spacer columns to each cell, merging across
+      // columns (incl. any spacer in between) until it's wide enough; reserve
+      // a column for each remaining cell so none gets squeezed out.
+      let ui = 0;
+      placeCells.forEach((pc, ci) => {
+        if (ui >= usableCols.length) return;
+        const isLast = ci === placeCells.length - 1;
+        const remaining = placeCells.length - ci - 1;
+        const maxUi = isLast ? usableCols.length : Math.max(ui + 1, usableCols.length - remaining);
+        const need = isLast ? Infinity : pc.text.length;
+        const startU = ui; let w = 0;
+        do { w += colWidths[usableCols[ui]] ?? 10; ui++; } while (ui < maxUi && w < need);
+        const c0 = usableCols[startU], c1 = usableCols[ui - 1];
+        if (c1 > c0) { try { ws.mergeCells(r, c0 + 1, r, c1 + 1); } catch { /* overlap */ } }
+        const cell = ws.getCell(r, c0 + 1);
+        cell.value = pc.text as ExcelJS.CellValue;
+        cell.font = pc.bold ? labelFont : valueFont;
+        cell.alignment = { vertical: "middle" };
+      });
       r++;
     });
 
@@ -109,6 +168,7 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
     const headerVals = tableData[0];
     for (let c = 0; c < cols; c++) {
       const cell = ws.getCell(r, c + 1);
+      if (isSpacer(c)) { spacerCell(cell); continue; }
       cell.value = (headerVals[c] ?? "") as ExcelJS.CellValue;
       cell.fill = xfill(BRAND);
       cell.font = { bold: true, size: 11, color: { argb: argb(WHITE) }, name: "Calibri" };
@@ -122,8 +182,9 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
       const isLast = !!opts?.totalRow && di === dataRows.length - 1;
       const isEven = di % 2 === 0;
       for (let c = 0; c < cols; c++) {
-        const v = dr[c] ?? "";
         const cell = ws.getCell(r, c + 1);
+        if (isSpacer(c)) { spacerCell(cell); continue; }
+        const v = dr[c] ?? "";
         cell.value = v as ExcelJS.CellValue;
         cell.border = allBorder;
         const isNum = typeof v === "number";
@@ -192,11 +253,14 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
     const mxDollar = [3 + nSz + 1, 3 + nSz + 2];
     const mxQty = [...sizeOrder.map((_: any, i: number) => 3 + i), 3 + nSz];
     const mxW = [18, 26, 14, ...sizeOrder.map(() => 10), 10, 12, 14];
-    styleSheet("Matrix", mxRows, mxW, { totalRow: true, dollarCols: mxDollar, qtyCols: mxQty });
+    // Separator after Color (style info → sizes). No separator before the totals.
+    const mxSp = withSpacers(mxRows, mxW, [2], mxDollar, mxQty);
+    styleSheet("Matrix", mxSp.rows, mxSp.widths, { totalRow: true, dollarCols: mxSp.dollarCols, qtyCols: mxSp.qtyCols, spacerCols: mxSp.spacerCols });
     const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
     items.forEach((item: any) => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
     lineData.push(["TOTAL", "", items.reduce((s: number, i: any) => s + itemQty(i), 0), "", totalVal]);
-    styleSheet("Line Items", lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] });
+    const liSp = withSpacers(lineData, [22, 32, 12, 14, 16], [1], [3, 4], [2]);
+    styleSheet("Line Items", liSp.rows, liSp.widths, { totalRow: true, dollarCols: liSp.dollarCols, qtyCols: liSp.qtyCols, spacerCols: liSp.spacerCols });
     fileName = `${poNum}_PO_Details.xlsx`;
 
   } else if (mode === "milestones") {
@@ -217,7 +281,8 @@ export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, mileston
     const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
     items.forEach((item: any) => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
     lineData.push(["TOTAL", "", items.reduce((s: number, i: any) => s + itemQty(i), 0), "", totalVal]);
-    styleSheet("Line Items", lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] });
+    const liSp = withSpacers(lineData, [22, 32, 12, 14, 16], [1], [3, 4], [2]);
+    styleSheet("Line Items", liSp.rows, liSp.widths, { totalRow: true, dollarCols: liSp.dollarCols, qtyCols: liSp.qtyCols, spacerCols: liSp.spacerCols });
     const poMs = milestones[poNum] || [];
     if (poMs.length > 0) {
       const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];

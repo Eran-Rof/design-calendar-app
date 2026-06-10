@@ -220,22 +220,6 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function autofitWidths(aoa: unknown[][]) {
-  if (aoa.length === 0) return [];
-  const colCount = Math.max(...aoa.map((r) => r.length));
-  const widths: { wch: number }[] = [];
-  for (let c = 0; c < colCount; c += 1) {
-    let max = 4;
-    for (let r = 0; r < aoa.length; r += 1) {
-      const v = aoa[r][c];
-      const s = v == null ? "" : String(v);
-      if (s.length > max) max = s.length;
-    }
-    widths.push({ wch: Math.min(60, max + 2) });
-  }
-  return widths;
-}
-
 // Ring of Fire branded xlsx — canonical "ATS look" (blue header band, zebra
 // rows, bold-blue first column) with the logo stamped on top. Every Tangerine
 // panel export inherits this through the shared hook.
@@ -248,7 +232,6 @@ export async function exportXlsx<T extends Record<string, unknown>>(args: UseTab
 // unit-tested and previewed.
 export function buildTableWorkbook<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
   const cols = args.columns && args.columns.length > 0 ? args.columns : inferColumns(args.rows);
-  const aoa = buildAoA(args.rows, cols); // [header, ...coerced body]
   const wb = newWorkbook();
   const ws = wb.addWorksheet((args.sheetName || "Sheet1").replace(/[\\/*?:[\]]/g, "-").slice(0, 31));
   const start = addLogoBanner(wb, ws, {
@@ -292,8 +275,17 @@ export function buildTableWorkbook<T extends Record<string, unknown>>(args: UseT
     });
   });
 
-  // Auto-fit widths from the coerced AOA (cap 60), then freeze the header.
-  autofitWidths(aoa).forEach((w, i) => { ws.getColumn(i + 1).width = w.wch; });
+  // Auto-fit widths from the DISPLAYED text (so "$12,500.00", "45.0%" etc.
+  // fit — the coerced numeric value is shorter than its formatted render),
+  // cap 60, then freeze the header.
+  cols.forEach((c, i) => {
+    let max = String(c.header ?? c.key).length;
+    for (const r of args.rows) {
+      const d = formatCellDisplay(r[c.key], c as unknown as ExportColumn<Record<string, unknown>>);
+      if (d.length > max) max = d.length;
+    }
+    ws.getColumn(i + 1).width = Math.min(60, max + 2);
+  });
   ws.views = [{ state: "frozen", xSplit: 0, ySplit: start }];
 
   return wb;

@@ -214,8 +214,15 @@ export function autofitColumns({ headerRow, bodyRows, spacerCols }: AutofitInput
       if (!cell) continue;
       let s: string;
       if (cell.f) s = "999,999";
-      else if (typeof cell.v === "number") s = cell.v.toLocaleString();
-      else s = String(cell.v ?? "");
+      else if (typeof cell.v === "number") {
+        // Estimate the DISPLAYED length, honoring the cell's number format —
+        // currency ($ + grouping + decimals) and percent (×100 + "%") render
+        // longer than the raw value, so sizing off raw length would clip.
+        const nf: string = cell.s?.numFmt ?? "";
+        if (nf.includes("$")) s = "$" + Math.abs(cell.v).toLocaleString(undefined, { minimumFractionDigits: /\.0*0/.test(nf) ? 2 : 0, maximumFractionDigits: 2 }) + (cell.v < 0 ? "-" : "");
+        else if (nf.includes("%")) s = (cell.v * 100).toFixed(/0\.0/.test(nf) ? 1 : 0) + "%";
+        else s = cell.v.toLocaleString();
+      } else s = String(cell.v ?? "");
       if (s.length > maxLen) maxLen = s.length;
     }
     out.push({ wch: Math.min(AUTOFIT_MAX, maxLen + AUTOFIT_PAD) });

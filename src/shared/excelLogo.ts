@@ -318,9 +318,14 @@ function applyAoaStyle(cell: ExcelJS.Cell, s: any, z?: string): void {
   }
   if (s?.border) {
     const b: Partial<ExcelJS.Borders> = {};
+    // A border with no explicit color renders BLACK in Excel. Fall back to the
+    // cell's own fill (the prevailing color of the box) so a stray colorless
+    // border blends in instead of showing a black frame; final fallback is the
+    // light grid color.
+    const fallback = s.fill?.fgColor?.rgb ?? XLP.ROW_BORDER;
     (["top", "bottom", "left", "right"] as const).forEach((side) => {
       const bd = s.border[side];
-      if (bd) b[side] = { style: bd.style, color: bd.color?.rgb ? { argb: argb(bd.color.rgb) } : undefined };
+      if (bd) b[side] = { style: bd.style, color: { argb: argb(bd.color?.rgb ?? fallback) } };
     });
     cell.border = b;
   }
