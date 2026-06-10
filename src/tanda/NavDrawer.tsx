@@ -33,18 +33,8 @@ export const DRAWER_W_CLOSED = 56;
 export const TOPBAR_H        = 40;   // slim top bar height consumed by content
 
 // ── favorites: menu_key (registry) ↔ moduleKey (?m= param) ───────────────
-const modToMenuKey: Record<string, string> = (() => {
-  const out: Record<string, string> = {};
-  for (const e of MENU_KEYS) {
-    if (e.app !== "tanda") continue;
-    const m = (e.route || "").match(/[?&]m=([^&]+)/);
-    if (m) out[m[1]] = e.key;
-  }
-  return out;
-})();
-const menuKeyToMod: Record<string, string> = Object.fromEntries(
-  Object.entries(modToMenuKey).map(([a, b]) => [b, a]),
-);
+// Computed inside the component now (keyed by the appKey prop) so each app
+// resolves its own menu_key rows. See modToMenuKey/menuKeyToMod useMemos below.
 
 // ── usage counts (localStorage) ───────────────────────────────────────────
 const COUNTS_LS = "tangerine:nav:counts:v1";
@@ -87,9 +77,14 @@ interface Props {
   sections: NavSection[];
   /** Optional per-group icon, keyed by group name — shown on group sub-headers. */
   groupIcons?: Record<string, string>;
-  canPlanning: boolean;
+  canPlanning?: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /** App identity — filters favorites/telemetry menu_key rows + drawer branding.
+   *  Defaults preserve the Tangerine shell's existing behavior. */
+  appKey?: string;
+  appLabel?: string;
+  logoText?: string;
 }
 
 // ── avatar helpers ────────────────────────────────────────────────────────
@@ -121,10 +116,26 @@ export function NavDrawer({
   activeModule, onSelectModule,
   userEmail, userName, userPhotoUrl, onSignOut,
   modules, sections, groupIcons,
-  canPlanning,
+  canPlanning = false,
   collapsed, onToggleCollapsed,
+  appKey = "tanda",
+  appLabel = "Tangerine",
+  logoText = "T",
 }: Props) {
-  const { favorites, logClick } = usePersonalization();
+  const { favorites, toggleFavorite, logClick } = usePersonalization();
+  const modToMenuKey = useMemo<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const e of MENU_KEYS) {
+      if (e.app !== appKey) continue;
+      const m = (e.route || "").match(/[?&]m=([^&]+)/);
+      if (m) out[m[1]] = e.key;
+    }
+    return out;
+  }, [appKey]);
+  const menuKeyToMod = useMemo<Record<string, string>>(
+    () => Object.fromEntries(Object.entries(modToMenuKey).map(([a, b]) => [b, a])),
+    [modToMenuKey],
+  );
   const [counts, setCounts]     = useState<Record<string, number>>(loadCounts);
   const [search, setSearch]     = useState("");
   const [userOpen, setUserOpen] = useState(false);
@@ -251,6 +262,7 @@ export function NavDrawer({
     [favorites, modules],
   );
   const activeMenuKey = activeModule ? modToMenuKey[activeModule] : null;
+  const isActiveFav   = !!activeMenuKey && favorites.includes(activeMenuKey);
 
   // ── search ────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
@@ -316,11 +328,11 @@ export function NavDrawer({
               onClick={e => { e.stopPropagation(); onSelectModule(null); }}
               title="Home"
               style={{ width:26, height:26, borderRadius:6, background:C.logo, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:13, color:"#fff", flexShrink:0, cursor:"pointer" }}
-            >T</div>
+            >{logoText}</div>
             <span
               style={{ fontWeight:700, fontSize:14, letterSpacing:0.3, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}
               onClick={e => { e.stopPropagation(); onSelectModule(null); }}
-            >Tangerine</span>
+            >{appLabel}</span>
             <button
               onClick={e => { e.stopPropagation(); onToggleCollapsed(); }}
               title="Collapse menu"
@@ -414,7 +426,14 @@ export function NavDrawer({
               ? <div title="Favorites" style={{ textAlign:"center", padding:"9px 0 4px", color:C.star, fontSize:14 }}>⭐</div>
               : (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 10px 4px" }}>
-                  <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>⭐ Favorites</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>Favorites</span>
+                  {activeModule && (
+                    <button
+                      title={isActiveFav ? "Remove from favorites" : "Star this view"}
+                      onClick={e => { e.stopPropagation(); const mk = modToMenuKey[activeModule ?? ""]; if (mk) void toggleFavorite(mk); }}
+                      style={{ background:"none", border:"none", cursor:"pointer", fontSize:15, color: isActiveFav ? C.star : C.textMuted, padding:0, lineHeight:1 }}
+                    >{isActiveFav ? "★" : "☆"}</button>
+                  )}
                 </div>
               )
             }
