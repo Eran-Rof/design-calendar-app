@@ -85,6 +85,9 @@ interface Props {
   appKey?: string;
   appLabel?: string;
   logoText?: string;
+  /** Query param in menu_key routes that carries the module key (Tangerine="m",
+   *  GS1="tab", Costing="view", …). Used to resolve favorites/telemetry. */
+  moduleParam?: string;
 }
 
 // ── avatar helpers ────────────────────────────────────────────────────────
@@ -121,17 +124,19 @@ export function NavDrawer({
   appKey = "tanda",
   appLabel = "Tangerine",
   logoText = "T",
+  moduleParam = "m",
 }: Props) {
   const { favorites, toggleFavorite, logClick } = usePersonalization();
   const modToMenuKey = useMemo<Record<string, string>>(() => {
+    const re = new RegExp(`[?&]${moduleParam}=([^&]+)`);
     const out: Record<string, string> = {};
     for (const e of MENU_KEYS) {
       if (e.app !== appKey) continue;
-      const m = (e.route || "").match(/[?&]m=([^&]+)/);
+      const m = (e.route || "").match(re);
       if (m) out[m[1]] = e.key;
     }
     return out;
-  }, [appKey]);
+  }, [appKey, moduleParam]);
   const menuKeyToMod = useMemo<Record<string, string>>(
     () => Object.fromEntries(Object.entries(modToMenuKey).map(([a, b]) => [b, a])),
     [modToMenuKey],
