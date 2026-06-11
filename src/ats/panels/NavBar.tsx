@@ -8,6 +8,7 @@ import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { buildExportPayload, type ExportPayload, type AtsSizeMatrixResponse } from "../exportExcel";
+import { fetchDataUrls } from "../../shared/exportImages";
 import type { ReportPayload } from "../reportPayload";
 import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
@@ -24,6 +25,42 @@ import { onAskAIRequest } from "../../ai/askAIBridge";
 import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import FavoritesMenu from "../../components/FavoritesMenu";
+
+// Build "STYLE|COLOR" → base64 data URL for the export's Image column. Resolves
+// each row's color-matched thumbnail (byColor[color] → style default) from the
+// PIM (same source + match logic as the grid), fetches the bytes (deduped),
+// and keys by the same STYLE|COLOR the export looks up. Failures are skipped —
+// a missing thumbnail never blocks the export.
+async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, string>> {
+  const codes = Array.from(new Set(rows.map((r) => (r.master_style ?? "").trim().toUpperCase()).filter(Boolean)));
+  if (codes.length === 0) return new Map();
+  let info: Record<string, { default: string | null; byColor: Record<string, string> }> = {};
+  try {
+    const res = await fetch("/api/internal/pim/style-thumbs-by-code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ style_codes: codes }),
+    });
+    if (res.ok) info = await res.json();
+  } catch { /* no images — column just stays blank */ }
+  const keyToUrl = new Map<string, string>();
+  const urls = new Set<string>();
+  for (const r of rows) {
+    const code = (r.master_style ?? "").trim().toUpperCase();
+    const colorRaw = (r.master_color ?? "").trim();
+    const ent = info[code];
+    if (!ent) continue;
+    const url = ent.byColor?.[colorRaw.toLowerCase()] ?? ent.default ?? "";
+    if (!url) continue;
+    keyToUrl.set(`${code}|${colorRaw.toUpperCase()}`, url);
+    urls.add(url);
+  }
+  if (urls.size === 0) return new Map();
+  const dataByUrl = await fetchDataUrls([...urls]);
+  const out = new Map<string, string>();
+  for (const [key, url] of keyToUrl) { const d = dataByUrl.get(url); if (d) out.set(key, d); }
+  return out;
+}
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -215,6 +252,7 @@ interface NavBarProps {
     sizeMatrix?: AtsSizeMatrixResponse,
     bulkByStyleColor?: Map<string, { so: number; po: number }>,
     periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
+    styleImages?: Map<string, string>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
@@ -1060,7 +1098,10 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices };
+    // Style thumbnails for the optional Image column — fetched here (async)
+    // so buildExportPayload stays synchronous. Off → undefined → no column.
+    const styleImages = opts.images ? await buildStyleImageMap(finalRows) : undefined;
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices, styleImages };
   }
 
   return (
@@ -1383,6 +1424,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.sizeMatrix,
           prep.bulkByStyleColor,
           prep.periodMatrices,
+          prep.styleImages,
         );
         setExportOptsOpen(false);
       }}
@@ -1402,6 +1444,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.sizeMatrix,
           prep.bulkByStyleColor,
           prep.periodMatrices,
+          prep.styleImages,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's
