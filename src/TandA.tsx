@@ -86,6 +86,11 @@ import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { tandaViewToMenuKey } from "./lib/tandaViewToMenuKey";
 import { useDocumentTitle, humanizeView } from "./shared/useDocumentTitle";
+// Shared left navigation drawer (de-iconed) — replaces the custom top-nav
+// dropdowns. appKey="powip" + moduleParam="view" so the drawer resolves the
+// existing powip/* favorites + menu-click telemetry rows. See tandaModules.ts.
+import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
+import { TANDA_MODULES, TANDA_SECTIONS } from "./tandaModules";
 
 // Browser-tab labels for the PO WIP views. Only keys humanizeView() can't
 // derive cleanly are listed; everything else falls back to title-case.
@@ -455,6 +460,16 @@ function TandAApp() {
   // ── Core PO state (from useTandaStore) ──
   const user = core.user;
   const view = core.view;
+  // Shared NavDrawer collapse state (mirrors the other apps' nav shells).
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("tanda:nav:collapsed:v1") === "1"; } catch { return false; }
+  });
+  const toggleNav = () => setNavCollapsed(v => {
+    const next = !v;
+    try { localStorage.setItem("tanda:nav:collapsed:v1", next ? "1" : "0"); } catch {}
+    return next;
+  });
+  const navOffset = navCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN;
   // Reflect the active view in the browser tab.
   useDocumentTitle(`${PO_WIP_VIEW_LABELS[view] ?? humanizeView(view)} · PO WIP`);
   const pos = core.pos;
@@ -467,12 +482,10 @@ function TandAApp() {
   // Cross-cutter T4-3 — personalization. Pull logClick once; the hook
   // is cheap and shares a module-level cache so re-mounts don't refetch.
   const { logClick: logMenuClick } = usePersonalization();
-  const setView = (v: View) => {
-    // Fire-and-forget menu-click telemetry. Mapped views (top nav +
-    // vendor flyout) hit /api/internal/users/me/menu-click; unmapped
-    // internal views (e.g. drill-down detail panels) silently skip.
-    const mk = tandaViewToMenuKey(v as unknown as string);
-    if (mk) logMenuClick(mk);
+  // View change WITHOUT menu-click telemetry. Used by the shared <NavDrawer>,
+  // which fires its OWN logClick (resolved from moduleParam="view" + the
+  // powip/* menu_keys) — routing the drawer through setView() would double-log.
+  const setViewNoLog = (v: View) => {
     // Reflect the active view in the URL (?view=) so "Star this view" /
     // FavoritesMenu can detect it (it reads window.location), and so the view
     // is deep-linkable. No reload.
@@ -482,6 +495,14 @@ function TandAApp() {
       window.history.replaceState(window.history.state, "", u);
     } catch { /* non-fatal */ }
     coreSet("view", v);
+  };
+  const setView = (v: View) => {
+    // Fire-and-forget menu-click telemetry. Mapped views (top nav +
+    // vendor flyout) hit /api/internal/users/me/menu-click; unmapped
+    // internal views (e.g. drill-down detail panels) silently skip.
+    const mk = tandaViewToMenuKey(v as unknown as string);
+    if (mk) logMenuClick(mk);
+    setViewNoLog(v);
   };
   const setPos = (v: any) => { if (typeof v === "function") coreSet("pos", v(useTandaStore.getState().pos)); else coreSet("pos", v); };
   const setNotes = (v: any) => { if (typeof v === "function") coreSet("notes", v(useTandaStore.getState().notes)); else coreSet("notes", v); };
@@ -1532,6 +1553,36 @@ function TandAApp() {
     setShowBulkUpdate(true); setBulkVendor(""); setBulkPhase(""); setBulkPhases([]);
     setBulkCategory(""); setBulkStatus(""); setBulkPOs([]); setBulkPOSearch("");
   }
+  // ── Shared NavDrawer dispatch ──────────────────────────────────────────────
+  // The drawer's onSelectModule passes a module key (== a TandA `view` string).
+  // It logs the click itself (powip/* menu_key via moduleParam="view"), so the
+  // view change here goes through setViewNoLog to avoid double-logging. Each
+  // module's ORIGINAL behavior from the old custom nav is preserved:
+  //   • email          → openEmailView (its own guarded MS-Graph priming)
+  //   • phase_reviews  → hard-navigates to the ROF /rof/phase-reviews route
+  //   • archive/vendors→ also call loadArchivedPOs()
+  //   • timeline       → seeds the search box with the selected PO number
+  //   • all others     → plain setSelected(null) + view swap
+  // null key (logo "Home" click) falls back to the dashboard.
+  function dispatchNav(k: string | null) {
+    const v = (k ?? "dashboard") as View;
+    if (v === "email") { openEmailView(); return; }
+    guardedNav(() => {
+      if (v === "phase_reviews") {
+        // ROF approval page — top-level route outside TandA; hard navigate.
+        window.location.href = "/rof/phase-reviews";
+        return;
+      }
+      if (v === "timeline") {
+        if (selected) setSearch(selected.PoNumber ?? "");
+        setViewNoLog("timeline");
+        return;
+      }
+      setSelected(null);
+      setViewNoLog(v);
+      if (v === "archive" || v === "vendors") loadArchivedPOs();
+    });
+  }
   function closeSettingsGuarded() {
     if (tplDirtyGlobal) {
       setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save Changes", confirmColor: "#2563EB", cancelText: "🗑 Discard", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setShowSettings(false); } });
@@ -1618,110 +1669,86 @@ function TandAApp() {
   // ════════════════════════════════════════════════════════════════════════════
   return (
     <div style={S.app}>
-      {/* NAV */}
-      <nav style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>PO</div>
-          <span style={S.navTitle}>Purchase Orders</span>
-          <span style={S.navSub}>via XoroERP</span>
-        </div>
-        <div style={S.navRight}>
-          <button
-            style={{
-              ...S.navBtn,
-              background: "#7C3AED",
-              border: "1px solid #5B21B6",
-              color: "#fff",
-              fontWeight: 600,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-            onClick={() => setAiOpen(true)}
-            title="Ask Claude about POs, vendors, invoices, shipments — anything ROF"
-          >
-            ✨ Ask AI
-          </button>
-          <button
-            style={{
-              ...(view === "notifications" ? S.navBtnActive : S.navBtn),
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              position: "relative",
-            }}
-            onClick={() => guardedNav(() => { setSelected(null); setView("notifications"); })}
-            title="Notifications"
-          >
-            🔔 Notifications
-            {unreadNotifs > 0 && (
-              <span style={{
-                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
-                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-              }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
-            )}
-          </button>
-          {/* Favorites — first action icon (consistent across all apps). */}
-          <FavoritesMenu />
-          {/* Menu consolidated into 4 section dropdowns + a view finder. */}
-          <TandaNavSearch items={[
-            { label: "🏠 Dashboard", view: "dashboard", onClick: () => guardedNav(() => { setSelected(null); setView("dashboard"); }) },
-            { label: "All POs", view: "list", onClick: () => guardedNav(() => { setSelected(null); setView("list"); }) },
-            { label: "🗂 Grid", view: "grid", onClick: () => guardedNav(() => { setSelected(null); setView("grid"); }) },
-            { label: "📊 Timeline", view: "timeline", onClick: () => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }) },
-            { label: "📦 Archive", view: "archive", onClick: () => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); }) },
-            { label: "📐 Templates", view: "templates", onClick: () => guardedNav(() => { setSelected(null); setView("templates"); }) },
-            { label: "💬 Teams", view: "teams", onClick: () => guardedNav(() => { setSelected(null); setView("teams"); }) },
-            { label: "📧 Email", view: "email", onClick: openEmailView },
-            { label: "📋 Activity", view: "activity", onClick: () => guardedNav(() => { setSelected(null); setView("activity"); }) },
-            { label: "⚡ Bulk Update", onClick: openBulkUpdate },
-            { label: "🔄 Sync POs", onClick: () => { if (!syncing) { setShowSyncModal(true); loadVendors(); } } },
-            { label: "⚙️ Settings", onClick: () => setShowSettings(true) },
-          ]} />
-          <TandaNavMenu label="Purchase Orders" emoji="📋" view={view} items={[
-            { label: "🏠 Dashboard", view: "dashboard", onClick: () => guardedNav(() => { setSelected(null); setView("dashboard"); }) },
-            { label: "All POs", view: "list", onClick: () => guardedNav(() => { setSelected(null); setView("list"); }) },
-            { label: "🗂 Grid", view: "grid", onClick: () => guardedNav(() => { setSelected(null); setView("grid"); }) },
-            { label: "📊 Timeline", view: "timeline", onClick: () => guardedNav(() => { if (selected) setSearch(selected.PoNumber ?? ""); setView("timeline"); }) },
-            { label: `📦 Archive${archivedPos.length > 0 ? ` (${archivedPos.length})` : ""}`, view: "archive", onClick: () => guardedNav(() => { setSelected(null); setView("archive"); loadArchivedPOs(); }) },
-            { label: "📐 Templates", view: "templates", onClick: () => guardedNav(() => { setSelected(null); setView("templates"); }) },
-          ]} />
-          <TandaNavMenu label="Collaboration" emoji="💬" view={view} items={[
-            { label: "💬 Teams", view: "teams", onClick: () => guardedNav(() => { setSelected(null); setView("teams"); }) },
-            { label: "📧 Email", view: "email", onClick: openEmailView },
-            { label: "📋 Activity", view: "activity", onClick: () => guardedNav(() => { setSelected(null); setView("activity"); }) },
-          ]} />
-          <VendorsMenu view={view} onSelect={(v) => guardedNav(() => {
-            // "phase_reviews" is the ROF approval page — it lives at
-            // a top-level route outside TandA, so we navigate hard
-            // instead of changing the in-app view.
-            if (v === "phase_reviews") {
-              window.location.href = "/rof/phase-reviews";
-              return;
-            }
-            setSelected(null);
-            setView(v);
-            if (v === "vendors") loadArchivedPOs();
-          })} />
-          <TandaNavMenu label="Tools & Settings" emoji="⚙️" view={view} items={[
-            { label: "⚡ Bulk Update", onClick: openBulkUpdate },
-            { label: syncing ? "⏳ Syncing…" : "🔄 Sync POs", onClick: () => { if (!syncing) { setShowSyncModal(true); loadVendors(); } } },
-            ...(syncing ? [{ label: "✕ Cancel sync", onClick: () => cancelSync() }] : []),
-            { label: "⚙️ Settings", onClick: () => setShowSettings(true) },
-          ]} />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {user.avatar ? (
-              <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-            ) : (
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: user.color ?? "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{user.initials || (user.name || user.username || "?").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)}</div>
-            )}
-            <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>{user.name || user.username}</span>
-          </div>
-          <button style={S.navBtn} onClick={() => window.location.href = "/"}>← PLM</button>
-          <button style={S.navBtnDanger} onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}>Sign Out</button>
-        </div>
-      </nav>
+      {/* ── Shared left navigation drawer (de-iconed) ── */}
+      <NavDrawer
+        appKey="powip"
+        appLabel="PO WIP"
+        logoText="PO"
+        moduleParam="view"
+        modules={TANDA_MODULES}
+        sections={TANDA_SECTIONS}
+        activeModule={view}
+        onSelectModule={dispatchNav}
+        userEmail={null}
+        userName={user.name || user.username || null}
+        userPhotoUrl={user.avatar ?? null}
+        onSignOut={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}
+        collapsed={navCollapsed}
+        onToggleCollapsed={toggleNav}
+      />
+
+      {/* ── Slim top bar — Ask AI, Notifications, Favorites, view finder, and
+              the action buttons that aren't drawer modules (Bulk/Sync/Settings),
+              plus the back-to-PLM link. Offset to the right of the drawer. ── */}
+      <div style={{
+        position: "fixed", top: 0, right: 0, left: navOffset,
+        height: 48, zIndex: 150,
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        gap: 8, padding: "0 16px",
+        background: "#1E293B", borderBottom: "1px solid #334155",
+        transition: "left 0.2s ease",
+      }}>
+        <button
+          style={{ ...S.navBtn, background: "#7C3AED", border: "1px solid #5B21B6", color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
+          onClick={() => setAiOpen(true)}
+          title="Ask Claude about POs, vendors, invoices, shipments — anything ROF"
+        >
+          ✨ Ask AI
+        </button>
+        <button
+          style={{ ...(view === "notifications" ? S.navBtnActive : S.navBtn), display: "inline-flex", alignItems: "center", gap: 6, position: "relative" }}
+          onClick={() => guardedNav(() => { setSelected(null); setView("notifications"); })}
+          title="Notifications"
+        >
+          🔔 Notifications
+          {unreadNotifs > 0 && (
+            <span style={{
+              minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+              background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+            }}>{unreadNotifs > 9 ? "9+" : unreadNotifs}</span>
+          )}
+        </button>
+        {/* Favorites — first action icon (consistent across all apps). */}
+        <FavoritesMenu />
+        {/* View finder — also reaches the non-module actions (Bulk/Sync/Settings). */}
+        <TandaNavSearch items={[
+          { label: "🏠 Dashboard", view: "dashboard", onClick: () => dispatchNav("dashboard") },
+          { label: "All POs", view: "list", onClick: () => dispatchNav("list") },
+          { label: "🗂 Grid", view: "grid", onClick: () => dispatchNav("grid") },
+          { label: "📊 Timeline", view: "timeline", onClick: () => dispatchNav("timeline") },
+          { label: "📦 Archive", view: "archive", onClick: () => dispatchNav("archive") },
+          { label: "📐 Templates", view: "templates", onClick: () => dispatchNav("templates") },
+          { label: "💬 Teams", view: "teams", onClick: () => dispatchNav("teams") },
+          { label: "📧 Email", view: "email", onClick: () => dispatchNav("email") },
+          { label: "📋 Activity", view: "activity", onClick: () => dispatchNav("activity") },
+          { label: "⚡ Bulk Update", onClick: openBulkUpdate },
+          { label: "🔄 Sync POs", onClick: () => { if (!syncing) { setShowSyncModal(true); loadVendors(); } } },
+          { label: "⚙️ Settings", onClick: () => setShowSettings(true) },
+        ]} />
+        {/* Bulk / Sync / Settings — not drawer modules; kept as top-bar buttons. */}
+        <button style={S.navBtn} onClick={openBulkUpdate} title="Bulk update milestones">⚡ Bulk</button>
+        <button
+          style={syncing ? S.navBtnActive : S.navBtn}
+          onClick={() => { if (!syncing) { setShowSyncModal(true); loadVendors(); } }}
+          title="Sync POs from XoroERP"
+        >{syncing ? "⏳ Syncing…" : "🔄 Sync"}</button>
+        {syncing && (
+          <button style={S.navBtnDanger} onClick={() => cancelSync()} title="Cancel sync">✕</button>
+        )}
+        <button style={S.navBtn} onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
+        <button style={S.navBtn} onClick={() => window.location.href = "/"} title="Back to PLM launcher">← PLM</button>
+      </div>
 
       {/* SYNC ERROR MODAL */}
       {syncErr && (
@@ -1735,7 +1762,7 @@ function TandAApp() {
         </div>
       )}
 
-      <div style={S.content}>
+      <div style={{ ...S.content, marginLeft: navOffset, marginRight: 0, maxWidth: `calc(100% - ${navOffset}px)`, paddingTop: 48 + 24, transition: "margin-left 0.2s ease", boxSizing: "border-box" }}>
         {/* ── DASHBOARD ── */}
         {view === "dashboard" && <DashboardView
           pos={pos} filtered={filtered} search={search} setSearch={setSearch}
