@@ -1246,12 +1246,19 @@ export default function InternalInventoryMatrix() {
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
             Loading inventory…
           </div>
-        ) : brandPayloads.length === 0 ? (
+        ) : brandStyles.length === 0 ? (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-            No styles with inventory{brandId ? " for this brand" : ""}.
+            No styles match{brandId ? " for this brand" : ""}.
           </div>
         ) : (() => {
           const totalStyles = brandStyles.length;
+          // Render one block per style on this page — including styles with no
+          // on-hand (a slim stub) — so the rendered block count always matches the
+          // "Styles X–Y of N" header. Previously only brandPayloads rendered, so a
+          // zero-on-hand sibling (e.g. a -PPK or -KO style) was counted but
+          // invisible: the header read "3 of 3" while one block showed.
+          const pageStyles = brandStyles.slice(multiPage * MULTI_PAGE_SIZE, multiPage * MULTI_PAGE_SIZE + MULTI_PAGE_SIZE);
+          const payloadById = new Map(brandPayloads.map((b) => [b.style.id, b.payload] as const));
           const totalPages = Math.ceil(totalStyles / MULTI_PAGE_SIZE);
           const pageStart = multiPage * MULTI_PAGE_SIZE + 1;
           const pageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, totalStyles);
@@ -1276,11 +1283,24 @@ export default function InternalInventoryMatrix() {
           return (
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
             <PagBar />
-            {brandPayloads.map(({ style: bStyle, payload: bPayload }) => {
-              const bRises = bPayload.rises ?? [];
+            {pageStyles.map((bStyle) => {
+              const bPayload = payloadById.get(bStyle.id);
+              // Shared clickable style header — drills into the single-style view
+              // (and its SO / PO / Invoice tabs) whether or not the style has stock.
+              const header = (
+                <div
+                  onClick={() => setStyleId(bStyle.id)}
+                  title="Open this style (SO / PO / Invoice tabs)"
+                  style={{ padding: "6px 12px", background: C.card, borderRadius: "8px 8px 0 0", border: `1px solid ${C.sectionBdr}`, borderBottom: "none", fontSize: 13, fontWeight: 700, color: C.base, fontFamily: "monospace", cursor: "pointer" }}
+                >
+                  {bStyle.style_code}{bStyle.style_name ? ` — ${bStyle.style_name}` : ""}
+                </div>
+              );
+
+              const bRises = bPayload?.rises ?? [];
               const bShowRise = bRises.length > 1;
-              const bSizeOrder = bPayload.sizes.length ? bPayload.sizes :
-                (() => { const s: string[] = []; for (const sk of bPayload.skus) if (sk.size && !s.includes(sk.size)) s.push(sk.size); return s; })();
+              const bSizeOrder = bPayload ? (bPayload.sizes.length ? bPayload.sizes :
+                (() => { const s: string[] = []; for (const sk of bPayload.skus) if (sk.size && !s.includes(sk.size)) s.push(sk.size); return s; })()) : [];
               const bSkuQty = (s: MatrixSku) => {
                 if (warehouse !== ALL_WAREHOUSES) return num((s.on_hand_by_wh || {})[warehouse]);
                 return num(s.on_hand_qty);
@@ -1291,12 +1311,30 @@ export default function InternalInventoryMatrix() {
               };
               // Per-block inseam state: split this style by inseam when the
               // global By Inseam toggle is on AND this style's scale has inseams.
-              const bInseamOrder = computeInseamOrder(bPayload, scales);
+              const bInseamOrder = bPayload ? computeInseamOrder(bPayload, scales) : [];
               const bByInseam = inseamMode && bInseamOrder.length > 0;
               const bShowSecondary = bByInseam || bShowRise;
-              const bRows = buildMatrixRows(bPayload, [], bShowRise, bSkuQty, bCellQty, bByInseam)
-                .filter((r) => !hideZeros || r.totalQty !== 0);
-              if (bRows.length === 0) return null;
+              const bRows = bPayload
+                ? buildMatrixRows(bPayload, [], bShowRise, bSkuQty, bCellQty, bByInseam).filter((r) => !hideZeros || r.totalQty !== 0)
+                : [];
+
+              // No visible rows — no inventory record, or every row zeroed out by
+              // the warehouse + Hide-Zeros filters. Render a slim stub (not null) so
+              // the style stays visible + clickable and the count stays honest.
+              if (bRows.length === 0) {
+                const stubMsg = !bPayload
+                  ? "No inventory records for this style."
+                  : `No on-hand inventory${whActive ? ` at ${warehouse}` : ""}${hideZeros ? " — turn off Hide Zeros to show zero rows." : "."}`;
+                return (
+                  <div key={bStyle.id}>
+                    {header}
+                    <div style={{ background: C.headerBg, borderRadius: "0 0 8px 8px", border: `1px solid ${C.sectionBdr}`, borderTop: "none", padding: "10px 14px", color: C.textMuted, fontSize: 12, fontStyle: "italic" }}>
+                      {stubMsg}
+                    </div>
+                  </div>
+                );
+              }
+
               const bInseamModel = bByInseam ? buildInseamModel(bRows, bInseamOrder) : null;
               const bColSpan = bShowSecondary ? 3 : 2; // Image + Color [+ Rise/Inseam]
               const bColTotals: Record<string, number> = {};
@@ -1305,13 +1343,7 @@ export default function InternalInventoryMatrix() {
               const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
               return (
                 <div key={bStyle.id}>
-                  <div
-                    onClick={() => setStyleId(bStyle.id)}
-                    title="Open this style (SO / PO / Invoice tabs)"
-                    style={{ padding: "6px 12px", background: C.card, borderRadius: "8px 8px 0 0", border: `1px solid ${C.sectionBdr}`, borderBottom: "none", fontSize: 13, fontWeight: 700, color: C.base, fontFamily: "monospace", cursor: "pointer" }}
-                  >
-                    {bStyle.style_code}{bStyle.style_name ? ` — ${bStyle.style_name}` : ""}
-                  </div>
+                  {header}
                   <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: "0 0 8px 8px", border: `1px solid ${C.sectionBdr}` }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
