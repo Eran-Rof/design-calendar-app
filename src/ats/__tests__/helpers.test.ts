@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { addDays, fmtDate, fmtDateDisplay, fmtDateShort, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, normalizeSku, skuSimilarity } from "../helpers";
+import { addDays, fmtDate, fmtDateDisplay, fmtDateShort, isToday, isWeekend, getQtyColor, getQtyBg, xoroSkuToExcel, normalizeSku, skuSimilarity, normalizeColor, pickColorImage } from "../helpers";
 
 describe("addDays", () => {
   it("adds positive days", () => {
@@ -151,5 +151,37 @@ describe("skuSimilarity", () => {
   });
   it("returns 0 for very short strings", () => {
     expect(skuSimilarity("A", "B")).toBe(0);
+  });
+});
+
+describe("normalizeColor", () => {
+  it("expands the PIM-vs-inventory abbreviation gap (Blk ↔ Black)", () => {
+    expect(normalizeColor("Blk Camo")).toBe("black camo");
+    expect(normalizeColor("Black Camo")).toBe("black camo");
+    expect(normalizeColor("Blk Camo")).toBe(normalizeColor("Black Camo"));
+  });
+  it("splits on any non-alphanumeric run + lowercases", () => {
+    expect(normalizeColor("BLACK/SALSA")).toBe("black salsa");
+    expect(normalizeColor("Lt-Wash")).toBe("light wash");
+    expect(normalizeColor("  Grey  ")).toBe("gray");
+  });
+  it("handles null/empty", () => {
+    expect(normalizeColor(null)).toBe("");
+    expect(normalizeColor("")).toBe("");
+  });
+});
+
+describe("pickColorImage", () => {
+  const byColor = { "black camo": "url-bc", "khaki": "url-k" };
+  it("matches an abbreviated color to the spelled-out PIM key", () => {
+    expect(pickColorImage(byColor, "Blk Camo", "def")).toBe("url-bc");
+  });
+  it("exact lowercase match still works (no behavior change)", () => {
+    expect(pickColorImage(byColor, "Khaki", "def")).toBe("url-k");
+  });
+  it("falls back to the default when no color matches", () => {
+    expect(pickColorImage(byColor, "Marine Camo", "def")).toBe("def");
+    expect(pickColorImage(undefined, "Khaki", "def")).toBe("def");
+    expect(pickColorImage(byColor, "Nope", null)).toBeNull();
   });
 });

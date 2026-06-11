@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import S from "../styles";
-import { getQtyColor, getQtyBg, displayColor } from "../helpers";
+import { getQtyColor, getQtyBg, displayColor, pickColorImage } from "../helpers";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
 import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
@@ -853,8 +853,8 @@ export const GridTable: React.FC<GridTableProps> = ({
                       {showImages && (() => {
                         const code = (row.master_style ?? "").toUpperCase();
                         const info = code ? styleThumbs.get(code) : undefined;
-                        const colorKey = (displayColor(row) || "").toLowerCase().trim();
-                        const url = info ? (info.byColor[colorKey] ?? info.default) : null;
+                        // Tolerant per-color match (PIM "Black Camo" ↔ Xoro "Blk Camo").
+                        const url = info ? pickColorImage(info.byColor, displayColor(row), info.default) : null;
                         // Fixed-width wrapper so StyleThumb's `margin: 0 auto`
                         // resolves within the tile's own width instead of
                         // absorbing the flex row's free space (which would
