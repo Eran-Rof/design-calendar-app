@@ -94,6 +94,30 @@ export function GridView({
       return next;
     });
   };
+
+  // Hidden-section (phase) state. Mirrors hiddenCols but keyed by phase
+  // name, so the planner can collapse whole milestone sections (Lab Dip,
+  // Strike Off, Trim, …) out of the grid. Persisted under gv_hidden_phases.
+  // Only affects on-screen rendering — the Excel export still emits every
+  // section (same precedent as hiddenCols not touching the export).
+  const [hiddenPhases, setHiddenPhases] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("gv_hidden_phases");
+      if (!raw) return new Set();
+      return new Set(JSON.parse(raw) as string[]);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("gv_hidden_phases", JSON.stringify(Array.from(hiddenPhases))); } catch { /* ignore */ }
+  }, [hiddenPhases]);
+  const togglePhase = (p: string) => {
+    setHiddenPhases((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
   const [colDropOpen, setColDropOpen] = useState(false);
   const colDropRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -457,7 +481,9 @@ export function GridView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageRows, milestones, ensureMilestones, vendorHasTemplate, getVendorTemplates, regenerateMilestones]);
 
-  const phases = useMemo(() => {
+  // Every phase present across the visible POs, in template order. This is
+  // the full set used by the export and the Sections hide-menu.
+  const allPhases = useMemo(() => {
     const order = new Map<string, number>();
     rows.forEach(p => {
       (milestones[p.PoNumber ?? ""] || []).forEach(m => {
@@ -467,6 +493,15 @@ export function GridView({
     });
     return [...order.entries()].sort((a, b) => a[1] - b[1]).map(([phase]) => phase);
   }, [rows, milestones]);
+
+  // The phases actually rendered on screen — allPhases minus the sections the
+  // planner has hidden. Every grid render path (column template, headers, data
+  // rows, expanded strips) reads this, so hiding a section reflows the grid
+  // without touching the export, which keeps using allPhases.
+  const phases = useMemo(
+    () => allPhases.filter(p => !hiddenPhases.has(p)),
+    [allPhases, hiddenPhases],
+  );
 
   // ── Mutations ───────────────────────────────────────────────────────────
   // pushUndo accepts a batch (array) of milestones — all are restored together on undo.
@@ -735,6 +770,9 @@ export function GridView({
   // ── Excel export ────────────────────────────────────────────────────────
   const exportToExcel = async () => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
+    // Export every section regardless of which the planner has hidden on
+    // screen — a hidden section is a view preference, not a data exclusion.
+    const phases = allPhases;
     // Canonical "ATS look" — see src/shared/excelLogo.ts.
     const HDR: any = {
       font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Calibri" },
@@ -959,26 +997,29 @@ export function GridView({
         </select>
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
 
-        {/* Columns dropdown — toggle which fixed columns are shown.
-            Persisted to localStorage; matches the ATS / Planning
-            toolbar pattern. The chevron + notes columns aren't
-            listed because they're functional UI, not data. */}
+        {/* Columns & Sections dropdown — toggle which fixed columns AND which
+            milestone sections (Lab Dip, Strike Off, Trim, …) are shown.
+            Persisted to localStorage; matches the ATS / Planning toolbar
+            pattern. The chevron + notes columns aren't listed because they're
+            functional UI, not data. Hiding a section collapses its whole
+            phase block out of the grid (export still emits every section). */}
         <div ref={colDropRef} style={{ position: "relative" }}>
           <button
             onClick={() => setColDropOpen(o => !o)}
-            title="Show / hide grid columns"
+            title="Show / hide grid columns and milestone sections"
             style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }}
           >
-            Columns
-            {hiddenCols.size > 0 && (
+            Columns &amp; Sections
+            {(hiddenCols.size + hiddenPhases.size) > 0 && (
               <span style={{ background: "#0EA5E9", color: "#fff", borderRadius: 8, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
-                {hiddenCols.size}
+                {hiddenCols.size + hiddenPhases.size}
               </span>
             )}
             <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
           </button>
           {colDropOpen && (
-            <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: 8, zIndex: 50, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+            <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: 8, zIndex: 50, minWidth: 220, maxHeight: "70vh", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#64748B", padding: "2px 8px 4px" }}>Columns</div>
               {HIDEABLE_COL_KEYS.map((k) => {
                 const visible = !hiddenCols.has(k);
                 return (
@@ -988,8 +1029,37 @@ export function GridView({
                   </label>
                 );
               })}
-              {hiddenCols.size > 0 && (
-                <button onClick={() => setHiddenCols(new Set())} style={{ ...S.btnGhost, fontSize: 11, marginTop: 4, width: "100%", textAlign: "center" as const }}>
+              {allPhases.length > 0 && (
+                <>
+                  <div style={{ borderTop: "1px solid #1E293B", margin: "6px 0" }} />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 8px 4px" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#64748B" }}>Sections</span>
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => setHiddenPhases(new Set())}
+                        disabled={hiddenPhases.size === 0}
+                        style={{ ...S.btnGhost, fontSize: 10, padding: "1px 4px", opacity: hiddenPhases.size === 0 ? 0.4 : 1 }}
+                      >All</button>
+                      <button
+                        onClick={() => setHiddenPhases(new Set(allPhases))}
+                        disabled={hiddenPhases.size === allPhases.length}
+                        style={{ ...S.btnGhost, fontSize: 10, padding: "1px 4px", opacity: hiddenPhases.size === allPhases.length ? 0.4 : 1 }}
+                      >None</button>
+                    </span>
+                  </div>
+                  {allPhases.map((p) => {
+                    const visible = !hiddenPhases.has(p);
+                    return (
+                      <label key={p} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 6, color: visible ? "#E5E7EB" : "#6B7280", userSelect: "none" }}>
+                        <input type="checkbox" checked={visible} onChange={() => togglePhase(p)} style={{ accentColor: "#10B981", cursor: "pointer" }} />
+                        {p}
+                      </label>
+                    );
+                  })}
+                </>
+              )}
+              {(hiddenCols.size + hiddenPhases.size) > 0 && (
+                <button onClick={() => { setHiddenCols(new Set()); setHiddenPhases(new Set()); }} style={{ ...S.btnGhost, fontSize: 11, marginTop: 6, width: "100%", textAlign: "center" as const }}>
                   Show all
                 </button>
               )}
@@ -1101,6 +1171,9 @@ export function GridView({
         <div style={{ padding: "10px 14px", color: "#9CA3AF", fontSize: 13, borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>
             Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}
+            {hiddenPhases.size > 0 && (
+              <span style={{ marginLeft: 6, color: "#64748B" }}>({hiddenPhases.size} section{hiddenPhases.size !== 1 ? "s" : ""} hidden)</span>
+            )}
             {rangeNotice && (
               <span style={{ marginLeft: 10, color: "#FBBF24", fontWeight: 600 }}>⤢ {rangeNotice}</span>
             )}
@@ -1119,7 +1192,11 @@ export function GridView({
         {rows.length === 0 ? (
           <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>No POs match the filters.</div>
         ) : phases.length === 0 ? (
-          <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>No milestones generated yet for the visible POs.</div>
+          <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>
+            {allPhases.length > 0
+              ? "All sections are hidden — use Columns & Sections ▸ Sections ▸ All to show them."
+              : "No milestones generated yet for the visible POs."}
+          </div>
         ) : (
           <div ref={tableWrapRef} className="gv-scroll" style={{ overflowX: "scroll", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ minWidth: "fit-content" }}>
