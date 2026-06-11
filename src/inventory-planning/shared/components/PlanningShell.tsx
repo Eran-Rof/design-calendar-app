@@ -120,7 +120,7 @@ export default function PlanningShell({ title, children }: Props) {
         gap: 12,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, color: PAL.text }}>
-          <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
+          {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
           <span style={{ fontWeight: 700, fontSize: 14, color: PAL.text }}>{title}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

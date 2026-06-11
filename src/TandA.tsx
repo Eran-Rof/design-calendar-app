@@ -1747,7 +1747,7 @@ function TandAApp() {
           <button style={S.navBtnDanger} onClick={() => cancelSync()} title="Cancel sync">✕</button>
         )}
         <button style={S.navBtn} onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
-        <button style={S.navBtn} onClick={() => window.location.href = "/"} title="Back to PLM launcher">← PLM</button>
+        {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
       </div>
 
       {/* SYNC ERROR MODAL */}

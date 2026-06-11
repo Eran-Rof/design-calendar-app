@@ -144,9 +144,7 @@ export default function CostingApp() {
         borderBottom: "1px solid rgba(255,255,255,0.08)",
         transition: "left 0.2s ease",
       }}>
-        <a href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none", fontSize: 13 }}>
-          ← PLM
-        </a>
+        {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <a
             href="/notifications?from=costing"

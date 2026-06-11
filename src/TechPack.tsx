@@ -1511,10 +1511,7 @@ export default function TechPackApp() {
         borderBottom: "1px solid #334155",
         transition: "left 0.2s ease",
       }}>
-        <a href="/" title="Back to PLM launcher"
-          style={{ marginRight: "auto", color: "#94A3B8", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
-          ← PLM
-        </a>
+        {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
         <button
           onClick={() => { setSelected(null); setView("notifications"); }}
           title="Notifications"

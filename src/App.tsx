@@ -791,21 +791,7 @@ function App() {
                 {currentUser.role}
               </span>
             </div>
-            <button
-              onClick={() => window.location.href = "/"}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "none",
-                color: "rgba(255,255,255,0.5)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 11,
-              }}
-            >
-              ← PLM
-            </button>
+            {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
             <button
               onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}
               style={{
