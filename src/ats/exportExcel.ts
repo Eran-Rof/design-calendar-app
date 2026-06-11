@@ -5,6 +5,7 @@ import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
 import type { ExportOptions } from "./panels/ExportOptionsModal";
 import type { SalesFetchResult, SalesAggregate } from "./exportSalesFetch";
+import type { ExportImage } from "../shared/exportImages";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -52,7 +53,7 @@ export function exportToExcel(
   sizeMatrix?: AtsSizeMatrixResponse,
   bulkByStyleColor?: Map<string, { so: number; po: number }>,
   periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
-  styleImages?: Map<string, string>,
+  styleImages?: Map<string, ExportImage>,
 ) {
   const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices, styleImages);
   if (!payload) return;
@@ -105,7 +106,7 @@ export function buildExportPayload(
   // Embedded style thumbnails, keyed "STYLE|COLOR" (upper-cased) → base64 data
   // URL, already fetched + color-matched by the caller. Present only when the
   // operator ticked "Include style images". Adds a dedicated Image column.
-  styleImages?: Map<string, string>,
+  styleImages?: Map<string, ExportImage>,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -593,8 +594,8 @@ export function buildExportPayload(
   // shows behind the thumbnail), plus a per-data-row anchor list the embedded
   // images are built from after the AOA is assembled.
   const imageCell = (f: string): any => ({ v: "", t: "s", s: { fill: { fgColor: { rgb: f }, patternType: "solid" }, alignment: { horizontal: "center", vertical: "center" }, border: BORDER_BODY } });
-  const imageAnchors: Array<{ dataIdx: number; dataUrl: string }> = [];
-  const imageFor = (r: ATSRow): string | undefined =>
+  const imageAnchors: Array<{ dataIdx: number; img: ExportImage }> = [];
+  const imageFor = (r: ATSRow): ExportImage | undefined =>
     wantImages ? styleImages!.get(`${(r.master_style ?? "").trim().toUpperCase()}|${(r.master_color ?? "").trim().toUpperCase()}`) : undefined;
   // Title row gets prepended to the AOA when the operator narrows by customer
   // OR picks a custom date range. Both signals are knowable now, well before
@@ -1222,7 +1223,7 @@ export function buildExportPayload(
       if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(t3MrgnPct / 100, lyMrgnPct / 100, bodyNumStyle(fill));
     }
 
-    if (wantImages) { const du = imageFor(r); if (du) imageAnchors.push({ dataIdx: dataRows.length, dataUrl: du }); }
+    if (wantImages) { const im = imageFor(r); if (im) imageAnchors.push({ dataIdx: dataRows.length, img: im }); }
     dataRows.push(qtyRow);
     nextExcelRow++;
 
@@ -1957,7 +1958,16 @@ export function buildExportPayload(
   // offset). The Image column index is stable: every column at/left of it is
   // in alwaysKeep, so the column-drop pass never shifts it.
   const reportImages = (wantImages && COL.image)
-    ? imageAnchors.map((a) => ({ aoaRow: titleRowCount + 1 + a.dataIdx, col: (COL.image as number) - 1, dataUrl: a.dataUrl, width: IMG_PX, height: IMG_PX }))
+    ? imageAnchors.map((a) => ({
+        aoaRow: titleRowCount + 1 + a.dataIdx,
+        col: (COL.image as number) - 1,
+        dataUrl: a.img.dataUrl,
+        // Exact pixel dims measured in the browser → the renderer sizes the row
+        // to the image so the cell fits it with no empty space. Fall back to the
+        // square box only if dims are unknown (e.g. server-side, no canvas).
+        width: a.img.w > 0 ? a.img.w : IMG_PX,
+        height: a.img.h > 0 ? a.img.h : IMG_PX,
+      }))
     : undefined;
   const sheetSpecs: MultiSheetSpec[] = [{
     sheetName: "ATS Report",

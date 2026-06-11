@@ -96,45 +96,54 @@ export function computeTrimBox(
   return { sx, sy, sw, sh };
 }
 
-// ── Browser trim (canvas) ───────────────────────────────────────────────────
-function loadImage(src: string): Promise<HTMLImageElement> {
+// A processed thumbnail: the bytes to embed plus its EXACT pixel dimensions.
+// Carrying the real w/h lets the Excel layer size the cell to the image (so the
+// box always fits the picture — no empty space) without re-parsing the bytes
+// with a fragile in-house decoder.
+export interface ExportImage {
+  dataUrl: string;
+  w: number;
+  h: number;
+}
+
+// ── Browser image processing (canvas) ───────────────────────────────────────
+function loadImage(src: string, timeoutMs = 15000): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("image load failed"));
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return; done = true; clearTimeout(timer);
+      ok ? resolve(img) : reject(new Error("image load failed"));
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs); // never hang the batch
+    img.onload = () => finish(true);
+    img.onerror = () => finish(false);
     img.src = src;
   });
 }
 
-// Crop the light backdrop off a data-URL image. Returns the original untouched
-// on ANY problem (load error, tainted canvas, nothing to trim) so it can never
-// make a thumbnail worse than not trimming at all.
-//
-// The bounding box is computed on a small DOWNSCALED copy (≤ SAMPLE px on the
-// long edge) — finding the product's bounds doesn't need full resolution, and
-// running getImageData on ~100 full-res "web" images in parallel would burn
-// hundreds of MB and silently fail. The resulting box is scaled back up and the
-// crop is taken from the FULL-RES image, so the embedded thumbnail stays crisp.
-const SAMPLE = 260;
-export async function trimImageWhitespace(dataUrl: string): Promise<string> {
+// Compute box on a small downscaled copy (cheap, OOM-safe across ~100 images),
+// then crop the full-res image — but cap the OUTPUT canvas so a huge web image
+// can't blow canvas/area limits (which makes toDataURL return an empty string,
+// the likely cause of "only some images came through"). Returns the cropped
+// ExportImage, or null to signal "keep the original".
+const SAMPLE = 260;     // long-edge px for the box-detection pass
+const MAX_OUT = 700;    // long-edge px cap for the embedded crop (display is ~225px)
+function trimLoadedImage(img: HTMLImageElement, W: number, H: number): ExportImage | null {
   try {
-    if (typeof document === "undefined") return dataUrl;
-    const img = await loadImage(dataUrl);
-    const W = img.naturalWidth, H = img.naturalHeight;
-    if (!W || !H) return dataUrl;
-
+    if (typeof document === "undefined") return null;
     const scale = Math.min(1, SAMPLE / Math.max(W, H));
     const sw = Math.max(1, Math.round(W * scale));
     const sh = Math.max(1, Math.round(H * scale));
     const sc = document.createElement("canvas");
     sc.width = sw; sc.height = sh;
     const sctx = sc.getContext("2d");
-    if (!sctx) return dataUrl;
+    if (!sctx) return null;
     sctx.drawImage(img, 0, 0, sw, sh);
     let rgba: Uint8ClampedArray;
-    try { rgba = sctx.getImageData(0, 0, sw, sh).data; } catch { return dataUrl; } // tainted → bail
+    try { rgba = sctx.getImageData(0, 0, sw, sh).data; } catch { return null; } // tainted → bail
     const box = computeTrimBox(rgba, sw, sh);
-    if (!box) return dataUrl;
+    if (!box) return null;
 
     // Scale the small-image box back to full-res coordinates.
     const fx = W / sw, fy = H / sh;
@@ -142,27 +151,52 @@ export async function trimImageWhitespace(dataUrl: string): Promise<string> {
     const cy = Math.max(0, Math.floor(box.sy * fy));
     const cw = Math.min(W - cx, Math.ceil(box.sw * fx));
     const ch = Math.min(H - cy, Math.ceil(box.sh * fy));
-    if (cw <= 0 || ch <= 0) return dataUrl;
+    if (cw <= 0 || ch <= 0) return null;
 
+    // Cap the output so toDataURL can't fail on an oversized canvas.
+    const outScale = Math.min(1, MAX_OUT / Math.max(cw, ch));
+    const ow = Math.max(1, Math.round(cw * outScale));
+    const oh = Math.max(1, Math.round(ch * outScale));
     const o = document.createElement("canvas");
-    o.width = cw; o.height = ch;
+    o.width = ow; o.height = oh;
     const octx = o.getContext("2d");
-    if (!octx) return dataUrl;
+    if (!octx) return null;
     octx.fillStyle = "#ffffff"; // matte, in case the source had transparency
-    octx.fillRect(0, 0, cw, ch);
-    octx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
-    return o.toDataURL("image/jpeg", 0.9);
+    octx.fillRect(0, 0, ow, oh);
+    octx.drawImage(img, cx, cy, cw, ch, 0, 0, ow, oh);
+    const dataUrl = o.toDataURL("image/jpeg", 0.9);
+    if (!dataUrl || dataUrl.length < 32) return null; // encode failed → keep original
+    return { dataUrl, w: ow, h: oh };
   } catch {
-    return dataUrl;
+    return null;
+  }
+}
+
+// Load a data-URL image, measure its true size, and (optionally) trim the light
+// studio backdrop. Always resolves to an ExportImage — trim failures fall back
+// to the original bytes + measured size, so we never drop a thumbnail.
+async function processImage(dataUrl: string, trim: boolean): Promise<ExportImage> {
+  if (typeof document === "undefined") return { dataUrl, w: 0, h: 0 };
+  try {
+    const img = await loadImage(dataUrl);
+    const W = img.naturalWidth, H = img.naturalHeight;
+    if (!W || !H) return { dataUrl, w: 0, h: 0 };
+    if (trim) {
+      const trimmed = trimLoadedImage(img, W, H);
+      if (trimmed) return trimmed;
+    }
+    return { dataUrl, w: W, h: H };
+  } catch {
+    return { dataUrl, w: 0, h: 0 };
   }
 }
 
 export async function fetchDataUrls(
   urls: Array<string | null | undefined>,
   opts?: { trimWhitespace?: boolean },
-): Promise<Map<string, string>> {
+): Promise<Map<string, ExportImage>> {
   const unique = Array.from(new Set(urls.filter((u): u is string => !!u)));
-  const out = new Map<string, string>();
+  const out = new Map<string, ExportImage>();
   await Promise.all(
     unique.map(async (url) => {
       try {
@@ -170,14 +204,13 @@ export async function fetchDataUrls(
         if (!res.ok) return;
         const blob = await res.blob();
         if (!blob.type.startsWith("image/")) return;
-        let dataUrl = await new Promise<string>((resolve, reject) => {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
           const fr = new FileReader();
           fr.onload = () => resolve(String(fr.result));
           fr.onerror = () => reject(new Error("read failed"));
           fr.readAsDataURL(blob);
         });
-        if (opts?.trimWhitespace) dataUrl = await trimImageWhitespace(dataUrl);
-        out.set(url, dataUrl);
+        out.set(url, await processImage(dataUrl, !!opts?.trimWhitespace));
       } catch {
         /* skip — thumbnail just stays blank */
       }
