@@ -100,46 +100,39 @@ export default function GS1App() {
         onSignOut={onSignOut}
         collapsed={collapsed}
         onToggleCollapsed={toggleDrawer}
+        headerSlot={
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <a
+              href="/"
+              title="Back to PLM launcher"
+              style={{ color: "#94a3b8", textDecoration: "none", fontSize: 12, padding: "2px 4px" }}
+            >← PLM</a>
+            <button
+              onClick={() => setActiveTab("notifications")}
+              title="Notifications"
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: activeTab === "notifications" ? "rgba(59,130,246,0.16)" : "transparent",
+                color: activeTab === "notifications" ? "#fff" : "#94a3b8",
+                border: "none", borderRadius: 5, padding: "6px 4px", fontSize: 13, cursor: "pointer",
+              }}
+            >
+              <span>Notifications</span>
+              {unread > 0 && (
+                <span style={{
+                  minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                  background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>{unread > 9 ? "9+" : unread}</span>
+              )}
+            </button>
+          </div>
+        }
       />
-
-      {/* Slim top bar — anchored to the right of the drawer; holds the
-          notifications bell + entity switcher (mirrors the Tangerine shell). */}
-      <div style={{
-        position: "fixed", top: 0, right: 0, left: offset,
-        height: 40, zIndex: 150,
-        display: "flex", alignItems: "center", justifyContent: "flex-end",
-        gap: 8, padding: "0 16px",
-        background: TH.header, color: "#fff",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-        transition: "left 0.2s ease",
-      }}>
-        <button
-          onClick={() => setActiveTab("notifications")}
-          title="Notifications"
-          style={{
-            background: activeTab === "notifications" ? TH.primary : "transparent",
-            color: "#fff",
-            border: "1px solid rgba(255,255,255,0.18)",
-            borderRadius: 6, padding: "4px 10px", fontSize: 13,
-            cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
-          }}
-        >
-          🔔 Notifications
-          {unread > 0 && (
-            <span style={{
-              minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
-              background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-            }}>{unread > 9 ? "9+" : unread}</span>
-          )}
-        </button>
-        <EntitySwitcher inline />
-      </div>
 
       <main style={{
         marginLeft: offset,
         transition: "margin-left 0.2s ease",
-        paddingTop: 40,
         minHeight: "100vh",
         boxSizing: "border-box",
       }}>
@@ -183,6 +176,8 @@ export default function GS1App() {
       )}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
       <GlobalSearchPaletteAuto />
+      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
+      <EntitySwitcher />
     </div>
   );
 }
