@@ -1896,13 +1896,17 @@ export function buildExportPayload(
   // and total rows a touch taller for visual weight.
   // Header height bumps when any cell wrapped (estimate two lines @
   // 11pt + padding). Single-line headers keep the tighter 22pt.
-  const HEADER_HPT = headerHasWrap ? 34 : 22;
-  const ROW_HPT = 15;
-  const PPK_ROW_HPT = 11;
-  const SUBTOTAL_HPT = 19;
-  const TOTAL_HPT = 18;
+  // Report text is scaled up (see the font pass below); bump row heights to
+  // match so the larger text never clips. Image rows (IMG_ROW_HPT) are sized
+  // for the picture, not the font, so they're left as-is.
+  const FONT_SCALE: number = 1.35;
+  const HEADER_HPT = Math.round((headerHasWrap ? 34 : 22) * FONT_SCALE);
+  const ROW_HPT = Math.round(15 * FONT_SCALE);
+  const PPK_ROW_HPT = Math.round(11 * FONT_SCALE);
+  const SUBTOTAL_HPT = Math.round(19 * FONT_SCALE);
+  const TOTAL_HPT = Math.round(18 * FONT_SCALE);
   const rowsHeight: any[] = [];
-  if (titleRow) rowsHeight.push({ hpt: 30 }); // taller for the 22pt customer name
+  if (titleRow) rowsHeight.push({ hpt: Math.round(30 * FONT_SCALE) }); // taller for the customer-name banner
   rowsHeight.push({ hpt: HEADER_HPT });
   // Walk the dataRows we actually built. A subtotal / bottom Total row
   // is identifiable by a "Subtotal" or "Total" label in the Color col;
@@ -1940,6 +1944,22 @@ export function buildExportPayload(
     merges: effectiveMerges.length > 0 ? effectiveMerges : undefined,
     images: reportImages,
   }];
+
+  // Scale every cell's font up by FONT_SCALE (the row heights above are already
+  // bumped to match). Each touched cell is cloned so shared style objects in
+  // the factories aren't scaled more than once.
+  if (FONT_SCALE !== 1) {
+    for (const row of aoa) {
+      if (!row) continue;
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        const sz = cell?.s?.font?.sz;
+        if (typeof sz === "number") {
+          row[c] = { ...cell, s: { ...cell.s, font: { ...cell.s.font, sz: Math.round(sz * FONT_SCALE * 2) / 2 } } };
+        }
+      }
+    }
+  }
 
   // Optional "By Size Matrix" worksheet(s) (operator export option). Built
   // only when the size-grain data was fetched; the main report is unaffected.
