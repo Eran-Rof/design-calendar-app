@@ -10,7 +10,9 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-5 — Personalization: favorites drawer + click telemetry.
-import FavoritesMenu from "./components/FavoritesMenu";
+// Shared left navigation drawer (de-iconed, collapsible) — mirrors GS1.
+import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
+import { TECHPACK_MODULES, TECHPACK_SECTIONS } from "./techpackModules";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import { usePersonalization } from "./hooks/usePersonalization";
@@ -183,6 +185,16 @@ export default function TechPackApp() {
     recipientColumn: "recipient_internal_id",
     app: "techpack",
   });
+  // ── Left drawer collapse — local + localStorage, mirroring GS1 / Tangerine. ──
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("techpack:nav:collapsed:v1") === "1"; } catch { return false; }
+  });
+  const toggleNavCollapsed = () => setNavCollapsed(v => {
+    const next = !v;
+    try { localStorage.setItem("techpack:nav:collapsed:v1", next ? "1" : "0"); } catch {}
+    return next;
+  });
+  const onSignOut = () => { try { sessionStorage.removeItem("plm_user"); } catch {} window.location.href = "/"; };
   const [techPacks, setTechPacks] = useState<TechPack[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selected, setSelected] = useState<TechPack | null>(null);
@@ -1469,53 +1481,59 @@ export default function TechPackApp() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={S.app}>
-      {/* NAV */}
-      <nav style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>📐</div>
-          <span style={S.navTitle}>Tech Packs</span>
-          <span style={S.navSub}>Product Specs & BOM</span>
-        </div>
-        <div style={S.navRight}>
-          {/* Favorites — first action icon (consistent across all apps). */}
-          <FavoritesMenu />
-          <button style={view === "dashboard" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("dashboard"); }}>Dashboard</button>
-          <button style={view === "list" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("list"); }}>All Packs</button>
-          <button style={view === "libraries" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("libraries"); }}>Libraries</button>
-          <button style={view === "samples" ? S.navBtnActive : S.navBtn} onClick={() => { setSelected(null); setView("samples"); }}>Samples</button>
-          <button style={view === "teams" ? { ...S.navBtnActive, borderColor: TEAMS_PURPLE, color: TEAMS_PURPLE_LT } : { ...S.navBtn, color: TEAMS_PURPLE_LT }} onClick={() => { setSelected(null); setView("teams"); }}>💬 Teams</button>
-          <button style={view === "email" ? { ...S.navBtnActive, borderColor: "#0078D4", color: "#60A5FA" } : S.navBtn} onClick={() => { setSelected(null); setView("email"); }}>📧 Email</button>
-          <button
-            style={{
-              ...(view === "notifications" ? S.navBtnActive : S.navBtn),
-              display: "inline-flex", alignItems: "center", gap: 6, position: "relative",
-            }}
-            onClick={() => { setSelected(null); setView("notifications"); }}
-            title="Notifications"
-          >
-            🔔 Notifications
-            {unreadTechpackNotifs > 0 && (
-              <span style={{
-                minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
-                background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-              }}>{unreadTechpackNotifs > 9 ? "9+" : unreadTechpackNotifs}</span>
-            )}
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
-            {user.avatar ? (
-              <img src={user.avatar} alt={user.name || ""} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-            ) : (
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: user.color ?? "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                {user.initials || initials(user.name || user.username || "?")}
-              </div>
-            )}
-            <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>{user.name || user.username}</span>
-          </div>
-          <button style={S.navBtn} onClick={() => window.location.href = "/"}>← PLM</button>
-          <button style={S.navBtnDanger} onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}>Sign Out</button>
-        </div>
-      </nav>
+      {/* ── Shared left navigation drawer (de-iconed, collapsible) — GS1 pattern. ── */}
+      <NavDrawer
+        appKey="techpack"
+        appLabel="Tech Packs"
+        logoText="TP"
+        moduleParam="view"
+        modules={TECHPACK_MODULES}
+        sections={TECHPACK_SECTIONS}
+        activeModule={view === "detail" ? "list" : view}
+        onSelectModule={(k) => { if (k) { setSelected(null); setView(k as View); } }}
+        userEmail={null}
+        userName={user.name || user.username || null}
+        userPhotoUrl={user.avatar ?? null}
+        onSignOut={onSignOut}
+        collapsed={navCollapsed}
+        onToggleCollapsed={toggleNavCollapsed}
+      />
+
+      {/* Slim top bar — anchored right of the drawer; back-to-PLM + notifications
+          bell + entity switcher (mirrors the GS1 / Tangerine shell). */}
+      <div style={{
+        position: "fixed", top: 0, right: 0,
+        left: navCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
+        height: 40, zIndex: 150,
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        gap: 8, padding: "0 16px",
+        background: "#1E293B", color: "#fff",
+        borderBottom: "1px solid #334155",
+        transition: "left 0.2s ease",
+      }}>
+        <a href="/" title="Back to PLM launcher"
+          style={{ marginRight: "auto", color: "#94A3B8", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
+          ← PLM
+        </a>
+        <button
+          onClick={() => { setSelected(null); setView("notifications"); }}
+          title="Notifications"
+          style={{
+            ...(view === "notifications" ? S.navBtnActive : S.navBtn),
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px",
+          }}
+        >
+          🔔 Notifications
+          {unreadTechpackNotifs > 0 && (
+            <span style={{
+              minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+              background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+            }}>{unreadTechpackNotifs > 9 ? "9+" : unreadTechpackNotifs}</span>
+          )}
+        </button>
+        <EntitySwitcher inline />
+      </div>
 
       {/* TOAST */}
       {toast && (
@@ -1524,6 +1542,11 @@ export default function TechPackApp() {
         </div>
       )}
 
+      <main style={{
+        marginLeft: navCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
+        transition: "margin-left 0.2s ease",
+        paddingTop: 40,
+      }}>
       <div style={S.content}>
         {loading ? (
           <div style={{ textAlign: "center", padding: 60, color: "#6B7280" }}>Loading tech packs...</div>
@@ -1692,6 +1715,7 @@ export default function TechPackApp() {
           </>
         )}
       </div>
+      </main>
 
       {/* ═══════════ DETAIL PANEL ═══════════ */}
       {view === "detail" && selected && renderDetailPanel()}
@@ -1758,8 +1782,6 @@ export default function TechPackApp() {
       )}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
       <GlobalSearchPaletteAuto />
-      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
-      <EntitySwitcher />
     </div>
   );
 
