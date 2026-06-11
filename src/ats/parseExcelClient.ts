@@ -104,6 +104,14 @@ function parseDate(v: unknown): string | null {
   return null;
 }
 
+// Add N days to an ISO "YYYY-MM-DD" string, UTC-based (no timezone drift).
+function addDaysIso(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (isNaN(d.getTime())) return iso;
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().split("T")[0];
+}
+
 async function readSheet(file: File): Promise<Record<string, unknown>[]> {
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { type: "array", cellDates: true });
@@ -294,8 +302,17 @@ export async function parseExcelFiles(
     if (qty > 0) {
       soTotal++;
       skuMap[soKey].onCommitted += qty;
-      const rawDate = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
-      const date = parseDate(rawDate);
+      // SO timeline date = the Xoro "Date to be Cancelled". When blank,
+      // derive cancel = ship date + 6 days (operator rule) so null-cancel
+      // SOs still land on the timeline rather than mis-bucketing on the
+      // raw ship date. Mirrors api/_lib/ats-parse.js.
+      const cancelRaw = r["Date to be Cancelled"] || r["Cancel Date"];
+      const shipRaw = r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
+      let date = parseDate(cancelRaw);
+      if (!date && shipRaw) {
+        const shipIso = parseDate(shipRaw);
+        if (shipIso) date = addDaysIso(shipIso, 6);
+      }
       const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
       // Customer's own PO number (the customer-side reference; distinct
       // from our SO number and our PO-to-vendor number). Optional —
