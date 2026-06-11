@@ -52,8 +52,9 @@ export function exportToExcel(
   sizeMatrix?: AtsSizeMatrixResponse,
   bulkByStyleColor?: Map<string, { so: number; po: number }>,
   periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
+  styleImages?: Map<string, string>,
 ) {
-  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices);
+  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices, styleImages);
   if (!payload) return;
   return triggerXlsxDownload(payload.wb, payload.filename);
 }
@@ -101,6 +102,10 @@ export function buildExportPayload(
   // (on-hand + inbound-by-then − reservations). Appended after the snapshot
   // "By Size Matrix" tab. Empty/undefined → period tabs omitted.
   periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
+  // Embedded style thumbnails, keyed "STYLE|COLOR" (upper-cased) → base64 data
+  // URL, already fetched + color-matched by the caller. Present only when the
+  // operator ticked "Include style images". Adds a dedicated Image column.
+  styleImages?: Map<string, string>,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -239,6 +244,14 @@ export function buildExportPayload(
   // requested by the user; we record their indexes here so the data /
   // header / subtotal / outline loops can pick them up uniformly.
   const numPeriods = periods.length;
+  // Dedicated Image column (after Color) when the operator opted into style
+  // thumbnails. Inserted in the COL allocator so every downstream index shifts
+  // automatically; left undefined otherwise so the report is byte-identical.
+  const wantImages = !!styleImages && styleImages.size > 0;
+  // Image column geometry: ~62px square thumbnail with a little cell padding.
+  const IMG_COL_WCH = 9;   // ≈ 63px column
+  const IMG_ROW_HPT = 46;  // ≈ 61px row
+  const IMG_PX = 56;       // embedded thumbnail px (inset inside the cell)
   let nextCol = 1;
   const COL = {
     category:    nextCol++,
@@ -246,6 +259,7 @@ export function buildExportPayload(
     style:       nextCol++,
     description: nextCol++,
     color:       nextCol++,
+    ...(wantImages ? { image: nextCol++ } : {}),
     spacerF:     nextCol++,
     onHand:      nextCol++,
     spacerH:     nextCol++,
@@ -441,6 +455,7 @@ export function buildExportPayload(
   headerRow[COL.style       - 1] = headerCell("Style",       HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
   headerRow[COL.description - 1] = headerCell("Description", HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
   headerRow[COL.color       - 1] = headerCell("Color",       HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  if (COL.image) headerRow[COL.image - 1] = headerCell("Image", HDR_TEXT_FILL, "center");
   headerRow[COL.spacerF - 1] = headerCell("", SPACER_FILL, "center", BORDER_HSEP_FIRST);
   headerRow[COL.spacerH - 1] = headerCell("", SPACER_FILL, "center");
   headerRow[COL.spacerJ - 1] = headerCell("", SPACER_FILL, "center");
@@ -570,6 +585,13 @@ export function buildExportPayload(
   // the pair so the qty value sits vertically centered in the taller
   // merged cell. Matches the planner's reference image exactly.
   const dataRows: any[][] = [];
+  // Image column support: an empty fill-matched cell per row (so the zebra/band
+  // shows behind the thumbnail), plus a per-data-row anchor list the embedded
+  // images are built from after the AOA is assembled.
+  const imageCell = (f: string): any => ({ v: "", t: "s", s: { fill: { fgColor: { rgb: f }, patternType: "solid" }, alignment: { horizontal: "center", vertical: "center" }, border: BORDER_BODY } });
+  const imageAnchors: Array<{ dataIdx: number; dataUrl: string }> = [];
+  const imageFor = (r: ATSRow): string | undefined =>
+    wantImages ? styleImages!.get(`${(r.master_style ?? "").trim().toUpperCase()}|${(r.master_color ?? "").trim().toUpperCase()}`) : undefined;
   // Title row gets prepended to the AOA when the operator narrows by customer
   // OR picks a custom date range. Both signals are knowable now, well before
   // the title-row block actually constructs the cell. The per-row Total has
@@ -754,6 +776,7 @@ export function buildExportPayload(
       r2[ci - 1] = { v: "", t: "s", s: subTextStyle };
     }
     r2[COL.color - 1] = { v: `${styleLabel} Subtotal`, t: "s", s: subTextStyle };
+    if (COL.image) r2[COL.image - 1] = { v: "", t: "s", s: subTextStyle };
     r2[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
     r2[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
     r2[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
@@ -963,6 +986,7 @@ export function buildExportPayload(
 
     // ── Qty row ──────────────────────────────────────────────────────────
     const qtyRow: any[] = new Array(totalColumnCount);
+    if (COL.image) qtyRow[COL.image - 1] = imageCell(fill);
     qtyRow[COL.category    - 1] = { v: r.master_category ?? r.category ?? "", t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.subCat      - 1] = { v: r.master_sub_category ?? "",            t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.style       - 1] = { v: r.master_style ?? "",                   t: "s", s: bodyStyleStyle(fill) };
@@ -1194,6 +1218,7 @@ export function buildExportPayload(
       if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(t3MrgnPct / 100, lyMrgnPct / 100, bodyNumStyle(fill));
     }
 
+    if (wantImages) { const du = imageFor(r); if (du) imageAnchors.push({ dataIdx: dataRows.length, dataUrl: du }); }
     dataRows.push(qtyRow);
     nextExcelRow++;
 
@@ -1220,6 +1245,7 @@ export function buildExportPayload(
       ppkRow[COL.style       - 1] = blankFill(bodyTextStyle(fill));
       ppkRow[COL.description - 1] = blankFill(bodyTextStyle(fill));
       ppkRow[COL.color       - 1] = blankFill(bodyTextStyle(fill));
+      if (COL.image) ppkRow[COL.image - 1] = blankFill(bodyTextStyle(fill));
       ppkRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
@@ -1298,6 +1324,7 @@ export function buildExportPayload(
       cells[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
     }
     cells[COL.color - 1] = { v: label, t: "s", s: totalLabelStyle };
+    if (COL.image) cells[COL.image - 1] = { v: "", t: "s", s: totalLabelStyle };
     cells[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
     cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
     cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
@@ -1713,6 +1740,7 @@ export function buildExportPayload(
     const alwaysKeep = new Set<number>([
       COL.category, COL.subCat, COL.style, COL.description, COL.color,
       COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
+      ...(COL.image ? [COL.image] : []),
     ]);
     // Build forced-drop set up-front. hideATSData drops period range
     // + Total; even if hideZeroColumns disagrees (e.g. a period column
@@ -1821,6 +1849,7 @@ export function buildExportPayload(
   const MAX_WCH = 80;
   function widthForColumn(idx1: number): number {
     if (SPACER_COLS.has(idx1)) return SPACER_WCH;
+    if (COL.image && idx1 === COL.image) return IMG_COL_WCH;
     let maxLen = 0;
     const hdrCell = headerRow[idx1 - 1];
     if (hdrCell?.v != null) {
@@ -1889,18 +1918,26 @@ export function buildExportPayload(
     } else if (typeof styleVal === "string" && styleVal.trim() === "") {
       rowsHeight.push({ hpt: PPK_ROW_HPT });
     } else {
-      rowsHeight.push({ hpt: ROW_HPT });
+      // Taller qty rows when embedding thumbnails so the image fits.
+      rowsHeight.push({ hpt: wantImages ? Math.max(ROW_HPT, IMG_ROW_HPT) : ROW_HPT });
     }
   }
   // Merged cells for prepack pairs — text + spacers + qty cols + Total
   // span both rows; only period cols stay split (qty top, PPK bottom).
   // No frozen panes, no autofilter on the main sheet.
+  // Embedded thumbnails → AoA-relative anchors (the renderer adds the banner
+  // offset). The Image column index is stable: every column at/left of it is
+  // in alwaysKeep, so the column-drop pass never shifts it.
+  const reportImages = (wantImages && COL.image)
+    ? imageAnchors.map((a) => ({ aoaRow: titleRowCount + 1 + a.dataIdx, col: (COL.image as number) - 1, dataUrl: a.dataUrl, width: IMG_PX, height: IMG_PX }))
+    : undefined;
   const sheetSpecs: MultiSheetSpec[] = [{
     sheetName: "ATS Report",
     allRows: aoa,
     cols: mainCols,
     rowHeights: rowsHeight,
     merges: effectiveMerges.length > 0 ? effectiveMerges : undefined,
+    images: reportImages,
   }];
 
   // Optional "By Size Matrix" worksheet(s) (operator export option). Built

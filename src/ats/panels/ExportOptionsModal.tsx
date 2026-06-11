@@ -89,6 +89,11 @@ export interface ExportOptions {
   // fetched from /api/internal/ats-size-matrix (tangerine_size_onhand);
   // the main color-grain report is unaffected.
   bySizeMatrix: boolean;
+  // Add a dedicated Image column with each row's color-matched product
+  // thumbnail (embedded bytes — the same images the grid shows). The caller
+  // fetches the thumbnails before building the workbook. Optional so existing
+  // ExportOptions constructors (defaults, tests) stay valid.
+  images?: boolean;
 }
 
 interface Props {
@@ -118,6 +123,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [hideZeroColumns, setHideZeroColumns] = useState(false);
   const [hideATSData, setHideATSData]         = useState(false);
   const [bySizeMatrix, setBySizeMatrix]       = useState(false);
+  const [includeImages, setIncludeImages]     = useState(false);
   // Sub-panel state revealed when Hide ATS data is on. Pre-seeded with
   // "last 3 months from today" so the date inputs render a meaningful
   // default even before the operator interacts with them.
@@ -184,6 +190,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customSalesRangeStart:   hideATSData && customRangeEnabled ? customStart : "",
     customSalesRangeEnd:     hideATSData && customRangeEnabled ? customEnd   : "",
     bySizeMatrix,
+    images: includeImages,
   });
 
   // Custom-range validity is only meaningful when both Hide ATS data
@@ -224,6 +231,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setHideZeroColumns(false);
     setHideATSData(false);
     setBySizeMatrix(false);
+    setIncludeImages(false);
     setCustomRangeEnabled(false);
     setCustomStart(isoMinusMonths(todayIso(), 3));
     setCustomEnd(todayIso());
@@ -318,6 +326,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             label="By Size Matrix (adds a worksheet: per-style color × size ATS-available grid + PPK column)"
             checked={bySizeMatrix}
             onChange={setBySizeMatrix}
+          />
+
+          <CheckRow
+            label="Include style images (adds an Image column with each row's product thumbnail)"
+            checked={includeImages}
+            onChange={setIncludeImages}
           />
 
           <div>
