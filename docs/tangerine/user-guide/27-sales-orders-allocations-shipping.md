@@ -81,12 +81,12 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 
 Each line carries `inventory_item_id` (a **size-level SKU**, FK into `ip_item_master.id`), `qty_ordered`, and `unit_price_cents` (entered in dollars). **The line body IS the size matrix** (≈95% of styles are matrix-driven), not a flat line list:
 
-1. **➕ Add style (matrix)** — pick a style; it loads an editable **color × size (× inseam) grid** (the same `EditableSizeMatrix` the Inventory Matrix uses) where you type ordered quantities straight into the cells, with a per-row **Unit $** and a "set all rows" bulk field. Add more styles to stack more grids. The grids ARE the order — there is no separate "add to order" step.
-2. **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU/qty/$ row.
+1. **➕ Add style (matrix)** — pick a style; it loads an editable **color × size (× inseam) grid** (the same `EditableSizeMatrix` the Inventory Matrix uses) where you type ordered quantities straight into the cells, with a per-row **Unit $** and a "set all rows" bulk field. The columns end with **Total** (row units) → **Unit $** → **Total $** (the extended line amount, units × Unit $), with a grand **Total $** in the footer. Unit prices **snap to two decimals** when you tab out of the field. Add more styles to stack more grids. The grids ARE the order — there is no separate "add to order" step.
+2. **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU/qty/$ row (its Unit $ also snaps to two decimals on blur).
 
 On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-create via `/api/internal/style-matrix/resolve-sku`) and the flat lines are appended — all submitting through the same create/PATCH path. **Editing** an existing draft rebuilds the grids: the detail endpoint decorates each line with its `style_code`/`color`/`size`, so lines regroup into per-style matrices (anything without a style/size falls to the non-matrix list). The matrix mechanics belong to the matrix primitive — see **chapter 28 (Inventory Matrix)**.
 
-**Header totals + projected margin.** Above the grids a live readout shows **Total qty**, **Total $**, and **Projected margin %** = `(revenue − cost) / revenue`. Per cell the cost is the SKU's `avg_cost_cents` (Xoro/Excel history). When a style has **no cost history**, the cell falls back to a **21% assumed gross margin**, and when *no* line has real cost data the margin shows an **"estimated — no cost data (assumes 21%)"** note.
+**Header totals + projected margin.** A **prominent totals line** (large type) sits at the **top** of the lines section showing **Total qty** and **Total $**; the same figures repeat in a small line at the **bottom** of the grids. (This top totals line replaced the old "▲ available-to-ship by size" caption; the per-cell availability numbers still render above each cell in ATS mode.) Projected margin **%** = `(revenue − cost) / revenue`. Per cell the cost is the SKU's `avg_cost_cents` (Xoro/Excel history). When a style has **no cost history**, the cell falls back to a **21% assumed gross margin**, and when *no* line has real cost data the margin shows an **"estimated — no cost data (assumes 21%)"** note.
 
 **Adding styles to a confirmed order.** Once confirmed, the grids collapse to **only the color rows that carry a quantity** (the order, read-only). An **✏️ Add styles** button re-opens the full editable grids so you can append more styles (or edit) and **Save changes** — the line PATCH is now allowed while `draft` *or* `confirmed` (still blocked once allocated / shipped / invoiced). Re-confirming isn't required.
 
@@ -125,7 +125,7 @@ The **🧾 Create AR invoice** button (visible on `confirmed / allocated / fulfi
 
 ## 27.3 Factor / credit-insurance ship-gate
 
-ROF factors many wholesale receivables (Rosenthal & Rosenthal). Each SO carries a **Factor / Ins Approval** block: `factor_approval_status` (`not_submitted` / `pending` / `approved` / `partial` / `declined` / `not_required`), `factor_reference`, and `factor_approved_cents`. These are **manual entry** today (the Rosenthal API auto-fill is reserved).
+ROF factors many wholesale receivables (Rosenthal & Rosenthal). Each SO carries a **Factor / Ins Approval** block: `factor_approval_status` (`not_submitted` / `pending` / `approved` / `partial` / `declined` / `not_required`), `factor_reference`, and `factor_approved_cents`. The **Approved $** field is a comma-grouped money field — type a figure and it reformats to `1,234.56` (commas + two decimals) when you tab out; the commas are stripped before the value is stored as cents. These are **manual entry** today (the Rosenthal API auto-fill is reserved; the explanatory caption under the block was removed).
 
 When the SO's customer is flagged `customers.is_factored = true`, the order **cannot ship** until factor approval is `approved`. The gate is enforced server-side in two places, so the client cue is advisory only:
 

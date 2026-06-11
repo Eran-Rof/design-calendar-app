@@ -57,6 +57,13 @@ export type EditableSizeMatrixProps = {
     onChange: (rowKey: string, value: string) => void;
     /** Stamp the given value onto every row. */
     onSetAll: (value: string) => void;
+    /** When true, append a per-row extended "Total $" column (row units × unit
+     *  value) plus a grand-total footer cell. Opt-in so the PO / adjustment /
+     *  transfer grids that share this component stay unchanged. */
+    showLineTotal?: boolean;
+    /** When set (e.g. 2), reformat the unit value to this many decimals on blur
+     *  (plain, no grouping commas — callers parse the value with Number()). */
+    forceDecimals?: number;
   };
 };
 
@@ -73,6 +80,18 @@ const cellInput: React.CSSProperties = {
   fontSize: 13, fontFamily: "SFMono-Regular, Menlo, monospace", boxSizing: "border-box",
 };
 const unitInput: React.CSSProperties = { ...cellInput, width: "8ch" };
+
+/** Strip grouping commas and parse a money-ish string to a number (NaN-safe → null). */
+function parseMoney(raw: string): number | null {
+  const t = (raw ?? "").replace(/,/g, "").trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+/** Comma-grouped, fixed-decimal money string for display-only cells. */
+function fmtMoney(n: number, decimals = 2): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
 
 /** Parse a buffered cell string into a clamped integer.
  *  Positive-only mode (default): clamps to > 0, else 0.
@@ -138,14 +157,30 @@ export function EditableSizeMatrix({
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
 
+  // Normalise a typed unit value for "set all": blank → null (no stamp); else
+  // apply forceDecimals (plain, no commas) so the whole grid lands at 2 dp.
+  function stampValue(raw: string): string | null {
+    if (raw.trim() === "") return null;
+    if (unit?.forceDecimals != null) {
+      const n = parseMoney(raw);
+      if (n != null) return n.toFixed(unit.forceDecimals);
+    }
+    return raw.trim();
+  }
+
   const colTotals: Record<string, number> = {};
   let grandQty = 0;
+  let grandExt = 0; // Σ row units × row unit value (only when unit.showLineTotal)
   for (const r of rows) {
+    let rowQty = 0;
     for (const sz of sizes) {
       const q = qty[matrixCellKey(r.key, sz)] || 0;
       colTotals[sz] = (colTotals[sz] || 0) + q;
       grandQty += q;
+      rowQty += q;
     }
+    const u = unit ? parseMoney(unit.values[r.key] ?? "") : null;
+    if (u != null) grandExt += rowQty * u;
   }
   const leadCols = 1 + (showRise ? 1 : 0);
 
@@ -168,13 +203,16 @@ export function EditableSizeMatrix({
                   inputMode="decimal"
                   value={bulk}
                   onChange={(e) => setBulk(e.target.value)}
-                  onBlur={() => { if (bulk.trim() !== "") unit.onSetAll(bulk.trim()); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (bulk.trim() !== "") unit.onSetAll(bulk.trim()); } }}
+                  onBlur={() => { const v = stampValue(bulk); if (v !== null) { unit.onSetAll(v); setBulk(v); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = stampValue(bulk); if (v !== null) { unit.onSetAll(v); setBulk(v); } } }}
                   placeholder={unit.placeholder || "set all"}
                   title="Type a value and press Enter (or tab out) to stamp it onto every row, then edit individual rows as needed."
                   style={{ ...unitInput, width: "9ch", borderColor: C.primary }}
                 />
               </th>
+            )}
+            {unit?.showLineTotal && (
+              <th style={{ ...thBase, textAlign: "right", minWidth: 96 }}>Total $</th>
             )}
           </tr>
         </thead>
@@ -183,6 +221,8 @@ export function EditableSizeMatrix({
             const isLast = ri === rows.length - 1;
             let rowQty = 0;
             for (const sz of sizes) rowQty += qty[matrixCellKey(row.key, sz)] || 0;
+            const rowUnit = unit ? parseMoney(unit.values[row.key] ?? "") : null;
+            const rowExt = rowUnit != null ? rowQty * rowUnit : null;
             return (
               <tr key={row.key} style={{ borderBottom: isLast ? `2px solid ${C.sectionBdr}` : `1px solid ${C.rowBdr}` }}>
                 <td style={{ padding: "6px 12px", color: "#D1D5DB", borderRight: `1px solid ${C.rowBdr}` }}>{row.color || "—"}</td>
@@ -218,10 +258,20 @@ export function EditableSizeMatrix({
                       inputMode="decimal"
                       value={unit.values[row.key] ?? ""}
                       onChange={(e) => unit.onChange(row.key, e.target.value)}
+                      onBlur={() => {
+                        if (unit.forceDecimals == null) return;
+                        const n = parseMoney(unit.values[row.key] ?? "");
+                        if (n != null) unit.onChange(row.key, n.toFixed(unit.forceDecimals));
+                      }}
                       placeholder={unit.placeholder || "0.00"}
                       aria-label={`${unit.label} ${row.color || ""}`}
                       style={unitInput}
                     />
+                  </td>
+                )}
+                {unit?.showLineTotal && (
+                  <td style={{ padding: "6px 12px", textAlign: "right", color: rowExt ? C.green : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
+                    {rowExt ? `$${fmtMoney(rowExt)}` : "—"}
                   </td>
                 )}
               </tr>
@@ -238,6 +288,9 @@ export function EditableSizeMatrix({
             ))}
             <td style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>{grandQty || "—"}</td>
             {unit && <td style={{ padding: "10px 12px" }} />}
+            {unit?.showLineTotal && (
+              <td style={{ padding: "10px 12px", textAlign: "right", color: grandExt ? C.green : C.emptyCell, fontWeight: 800, fontFamily: "monospace" }}>{grandExt ? `$${fmtMoney(grandExt)}` : "—"}</td>
+            )}
           </tr>
         </tfoot>
       </table>
