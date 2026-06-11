@@ -115,6 +115,54 @@ export function displayColor(row: { sku: string; master_color?: string | null; m
   return row.sku.slice(dash + 3).trim();
 }
 
+// Common apparel color-word abbreviations → canonical form. The PIM
+// (product_images.color) tends to spell colors out ("Black Camo") while the
+// Xoro inventory (ip_item_master.color) abbreviates ("Blk Camo"), so a raw
+// lowercase compare misses. Expanding both sides to a canonical token list
+// lets the per-color image match. Spelling variants (grey→gray) included.
+const COLOR_ABBREV: Record<string, string> = {
+  blk: "black", blck: "black", wht: "white",
+  gry: "gray", grey: "gray", chrcl: "charcoal", char: "charcoal",
+  nvy: "navy", brn: "brown", brwn: "brown", grn: "green", blu: "blue",
+  ylw: "yellow", yel: "yellow", org: "orange", pnk: "pink",
+  prpl: "purple", ppl: "purple", lt: "light", dk: "dark", drk: "dark",
+  htr: "heather", hthr: "heather", nat: "natural", olv: "olive",
+};
+
+/** Canonicalize a color name for matching: lowercase, split on any non-
+ *  alphanumeric run, expand known abbreviations, re-join. "Blk Camo" and
+ *  "Black Camo" both become "black camo". */
+export function normalizeColor(c: string | null | undefined): string {
+  return String(c ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => COLOR_ABBREV[w] ?? w)
+    .join(" ");
+}
+
+/** Pick a per-color image URL from a style's byColor map, tolerant of the
+ *  PIM-vs-inventory color-name spelling gap. Tries the exact lowercase key
+ *  first (fast, no behavior change for already-matching colors), then a
+ *  normalized match, then the style default / fallback. */
+export function pickColorImage(
+  byColor: Record<string, string> | undefined,
+  color: string | null | undefined,
+  fallback: string | null,
+): string | null {
+  if (byColor) {
+    const raw = String(color ?? "").toLowerCase().trim();
+    if (raw && byColor[raw]) return byColor[raw];
+    const want = normalizeColor(color);
+    if (want) {
+      for (const k in byColor) {
+        if (normalizeColor(k) === want) return byColor[k];
+      }
+    }
+  }
+  return fallback;
+}
+
 /** Dice-coefficient bigram similarity between two SKU strings (0–1).
  *  Normalizes both strings first, strips spaces/dashes for the comparison. */
 export function skuSimilarity(a: string, b: string): number {

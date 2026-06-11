@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import S from "../styles";
-import { fmtDateDisplay } from "../helpers";
+import { fmtDateDisplay, pickColorImage } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
 import { computeGridTotals } from "../computeTotals";
 import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
@@ -49,7 +49,7 @@ async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, string>> 
     const colorRaw = (r.master_color ?? "").trim();
     const ent = info[code];
     if (!ent) continue;
-    const url = ent.byColor?.[colorRaw.toLowerCase()] ?? ent.default ?? "";
+    const url = pickColorImage(ent.byColor, colorRaw, ent.default ?? null) ?? "";
     if (!url) continue;
     keyToUrl.set(`${code}|${colorRaw.toUpperCase()}`, url);
     urls.add(url);
