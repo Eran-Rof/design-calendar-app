@@ -594,7 +594,7 @@ export function buildExportPayload(
   // shows behind the thumbnail), plus a per-data-row anchor list the embedded
   // images are built from after the AOA is assembled.
   const imageCell = (f: string): any => ({ v: "", t: "s", s: { fill: { fgColor: { rgb: f }, patternType: "solid" }, alignment: { horizontal: "center", vertical: "center" }, border: BORDER_BODY } });
-  const imageAnchors: Array<{ dataIdx: number; img: ExportImage }> = [];
+  const imageAnchors: Array<{ dataIdx: number; img: ExportImage; prepack: boolean }> = [];
   const imageFor = (r: ATSRow): ExportImage | undefined =>
     wantImages ? styleImages!.get(`${(r.master_style ?? "").trim().toUpperCase()}|${(r.master_color ?? "").trim().toUpperCase()}`) : undefined;
   // Title row gets prepended to the AOA when the operator narrows by customer
@@ -1223,7 +1223,7 @@ export function buildExportPayload(
       if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(t3MrgnPct / 100, lyMrgnPct / 100, bodyNumStyle(fill));
     }
 
-    if (wantImages) { const im = imageFor(r); if (im) imageAnchors.push({ dataIdx: dataRows.length, img: im }); }
+    if (wantImages) { const im = imageFor(r); if (im) imageAnchors.push({ dataIdx: dataRows.length, img: im, prepack: isPrepack }); }
     dataRows.push(qtyRow);
     nextExcelRow++;
 
@@ -1967,6 +1967,11 @@ export function buildExportPayload(
         // square box only if dims are unknown (e.g. server-side, no canvas).
         width: a.img.w > 0 ? a.img.w : IMG_PX,
         height: a.img.h > 0 ? a.img.h : IMG_PX,
+        // Prepack rows are a qty row + a PPK annotation row. Extend the image
+        // down over the PPK row so it covers the internal qty/PPK border (the
+        // stray blue line under the picture) and its bottom lands on the
+        // record's outer separator. px ≈ pt*96/72.
+        extendPx: a.prepack ? Math.round((PPK_ROW_HPT * 96) / 72) : 0,
       }))
     : undefined;
   const sheetSpecs: MultiSheetSpec[] = [{
