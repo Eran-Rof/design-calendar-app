@@ -14,7 +14,6 @@ import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
 import { getItemMasterById } from "../itemMasterLookup";
 import { periodAvail } from "../compute";
-import { distribute } from "../sizeMatrixDistribute";
 import { filterRows } from "../filter";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
@@ -955,15 +954,16 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    // By Size Matrix worksheet(s). The MAIN report (sheet 1) is correct: its
-    // per-color ATS is netted against the color-grain Xoro On Order and uses
-    // the ATS-snapshot scope — neither available at size grain. So we REPROJECT
-    // the main report by size: take each color's already-correct ATS (the same
-    // periodAvail the main sheet renders) and split it across sizes in
-    // proportion to a size SHAPE from /api/internal/ats-size-matrix
-    // (on-hand/incoming size mix). Totals tie out to the main report exactly;
-    // the size split is the best estimate. SO/PO are the main report's loose
-    // On Order / On PO; PPK packs come from the PPK style rows' ATS.
+    // By Size Matrix worksheet(s). The size cells show TRUE size-grain
+    // ATS-available straight from /api/internal/ats-size-matrix (on-hand −
+    // reservations [+ incoming-by-period for the period tabs], per size) so the
+    // matrix MATCHES Tangerine/Xoro per size (operator decision — supersedes
+    // the earlier reprojection that split the main report's color total by an
+    // on-hand shape). NOTE: because the size cells are true size-grain and the
+    // main report's color total is netted vs the color-grain Xoro On Order, the
+    // matrix per-color total can differ from the main color sheet by the
+    // netting. SO/PO stay the main report's loose On Order / On PO (color-grain
+    // — no size split); PPK packs come from the PPK style rows' ATS.
     let sizeMatrix: AtsSizeMatrixResponse | undefined;
     let bulkByStyleColor: Map<string, { so: number; po: number }> | undefined;
     let periodMatrices: Array<{ name: string; matrix: AtsSizeMatrixResponse }> | undefined;
@@ -1038,7 +1038,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         const buildDisplay = (
           metaIdx: ReturnType<typeof indexShape>,
           shapeIdx: ReturnType<typeof indexShape>,
-          pickTotal: (ca: CAcc) => number,
           pickPpkUnits: (ca: CAcc) => number,
         ): AtsSizeMatrixResponse => {
           const styles: AtsSizeMatrixResponse["styles"] = [];
@@ -1052,11 +1051,19 @@ export const NavBar: React.FC<NavBarProps> = ({
             // below so this column stays empty.
             const looseColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
             for (const ca of st.colors.values()) {
-              const total = pickTotal(ca);
               const ppkPacks = (!explodePpk && packSize > 1) ? Math.round(pickPpkUnits(ca) / packSize) : 0;
-              if (total <= 0 && ppkPacks <= 0) continue;
+              // TRUE size-grain available straight from the ats-size-matrix
+              // shape (on-hand − reservations [+ incoming for period tabs]).
+              // total_eachs = Σ over the scale's sizes. No reprojection.
               const shape = shapeStem?.shapeByColor.get(ca.color.toUpperCase()) || {};
-              looseColors.push({ color: ca.color, by_size: distribute(total, shape, meta.sizes), total_eachs: total, ppk_packs: ppkPacks });
+              const bySize: Record<string, number> = {};
+              let sizeTot = 0;
+              for (const sz of meta.sizes) {
+                const q = Number(shape[sz]) || 0;
+                if (q > 0) { bySize[sz] = q; sizeTot += q; }
+              }
+              if (sizeTot <= 0 && ppkPacks <= 0) continue;
+              looseColors.push({ color: ca.color, by_size: bySize, total_eachs: sizeTot, ppk_packs: ppkPacks });
             }
             if (looseColors.length) styles.push({ style_code: stem, style_name: meta.style_name, sizes: meta.sizes, pack_size: packSize, colors: looseColors.sort((a, b) => a.color.localeCompare(b.color)) });
 
@@ -1091,12 +1098,13 @@ export const NavBar: React.FC<NavBarProps> = ({
         const periodsToFetch = displayPeriods.slice(0, 24);
         const shapeResps = await Promise.all(periodsToFetch.map(async (p, i) => ({ p, i, shape: indexShape(toIso(p.endDate) ? await fetchShape(toIso(p.endDate)!) : null) })));
 
-        // Snapshot tab = main-report Total per color, distributed by the on-hand shape.
-        sizeMatrix = buildDisplay(metaIdx, metaIdx, (ca) => ca.total, (ca) => ca.ppkUnitsTotal);
-        // One tab per period = that period's main-report value, distributed by that period's shape.
+        // Snapshot tab = TRUE current size-grain available (on-hand − reservations).
+        sizeMatrix = buildDisplay(metaIdx, metaIdx, (ca) => ca.ppkUnitsTotal);
+        // One tab per period = TRUE size-grain available as of that period (adds
+        // incoming size-grain PO due by then), straight from that period's shape.
         periodMatrices = [];
         for (const { p, i, shape } of shapeResps) {
-          const display = buildDisplay(metaIdx, shape, (ca) => ca.per[i], (ca) => ca.ppkUnitsPer[i]);
+          const display = buildDisplay(metaIdx, shape, (ca) => ca.ppkUnitsPer[i]);
           if (display.styles.length) periodMatrices.push({ name: nameOf(p.endDate, p.label), matrix: display });
         }
       }
