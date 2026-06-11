@@ -23,17 +23,37 @@ export function computeTrimBox(
   rgba: Uint8ClampedArray | Uint8Array | number[],
   w: number,
   h: number,
-  opts?: { whiteThreshold?: number; minAreaFrac?: number; padFrac?: number; rowTolFrac?: number },
+  opts?: { colorTol?: number; minAreaFrac?: number; padFrac?: number; rowTolFrac?: number; cornerSpread?: number },
 ): { sx: number; sy: number; sw: number; sh: number } | null {
-  const thr = opts?.whiteThreshold ?? 248;   // ≥ this on R,G,B = background
+  const tol = opts?.colorTol ?? 16;           // per-channel distance from the backdrop
   const minAreaFrac = opts?.minAreaFrac ?? 0.12; // don't crop below 12% of area
   const padFrac = opts?.padFrac ?? 0.04;      // breathing room around content
   const tolFrac = opts?.rowTolFrac ?? 0.01;   // a row/col may be ≤1% non-bg
+  const maxCornerSpread = opts?.cornerSpread ?? 40; // corners must roughly agree
   if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
   if (rgba.length < w * h * 4) return null;
 
+  // Detect the backdrop color from the four corners instead of assuming pure
+  // white — PIM studio shots sit on off-white / light-grey / faintly-gradient
+  // canvases that a hard "≥248" test would miss entirely (so nothing trims).
+  const corner = (x: number, y: number): [number, number, number] => {
+    const i = (y * w + x) * 4; return [rgba[i], rgba[i + 1], rgba[i + 2]];
+  };
+  const corners = [corner(0, 0), corner(w - 1, 0), corner(0, h - 1), corner(w - 1, h - 1)];
+  const bg = [0, 1, 2].map((c) => Math.round((corners[0][c] + corners[1][c] + corners[2][c] + corners[3][c]) / 4));
+  // Only trim when there's a genuine LIGHT, UNIFORM backdrop. Dark or
+  // disagreeing corners mean the product likely reaches the edge — bail
+  // rather than risk cropping into it.
+  if (bg[0] < 150 || bg[1] < 150 || bg[2] < 150) return null;
+  const spread = Math.max(...[0, 1, 2].map((c) =>
+    Math.max(corners[0][c], corners[1][c], corners[2][c], corners[3][c]) -
+    Math.min(corners[0][c], corners[1][c], corners[2][c], corners[3][c])));
+  if (spread > maxCornerSpread) return null;
+
   const isBg = (idx: number) =>
-    rgba[idx] >= thr && rgba[idx + 1] >= thr && rgba[idx + 2] >= thr;
+    Math.abs(rgba[idx] - bg[0]) <= tol &&
+    Math.abs(rgba[idx + 1] - bg[1]) <= tol &&
+    Math.abs(rgba[idx + 2] - bg[2]) <= tol;
 
   // Tolerate a few stray non-white pixels (JPEG ringing, dust) so a single
   // speck doesn't anchor the bounding box to the image edge.
@@ -86,31 +106,51 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-// Crop the near-white border off a data-URL image. Returns the original
-// untouched on ANY problem (load error, tainted canvas, nothing to trim) so it
-// can never make a thumbnail worse than not trimming at all.
+// Crop the light backdrop off a data-URL image. Returns the original untouched
+// on ANY problem (load error, tainted canvas, nothing to trim) so it can never
+// make a thumbnail worse than not trimming at all.
+//
+// The bounding box is computed on a small DOWNSCALED copy (≤ SAMPLE px on the
+// long edge) — finding the product's bounds doesn't need full resolution, and
+// running getImageData on ~100 full-res "web" images in parallel would burn
+// hundreds of MB and silently fail. The resulting box is scaled back up and the
+// crop is taken from the FULL-RES image, so the embedded thumbnail stays crisp.
+const SAMPLE = 260;
 export async function trimImageWhitespace(dataUrl: string): Promise<string> {
   try {
     if (typeof document === "undefined") return dataUrl;
     const img = await loadImage(dataUrl);
-    const w = img.naturalWidth, h = img.naturalHeight;
-    if (!w || !h) return dataUrl;
-    const c = document.createElement("canvas");
-    c.width = w; c.height = h;
-    const ctx = c.getContext("2d");
-    if (!ctx) return dataUrl;
-    ctx.drawImage(img, 0, 0);
+    const W = img.naturalWidth, H = img.naturalHeight;
+    if (!W || !H) return dataUrl;
+
+    const scale = Math.min(1, SAMPLE / Math.max(W, H));
+    const sw = Math.max(1, Math.round(W * scale));
+    const sh = Math.max(1, Math.round(H * scale));
+    const sc = document.createElement("canvas");
+    sc.width = sw; sc.height = sh;
+    const sctx = sc.getContext("2d");
+    if (!sctx) return dataUrl;
+    sctx.drawImage(img, 0, 0, sw, sh);
     let rgba: Uint8ClampedArray;
-    try { rgba = ctx.getImageData(0, 0, w, h).data; } catch { return dataUrl; } // tainted → bail
-    const box = computeTrimBox(rgba, w, h);
+    try { rgba = sctx.getImageData(0, 0, sw, sh).data; } catch { return dataUrl; } // tainted → bail
+    const box = computeTrimBox(rgba, sw, sh);
     if (!box) return dataUrl;
+
+    // Scale the small-image box back to full-res coordinates.
+    const fx = W / sw, fy = H / sh;
+    const cx = Math.max(0, Math.floor(box.sx * fx));
+    const cy = Math.max(0, Math.floor(box.sy * fy));
+    const cw = Math.min(W - cx, Math.ceil(box.sw * fx));
+    const ch = Math.min(H - cy, Math.ceil(box.sh * fy));
+    if (cw <= 0 || ch <= 0) return dataUrl;
+
     const o = document.createElement("canvas");
-    o.width = box.sw; o.height = box.sh;
+    o.width = cw; o.height = ch;
     const octx = o.getContext("2d");
     if (!octx) return dataUrl;
     octx.fillStyle = "#ffffff"; // matte, in case the source had transparency
-    octx.fillRect(0, 0, box.sw, box.sh);
-    octx.drawImage(c, box.sx, box.sy, box.sw, box.sh, 0, 0, box.sw, box.sh);
+    octx.fillRect(0, 0, cw, ch);
+    octx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
     return o.toDataURL("image/jpeg", 0.9);
   } catch {
     return dataUrl;
