@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
-import type { ExportColumn } from "./exports/useTableExport";
+import { toUsDate, type ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
@@ -62,11 +62,14 @@ const inputStyle: React.CSSProperties = {
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
 // Greyed, read-only display for server-generated codes (operator item 14).
+// Width matches the adjacent "From" date input (100% of its grid column) and
+// height matches the "Name" text input — flex-centered with no fixed minHeight.
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  boxSizing: "border-box", display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -224,8 +227,8 @@ export default function InternalSeasonMaster() {
                 >
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }} hidden={!isVisible("code")}>{s.code}</td>
                   <td style={td} hidden={!isVisible("name")}>{s.name}</td>
-                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("start_date")}>{s.start_date || "—"}</td>
-                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("end_date")}>{s.end_date || "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("start_date")}>{s.start_date ? toUsDate(s.start_date) : "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("end_date")}>{s.end_date ? toUsDate(s.end_date) : "—"}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sort_order")}>{s.sort_order}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{s.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
