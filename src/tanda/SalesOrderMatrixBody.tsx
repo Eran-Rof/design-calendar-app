@@ -263,13 +263,13 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
         )}
       </div>
 
-      {atsMode && (sections.length > 0 || flat.length > 0) && (
-        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
-          ▲ Number above each cell is <b style={{ color: C.base }}>available-to-ship by size</b>{" "}
-          {atsAsOfDate
-            ? <>by ship date {atsAsOfDate} (on-hand + inbound POs due by then − open reservations).</>
-            : <>(on-hand − open reservations; set a ship date to include inbound POs).</>}
-          {atsLoading ? " Loading…" : atsAsOf ? ` On-hand as of ${atsAsOf}.` : " No size on-hand data."}
+      {/* Prominent order totals at the top of the lines section (≈4× the size of
+          the small footer totals, which is kept below). Replaces the old "▲
+          available-to-ship by size" caption per operator request. */}
+      {(sections.length > 0 || flat.length > 0) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "baseline", gap: 40, padding: "6px 4px 12px", borderBottom: `1px solid ${C.cardBdr}`, marginBottom: 12 }}>
+          <span style={{ color: C.textMuted, fontSize: 18 }}>Total qty <b style={{ color: C.text, fontSize: 44, fontVariantNumeric: "tabular-nums", marginLeft: 8 }}>{totals.qty.toLocaleString()}</b></span>
+          <span style={{ color: C.textMuted, fontSize: 18 }}>Total <b style={{ color: C.success, fontSize: 44, fontVariantNumeric: "tabular-nums", marginLeft: 8 }}>${(totals.cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
         </div>
       )}
 
@@ -304,7 +304,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
                 rows={rows} sizes={s.payload.sizes}
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}
-                unit={{ label: "Unit $", placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v) }}
+                unit={{ label: "Unit $", placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
               />
             )}
           </div>
@@ -323,7 +323,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
                   <td style={td}>{idx + 1}</td>
                   <td style={td}><SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateFlat(idx, { inventory_item_id: v })} options={flatOptions} placeholder="(pick SKU…)" disabled={!editable} /></td>
                   <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateFlat(idx, { qty_ordered: e.target.value })} disabled={!editable} placeholder="0" style={numInput} /></td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateFlat(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="0.00" style={numInput} /></td>
+                  <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateFlat(idx, { unit_price_dollars: e.target.value })} onBlur={() => { const n = Number((l.unit_price_dollars || "").replace(/,/g, "")); if (l.unit_price_dollars.trim() !== "" && Number.isFinite(n)) updateFlat(idx, { unit_price_dollars: n.toFixed(2) }); }} disabled={!editable} placeholder="0.00" style={numInput} /></td>
                   <td style={td}>{editable && <button type="button" onClick={() => removeFlat(idx)} style={btnDanger}>✕</button>}</td>
                 </tr>
               ))}

@@ -45,6 +45,19 @@ const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, 
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
 
+// Approved $ is a comma-grouped, 2-decimal money field. Display carries the
+// grouping commas; strip them with moneyToNumber() before persisting cents.
+const moneyToNumber = (raw: string): number | null => {
+  const t = (raw ?? "").replace(/,/g, "").trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+};
+const fmtMoneyComma = (raw: string): string => {
+  const n = moneyToNumber(raw);
+  return n == null ? "" : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 type SO = {
   id: string; so_number: string | null; customer_id: string; ship_to_location_id: string | null;
   brand_id: string | null; channel_id: string | null; order_date: string; requested_ship_date: string | null;
@@ -248,7 +261,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [factorStatus, setFactorStatus] = useState(so?.factor_approval_status || "not_submitted");
   const [factorReference, setFactorReference] = useState(so?.factor_reference || "");
   const [factorApprovedDollars, setFactorApprovedDollars] = useState(
-    so?.factor_approved_cents != null && so.factor_approved_cents !== "" ? (Number(so.factor_approved_cents) / 100).toFixed(2) : "");
+    so?.factor_approved_cents != null && so.factor_approved_cents !== "" ? fmtMoneyComma(String(Number(so.factor_approved_cents) / 100)) : "");
 
   const [items, setItems] = useState<Item[]>([]);
   const [brands, setBrands] = useState<Lookup[]>([]);
@@ -366,7 +379,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
         factor_reference: factorReference.trim() || null,
-        factor_approved_cents: factorApprovedDollars.trim() === "" ? null : Math.round((Number(factorApprovedDollars) || 0) * 100),
+        factor_approved_cents: moneyToNumber(factorApprovedDollars) == null ? null : Math.round((moneyToNumber(factorApprovedDollars) || 0) * 100),
       };
 
       let soId = so?.id || null;
@@ -566,9 +579,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 options={FACTOR_STATUSES.map((s) => ({ value: s, label: s }))} placeholder="not_submitted" disabled={!editable} />
             </Field>
             <Field label="Factor ref #"><input type="text" value={factorReference} onChange={(e) => setFactorReference(e.target.value)} disabled={!editable} style={inputStyle} placeholder="approval / ref number" /></Field>
-            <Field label="Approved $"><input type="text" inputMode="decimal" value={factorApprovedDollars} onChange={(e) => setFactorApprovedDollars(e.target.value)} disabled={!editable} style={inputStyle} placeholder="0.00" /></Field>
+            <Field label="Approved $"><input type="text" inputMode="decimal" value={factorApprovedDollars} onChange={(e) => setFactorApprovedDollars(e.target.value)} onBlur={() => setFactorApprovedDollars((v) => fmtMoneyComma(v))} disabled={!editable} style={inputStyle} placeholder="0.00" /></Field>
           </div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>Manual entry for now — this will auto-fill from the Rosenthal &amp; Rosenthal Factor API in a future release.</div>
           {/* Chunk K (operator item 17) — ship-gate cue. Server is the source of truth (409 on ship). */}
           {customers.find((c) => c.id === customerId)?.is_factored === true && factorStatus !== "approved" && (
             <div style={{ fontSize: 11, color: C.warn, marginTop: 8, fontWeight: 600 }}>
