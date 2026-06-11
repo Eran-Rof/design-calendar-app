@@ -8,7 +8,7 @@ import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
 import { buildExportPayload, type ExportPayload, type AtsSizeMatrixResponse } from "../exportExcel";
-import { fetchDataUrls } from "../../shared/exportImages";
+import { fetchDataUrls, type ExportImage } from "../../shared/exportImages";
 import type { ReportPayload } from "../reportPayload";
 import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
@@ -30,7 +30,7 @@ import FavoritesMenu from "../../components/FavoritesMenu";
 // PIM (same source + match logic as the grid), fetches the bytes (deduped),
 // and keys by the same STYLE|COLOR the export looks up. Failures are skipped —
 // a missing thumbnail never blocks the export.
-async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, string>> {
+async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, ExportImage>> {
   const codes = Array.from(new Set(rows.map((r) => (r.master_style ?? "").trim().toUpperCase()).filter(Boolean)));
   if (codes.length === 0) return new Map();
   let info: Record<string, { default: string | null; byColor: Record<string, string> }> = {};
@@ -58,7 +58,7 @@ async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, string>> 
   // Trim the white studio background so the garment fills the export cell
   // (PIM shots frame the product in a tall white canvas).
   const dataByUrl = await fetchDataUrls([...urls], { trimWhitespace: true });
-  const out = new Map<string, string>();
+  const out = new Map<string, ExportImage>();
   for (const [key, url] of keyToUrl) { const d = dataByUrl.get(url); if (d) out.set(key, d); }
   return out;
 }
@@ -253,7 +253,7 @@ interface NavBarProps {
     sizeMatrix?: AtsSizeMatrixResponse,
     bulkByStyleColor?: Map<string, { so: number; po: number }>,
     periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
-    styleImages?: Map<string, string>,
+    styleImages?: Map<string, ExportImage>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
