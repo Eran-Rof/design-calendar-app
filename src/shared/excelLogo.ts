@@ -317,6 +317,45 @@ function parseImageDataUrl(d: string): { base64: string; extension: "png" | "jpe
   return { base64: d.replace(/^data:[^,]*,/, ""), extension: "png" };
 }
 
+// Read intrinsic pixel dimensions from a base64 PNG/JPEG/GIF header so an
+// embedded image can be scaled to FIT its cell (preserving aspect) instead of
+// being forced into a square box — which would let a tall portrait image spill
+// past its row. Returns null if it can't be read (caller falls back to the box).
+function imageDims(base64: string): { w: number; h: number } | null {
+  try {
+    const bin = typeof atob === "function" ? atob(base64) : Buffer.from(base64, "base64").toString("binary");
+    const n = bin.length;
+    const b = (i: number) => bin.charCodeAt(i) & 0xff;
+    // PNG: IHDR width/height at bytes 16–23.
+    if (b(0) === 0x89 && b(1) === 0x50) {
+      const w = (b(16) << 24) | (b(17) << 16) | (b(18) << 8) | b(19);
+      const h = (b(20) << 24) | (b(21) << 16) | (b(22) << 8) | b(23);
+      if (w > 0 && h > 0) return { w, h };
+    }
+    // GIF: little-endian width/height at bytes 6–9.
+    if (b(0) === 0x47 && b(1) === 0x49 && b(2) === 0x46) {
+      const w = b(6) | (b(7) << 8); const h = b(8) | (b(9) << 8);
+      if (w > 0 && h > 0) return { w, h };
+    }
+    // JPEG: walk segments to a Start-Of-Frame marker, read height then width.
+    if (b(0) === 0xff && b(1) === 0xd8) {
+      let i = 2;
+      while (i < n - 9) {
+        if (b(i) !== 0xff) { i++; continue; }
+        const marker = b(i + 1);
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          const h = (b(i + 5) << 8) | b(i + 6);
+          const w = (b(i + 7) << 8) | b(i + 8);
+          if (w > 0 && h > 0) return { w, h };
+          break;
+        }
+        i += 2 + ((b(i + 2) << 8) | b(i + 3)); // skip this segment
+      }
+    }
+  } catch { /* unreadable header — fall back */ }
+  return null;
+}
+
 // Bump the ROW number of every (relative) A1 cell reference by `offset` so
 // formulas/ranges stay correct after a logo banner pushes the grid down.
 // Absolute rows ($-prefixed) are left untouched.
@@ -416,9 +455,25 @@ export function renderStyledAoa(
       if (!base64) return;
       let id = imgIdByData.get(im.dataUrl);
       if (id === undefined) { id = wb.addImage({ base64, extension }); imgIdByData.set(im.dataUrl, id); }
+      // Scale to FIT the (im.width × im.height) box, preserving aspect ratio,
+      // so portrait product shots don't overflow their row. Falls back to the
+      // full box if the dimensions can't be read.
+      const dims = imageDims(base64);
+      let w = im.width, h = im.height;
+      if (dims) {
+        const scale = Math.min(im.width / dims.w, im.height / dims.h);
+        w = Math.round(dims.w * scale);
+        h = Math.round(dims.h * scale);
+      }
+      // Center the (possibly narrower/shorter) image within its cell. Excel
+      // col width px ≈ wch*7+5; row height px ≈ hpt*96/72.
+      const colPx = ((opts.cols?.[im.col] ?? 10) * 7) + 5;
+      const rowPx = (opts.rowHeights?.[im.aoaRow] ?? 15) * (96 / 72);
+      const hOff = colPx > w ? (colPx - w) / 2 / colPx : 0.06;
+      const vOff = rowPx > h ? (rowPx - h) / 2 / rowPx : 0.06;
       ws.addImage(id, {
-        tl: { col: im.col + 0.08, row: offset + im.aoaRow + 0.08 } as ExcelJS.Anchor,
-        ext: { width: im.width, height: im.height },
+        tl: { col: im.col + hOff, row: offset + im.aoaRow + vOff } as ExcelJS.Anchor,
+        ext: { width: w, height: h },
         editAs: "oneCell",
       });
     } catch { /* malformed image data — skip */ }
