@@ -54,6 +54,8 @@ import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { dcViewToMenuKey } from "./lib/dcViewToMenuKey";
+import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
+import { DC_MODULES, DC_SECTIONS } from "./dcModules";
 import { useDocumentTitle, humanizeView } from "./shared/useDocumentTitle";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
@@ -77,6 +79,15 @@ function App() {
   // ── Confirm modal state ────────────────────────────────────────────────
   const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  // Left NavDrawer collapse — local + localStorage, mirroring the GS1 shell.
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("dc:nav:collapsed:v1") === "1"; } catch { return false; }
+  });
+  const toggleNav = () => setNavCollapsed(v => {
+    const next = !v;
+    try { localStorage.setItem("dc:nav:collapsed:v1", next ? "1" : "0"); } catch {}
+    return next;
+  });
   setConfirmHandler((opts) => setConfirmState(opts));
 
   // ── Supabase persistence ─────────────────────────────────────────────────
@@ -475,6 +486,11 @@ function App() {
 
   const dashboardCtx = { TaskCard };
 
+  // Width consumed by the fixed left NavDrawer — content shifts right by this.
+  const navOffset = navCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN;
+
+  // User identity for the drawer (mirrors GS1App.readPlmUser shape).
+  const onDrawerSignOut = () => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; };
 
   return (
     <div
@@ -485,6 +501,23 @@ function App() {
         color: TH.text,
       }}
     >
+      {/* Shared left navigation drawer (de-iconed, collapsible) — replaces the
+          old horizontal top-bar nav. Selecting a module swaps the `view`. */}
+      <NavDrawer
+        appKey="dc"
+        appLabel="Design Calendar"
+        logoText="DC"
+        moduleParam="view"
+        modules={DC_MODULES}
+        sections={DC_SECTIONS}
+        activeModule={view}
+        onSelectModule={(k) => { if (k) { setView(k); setStatFilter(null); if (k !== "dashboard") setFocusCollKey(null); } else { setView("dashboard"); } }}
+        userEmail={(currentUser as any)?.email ?? null}
+        userName={currentUser?.name ?? null}
+        onSignOut={onDrawerSignOut}
+        collapsed={navCollapsed}
+        onToggleCollapsed={toggleNav}
+      />
       {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
 
@@ -551,6 +584,8 @@ function App() {
           zIndex: 100,
           gap: 12,
           boxShadow: "0 2px 16px rgba(0,0,0,0.25)",
+          marginLeft: navOffset,
+          transition: "margin-left 0.2s ease",
         }}
       >
         <div
@@ -590,9 +625,6 @@ function App() {
             alignItems: "center",
           }}
         >
-          {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"],["trend-briefs","Trend Briefs"]].map(([v,label]) =>
-            navBtn(v, label)
-          )}
           {currentUser && (
             <button
               onClick={() => setAiOpen(true)}
@@ -793,6 +825,9 @@ function App() {
         </div>
       </div>
 
+      {/* Drawer-offset wrapper — shifts the filter bar + main content right of
+          the fixed left NavDrawer (header & fixed bars are offset separately). */}
+      <div style={{ marginLeft: navOffset, transition: "margin-left 0.2s ease" }}>
       {/* Filter bar — only on views where it applies */}
       {["dashboard", "timeline", "calendar"].includes(view) && <FilterBar
         brands={brands}
@@ -859,6 +894,7 @@ function App() {
           />
           </Suspense>
         )}
+      </div>
       </div>
 
       {showAddTask && (
@@ -1125,7 +1161,7 @@ function App() {
         style={{
           position: "fixed",
           bottom: 0,
-          left: 0,
+          left: navOffset,
           right: 0,
           zIndex: 200,
           background:
@@ -1136,7 +1172,7 @@ function App() {
           alignItems: "stretch",
           height: 66,
           backdropFilter: "blur(12px)",
-          transition: "transform 0.3s ease",
+          transition: "transform 0.3s ease, left 0.2s ease",
           transform: showNav ? "translateY(0)" : "translateY(100%)",
         }}
       >
