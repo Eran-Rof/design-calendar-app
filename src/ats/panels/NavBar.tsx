@@ -55,7 +55,9 @@ async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, string>> 
     urls.add(url);
   }
   if (urls.size === 0) return new Map();
-  const dataByUrl = await fetchDataUrls([...urls]);
+  // Trim the white studio background so the garment fills the export cell
+  // (PIM shots frame the product in a tall white canvas).
+  const dataByUrl = await fetchDataUrls([...urls], { trimWhitespace: true });
   const out = new Map<string, string>();
   for (const [key, url] of keyToUrl) { const d = dataByUrl.get(url); if (d) out.set(key, d); }
   return out;
