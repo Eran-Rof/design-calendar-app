@@ -1809,23 +1809,44 @@ export function buildExportPayload(
       // sit at M..R (often the row's own Total column, self-referencing).
       const colLetterToIdx = (letters: string): number => {
         let n = 0;
-        for (let i = 0; i < letters.length; i++) {
-          n = n * 26 + (letters.charCodeAt(i) - 64);
-        }
+        for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
         return n;
+      };
+      // Map an original 1-based column to its new index. A DROPPED column is
+      // clamped to the nearest KEPT column on the given side, so a range bound
+      // shrinks INWARD rather than keeping a stale letter. Keeping a stale end
+      // letter let a SUM range over-reach into the Total column that reflowed
+      // leftward into the old period letters — the circular-reference bug.
+      const keptAsc = keptList.slice().sort((a, b) => a - b);
+      const mapClamped = (origIdx: number, side: "start" | "end"): number | null => {
+        const direct = columnIndexMap!.get(origIdx);
+        if (direct !== undefined) return direct;
+        if (side === "end") {
+          let best = -1;
+          for (const k of keptAsc) { if (k <= origIdx) best = k; else break; }
+          return best >= 0 ? columnIndexMap!.get(best)! : null;
+        }
+        for (const k of keptAsc) if (k >= origIdx) return columnIndexMap!.get(k)!;
+        return null;
       };
       for (const row of effectiveAllRows) {
         if (!row) continue;
         for (const cell of row) {
           if (!cell || typeof cell.f !== "string") continue;
-          cell.f = cell.f.replace(/([A-Z]+)(\d+)/g, (whole, lettersRaw, digits) => {
-            const origIdx = colLetterToIdx(lettersRaw);
-            const newIdx = columnIndexMap!.get(origIdx);
-            // Dropped column: keep the original letter — Excel evaluates
-            // the cell as empty, producing a slight under-count rather
-            // than a wildly wrong sum from a self-reference.
-            if (newIdx === undefined) return whole;
-            return `${colLetter(newIdx)}${digits}`;
+          // One pass over ranges (A1:B1) AND single refs (A1). Ranges clamp
+          // dropped bounds inward; singles map directly (or keep if dropped).
+          cell.f = cell.f.replace(/([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?/g, (whole, l1, d1, l2, d2) => {
+            if (l2 !== undefined) {
+              const a = mapClamped(colLetterToIdx(l1), "start");
+              const b = mapClamped(colLetterToIdx(l2), "end");
+              if (a === null || b === null || a > b) {
+                const one = a ?? b;
+                return one != null ? `${colLetter(one)}${d1}` : whole;
+              }
+              return `${colLetter(a)}${d1}:${colLetter(b)}${d2}`;
+            }
+            const newIdx = columnIndexMap!.get(colLetterToIdx(l1));
+            return newIdx === undefined ? whole : `${colLetter(newIdx)}${d1}`;
           });
         }
       }
