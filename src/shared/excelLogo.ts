@@ -305,6 +305,14 @@ export interface AoaImage {
   /** Embedded thumbnail size in pixels. */
   width: number;
   height: number;
+  /**
+   * Extra pixels BELOW the anchor row the image should also cover. The anchor
+   * row is shrunk by this amount so the image spills into the following row(s)
+   * — used to make a thumbnail span a multi-row record (e.g. an ATS qty + PPK
+   * pair) so it covers the internal row border and lands on the record's outer
+   * separator. Default 0.
+   */
+  extendPx?: number;
 }
 
 // Split a data URL (or raw base64) into ExcelJS's { base64, extension }.
@@ -470,9 +478,12 @@ export function renderStyledAoa(
       }
       const w = colPx - 4;
       const h = (iw > 0 && ih > 0) ? Math.round(w * ih / iw) : w; // square if still unknown
-      // Row height = image height exactly (min 22pt for readability). Overrides
-      // the caller's row height for image rows only.
-      ws.getRow(offset + im.aoaRow + 1).height = Math.max(Math.round((h * 72) / 96), 22);
+      // The image is `h` px tall. If it should cover following rows too
+      // (extendPx), shrink the anchor row by that amount so the picture spills
+      // down over them — covering the internal border and landing on the
+      // record's outer separator. Min 22pt so the row stays usable.
+      const extend = Math.max(0, Math.min(im.extendPx ?? 0, h - 8));
+      ws.getRow(offset + im.aoaRow + 1).height = Math.max(Math.round(((h - extend) * 72) / 96), 22);
       const hOff = 2 / colPx; // tiny inset so the image doesn't touch the column edges
       ws.addImage(id, {
         tl: { col: im.col + hOff, row: offset + im.aoaRow } as ExcelJS.Anchor,
