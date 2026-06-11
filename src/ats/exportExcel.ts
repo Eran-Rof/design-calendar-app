@@ -248,6 +248,9 @@ export function buildExportPayload(
   // thumbnails. Inserted in the COL allocator so every downstream index shifts
   // automatically; left undefined otherwise so the report is byte-identical.
   const wantImages = !!styleImages && styleImages.size > 0;
+  // Report text is scaled up; defined here so the autofit (below) widens text
+  // columns to match and the row-height + font passes share one factor.
+  const FONT_SCALE: number = 1.35;
   // Image column geometry: ~220px square thumbnail (large product image). The
   // embedded source is the higher-res "web" derivative so it stays crisp.
   const IMG_COL_WCH = 32;   // ≈ 229px column
@@ -1874,7 +1877,8 @@ export function buildExportPayload(
       else s = String(cell.v ?? "");
       if (s.length > maxLen) maxLen = s.length;
     }
-    return Math.min(MAX_WCH, maxLen + PAD);
+    // Widen by FONT_SCALE so the 135%-scaled text isn't clipped in its column.
+    return Math.min(Math.round(MAX_WCH * FONT_SCALE), Math.round((maxLen + PAD) * FONT_SCALE));
   }
   // Width array follows the same projection as the AOA when hideZero
   // is on: only emit widths for kept columns, in the same order.
@@ -1896,10 +1900,8 @@ export function buildExportPayload(
   // and total rows a touch taller for visual weight.
   // Header height bumps when any cell wrapped (estimate two lines @
   // 11pt + padding). Single-line headers keep the tighter 22pt.
-  // Report text is scaled up (see the font pass below); bump row heights to
-  // match so the larger text never clips. Image rows (IMG_ROW_HPT) are sized
-  // for the picture, not the font, so they're left as-is.
-  const FONT_SCALE: number = 1.35;
+  // Row heights scaled by FONT_SCALE (defined above) to match the larger text.
+  // Image rows are sized for the picture by the renderer, not the font.
   const HEADER_HPT = Math.round((headerHasWrap ? 34 : 22) * FONT_SCALE);
   const ROW_HPT = Math.round(15 * FONT_SCALE);
   const PPK_ROW_HPT = Math.round(11 * FONT_SCALE);

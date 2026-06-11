@@ -455,24 +455,24 @@ export function renderStyledAoa(
       if (!base64) return;
       let id = imgIdByData.get(im.dataUrl);
       if (id === undefined) { id = wb.addImage({ base64, extension }); imgIdByData.set(im.dataUrl, id); }
-      // Scale to FIT the (im.width × im.height) box, preserving aspect ratio,
-      // so portrait product shots don't overflow their row. Falls back to the
-      // full box if the dimensions can't be read.
-      const dims = imageDims(base64);
-      let w = im.width, h = im.height;
-      if (dims) {
-        const scale = Math.min(im.width / dims.w, im.height / dims.h);
-        w = Math.round(dims.w * scale);
-        h = Math.round(dims.h * scale);
-      }
-      // Center the (possibly narrower/shorter) image within its cell. Excel
-      // col width px ≈ wch*7+5; row height px ≈ hpt*96/72.
+      // Fill the cell's COLUMN WIDTH (so portrait shots don't leave side gaps),
+      // keeping aspect ratio, then size the row to the resulting height so the
+      // full image shows without spilling into the next row. Excel col px ≈
+      // wch*7+5; row pt ≈ px*72/96. Falls back to the box if dims are unreadable.
       const colPx = ((opts.cols?.[im.col] ?? 10) * 7) + 5;
-      const rowPx = (opts.rowHeights?.[im.aoaRow] ?? 15) * (96 / 72);
-      const hOff = colPx > w ? (colPx - w) / 2 / colPx : 0.06;
-      const vOff = rowPx > h ? (rowPx - h) / 2 / rowPx : 0.06;
+      let w = Math.min(im.width, colPx - 8);
+      let h = im.height;
+      const dims = imageDims(base64);
+      if (dims && dims.w > 0 && dims.h > 0) {
+        w = colPx - 8;
+        h = Math.round(w * dims.h / dims.w);
+      }
+      // Size the image's row to the picture (min 22pt so the row's text stays
+      // readable). Overrides the caller's row height for image rows only.
+      ws.getRow(offset + im.aoaRow + 1).height = Math.max(Math.round((h * 72) / 96) + 6, 22);
+      const hOff = (colPx - w) / 2 / colPx; // center horizontally
       ws.addImage(id, {
-        tl: { col: im.col + hOff, row: offset + im.aoaRow + vOff } as ExcelJS.Anchor,
+        tl: { col: im.col + hOff, row: offset + im.aoaRow + 0.04 } as ExcelJS.Anchor,
         ext: { width: w, height: h },
         editAs: "oneCell",
       });
