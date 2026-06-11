@@ -2,7 +2,7 @@
 
 PO WIP is the app the production and ops team lives in. It tracks **every purchase order from the day it's placed through each production milestone until it lands in-house (DDP)**. Where the Planning/ATS app answers "what can I sell," PO WIP answers "where is each PO in production and when will it arrive."
 
-Open it at **`/tanda`** (the app is branded **Purchase Orders · via XoroERP** in the top-left of its nav). You can also jump to it from the **🧩 Apps** launcher in Tangerine or the PLM home launcher.
+Open it at **`/tanda`** (the app is branded **PO WIP** at the top of its left navigation drawer). You can also jump to it from the **🧩 All Apps** switcher at the bottom of the drawer, the Tangerine launcher, or the PLM home launcher.
 
 > **A note on the name.** Internally this app is called "Tanda" — you'll still see that word in some bookmarks and links. The operator-facing name is **PO WIP** (Purchase Orders). They are the same app.
 
@@ -19,24 +19,38 @@ What you *do* maintain in PO WIP is everything that Xoro doesn't track: the **pr
 
 > Each milestone status you set, each note you add, and each Buyer PO you enter is **preserved across syncs** — re-syncing a PO never wipes your work. When a PO's delivery date changes in Xoro, the milestone dates **recalculate (cascade)** around the new date but your statuses stay put.
 
-## The navigation bar
+## The navigation drawer
 
-Across the top of PO WIP you'll find:
+PO WIP uses the **shared left navigation drawer** (the same one as the other suite apps). It lists every view, grouped into collapsible sections, and remembers which sections you've opened. The **◀ / ▶** control at the top collapses the drawer to a slim icon rail and back — your choice is remembered between visits.
 
-- **✨ Ask AI** (purple button) — ask plain-English questions about POs, vendors, shipments, invoices. Answers come from live data and this guide.
+Down the drawer you'll find:
+
+- **Your name + avatar** — click it to **Sign out**.
+- **🔍 Search modules** — start typing ("grid", "archive", "templates") and press **Enter** to jump straight to the top hit.
+- **⭐ Favorites** — star the current view (the ☆ next to the Favorites header) to pin it to the top of the drawer.
+- **Module sections**, each click-to-expand:
+  - **Purchase Orders** — Dashboard · All POs · Grid · Timeline · Archive · Templates.
+  - **Collaboration** — Teams · Email · Activity.
+  - **Vendors** — Directory, Onboarding, Preferred, Scorecards, Health Scores, Diversity, Sustainability, ESG Scores.
+  - **Operations** — Shipments, 3-Way Match, Messages, Phase reviews, Anomalies, Workspaces.
+  - **Compliance** — Documents, Automation, Audit trail.
+  - **Sourcing** — RFQs, Marketplace, Inquiries, Benchmark, Insights.
+  - **Finance** — Payments, Discount offers, SCF, Virtual cards, FX, Tax.
+  - **Analytics & Admin** — Analytics, Spend, Workflow Rules, Approvals, Entities.
+- **🧩 All Apps** (bottom) — switch to any other suite app.
+
+A **slim top bar** to the right of the drawer holds the actions that aren't views:
+
+- **✨ Ask AI** — ask plain-English questions about POs, vendors, shipments, invoices. Answers come from live data and this guide.
 - **🔔 Notifications** — your alert inbox, with an unread-count badge.
-- **⭐ Favorites** — star any view to pin it.
-- **🔍 Find a view** — start typing ("grid", "archive", "templates", "sync") and press **Enter** to jump straight there.
-- **📋 Purchase Orders ▾** — Dashboard · All POs · Grid · Timeline · Archive · Templates.
-- **💬 Collaboration ▾** — Teams · Email · Activity.
-- **🏢 Vendors ▾** — Directory, Onboarding, Scorecards, Health, Shipments, 3-Way Match, RFQs, and more (covered in the Vendors / Procurement chapters).
-- **⚙️ Tools & Settings ▾** — Bulk Update · Sync POs · Settings.
+- **⭐ Favorites** picker and a **🔍 Find a view** finder.
+- **⚡ Bulk** (bulk milestone update), **🔄 Sync** (pull fresh POs from Xoro — see [§6.9](#69-syncing-from-xoro)), **⚙️ Settings**, and **← PLM** (back to the launcher).
 
 The four core working views — **Dashboard, All POs, Grid, and Archive** — are the ones you'll use daily and are covered below.
 
 ## 6.1 The Dashboard
 
-The Dashboard (**📋 Purchase Orders ▾ → 🏠 Dashboard**) is your at-a-glance production health view. It opens with a search box at the top — type a PO #, vendor, brand, or style number to filter everything below.
+The Dashboard (**Purchase Orders → 🏠 Dashboard** in the drawer) is your at-a-glance production health view. It opens with a search box at the top — type a PO #, vendor, brand, or style number to filter everything below.
 
 Key elements, top to bottom:
 
@@ -60,7 +74,7 @@ Every tile and row is clickable — they're shortcuts into the deeper views.
 
 ## 6.2 All POs (list)
 
-**📋 Purchase Orders ▾ → All POs** is the simple card list. Use the filter bar at the top:
+**Purchase Orders → All POs** (in the drawer) is the simple card list. Use the filter bar at the top:
 
 1. **🔍 Search** — matches PO #, vendor, brand, style #, and memo.
 2. **All PO Statuses** dropdown — filter to one status.
@@ -134,7 +148,7 @@ The standard phase set runs from **Lab Dip / Strike Off** (~120 days before DDP)
 
 ## 6.5 Production templates (lead times)
 
-The phase list and its days-before-DDP spacing come from a **production template**. **📐 Templates** (**📋 Purchase Orders ▾ → 📐 Templates**) is where you manage them.
+The phase list and its days-before-DDP spacing come from a **production template**. **📐 Templates** (**Purchase Orders → 📐 Templates** in the drawer) is where you manage them.
 
 - Use the **Vendor** dropdown to pick **Default Template** or a vendor-specific one. The Default is used for any vendor that doesn't have its own.
 - The table lists each phase with its **#, Phase, Category, Days Before DDP, and Status**.
@@ -176,7 +190,7 @@ Phases are grouped by category, sorted by expected date. You can set each phase'
 
 ## 6.7 Bulk update
 
-For repetitive changes, use **⚙️ Tools & Settings ▾ → ⚡ Bulk Update**. Pick a **vendor**, optionally narrow to specific **POs**, **phases**, or a **category**, choose a target **status**, and apply. PO WIP updates every matching milestone in one pass (and auto-generates milestones for any selected PO that didn't have them). It skips milestones already at the target status or marked N/A, and logs the change to history.
+For repetitive changes, use the **⚡ Bulk** button in the top bar. Pick a **vendor**, optionally narrow to specific **POs**, **phases**, or a **category**, choose a target **status**, and apply. PO WIP updates every matching milestone in one pass (and auto-generates milestones for any selected PO that didn't have them). It skips milestones already at the target status or marked N/A, and logs the change to history.
 
 ## 6.8 Archive, restore, and permanent delete
 
@@ -196,7 +210,7 @@ You can act on one PO via its row buttons, or tick checkboxes (including the hea
 
 ## 6.9 Syncing from Xoro
 
-To pull fresh data on demand, open **⚙️ Tools & Settings ▾ → 🔄 Sync POs** (or the **🔄 Sync from Xoro** button on an empty list). The sync modal lets you scope what gets pulled:
+To pull fresh data on demand, click the **🔄 Sync** button in the top bar (or the **🔄 Sync from Xoro** button on an empty list). The sync modal lets you scope what gets pulled:
 
 | Filter | Behaviour |
 |---|---|
@@ -211,7 +225,7 @@ POs sync **one status at a time** to avoid timeouts — if one status fails, the
 
 ## 6.10 Activity, Settings, and column preferences
 
-- **📋 Activity** (**💬 Collaboration ▾ → 📋 Activity**) is a chronological log of changes across all POs.
+- **📋 Activity** (**Collaboration → 📋 Activity** in the drawer) is a chronological log of changes across all POs.
 - **⚙️ Settings** holds app-level options (including email/Teams connection).
 - **Column visibility is per-user.** Wherever a table offers the **⚙ Columns** control, the columns you hide are saved to *your* profile and persist across devices and reloads. Newly added columns always appear by default. A "Select all" toggle and **Reset to default** keep things tidy. The same applies to **column sorting** — clicking a sortable header cycles ascending → descending → off and your preference is remembered.
 
