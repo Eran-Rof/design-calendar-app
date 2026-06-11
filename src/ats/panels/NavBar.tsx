@@ -428,6 +428,10 @@ export const NavBar: React.FC<NavBarProps> = ({
       aoa: payload.aoa,
       wb: payload.wb,
       filename: payload.filename,
+      // Preserve the non-main worksheet AOAs (By Size Matrix + per-period
+      // tabs) — without this the preview's tab lookup finds nothing and the
+      // matrix/period tabs render blank.
+      extraSheets: payload.extraSheets,
     };
     setPreviewPayload(normalized);
     setPreviewBodyCount(Math.max(0, payload.aoa.length - 1));

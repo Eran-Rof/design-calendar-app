@@ -97,6 +97,16 @@ function parseDate(v) {
   return null;
 }
 
+// Add N days to an ISO "YYYY-MM-DD" string, returning ISO. UTC-based so it
+// never shifts across a day boundary from a local-timezone offset.
+function addDaysIso(iso, n) {
+  if (!iso) return iso;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (isNaN(d.getTime())) return iso;
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().split("T")[0];
+}
+
 // ── Sheet readers ────────────────────────────────────────────────────────────
 
 export function readSheetFromPath(filepath) {
@@ -251,8 +261,18 @@ export function parseExcelRows(invRows, purRows, ordRows) {
       soTotal++;
       skuMap[soKey].onCommitted += qty;
 
-      const rawDate      = r["Date to be Cancelled"] || r["Cancel Date"] || r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
-      const date         = parseDate(rawDate);
+      // SO timeline date = the Xoro "Date to be Cancelled". When that's
+      // blank, derive a cancel date as ship date + 6 days (operator rule:
+      // Xoro cancel dates trail the ship date by ~6 days) so null-cancel
+      // SOs still land on the timeline instead of falling back to the raw
+      // ship date (which mis-buckets them in the cancel-date-keyed views).
+      const cancelRaw    = r["Date to be Cancelled"] || r["Cancel Date"];
+      const shipRaw      = r["Order Date to be Shipped"] || r["Ship Date"] || r["Requested Ship Date"];
+      let date           = parseDate(cancelRaw);
+      if (!date && shipRaw) {
+        const shipIso = parseDate(shipRaw);
+        if (shipIso) date = addDaysIso(shipIso, 6);
+      }
       const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
       const unitPrice    = parseFloat(String(
         r["Unit Price"] || r["Unit Cost"] || r["Price"] ||
