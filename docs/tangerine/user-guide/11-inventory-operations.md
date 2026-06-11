@@ -17,6 +17,18 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 ---
 
+## 11.0 Inventory Matrix (on-hand view)
+
+**Where:** Tangerine top nav → **🧮 Inventory Matrix** (Inventory group). A read-only on-hand view that renders any style's color × size grid (× rise / inseam when the scale carries them), with amber row/column totals, blended Avg Cost, Total Cost, and Last-Received date — mirroring the PO-detail matrix.
+
+**Finding styles.** Leave the style picker empty and use **Search styles** (and the Brand / Gender / Group / Category / Sub-Category dropdowns) to narrow the list; the view stacks one matrix block per matching style, 25 per page. The header bar reads **"Styles X–Y of N"** for the current page. Click any style's header to drill into its single-style view and its **SO / PO / Invoice** tabs.
+
+> **Styles with no on-hand are shown, not hidden (2026-06-11).** Every style that matches your search now renders a block, so the number of blocks always matches the "Styles X–Y of N" count. A style with no on-hand inventory (for example a zero-stock **-PPK** or **-KO** sibling) appears as a slim header + a *"No on-hand inventory"* note instead of vanishing. *Previously a zero-on-hand style was counted in the header total but produced no block — so searching e.g. `RYB0594` could read "1–3 of 3" while only one matrix showed.* Turn off **Hide Zeros** to expand any such style into its full zero-quantity grid, or click its header to open it directly.
+
+**Display toggles.** **Hide Zeros** (default on) drops zero-total color rows within each style; **Explode** folds PPK packs on-hand into sized eaches via the Prepack Matrix master; **By Inseam** splits each color into per-inseam rows with subtotals (shown only when the scale carries inseams). The **Store** dropdown narrows on-hand to one warehouse.
+
+---
+
 ## 11.1 Inventory Transfers
 
 **Where:** Tangerine top nav → **🔁 Inventory Transfers** (Inventory group).
