@@ -39,7 +39,7 @@ async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, string>> 
     const res = await fetch("/api/internal/pim/style-thumbs-by-code", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ style_codes: codes }),
+      body: JSON.stringify({ style_codes: codes, variant: "web" }),
     });
     if (res.ok) info = await res.json();
   } catch { /* no images — column just stays blank */ }

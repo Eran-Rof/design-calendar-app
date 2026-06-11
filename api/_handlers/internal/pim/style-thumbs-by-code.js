@@ -47,6 +47,10 @@ export default async function handler(req, res) {
     : [];
   if (codes.length === 0) return res.status(200).json({});
 
+  // Opt-in higher-res source. Default = thumb (grid thumbnails); the Excel
+  // export passes variant:"web" so its larger embedded images stay crisp.
+  const preferWeb = body?.variant === "web";
+
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
@@ -100,7 +104,7 @@ export default async function handler(req, res) {
   const paths = [];
   const seenPath = new Set();
   for (const r of rows || []) {
-    const p = r.storage_path_thumb || r.storage_path_web;
+    const p = preferWeb ? (r.storage_path_web || r.storage_path_thumb) : (r.storage_path_thumb || r.storage_path_web);
     if (p && !seenPath.has(p)) { seenPath.add(p); paths.push(p); }
   }
   const signedByPath = new Map();
@@ -113,7 +117,7 @@ export default async function handler(req, res) {
   for (const r of rows || []) {
     const codeUp = idToCode.get(r.style_id);
     if (!codeUp) continue;
-    const p = r.storage_path_thumb || r.storage_path_web;
+    const p = preferWeb ? (r.storage_path_web || r.storage_path_thumb) : (r.storage_path_thumb || r.storage_path_web);
     const url = p ? signedByPath.get(p) : null;
     if (!url) continue;
     const slot = out[codeUp];

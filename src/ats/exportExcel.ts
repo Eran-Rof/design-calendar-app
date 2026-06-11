@@ -248,10 +248,11 @@ export function buildExportPayload(
   // thumbnails. Inserted in the COL allocator so every downstream index shifts
   // automatically; left undefined otherwise so the report is byte-identical.
   const wantImages = !!styleImages && styleImages.size > 0;
-  // Image column geometry: ~92px square thumbnail with a little cell padding.
-  const IMG_COL_WCH = 13.5; // ≈ 94px column (150% of prior 9)
-  const IMG_ROW_HPT = 69;   // ≈ 92px row    (150% of prior 46)
-  const IMG_PX = 84;        // embedded thumbnail px, 150% of prior 56 (inset inside the cell)
+  // Image column geometry: ~220px square thumbnail (large product image). The
+  // embedded source is the higher-res "web" derivative so it stays crisp.
+  const IMG_COL_WCH = 32;   // ≈ 229px column
+  const IMG_ROW_HPT = 170;  // ≈ 227px row
+  const IMG_PX = 220;       // embedded thumbnail px (inset inside the cell)
   let nextCol = 1;
   const COL = {
     category:    nextCol++,
