@@ -1,14 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { computeTrimBox } from "../exportImages";
 
-// Build an RGBA buffer: white canvas (w×h) with a solid content rect.
+// Build an RGBA buffer: a (configurable) backdrop canvas (w×h) with a solid
+// content rect. Backdrop defaults to pure white.
 function makeImage(
   w: number,
   h: number,
   rect: { x: number; y: number; rw: number; rh: number; color?: [number, number, number] } | null,
+  bg: [number, number, number] = [255, 255, 255],
 ): Uint8ClampedArray {
   const data = new Uint8ClampedArray(w * h * 4);
-  for (let i = 0; i < w * h; i++) { data[i * 4] = 255; data[i * 4 + 1] = 255; data[i * 4 + 2] = 255; data[i * 4 + 3] = 255; }
+  for (let i = 0; i < w * h; i++) { data[i * 4] = bg[0]; data[i * 4 + 1] = bg[1]; data[i * 4 + 2] = bg[2]; data[i * 4 + 3] = 255; }
   if (rect) {
     const [r, g, b] = rect.color ?? [40, 40, 40];
     for (let y = rect.y; y < rect.y + rect.rh; y++) {
@@ -70,5 +72,29 @@ describe("computeTrimBox", () => {
 
   it("returns null on a malformed/short buffer", () => {
     expect(computeTrimBox(new Uint8ClampedArray(10), 200, 300)).toBeNull();
+  });
+
+  it("trims an OFF-WHITE backdrop the old ≥248 test would have missed", () => {
+    // Backdrop ~242 grey (below the old pure-white threshold) → corner detection
+    // picks it up and still crops to the content.
+    const w = 200, h = 300;
+    const box = computeTrimBox(
+      makeImage(w, h, { x: 60, y: 90, rw: 80, rh: 120 }, [242, 242, 242]),
+      w, h, { padFrac: 0 },
+    );
+    expect(box).not.toBeNull();
+    expect(box!.sx).toBe(60);
+    expect(box!.sy).toBe(90);
+    expect(box!.sw).toBe(80);
+    expect(box!.sh).toBe(120);
+  });
+
+  it("bails on a dark backdrop (won't risk cropping a full-bleed product)", () => {
+    const w = 200, h = 300;
+    const box = computeTrimBox(
+      makeImage(w, h, { x: 60, y: 90, rw: 80, rh: 120, color: [255, 255, 255] }, [30, 30, 30]),
+      w, h,
+    );
+    expect(box).toBeNull();
   });
 });
