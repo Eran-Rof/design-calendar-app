@@ -456,23 +456,24 @@ export function renderStyledAoa(
       let id = imgIdByData.get(im.dataUrl);
       if (id === undefined) { id = wb.addImage({ base64, extension }); imgIdByData.set(im.dataUrl, id); }
       // Fill the cell's COLUMN WIDTH (so portrait shots don't leave side gaps),
-      // keeping aspect ratio, then size the row to the resulting height so the
-      // full image shows without spilling into the next row. Excel col px ≈
-      // wch*7+5; row pt ≈ px*72/96. Falls back to the box if dims are unreadable.
+      // keeping aspect ratio, then size the row to EXACTLY the resulting image
+      // height so the picture fills the cell top-to-bottom with no empty gap.
+      // Excel col px ≈ wch*7+5; row pt ≈ px*72/96. Falls back to the box if the
+      // image dimensions can't be read.
       const colPx = ((opts.cols?.[im.col] ?? 10) * 7) + 5;
-      let w = Math.min(im.width, colPx - 8);
+      let w = Math.min(im.width, colPx - 4);
       let h = im.height;
       const dims = imageDims(base64);
       if (dims && dims.w > 0 && dims.h > 0) {
-        w = colPx - 8;
+        w = colPx - 4;
         h = Math.round(w * dims.h / dims.w);
       }
-      // Size the image's row to the picture (min 22pt so the row's text stays
-      // readable). Overrides the caller's row height for image rows only.
-      ws.getRow(offset + im.aoaRow + 1).height = Math.max(Math.round((h * 72) / 96) + 6, 22);
+      // Row height = image height exactly (min 22pt for readability). Overrides
+      // the caller's row height for image rows only.
+      ws.getRow(offset + im.aoaRow + 1).height = Math.max(Math.round((h * 72) / 96), 22);
       const hOff = (colPx - w) / 2 / colPx; // center horizontally
       ws.addImage(id, {
-        tl: { col: im.col + hOff, row: offset + im.aoaRow + 0.04 } as ExcelJS.Anchor,
+        tl: { col: im.col + hOff, row: offset + im.aoaRow } as ExcelJS.Anchor,
         ext: { width: w, height: h },
         editAs: "oneCell",
       });
