@@ -14,6 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersonalization } from "../hooks/usePersonalization";
 import { MENU_KEYS } from "../lib/menuKeys";
+import { backToPlmHome } from "../shared/backToPlm";
 
 // ── palette ───────────────────────────────────────────────────────────────
 const C = {
@@ -574,6 +575,23 @@ export function NavDrawer({
             </a>
           </div>
         )}
+      </div>
+
+      {/* ── Back to PLM launcher ──────────────────────────────────── */}
+      {/* Single shared back-to-launcher control for every drawer app. Uses
+          backToPlmHome() so it closes this tab and focuses the launcher the
+          app was opened from, instead of spawning a duplicate launcher. */}
+      <div style={{ borderTop:`1px solid ${C.border}`, padding:"4px 4px", flexShrink:0 }}>
+        <button
+          onClick={e => { e.stopPropagation(); backToPlmHome(); }}
+          title="Back to PLM launcher"
+          style={{ display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", color:C.textMuted, cursor:"pointer", borderRadius:5, padding: collapsed ? "7px 0" : "6px 10px", fontSize:13, justifyContent: collapsed ? "center" : "flex-start", transition:"background 0.1s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = C.bgRow; e.currentTarget.style.color = C.text; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }}
+        >
+          <span style={{ fontSize:14 }}>←</span>
+          {!collapsed && <span>PLM</span>}
+        </button>
       </div>
 
       {/* ── Apps switcher at bottom ───────────────────────────────── */}
