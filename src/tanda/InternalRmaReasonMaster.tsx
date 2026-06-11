@@ -61,9 +61,14 @@ const inputStyle: React.CSSProperties = {
 // Greyed, read-only display for server-generated codes (operator item 14).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  // Narrower than the full column (code is short) so its WIDTH matches the
+  // adjacent "Sort order" field; flex-centered with no minHeight so its HEIGHT
+  // matches the adjacent "Name" input (readonlyCodeStyle pattern, fabric codes).
+  width: "calc(100% - 6ch)", boxSizing: "border-box",
+  display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
