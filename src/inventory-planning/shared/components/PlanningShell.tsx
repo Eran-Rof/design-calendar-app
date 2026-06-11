@@ -17,6 +17,7 @@ import { AskAIPanel } from "../../../ai/AskAIPanel";
 import type { GridContextSnapshot } from "../../../ai/tools";
 import { WarnHost } from "../../../shared/ui/warn";
 import { useDocumentTitle } from "../../../shared/useDocumentTitle";
+import { backToPlmHome } from "../../../shared/backToPlm";
 
 function readPlmUserId(): string | null {
   try {
@@ -58,7 +59,7 @@ export default function PlanningShell({ title, children }: Props) {
         gap: 12,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, color: PAL.text }}>
-          <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
+          <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
           <a
             href="/planning/wholesale"
             title="Back to Inventory Planning"

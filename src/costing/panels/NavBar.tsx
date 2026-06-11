@@ -2,6 +2,7 @@
 import React from "react";
 import { TH } from "../../utils/theme";
 import { navigate, getView } from "../helpers";
+import { backToPlmHome } from "../../shared/backToPlm";
 
 export default function CostingNavBar() {
   const view = getView();
@@ -18,7 +19,7 @@ export default function CostingNavBar() {
       flexShrink: 0,
       gap: 8,
     }}>
-      <a href="/" style={{ color: "#fff", textDecoration: "none", fontSize: 13, marginRight: 16, opacity: 0.7 }}>
+      <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ color: "#fff", textDecoration: "none", fontSize: 13, marginRight: 16, opacity: 0.7 }}>
         ← PLM
       </a>
       <span style={{ fontWeight: 700, fontSize: 15, marginRight: 20 }}>

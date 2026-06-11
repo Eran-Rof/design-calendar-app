@@ -5,6 +5,7 @@
 //   • Suggestions
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { backToPlmHome } from "../../../shared/backToPlm";
 import type { IpItem, IpCategory, IpCustomer, IpChannel } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type {
@@ -202,7 +203,7 @@ export default function AccuracyWorkbench() {
           <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }}>Scenarios →</a>
           <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
           <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>DQ</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
+          <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
         </div>
       </div>
 

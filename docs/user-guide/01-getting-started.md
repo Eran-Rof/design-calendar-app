@@ -75,7 +75,7 @@ Each app has its own top bar, but they share the same conventions so you always 
 - **Center:** the app's main views or sections (for example, Design Calendar shows **Dashboard · Timeline · Calendar · Trend Briefs**).
 - **Right:** your action icons — **Favorites** (always the first icon), an **✨ Ask AI** assistant, a **🔔 Notifications** bell with an unread count, plus your avatar and name.
 - **Avatar + name:** your Microsoft profile photo (or your initials on a coloured circle) next to your name. Hover for more detail.
-- **Sign Out / ← PLM:** buttons next to your name. **Sign Out** ends your session and returns you to the sign-in screen; **← PLM** takes you back to the launcher without signing out.
+- **Sign Out / ← PLM:** buttons next to your name. **Sign Out** ends your session and returns you to the sign-in screen; **← PLM** takes you back to the launcher without signing out — it **closes the current app tab and returns you to the launcher tab you already have open**, rather than opening a second launcher.
 
 Within an app, links to related apps appear in the top bar — for example Design Calendar shows quick links to **T&A** (PO WIP) and **Costing**, and Tangerine has a **🧩 Apps** menu that links out to every other app in the suite. These links respect your access: you only see a link to an app you're allowed to open.
 

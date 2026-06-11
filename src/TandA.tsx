@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import SharedToast from "./shared/ui/Toast";
+import { backToPlmHome } from "./shared/backToPlm";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { useMSAuth, friendlyContactError } from "./tanda/hooks/useMSAuth";
 // P14-4 — client menu hide driven by the caller's effective permissions.
@@ -1718,7 +1719,7 @@ function TandAApp() {
             )}
             <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>{user.name || user.username}</span>
           </div>
-          <button style={S.navBtn} onClick={() => window.location.href = "/"}>← PLM</button>
+          <button style={S.navBtn} onClick={backToPlmHome}>← PLM</button>
           <button style={S.navBtnDanger} onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}>Sign Out</button>
         </div>
       </nav>

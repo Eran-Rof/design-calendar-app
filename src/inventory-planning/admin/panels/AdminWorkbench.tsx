@@ -3,6 +3,7 @@
 // Header shows the current impersonated user (Phase 7 dev-time switcher).
 
 import { useEffect, useState } from "react";
+import { backToPlmHome } from "../../../shared/backToPlm";
 import type { IpUserWithPermissions } from "../../governance/types/governance";
 import { currentUserEmail, loadPermissionsFor } from "../../governance/services/permissionService";
 import { S, PAL } from "../../components/styles";
@@ -39,7 +40,7 @@ export default function AdminWorkbench() {
           <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
           <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
           <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
+          <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
         </div>
       </div>
 

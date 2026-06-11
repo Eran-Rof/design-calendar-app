@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { msSignIn, loadMsTokens, saveMsTokens, clearMsTokens, getMsAccessToken, MS_CLIENT_ID, MS_TENANT_ID } from "./utils/msAuth";
 import { styledEmailHtml } from "./utils/emailHtml";
+import { backToPlmHome } from "./shared/backToPlm";
 // v2026-03-24b
 
 // ── Supabase ─────────────────────────────────────────────────────────────────
@@ -1511,7 +1512,7 @@ export default function TechPackApp() {
         borderBottom: "1px solid #334155",
         transition: "left 0.2s ease",
       }}>
-        <a href="/" title="Back to PLM launcher"
+        <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} title="Back to PLM launcher"
           style={{ marginRight: "auto", color: "#94A3B8", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
           ← PLM
         </a>

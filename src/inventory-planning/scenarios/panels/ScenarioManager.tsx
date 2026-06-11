@@ -7,6 +7,7 @@
 //   Exports (buttons + export history)
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { backToPlmHome } from "../../../shared/backToPlm";
 import type { IpCategory, IpChannel, IpCustomer, IpItem } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type {
@@ -341,7 +342,7 @@ export default function ScenarioManager() {
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
           <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution →</a>
           <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
+          <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
         </div>
       </div>
 

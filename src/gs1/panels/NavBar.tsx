@@ -6,6 +6,7 @@ import { supabaseClient } from "../../utils/supabase";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import { gs1ViewToMenuKey } from "../../lib/gs1ViewToMenuKey";
 import FavoritesMenu from "../../components/FavoritesMenu";
+import { backToPlmHome } from "../../shared/backToPlm";
 
 const TABS: Array<{ id: GS1Tab; label: string }> = [
   { id: "company",   label: "Company Setup" },
@@ -60,7 +61,7 @@ export default function GS1NavBar() {
       flexShrink: 0,
       gap: 8,
     }}>
-      <a href="/" style={{ color: "#fff", textDecoration: "none", fontSize: 13, marginRight: 16, opacity: 0.7 }}>
+      <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ color: "#fff", textDecoration: "none", fontSize: 13, marginRight: 16, opacity: 0.7 }}>
         ← PLM
       </a>
       <span style={{ fontWeight: 700, fontSize: 15, marginRight: 20 }}>

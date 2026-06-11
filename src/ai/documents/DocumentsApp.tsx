@@ -10,6 +10,7 @@
 // from sessionStorage; bearer header injected by installInternalApiAuth).
 
 import { useEffect, useMemo, useState } from "react";
+import { backToPlmHome } from "../../shared/backToPlm";
 
 const PAL = {
   bg: "#0F172A",
@@ -229,7 +230,7 @@ export default function DocumentsApp() {
     <div style={page}>
       <header style={header}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <a href="/" style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
+          <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ color: PAL.textMuted, textDecoration: "none", fontSize: 13 }}>← PLM</a>
           <span style={{ fontWeight: 700, fontSize: 16, color: PAL.text }}>Ask AI — Documents</span>
           <span style={{ fontSize: 11, color: PAL.textMuted }}>(saved workflow runs · re-render against live data)</span>
         </div>

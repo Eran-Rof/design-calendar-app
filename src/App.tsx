@@ -7,6 +7,7 @@ import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount"
 import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
 import { collapseTabsToLogin } from "./utils/plmSessionTabs";
+import { backToPlmHome } from "./shared/backToPlm";
 import { canAccessAppFromSession } from "./permissions";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -792,7 +793,7 @@ function App() {
               </span>
             </div>
             <button
-              onClick={() => window.location.href = "/"}
+              onClick={backToPlmHome}
               style={{
                 padding: "4px 10px",
                 borderRadius: 6,

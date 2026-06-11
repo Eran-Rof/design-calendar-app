@@ -11,6 +11,7 @@
 // own fact data and computes a pure ReportResult rendered by <ReportTable>.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { backToPlmHome } from "../../../shared/backToPlm";
 import { S, PAL } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
@@ -64,7 +65,7 @@ export default function ReportsWorkbench() {
           <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
           <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
           <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
+          <a href="/" onClick={(e) => { e.preventDefault(); backToPlmHome(); }} style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
         </div>
       </div>
 
