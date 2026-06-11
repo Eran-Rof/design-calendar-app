@@ -27,6 +27,38 @@ const CODE_PREFIX = "CUST-";
 const CUSTOMER_TYPES = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
+// Conservative Title-Case for NEW customer names: only re-cases tokens that are
+// all-lowercase, leaving acronyms (ROF, BMO, EDI, FBM, USA), mixed-case brands
+// (eBay, McGraw), and known legal suffixes (LLC, Inc., Ltd.) untouched. Existing
+// names are NOT touched here — bulk initcap would mangle acronyms/suffixes.
+// Mirrors titleCaseVendorName in vendor-master/index.js.
+const PRESERVE_TOKENS = new Set([
+  "LLC", "L.L.C.", "INC", "INC.", "LTD", "LTD.", "CO", "CO.", "CORP", "CORP.",
+  "HK", "EDI", "USA", "US", "UK", "EU", "ROF", "BMO", "DBA", "PLC", "GMBH",
+  "FBM", "JLC", "NV", "SC", "SW", "SWFM", "CSX",
+]);
+export function titleCaseCustomerName(raw) {
+  const s = String(raw).trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  return s
+    .split(" ")
+    .map((tok) => {
+      // Already mixed-case (e.g. "Corp", "eBay", "McGraw") — leave verbatim so
+      // we never re-mangle a nicely-cased token into an acronym.
+      if (/[a-z]/.test(tok) && /[A-Z]/.test(tok)) return tok;
+      const upper = tok.toUpperCase();
+      // Preserve known acronyms / legal suffixes verbatim (upper-cased). Only
+      // reached for uniformly-cased tokens (all-caps or all-lowercase).
+      if (PRESERVE_TOKENS.has(upper)) return upper;
+      // Leave anything already containing an uppercase letter alone (acronyms,
+      // brand casing) — only fix fully-lowercase tokens.
+      if (/[A-Z]/.test(tok)) return tok;
+      // Fully lowercase word → capitalize first letter.
+      return tok.charAt(0).toUpperCase() + tok.slice(1);
+    })
+    .join(" ");
+}
+
 // Columns returned for LIST responses. tax_exempt_certificate intentionally omitted.
 const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
@@ -223,7 +255,9 @@ export function validateInsert(body) {
     return { error: "tax_exempt_certificate must be set via the dedicated PII workflow, not this endpoint" };
   }
   const out = { ...body };
-  out.name = String(out.name).trim();
+  // Conservative Title-Case on NEW names (acronym/suffix-safe). Existing names
+  // are never bulk-updated through this path.
+  out.name = titleCaseCustomerName(out.name);
   if (out.code != null) {
     out.code = String(out.code).trim() || null;
   }
