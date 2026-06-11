@@ -61,8 +61,29 @@ and shows all POs again, with a brief amber notice in the status bar ("No POs
 matched that range — showing all POs."), so the planner is never stranded on an
 empty page.
 
+## Grid — Columns & Sections (hide columns and milestone sections)
+
+The **Grid** view's toolbar carries a **Columns & Sections ▾** button. It opens a
+dropdown with two groups:
+
+- **Columns** — toggle the fixed data columns (PO #, Vendor, Buyer, Buyer PO,
+  DDP, Days from DDP). The chevron and notes columns aren't listed — they're
+  functional UI, not data.
+- **Sections** — toggle whole **milestone sections** on or off (e.g. *Lab Dip*,
+  *Strike Off*, *Trim*, *PP Sample*). Un-checking a section collapses its entire
+  phase block — all five sub-columns plus its divider — out of the grid, so the
+  planner can focus on the phases they care about. **All** / **None** shortcuts
+  show or hide every section at once.
+
+A badge on the button shows how many columns + sections are currently hidden, and
+the status bar notes "(N sections hidden)". **Show all** clears both at once.
+Selections persist across reloads (`gv_hidden_cols`, `gv_hidden_phases`). Hiding a
+section is a **view preference only** — the Excel export still emits every column
+and every section.
+
 ## Recent additions
 
+- **Grid Columns & Sections hide-menu** — hide fixed columns and/or whole milestone sections (Lab Dip, Strike Off, Trim, …); persists per planner; export still emits everything.
 - **Grid PO # Named-Range filter** — date-range (creation date) or PO-number-range filter with optional upper bound; auto-sorts by the chosen axis.
 - **Vendor onboarding / portal access** — operator "Onboarding review" (`src/tanda/InternalOnboarding.tsx`): invite vendors, track invite status (pending / expired / accepted, 72h expiry), and an admin to view + cancel vendor portal access. Vendors self-serve via the `/vendor` portal onboarding flow. In **Active vendor access**, the Status badge reflects **onboarding approval**, not just login: a vendor shows green **Active** only once their onboarding is **approved** — before that it shows **Onboarding x/6** or **Pending review** (the login is granted at invite-acceptance so they can sign in to complete onboarding). Disable/Remove still control the login itself.
 - **Tombstone table** — prevents permanently-deleted POs from re-appearing after the nightly sync.
