@@ -262,8 +262,8 @@ export function parseExcelRows(invRows, purRows, ordRows) {
       skuMap[soKey].onCommitted += qty;
 
       // SO timeline date = the Xoro "Date to be Cancelled". When that's
-      // blank, derive a cancel date as ship date + 6 days (operator rule:
-      // Xoro cancel dates trail the ship date by ~6 days) so null-cancel
+      // blank, derive a cancel date as ship date + 5 days (operator rule:
+      // Xoro cancel dates trail the ship date by ~5 days) so null-cancel
       // SOs still land on the timeline instead of falling back to the raw
       // ship date (which mis-buckets them in the cancel-date-keyed views).
       const cancelRaw    = r["Date to be Cancelled"] || r["Cancel Date"];
@@ -271,7 +271,7 @@ export function parseExcelRows(invRows, purRows, ordRows) {
       let date           = parseDate(cancelRaw);
       if (!date && shipRaw) {
         const shipIso = parseDate(shipRaw);
-        if (shipIso) date = addDaysIso(shipIso, 6);
+        if (shipIso) date = addDaysIso(shipIso, 5);
       }
       const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
       const unitPrice    = parseFloat(String(

@@ -303,7 +303,7 @@ export async function parseExcelFiles(
       soTotal++;
       skuMap[soKey].onCommitted += qty;
       // SO timeline date = the Xoro "Date to be Cancelled". When blank,
-      // derive cancel = ship date + 6 days (operator rule) so null-cancel
+      // derive cancel = ship date + 5 days (operator rule) so null-cancel
       // SOs still land on the timeline rather than mis-bucketing on the
       // raw ship date. Mirrors api/_lib/ats-parse.js.
       const cancelRaw = r["Date to be Cancelled"] || r["Cancel Date"];
@@ -311,7 +311,7 @@ export async function parseExcelFiles(
       let date = parseDate(cancelRaw);
       if (!date && shipRaw) {
         const shipIso = parseDate(shipRaw);
-        if (shipIso) date = addDaysIso(shipIso, 6);
+        if (shipIso) date = addDaysIso(shipIso, 5);
       }
       const customerName = str(r["Customer Name"] || r["Customer"] || r["Bill To Name"] || r["Ship To Name"] || r["Client Name"]);
       // Customer's own PO number (the customer-side reference; distinct
