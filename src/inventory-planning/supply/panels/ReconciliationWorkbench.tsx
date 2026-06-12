@@ -196,25 +196,6 @@ export default function ReconciliationWorkbench() {
 
   return (
     <div style={S.app}>
-      <div style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>IP</div>
-          <div>
-            <div style={S.navTitle}>Demand & Inventory Planning</div>
-            <div style={S.navSub}>Supply reconciliation · Phase 3</div>
-          </div>
-        </div>
-        <div style={S.navRight}>
-          <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
-          <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
-          <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
-          <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }}>Scenarios →</a>
-          <a href="/planning/reports" style={{ ...S.btnSecondary, textDecoration: "none" }}>📊 Reports</a>
-          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>DQ</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
-        </div>
-      </div>
-
       <div style={S.content}>
         <SystemHealthBanner />
         <div style={{ ...S.card, marginBottom: 12 }}>
