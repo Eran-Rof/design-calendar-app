@@ -323,7 +323,9 @@ export function NavDrawer({
       onClick={() => userOpen && setUserOpen(false)}
     >
       {/* ── Logo / collapse ───────────────────────────────────────── */}
-      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 8px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+      {/* Header height pinned to TOPBAR_H so the app-name row lines up exactly
+          with each app's slim notifications top bar (same 40px). */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, height:TOPBAR_H, padding:"0 8px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
         {collapsed ? (
           <button
             onClick={e => { e.stopPropagation(); onToggleCollapsed(); }}
