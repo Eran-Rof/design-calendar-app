@@ -544,12 +544,6 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           )}
         </h3>
 
-        {/* Duplicate Save / Close bar at the top so they're reachable without
-            scrolling past the (often tall) size matrix. Mirrors the sticky footer. */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
-          {saveCloseButtons}
-        </div>
-
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
             <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
