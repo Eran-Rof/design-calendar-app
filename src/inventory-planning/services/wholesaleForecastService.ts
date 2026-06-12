@@ -1010,6 +1010,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       sku_color: colorDisplay,
       sku_color_inferred: colorResolved.inferred || undefined,
       sku_size: item?.size ?? styleFallback?.size ?? null,
+      sku_inseam: item?.inseam ?? styleFallback?.inseam ?? null,
       // Item-master classification — falls back to a sibling variant in
       // the same style if the variant master row hasn't been populated yet.
       group_name: readGroupName(item) ?? readGroupName(styleFallback) ?? null,
@@ -1281,6 +1282,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       tbd_id: supplyTbd?.id,
       tbd_updated_at: supplyTbd?.updated_at,
       sku_size: null,
+      sku_inseam: null,
       period_code: sp.period_code,
       period_start: sp.period_start as IpIsoDate,
       period_end: sp.period_end as IpIsoDate,
@@ -1350,6 +1352,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         tbd_id: t.id,
         tbd_updated_at: t.updated_at,
         sku_size: null,
+        sku_inseam: null,
         period_code: sp.period_code,
         period_start: sp.period_start as IpIsoDate,
         period_end: sp.period_end as IpIsoDate,

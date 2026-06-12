@@ -341,3 +341,46 @@ describe("mergeBucket — invariants", () => {
     expect(out.unit_cost_override).toBeNull();
   });
 });
+
+describe("aggregateRows — inseam grain", () => {
+  it("splits a style+color+customer+period into one line per inseam", () => {
+    // Two inseams of the same style/color/customer/period must NOT merge —
+    // each inseam is its own planning line (denim 30 vs 32).
+    const a = row({ forecast_id: "f1", sku_id: "s30", sku_style: "AXMB0080", sku_color: "Med", sku_inseam: "30", final_forecast_qty: 40 });
+    const b = row({ forecast_id: "f2", sku_id: "s32", sku_style: "AXMB0080", sku_color: "Med", sku_inseam: "32", final_forecast_qty: 25 });
+    const out = aggregateRows([a, b], NO_COLLAPSE);
+    expect(out).toHaveLength(2);
+    expect(out.map((r) => r.sku_inseam).sort()).toEqual(["30", "32"]);
+    expect(out.every((r) => !r.is_aggregate)).toBe(true);
+  });
+
+  it("still merges sizes WITHIN one inseam", () => {
+    // Same inseam, two sizes → one merged line carrying that inseam.
+    const a = row({ forecast_id: "f1", sku_id: "s30-29", sku_style: "AXMB0080", sku_color: "Med", sku_inseam: "30", final_forecast_qty: 40 });
+    const b = row({ forecast_id: "f2", sku_id: "s30-31", sku_style: "AXMB0080", sku_color: "Med", sku_inseam: "30", final_forecast_qty: 10 });
+    const out = aggregateRows([a, b], NO_COLLAPSE);
+    expect(out).toHaveLength(1);
+    expect(out[0].is_aggregate).toBe(true);
+    expect(out[0].final_forecast_qty).toBe(50);
+    expect(out[0].sku_inseam).toBe("30");
+  });
+
+  it("non-inseam styles are unaffected (null inseam never adds a split)", () => {
+    const a = row({ forecast_id: "f1", sku_id: "s1", sku_style: "TEE1", sku_color: "Red", sku_inseam: null, final_forecast_qty: 5 });
+    const b = row({ forecast_id: "f2", sku_id: "s2", sku_style: "TEE1", sku_color: "Red", sku_inseam: null, final_forecast_qty: 7 });
+    const out = aggregateRows([a, b], NO_COLLAPSE);
+    expect(out).toHaveLength(1);
+    expect(out[0].final_forecast_qty).toBe(12);
+    expect(out[0].sku_inseam).toBeNull();
+  });
+
+  it("a category rollup that spans inseams labels the merged cell (N inseams)", () => {
+    const a = row({ forecast_id: "f1", sku_id: "s30", group_name: "DENIM", sku_inseam: "30", final_forecast_qty: 10 });
+    const b = row({ forecast_id: "f2", sku_id: "s32", group_name: "DENIM", sku_inseam: "32", final_forecast_qty: 10 });
+    const c = row({ forecast_id: "f3", sku_id: "s34", group_name: "DENIM", sku_inseam: "34", final_forecast_qty: 10 });
+    const out = aggregateRows([a, b, c], { ...NO_COLLAPSE, category: true });
+    expect(out).toHaveLength(1);
+    expect(out[0].sku_inseam).toBe("(3 inseams)");
+    expect(out[0].final_forecast_qty).toBe(30);
+  });
+});

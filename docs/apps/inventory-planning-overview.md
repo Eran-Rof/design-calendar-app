@@ -32,6 +32,10 @@ The **Category** filter is the merchandising group (`ip_item_master.attributes.g
 
 The reusable category reference list (used by the Future Demand Requests picker and the Reports category dimension) is seeded from the distinct group names on the item master. **Add new items** also registers any new group it encounters, so the list stays current. If it ever looks empty, re-run **Add new items** or re-apply the seed migration `…_seed_ip_category_master_from_items.sql`.
 
+## Inseam as a planning line
+
+Denim/pants styles carry an **inseam** (30 / 32 / 34) on the item master (`ip_item_master.inseam`, stamped by the Tangerine inseam style-merge). The wholesale grid shows an **Inseam** column, and inseam is a *grain* dimension: a style+color that exists in several inseams splits into **one planning line per inseam**, so each length is forecast and bought separately. Sizes still merge within an inseam (as everywhere). Styles with no inseam are unaffected — they stay a single line. In a Category/Sub-Cat/customer rollup that spans several inseams, the Inseam cell reads "(N inseams)". The column is toggleable (Columns button) and freezable like Style/Color.
+
 ## Supply inputs (the Supply screen)
 
 The reconciliation reads three supply buckets and nets them against demand:

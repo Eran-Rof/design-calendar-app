@@ -103,6 +103,12 @@ export interface IpItem {
   vendor_id: string | null;
   color: string | null;
   size: string | null;
+  // Inseam length (denim/pants), e.g. "30" | "32" | "34". Stamped on the
+  // item master by the Tangerine inseam style-merge. Drives the planning
+  // grid's Inseam column + splits a style+color into one planning line per
+  // inseam so each length is forecast / bought separately. Optional so
+  // existing item literals/mocks that predate the column still type-check.
+  inseam?: string | null;
   uom: string;
   unit_cost: number | null;
   unit_price: number | null;

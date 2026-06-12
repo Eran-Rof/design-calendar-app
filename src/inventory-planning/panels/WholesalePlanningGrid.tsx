@@ -2542,6 +2542,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <Th widths={dynamicColWidths} label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
               <Th widths={dynamicColWidths} label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
               <Th widths={dynamicColWidths} label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
+              <Th widths={dynamicColWidths} label="Inseam"      k="inseam"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Inseam length (denim/pants) from the item master — each inseam is its own planning line" hidden={hiddenColumns.has("inseam")} />
               <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
               <Th widths={dynamicColWidths} label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
               <Th widths={dynamicColWidths} label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
@@ -2610,14 +2611,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               );
             })}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={28} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={28} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}

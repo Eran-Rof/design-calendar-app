@@ -13,15 +13,18 @@
 
 // ── Freeze ───────────────────────────────────────────────────────────
 
+// Order MUST match the DOM render order of the leftmost columns — the
+// sticky-freeze CSS maps nth-child(i+1) ⇄ FREEZABLE_COLS[i]. Inseam is
+// rendered between Color and Customer, so it sits there here too.
 export const FREEZABLE_COLS = [
-  "category", "subCat", "style", "description", "color", "customer", "period",
+  "category", "subCat", "style", "description", "color", "inseam", "customer", "period",
 ] as const;
 
 export type FreezeKey = typeof FREEZABLE_COLS[number];
 
 export const FREEZE_LABELS: Record<FreezeKey, string> = {
   category: "Category", subCat: "Sub Cat", style: "Style", description: "Description",
-  color: "Color", customer: "Customer", period: "Period",
+  color: "Color", inseam: "Inseam", customer: "Customer", period: "Period",
 };
 
 // ── Gender ───────────────────────────────────────────────────────────
@@ -46,6 +49,7 @@ export const TOGGLEABLE_COLUMNS: Array<{ key: string; label: string }> = [
   { key: "style",       label: "Style" },
   { key: "description", label: "Description" },
   { key: "color",       label: "Color" },
+  { key: "inseam",      label: "Inseam" },
   { key: "customer",    label: "Customer" },
   { key: "period",      label: "Period" },
   { key: "class",       label: "Class" },
@@ -101,5 +105,5 @@ export const COL_WIDTH_CAP: Record<string, number> = {
 export const COL_WIDTH_FLOOR: Record<string, number> = {
   system: 84, buyer: 84, override: 84, buy: 84,
   unitCost: 88, avgCost: 84, buyDollars: 92,
-  confidence: 84, action: 96, period: 84,
+  confidence: 84, action: 96, period: 84, inseam: 64,
 };

@@ -242,6 +242,9 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
           </>
         )}
       </td>
+      <td style={{ ...S.td, color: PAL.textDim, textAlign: "center", ...colHide("inseam") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
+        {r.sku_inseam ?? "—"}
+      </td>
       <td style={{ ...S.td, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("customer") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
         {!r.is_aggregate && r.is_tbd && onUpdateTbdCustomer ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
