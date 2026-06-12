@@ -468,6 +468,12 @@ export const wholesaleRepo = {
       `ip_planning_runs?select=*&planning_scope=eq.${scope}&order=created_at.desc&limit=200`,
     );
   },
+  // EVERY run regardless of scope — for the Planning Admin "Runs" panel, so the
+  // operator can see/delete reconciliation + orphaned scenario runs that the
+  // scope-filtered workbench dropdowns hide.
+  async listAllPlanningRuns(): Promise<IpPlanningRun[]> {
+    return sbGet<IpPlanningRun>(`ip_planning_runs?select=*&order=created_at.desc&limit=500`);
+  },
   async getPlanningRun(id: string): Promise<IpPlanningRun | null> {
     const rows = await sbGet<IpPlanningRun>(`ip_planning_runs?select=*&id=eq.${id}&limit=1`);
     return rows[0] ?? null;
