@@ -515,10 +515,10 @@ function App() {
         onSignOut={onDrawerSignOut}
         collapsed={navCollapsed}
         onToggleCollapsed={toggleNav}
-        // Bottom-align the app-name + user box to the 64px top-menu line
-        // (header 30 + user box 34 = 64 under the app's global border-box).
-        headerHeight={30}
-        userBoxHeight={34}
+        // Split the app-name + user box evenly across the 64px top-menu line
+        // (32 + 32 = 64 under the app's global border-box).
+        headerHeight={32}
+        userBoxHeight={32}
         // Tools moved off the top bar into the drawer (List/Grid · Activity · Settings).
         toolsSlot={currentUser ? (
           <>
@@ -615,7 +615,7 @@ function App() {
           padding: "0 22px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-start",
           height: 64,
           position: "sticky",
           top: 0,
@@ -709,24 +709,6 @@ function App() {
             </button>
           )}
         </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexShrink: 0,
-            alignItems: "center",
-          }}
-        >
-          {/* Undo button — always visible, disabled when nothing to undo */}
-          <button
-            onClick={useAppStore.getState().handleUndo}
-            disabled={undoStack.length === 0}
-            title={undoStack.length > 0 ? `Undo last change (${undoStack.length} available)` : "Nothing to undo"}
-            style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${undoStack.length > 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)"}`, background: undoStack.length > 0 ? "rgba(255,255,255,0.12)" : "transparent", color: undoStack.length > 0 ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.3)", fontWeight: 600, cursor: undoStack.length > 0 ? "pointer" : "default", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s" }}
-          >
-            ↩ Undo{undoStack.length > 1 ? ` (${undoStack.length})` : ""}
-          </button>
-        </div>
       </div>
 
       {/* Drawer-offset wrapper — shifts the filter bar + main content right of
@@ -747,6 +729,8 @@ function App() {
         filterVendor={filterVendor}
         setFilterVendor={setFilterVendor}
         canViewAll={canViewAll}
+        onUndo={useAppStore.getState().handleUndo}
+        undoCount={undoStack.length}
       />}
 
       <div
