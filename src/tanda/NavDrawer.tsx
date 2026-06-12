@@ -14,7 +14,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersonalization } from "../hooks/usePersonalization";
 import { MENU_KEYS } from "../lib/menuKeys";
-import { backToPlmHome } from "../shared/backToPlm";
 
 // ── palette ───────────────────────────────────────────────────────────────
 const C = {
@@ -92,6 +91,19 @@ interface Props {
   /** Optional app-specific content rendered below the app name and above the
    *  user section (e.g. a notifications bell). Hidden when collapsed. */
   headerSlot?: React.ReactNode;
+  /** Optional app-specific tools rendered as a section just above the bottom
+   *  Apps switcher (e.g. DC's List/Grid · Activity · Settings). Hidden when
+   *  collapsed. */
+  toolsSlot?: React.ReactNode;
+  /** App-name header row height (px). Defaults to TOPBAR_H (40) so the header
+   *  lines up with each app's slim top bar. Apps with a taller top bar (e.g.
+   *  Design Calendar's 64px header) pass a smaller value here together with
+   *  userBoxHeight so the app-name + user box together end on the top-bar line. */
+  headerHeight?: number;
+  /** Optional fixed height (px) for the user box. When set, the box is sized
+   *  exactly (with the avatar shrunk to fit) instead of growing to its content
+   *  — used to bottom-align the app-name + user region to a taller top bar. */
+  userBoxHeight?: number;
 }
 
 // ── avatar helpers ────────────────────────────────────────────────────────
@@ -130,7 +142,12 @@ export function NavDrawer({
   logoText = "T",
   moduleParam = "m",
   headerSlot,
+  toolsSlot,
+  headerHeight = TOPBAR_H,
+  userBoxHeight,
 }: Props) {
+  // Avatar shrinks to fit a fixed-height user box (DC's 64px-aligned top region).
+  const avatarSz = userBoxHeight ? Math.max(20, userBoxHeight - 9) : 30;
   const { favorites, toggleFavorite, logClick } = usePersonalization();
   const modToMenuKey = useMemo<Record<string, string>>(() => {
     const re = new RegExp(`[?&]${moduleParam}=([^&]+)`);
@@ -325,7 +342,7 @@ export function NavDrawer({
       {/* ── Logo / collapse ───────────────────────────────────────── */}
       {/* Header height pinned to TOPBAR_H so the app-name row lines up exactly
           with each app's slim notifications top bar (same 40px). */}
-      <div style={{ display:"flex", alignItems:"center", gap:10, height:TOPBAR_H, padding:"0 8px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, height:headerHeight, padding:"0 8px", borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
         {collapsed ? (
           <button
             onClick={e => { e.stopPropagation(); onToggleCollapsed(); }}
@@ -366,13 +383,13 @@ export function NavDrawer({
 
       {/* ── User info (name only, no email) ───────────────────────── */}
       <div
-        style={{ padding: collapsed ? "9px 4px" : "9px 10px", borderBottom:`1px solid ${C.border}`, flexShrink:0, position:"relative", cursor: collapsed ? "default" : "pointer" }}
+        style={{ height: userBoxHeight, boxSizing: userBoxHeight ? "border-box" : undefined, padding: userBoxHeight ? (collapsed ? "0 4px" : "0 10px") : (collapsed ? "9px 4px" : "9px 10px"), borderBottom:`1px solid ${C.border}`, flexShrink:0, position:"relative", cursor: collapsed ? "default" : "pointer" }}
         onClick={e => { e.stopPropagation(); if (!collapsed) setUserOpen(v => !v); }}
       >
         <div style={{ display:"flex", alignItems:"center", gap:8, justifyContent: collapsed ? "center" : "flex-start" }}>
           {userPhotoUrl
-            ? <img src={userPhotoUrl} alt={userName || ""} style={{ width:30, height:30, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
-            : <span style={{ width:30, height:30, borderRadius:"50%", background:avBg, color:"#fff", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{av}</span>
+            ? <img src={userPhotoUrl} alt={userName || ""} style={{ width:avatarSz, height:avatarSz, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+            : <span style={{ width:avatarSz, height:avatarSz, borderRadius:"50%", background:avBg, color:"#fff", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{av}</span>
           }
           {!collapsed && (
             <>
@@ -579,22 +596,14 @@ export function NavDrawer({
         )}
       </div>
 
-      {/* ── Back to PLM launcher ──────────────────────────────────── */}
-      {/* Single shared back-to-launcher control for every drawer app. Uses
-          backToPlmHome() so it closes this tab and focuses the launcher the
-          app was opened from, instead of spawning a duplicate launcher. */}
-      <div style={{ borderTop:`1px solid ${C.border}`, padding:"4px 4px", flexShrink:0 }}>
-        <button
-          onClick={e => { e.stopPropagation(); backToPlmHome(); }}
-          title="Back to PLM launcher"
-          style={{ display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", color:C.textMuted, cursor:"pointer", borderRadius:5, padding: collapsed ? "7px 0" : "6px 10px", fontSize:13, justifyContent: collapsed ? "center" : "flex-start", transition:"background 0.1s" }}
-          onMouseEnter={e => { e.currentTarget.style.background = C.bgRow; e.currentTarget.style.color = C.text; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }}
-        >
-          <span style={{ fontSize:14 }}>←</span>
-          {!collapsed && <span>PLM</span>}
-        </button>
-      </div>
+      {/* ── App tools (optional, app-specific) ────────────────────── */}
+      {/* e.g. Design Calendar's List/Grid · Activity · Settings, moved off the
+          top bar into the drawer. Hidden when collapsed. */}
+      {!collapsed && toolsSlot && (
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:"6px 8px", flexShrink:0, display:"flex", flexDirection:"column", gap:6 }}>
+          {toolsSlot}
+        </div>
+      )}
 
       {/* ── Apps switcher at bottom ───────────────────────────────── */}
       <div style={{ borderTop:`1px solid ${C.border}`, padding:"4px 4px", flexShrink:0, position:"relative" }}>

@@ -8,16 +8,19 @@ The Design Calendar is Ring of Fire's product-development hub. It lives at `/des
 
 Open `https://<your-domain>/design`. The app reuses your Microsoft sign-in from the rest of the suite — if you're already signed in (for example via the PLM launcher), it loads straight to the Dashboard. If your session has expired you'll be bounced back to the PLM launcher to sign in again.
 
-The dark header runs across the top of every screen:
+The app's chrome is a **left navigation drawer** (collapsible — use the ◀/▶ toggle for an icon-only rail) plus a slim **top bar**.
+
+**Left drawer**, top to bottom:
 
 | Area | What's there |
 |---|---|
-| Far left | The Ring of Fire logo and the "Design Calendar" label. |
-| View buttons | **Dashboard · Timeline · Calendar · Trend Briefs** — the four main views. |
-| **✨ Ask AI** | The Claude assistant (see *Ask AI* below). |
-| **🔔 Notifications** | Your design-related notifications, with an unread-count badge. |
-| **T&A** / **Costing** | Quick links to the PO WIP (T&A) and Costing apps — open in a new browser tab. Shown only if you have access. |
-| Right cluster | Favorites star, **↩ Undo**, the Grid/List toggle, **📋 Activity**, the **⚙️ Settings** menu, your avatar + name, **← PLM**, and **Sign Out**. |
+| App name + you | The **Design Calendar** name, then your **avatar + name** — click it to **Sign out**. (This block is aligned to end exactly on the top-bar line.) |
+| Search + Favorites | A live **search** box and your **Favorites** (the star bookmarks the current view). |
+| Views | **Dashboard · Timeline · Calendar · Trend Briefs** and the other modules — the current one is highlighted. |
+| **Tools** (near the bottom) | The **Grid/List** view toggle, **📋 Activity** log, and the **⚙️ Settings** master-data menu — all moved here from the top bar. |
+| **🧩 All Apps** | Switch to the other suite apps. |
+
+**Top bar** (dark, across the top): the Ring of Fire logo and the "Design Calendar" label on the left; **✨ Ask AI**, **🔔 Notifications** (with an unread-count badge), and **↩ Undo** on the right. The old T&A / Costing quick links, the Favorites star, and the user/Sign-Out cluster have moved into the drawer (use **🧩 All Apps** to reach T&A and Costing).
 
 > **Tip — Undo:** the **↩ Undo** button reverses your last change (drag, reschedule, edit). It holds several steps, and the number in parentheses tells you how many are available. Undo is also offered as a banner inside a task card after you change it.
 
@@ -149,7 +152,7 @@ From the Timeline, admins click **+ Add Task** to add a phase outside the standa
 
 A **filter bar** sits just under the header on the Dashboard, Timeline, and Calendar. Click **⚙ Filters** and expand any section — **Brand**, **Season**, **Customer**, **Vendor** — to tick the values you want. Active filters show as removable chips, and **✕ Clear All Filters** resets everything. Filters apply across all three views at once.
 
-- **Favorites** — the star icon in the header bookmarks the current view for quick return (shared with the rest of the suite).
+- **Favorites** — the star icon in the drawer bookmarks the current view for quick return (shared with the rest of the suite).
 - **Focus a collection** — clicking a collection card, or "Open Timeline / Open Calendar," narrows every view to that one collection until you click **✕ Show All**.
 - **Exports** — tables across the suite export to branded Excel via the export button where shown.
 
@@ -167,7 +170,7 @@ Click **✨ Ask AI** in the header to open the Claude assistant. Ask it about yo
 
 ## Settings — supporting managers (admin)
 
-The **⚙️ Settings** menu in the header opens the master-data managers. Designers see **Team** and **Vendors**; admins see all of them.
+The **⚙️ Settings** menu in the drawer's **Tools** section opens the master-data managers. Designers see **Team** and **Vendors**; admins see all of them.
 
 | Manager | What it controls |
 |---|---|
@@ -188,7 +191,7 @@ The **⚙️ Settings** menu in the header opens the master-data managers. Desig
 
 ## Activity, Teams, and Email
 
-- **📋 Activity** (header) opens the activity log — a running record of changes across collections and tasks.
+- **📋 Activity** (drawer **Tools** section) opens the activity log — a running record of changes across collections and tasks.
 - **💬 Teams** and **📧 Email** (bottom nav) connect to Microsoft Teams and Outlook so you can message about, or email, a collection's people directly from the calendar. A green **💬 Teams** label by your name shows when a Teams session is connected.
 
 > **Everything saves live.** The Design Calendar writes every change to the shared database immediately and syncs in real time, so teammates see your reschedules and status changes without refreshing. A red toast in the corner warns you if a save ever fails.

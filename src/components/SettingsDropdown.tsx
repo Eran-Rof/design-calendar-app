@@ -15,6 +15,8 @@ function SettingsDropdown({
   onRoles,
   onTasks,
   onGenders,
+  openUp = false,
+  block = false,
 }: {
   isAdmin: boolean;
   onTeam: () => void;
@@ -29,6 +31,12 @@ function SettingsDropdown({
   onRoles: () => void;
   onTasks: () => void;
   onGenders: () => void;
+  /** Open the menu upward (for placement near the bottom of a container, e.g.
+   *  the nav-drawer Tools section). Defaults to downward. */
+  openUp?: boolean;
+  /** Full-width trigger that fills its container (drawer row) instead of the
+   *  compact top-bar pill. */
+  block?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -54,32 +62,34 @@ function SettingsDropdown({
     { icon: "👤", label: "Users", onClick: onUsers, always: false },
   ].filter((it) => it.always || isAdmin);
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative", width: block ? "100%" : undefined }}>
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
-          padding: "7px 13px",
-          borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.15)",
+          padding: block ? "7px 10px" : "7px 13px",
+          borderRadius: block ? 5 : 8,
+          border: block ? "none" : "1px solid rgba(255,255,255,0.15)",
           background: open ? "rgba(255,255,255,0.1)" : "none",
           color: "rgba(255,255,255,0.8)",
           fontWeight: 600,
           cursor: "pointer",
           fontFamily: "inherit",
-          fontSize: 12,
+          fontSize: block ? 13 : 12,
           display: "flex",
           alignItems: "center",
           gap: 6,
+          width: block ? "100%" : undefined,
+          justifyContent: block ? "space-between" : undefined,
         }}
       >
-        ⚙️ Settings
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>⚙️ Settings</span>
         <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? "▲" : "▼"}</span>
       </button>
       {open && (
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 6px)",
+            ...(openUp ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
             right: 0,
             background: "#1A202C",
             border: "1px solid rgba(255,255,255,0.12)",

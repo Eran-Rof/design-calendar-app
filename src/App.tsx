@@ -21,7 +21,6 @@ import { fmtDays, ROFLogoFull, S } from "./utils/styles";
 import { SB_URL, SB_KEY, supabaseClient } from "./utils/supabase";
 
 // ─── Components ───────────────────────────────────────────────────────────────
-import Avatar from "./components/Avatar";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { Modal, ConfirmModal } from "./components/Modal";
 import ContextMenu from "./components/ContextMenu";
@@ -47,7 +46,6 @@ const OrderTypeManager = lazy(() => import("./components/OrderTypeManager"));
 const RoleManager = lazy(() => import("./components/RoleManager"));
 const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
-import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import AutoLandingToast from "./components/AutoLandingToast";
@@ -517,6 +515,46 @@ function App() {
         onSignOut={onDrawerSignOut}
         collapsed={navCollapsed}
         onToggleCollapsed={toggleNav}
+        // Bottom-align the app-name + user box to the 64px top-menu line
+        // (header 30 + user box 34 = 64 under the app's global border-box).
+        headerHeight={30}
+        userBoxHeight={34}
+        // Tools moved off the top bar into the drawer (List/Grid · Activity · Settings).
+        toolsSlot={currentUser ? (
+          <>
+            {(view === "dashboard" || view === "timeline") && (
+              <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.06)", borderRadius: 7, padding: 3, border: "1px solid rgba(255,255,255,0.1)" }}>
+                {([["⊞", "Grid", false], ["☰", "List", true]] as Array<[string, string, boolean]>).map(([icon, label, isList]) => (
+                  <button key={String(isList)} title={`${label} view`} onClick={() => setListView(isList)}
+                    style={{ flex: 1, padding: "5px 8px", borderRadius: 5, border: "none", background: listView === isList ? "rgba(255,255,255,0.16)" : "transparent", color: listView === isList ? "#fff" : "#94a3b8", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                    <span style={{ fontSize: 14 }}>{icon}</span>{label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowActivity(!showActivity)} title="Activity Log"
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: showActivity ? "rgba(59,130,246,0.18)" : "transparent", border: "none", color: showActivity ? "#fff" : "#94a3b8", cursor: "pointer", borderRadius: 5, padding: "7px 10px", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>
+              <span style={{ fontSize: 14 }}>📋</span> Activity
+            </button>
+            <SettingsDropdown
+              openUp
+              block
+              isAdmin={isAdmin}
+              onTeam={() => setShowTeam(true)}
+              onVendors={() => setShowVendors(true)}
+              onSizes={() => setShowSizeLib(true)}
+              onCategories={() => setShowCatLib(true)}
+              onUsers={() => setShowUsers(true)}
+              onBrands={() => setShowBrands(true)}
+              onSeasons={() => setShowSeasons(true)}
+              onCustomers={() => setShowCustomers(true)}
+              onPOTypes={() => setShowOrderTypes(true)}
+              onRoles={() => setShowRoles(true)}
+              onTasks={() => setShowTaskManager(true)}
+              onGenders={() => setShowGenders(true)}
+            />
+          </>
+        ) : undefined}
       />
       {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
@@ -670,44 +708,6 @@ function App() {
               )}
             </button>
           )}
-          {currentUser && canAccessAppFromSession("tanda") && (
-            <a
-              href="/tanda"
-              target="_blank"
-              rel="noopener"
-              style={{
-                padding: "7px 12px", borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.7)", fontWeight: 600,
-                fontFamily: "inherit", fontSize: 12,
-                textDecoration: "none", whiteSpace: "nowrap",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "none")}
-            >
-              T&A
-            </a>
-          )}
-          {currentUser && canAccessAppFromSession("costing") && (
-            <a
-              href="/costing"
-              target="_blank"
-              rel="noopener"
-              style={{
-                padding: "7px 12px", borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.7)", fontWeight: 600,
-                fontFamily: "inherit", fontSize: 12,
-                textDecoration: "none", whiteSpace: "nowrap",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "none")}
-            >
-              Costing
-            </a>
-          )}
         </div>
         <div
           style={{
@@ -717,8 +717,6 @@ function App() {
             alignItems: "center",
           }}
         >
-          {/* Favorites — first action icon (consistent across all apps). */}
-          <FavoritesMenu />
           {/* Undo button — always visible, disabled when nothing to undo */}
           <button
             onClick={useAppStore.getState().handleUndo}
@@ -728,86 +726,6 @@ function App() {
           >
             ↩ Undo{undoStack.length > 1 ? ` (${undoStack.length})` : ""}
           </button>
-          {/* List view toggle — shown for dashboard and timeline */}
-          {(view === "dashboard" || view === "timeline") && (
-            <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px", border: "1px solid rgba(255,255,255,0.15)" }}>
-              {[["⊞", false, "Grid view"], ["☰", true, "List view"]].map(([icon, isListMode, title]) => (
-                <button key={String(isListMode)} title={title as string} onClick={() => setListView(isListMode as boolean)}
-                  style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: listView === isListMode ? "rgba(255,255,255,0.18)" : "none", color: listView === isListMode ? "#fff" : "rgba(255,255,255,0.55)", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
-                  {icon}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Activity log button */}
-          <button
-            onClick={() => setShowActivity(!showActivity)}
-            title="Activity Log"
-            style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${showActivity ? TH.primary : "rgba(255,255,255,0.15)"}`, background: showActivity ? TH.primary + "33" : "none", color: showActivity ? "#fff" : "rgba(255,255,255,0.8)", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-            📋 Activity
-          </button>
-          {/* Settings master dropdown */}
-          <SettingsDropdown
-            isAdmin={isAdmin}
-            onTeam={() => setShowTeam(true)}
-            onVendors={() => setShowVendors(true)}
-            onSizes={() => setShowSizeLib(true)}
-            onCategories={() => setShowCatLib(true)}
-            onUsers={() => setShowUsers(true)}
-            onBrands={() => setShowBrands(true)}
-            onSeasons={() => setShowSeasons(true)}
-            onCustomers={() => setShowCustomers(true)}
-            onPOTypes={() => setShowOrderTypes(true)}
-            onRoles={() => setShowRoles(true)}
-            onTasks={() => setShowTaskManager(true)}
-            onGenders={() => setShowGenders(true)}
-          />
-          <div
-            style={{
-              width: 1,
-              height: 24,
-              background: "rgba(255,255,255,0.15)",
-            }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Avatar member={currentUser} size={30} />
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "rgba(255,255,255,0.85)",
-                  fontWeight: 600,
-                  lineHeight: 1.2,
-                }}
-              >
-                {currentUser.name}
-              </span>
-              {teamsToken && (
-                <span style={{ fontSize: 9, color: "#6EE7B7", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}>
-                  💬 Teams
-                </span>
-              )}
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                {currentUser.role}
-              </span>
-            </div>
-            {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
-            <button
-              onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "none",
-                color: "rgba(255,255,255,0.5)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 11,
-              }}
-            >
-              Sign Out
-            </button>
-          </div>
         </div>
       </div>
 
