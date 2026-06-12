@@ -1,12 +1,16 @@
-// src/tanda/SalesOrderMatrixBody.tsx
+// src/tanda/LineMatrixBody.tsx
 //
-// MX-SO body — the Sales Order modal's LINE BODY *is* the size matrix.
+// Shared line-matrix body — the order/invoice modal's LINE BODY *is* the size
+// matrix. Used by Sales Orders (mode="so"), Purchase Orders (mode="po"), and
+// AR Invoices (mode="ar"); the `mode` prop drives the money-column label
+// (Unit $ vs Unit Cost $), whether the projected-margin total renders, and
+// whether on-hand/ATS hints show. "so" is the original Sales-Order behavior.
 //
-// ~95% of styles are matrix-driven, so the SO body is a stack of per-style
+// ~95% of styles are matrix-driven, so the body is a stack of per-style
 // color × size grids (the same EditableSizeMatrix the inventory matrix uses):
 // pick a style → type ordered quantities straight into its grid, with an
-// editable Unit $ per color. A separate "+ Add non-matrix line" button adds a
-// plain SKU/qty/$ row for the rare non-matrix item.
+// editable unit-money per color. A separate "+ Add non-matrix line" button adds
+// a plain SKU/qty/$ row for the rare non-matrix item.
 //
 // Nothing is "added to the order" as a side step — the grids ARE the order.
 // At save time the parent calls the imperative `resolve()` which turns every
@@ -39,14 +43,18 @@ type FlatItem = { id: string; sku_code: string; style_code?: string | null; desc
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string };
 export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number };
 export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[] };
-export interface SalesOrderMatrixBodyHandle { resolve: () => Promise<ResolvedLine[]> }
+export interface LineMatrixBodyHandle { resolve: () => Promise<ResolvedLine[]> }
 
 type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null };
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
 
-export interface SalesOrderMatrixBodyProps {
+export interface LineMatrixBodyProps {
+  /** Which modal owns this body. Drives the money-column label, whether the
+   *  projected-margin total renders, and whether the on-hand/ATS hints show.
+   *  "so" (default) reproduces today's Sales-Order behavior exactly. */
+  mode?: "so" | "po" | "ar";
   editable: boolean;
   items: FlatItem[];                         // 500-item list for the non-matrix picker
   seed?: { sections: SeedSection[]; flat: FlatLine[] } | null;
@@ -71,9 +79,14 @@ export interface SalesOrderMatrixBodyProps {
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
-const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMatrixBodyProps>(function SalesOrderMatrixBody(
-  { editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit }, ref,
+const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit }, ref,
 ) {
+  // Per-mode presentation. PO buys (cost column, no margin, no availability);
+  // SO / AR sell (price column, margin). Availability hints are SO-only.
+  const moneyLabel = mode === "po" ? "Unit Cost $" : "Unit $";
+  const showMargin = mode !== "po";
+  const showAvail = mode === "so";
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [flat, setFlat] = useState<FlatLine[]>([]);
@@ -277,10 +290,12 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
         <div style={{ display: "flex", justifyContent: "center", alignItems: "baseline", gap: 40, padding: "6px 4px 12px", borderBottom: `1px solid ${C.cardBdr}`, marginBottom: 12 }}>
           <span style={{ color: C.textMuted, fontSize: 18 }}>Total qty <b style={{ color: C.text, fontSize: 18, fontVariantNumeric: "tabular-nums", marginLeft: 8 }}>{totals.qty.toLocaleString()}</b></span>
           <span style={{ color: C.textMuted, fontSize: 18 }}>Total <b style={{ color: C.success, fontSize: 18, fontVariantNumeric: "tabular-nums", marginLeft: 8 }}>${(totals.cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+          {showMargin && (
           <span style={{ color: C.textMuted, fontSize: 18, display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
             <span>Proj. margin <b style={{ color: totals.marginPct >= 20 ? C.success : C.warn, fontSize: 18, fontVariantNumeric: "tabular-nums", marginLeft: 8 }}>{totals.cents > 0 ? `${totals.marginPct.toFixed(1)}%` : "—"}</b></span>
             {totals.cents > 0 && totals.marginEstimated && <span style={{ fontSize: 11, color: C.textMuted }}>estimated — no cost data (assumes 21%)</span>}
           </span>
+          )}
         </div>
       )}
 
@@ -298,7 +313,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
         // (draft or "Add styles" mode) shows every color so any can be filled.
         const rows = editable ? allRows : allRows.filter((r) => (s.payload?.sizes || []).some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
         const onHand: Record<string, number> = {};
-        if ((showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
+        if (showAvail && (showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
         return (
           <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, marginBottom: 12, background: C.card, padding: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>
@@ -316,7 +331,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}
                 onHandTitle={atsMode ? `ATS${atsAsOfDate ? ` (${fmtDateDisplay(atsAsOfDate)})` : ""}` : "on-hand"}
-                unit={{ label: "Unit $", placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
+                unit={{ label: moneyLabel, placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
               />
             )}
           </div>
@@ -352,4 +367,4 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
   );
 });
 
-export default SalesOrderMatrixBody;
+export default LineMatrixBody;
