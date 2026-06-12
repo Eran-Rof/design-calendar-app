@@ -692,6 +692,41 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const [generateUpcs, setGenerateUpcs] = useState(false);
   const [gs1HasPrefix, setGs1HasPrefix] = useState<boolean | null>(null);
 
+  // COO × HTS — up to 3 country-of-origin rows, each with its own HTS code +
+  // duty rate. Persisted in style attributes.coo_hts; row 0 stays synced to the
+  // legacy hts_code / duty_rate_pct columns (which costing / customs / PO read).
+  const [countries, setCountries] = useState<{ iso2: string; name: string }[]>([]);
+  const [coo, setCoo] = useState<{ country: string; hts_code: string; duty_rate_pct: string }[]>(() => {
+    const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.coo_hts;
+    if (Array.isArray(fromAttr) && fromAttr.length > 0) {
+      return fromAttr.slice(0, 3).map((c) => {
+        const o = (c ?? {}) as Record<string, unknown>;
+        return {
+          country: o.country != null ? String(o.country) : "",
+          hts_code: o.hts_code != null ? String(o.hts_code) : "",
+          duty_rate_pct: o.duty_rate_pct != null ? String(o.duty_rate_pct) : "",
+        };
+      });
+    }
+    // Seed one primary row from the legacy single hts_code / duty_rate.
+    return [{ country: "", hts_code: style?.hts_code ?? "", duty_rate_pct: style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "" }];
+  });
+  // Which COO row's AI "Suggest HTS" list is currently open / loading (null = none).
+  const [htsRowIdx, setHtsRowIdx] = useState<number | null>(null);
+  const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct", val: string) =>
+    setCoo((rows) => rows.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
+  const addCoo = () => setCoo((rows) => (rows.length >= 3 ? rows : [...rows, { country: "", hts_code: "", duty_rate_pct: "" }]));
+  const removeCoo = (idx: number) => setCoo((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
+  const countryOptions = useMemo(() => countries.map((c) => ({ value: c.name, label: c.name, searchHaystack: `${c.name} ${c.iso2}` })), [countries]);
+
+  // Country list (country_master) for the COO pickers — ISO-2 + name.
+  useEffect(() => {
+    fetch("/api/internal/countries")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr) => setCountries(Array.isArray(arr) ? (arr as { iso2: string; name: string }[]) : []))
+      .catch(() => {/* non-fatal */});
+  }, []);
+
   // Load active fabric_codes for the SearchableSelect picker. Errors are
   // non-fatal — the operator can still save without a fabric.
   useEffect(() => {
@@ -868,6 +903,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     setSubmitting(true);
     setErr(null);
     try {
+      // COO × HTS rows → persisted array (attributes.coo_hts) + the primary (row 0)
+      // mirrored onto the legacy hts_code / duty_rate_pct columns. Drop blank rows.
+      const cooRows = coo
+        .map((r) => ({ country: r.country.trim(), hts_code: r.hts_code.trim(), duty_rate_pct: r.duty_rate_pct.trim() === "" ? null : Number(r.duty_rate_pct) }))
+        .filter((r) => r.country || r.hts_code || r.duty_rate_pct != null);
       const body: Record<string, unknown> = {
         style_name:           form.style_name.trim() || null,
         description:          form.description.trim(),
@@ -884,8 +924,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         brand_id:             form.brand_id || null,
         size_scale_id:        form.size_scale_id || null,
         rise:                 form.rise.trim() || null,
-        hts_code:             form.hts_code.trim() || null,
-        duty_rate_pct:        form.duty_rate_pct.trim() === "" ? null : Number(form.duty_rate_pct),
+        hts_code:             cooRows[0]?.hts_code || null,
+        duty_rate_pct:        cooRows[0]?.duty_rate_pct ?? null,
+        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows },
       };
       let url: string;
       let method: string;
@@ -927,7 +968,8 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // AI HTS suggestion — HTS is STYLE-specific (same fabric → different code for
   // a pant vs a jacket), so we classify from the style's Group (top/bottom/
   // accessory) + the linked base fabric's composition.
-  async function fetchHtsSuggestions() {
+  async function fetchHtsSuggestions(idx: number) {
+    setHtsRowIdx(idx);
     const fabric = fabrics.find((f) => f.id === form.base_fabric_code_id);
     const fabricContent = (fabric?.composition_text || "").trim();
     if (!form.group_name.trim() && !fabricContent) {
@@ -952,7 +994,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           fabric_content: fabricContent,
           category: form.group_name.trim(),       // top / bottom / accessory
           gender: genderLabel,                     // Mens / Womens / Boys / Girls / …
-          country_of_origin: "",
+          country_of_origin: coo[idx]?.country || "",  // drives the country-specific duty rate
         }),
       });
       const data = await r.json();
@@ -969,12 +1011,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // Pick a suggestion → set the style's hts_code AND auto-fill the HTS Master
   // reference table (best-effort; a 409/dup or error never blocks).
   async function pickHtsSuggestion(s: HtsSuggestion) {
-    setForm((f) => ({
-      ...f,
-      hts_code: s.code,
-      duty_rate_pct: s.duty_rate_pct != null ? String(s.duty_rate_pct) : f.duty_rate_pct,
-    }));
+    const idx = htsRowIdx ?? 0;
+    setCoo((rows) => rows.map((r, i) => (i === idx
+      ? { ...r, hts_code: s.code, duty_rate_pct: s.duty_rate_pct != null ? String(s.duty_rate_pct) : r.duty_rate_pct }
+      : r)));
     setHtsSuggestions([]);
+    setHtsRowIdx(null);
     const digits = String(s.code).replace(/\D/g, "");
     try {
       await fetch("/api/internal/hts-codes", {
@@ -1160,63 +1202,80 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             )}
           </Field>
-          <Field label="HTS code  ·  Duty rate">
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {/* 75% HTS code + 25% duty rate, ~4 spaces (28px) between them. */}
-              <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 28, minWidth: 0 }}>
-                <input
-                  type="text"
-                  value={form.hts_code}
-                  onChange={(e) => { setForm({ ...form, hts_code: e.target.value }); setHtsSuggestions([]); }}
-                  style={{ ...inputStyle, flex: 3, minWidth: 0 }}
-                  placeholder="e.g. 6203.42.4011"
-                />
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={form.duty_rate_pct}
-                  onChange={(e) => setForm({ ...form, duty_rate_pct: e.target.value })}
-                  style={{ ...inputStyle, flex: 1, minWidth: 0 }}
-                  placeholder="Duty %"
-                  title="HTS duty rate %"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => void fetchHtsSuggestions()}
-                disabled={htsLoading}
-                style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
-                title="Use Claude AI to suggest an HTS code from this style's Group + base fabric composition"
-              >
-                {htsLoading ? "…" : "🤖 Suggest HTS"}
-              </button>
+          <Field label="HTS code · Duty rate · COO">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {coo.map((row, idx) => (
+                <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input
+                      type="text"
+                      value={row.hts_code}
+                      onChange={(e) => { setCooField(idx, "hts_code", e.target.value); if (htsRowIdx === idx) setHtsSuggestions([]); }}
+                      style={{ ...inputStyle, flex: 3, minWidth: 0 }}
+                      placeholder="e.g. 6203.42.4011"
+                    />
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={row.duty_rate_pct}
+                      onChange={(e) => setCooField(idx, "duty_rate_pct", e.target.value)}
+                      style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                      placeholder="Duty %"
+                      title="HTS duty rate % for this country of origin"
+                    />
+                    <div style={{ flex: 2, minWidth: 0 }}>
+                      <SearchableSelect
+                        value={row.country || null}
+                        onChange={(v) => setCooField(idx, "country", v || "")}
+                        options={countryOptions}
+                        placeholder="Country of origin…"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void fetchHtsSuggestions(idx)}
+                      disabled={htsLoading && htsRowIdx === idx}
+                      style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
+                      title="Use Claude AI to suggest an HTS code + this country's duty rate from the style's Group + base fabric composition"
+                    >
+                      {htsLoading && htsRowIdx === idx ? "…" : "🤖 Suggest HTS"}
+                    </button>
+                    {coo.length > 1 && (
+                      <button type="button" onClick={() => removeCoo(idx)} style={{ ...btnSecondary, flexShrink: 0, color: "#F87171", borderColor: "#7f1d1d" }} title="Remove this country of origin">✕</button>
+                    )}
+                  </div>
+                  {htsRowIdx === idx && htsErr && <div style={{ fontSize: 11, color: C.warn }}>{htsErr}</div>}
+                  {htsRowIdx === idx && htsSuggestions.length > 0 && (
+                    <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 4, overflow: "hidden" }}>
+                      {htsSuggestions.map((s, i) => (
+                        <div
+                          key={i}
+                          onClick={() => void pickHtsSuggestion(s)}
+                          style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < htsSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.card; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, fontSize: 13 }}>{s.code}</span>
+                            <span style={{ fontSize: 11, color: s.confidence === "high" ? C.success : s.confidence === "medium" ? C.warn : C.textMuted }}>{s.confidence}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{s.description}</div>
+                          {s.duty_rate_pct != null && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>Duty: {s.duty_rate_pct}%</div>}
+                          {s.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, fontStyle: "italic" }}>{s.reasoning}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {coo.length < 3 && (
+                <button type="button" onClick={addCoo} style={{ ...btnSecondary, alignSelf: "flex-start" }}>+ Add COO (up to 3)</button>
+              )}
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition.
+              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition; the COO drives the country-specific duty rate (AGOA / USMCA / GSP, etc.). Row 1 is the primary HTS used across costing &amp; customs.
             </div>
-            {htsErr && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{htsErr}</div>}
-            {htsSuggestions.length > 0 && (
-              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 4, marginTop: 4, overflow: "hidden" }}>
-                {htsSuggestions.map((s, i) => (
-                  <div
-                    key={i}
-                    onClick={() => void pickHtsSuggestion(s)}
-                    style={{ padding: "7px 10px", cursor: "pointer", borderBottom: i < htsSuggestions.length - 1 ? `1px solid ${C.cardBdr}` : undefined }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.card; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, fontSize: 13 }}>{s.code}</span>
-                      <span style={{ fontSize: 11, color: s.confidence === "high" ? C.success : s.confidence === "medium" ? C.warn : C.textMuted }}>{s.confidence}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{s.description}</div>
-                    {s.duty_rate_pct != null && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>Duty: {s.duty_rate_pct}%</div>}
-                    {s.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, fontStyle: "italic" }}>{s.reasoning}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
           </Field>
           <Field label="Apparel?">
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>

@@ -97,19 +97,23 @@ Typical use:
 
 ## AI HTS Suggestion (🤖 Suggest)
 
-The **HTS code** field in the add/edit modal includes a **🤖 Suggest** button that uses Claude AI (claude-haiku-4-5-20251001) to propose the top 3 most likely HTS codes based on the fabric content, country of origin, and product category.
+The **HTS code** field in the Style Master add/edit modal includes a **🤖 Suggest HTS** button that uses Claude AI (claude-haiku-4-5-20251001) to propose the top 3 most likely HTS codes based on the style's Group (top / bottom / accessory) + Gender + the base fabric's composition.
+
+### Up to three Countries of Origin (COO)
+
+The HTS section is a **per-country repeater** — add up to **three COO rows**, each with its own **HTS code**, **Duty %**, **Country of origin** picker, and its own **🤖 Suggest HTS** button. Because the HTS *code* is product-based it's normally the same across countries, but the **duty rate varies by country**: the AI applies any US trade-preference program the country qualifies for (e.g. **AGOA** for eligible sub-Saharan African countries like Madagascar, **USMCA** for Mexico/Canada, **CAFTA-DR**, **GSP**), which often drops the rate to 0%; otherwise it uses the Column 1 General (MFN) rate, and states the basis in its reasoning. **Row 1 is the primary** — its HTS code + duty rate are what costing and customs read. Rows 2–3 are stored alongside on the style (`attributes.coo_hts`).
 
 ### How to use
 
-1. Fill in the **Composition** field (e.g. `100% Cotton`) and/or **Country of origin**.
-2. Click **🤖 Suggest** next to the HTS code field.
+1. Fill in the style's **Group** and a **Base fabric** (with composition).
+2. Pick the **Country of origin** on a row, then click its **🤖 Suggest HTS** — the suggestion's duty reflects that country.
 3. A dropdown appears with up to 3 suggestions, each showing:
    - The HTS code (e.g. `6110.20.2090`)
    - A plain-English description
-   - Duty rate percentage
+   - Duty rate percentage (country-specific)
    - Confidence level (high / medium / low)
-   - AI reasoning
-4. Click any suggestion to fill it in. You can still edit the code manually after.
+   - AI reasoning (incl. the duty basis, e.g. "AGOA duty-free")
+4. Click any suggestion to fill that row. You can still edit the code/duty manually after. Use **+ Add COO** for a second/third country.
 
 > **Always verify AI suggestions against the official HTSUS schedule** (hts.usitc.gov) before using them in customs filings. AI classification is a starting point, not a legal ruling. Misclassification can result in underpayment of duties or CBP penalties.
 

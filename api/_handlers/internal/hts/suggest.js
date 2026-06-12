@@ -47,6 +47,17 @@ Gender is decisive for apparel HTS: men's/boys' garments classify under differen
 codes than women's/girls', and babies'/infants' separately again — weight the
 men's-vs-women's-vs-boys'-vs-girls' distinction accordingly when it is specified.
 
+Country of Origin drives the DUTY RATE, not the HTS code. The HTS code itself
+does not change with country. When a Country of Origin IS specified, return the
+"duty_rate_pct" that actually applies to imports of that code FROM that country:
+apply any US trade-preference program the country qualifies for under this HTS —
+e.g. USMCA (Mexico / Canada), AGOA (eligible sub-Saharan African countries such
+as Madagascar, Lesotho, Kenya, Ethiopia), CAFTA-DR, KORUS, or GSP — which often
+reduces the rate to 0%. If no preference applies (e.g. Bangladesh, China,
+Vietnam, India for most apparel), use the Column 1 General (MFN) rate. When no
+country is specified, use the Column 1 General (MFN) rate. Always state the basis
+in "reasoning" (e.g. "AGOA duty-free", "USMCA originating", or "Column 1 General").
+
 Return the top 3 most likely HTS codes with duty rates. Focus on Chapters 50-63 (textiles and apparel).
 
 Respond in this exact JSON format (no markdown, just the JSON):
