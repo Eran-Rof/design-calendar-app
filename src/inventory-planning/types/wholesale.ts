@@ -223,6 +223,12 @@ export interface IpPlanningGridRow {
   // Size from item.size (Option 2 Value column in Excel). Used as a
   // fallback PPK-multiplier source when color doesn't carry "PPKn".
   sku_size: string | null;
+  // Inseam length from ip_item_master.inseam ("30"/"32"/"34", null for
+  // non-denim). A grain dimension: a style+color with multiple inseams
+  // splits into one planning line per inseam (see aggregateRows). The
+  // grid renders an Inseam column from this. On a rollup that spans
+  // several inseams it becomes "(N inseams)".
+  sku_inseam?: string | null;
   // Set on rows produced by the grid's collapse/aggregate modes — disables
   // inline-edit cells and renders read-only tallies.
   is_aggregate?: boolean;
