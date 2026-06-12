@@ -116,7 +116,10 @@ export default function CostingApp() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: TH.surfaceHi, fontFamily: "system-ui, -apple-system, sans-serif",
+      // Match the dark data views (#0F172A) so the area below a short panel
+      // reads as the same surface, not the light TH.surfaceHi (was a white
+      // band under the data window).
+      background: "#0F172A", fontFamily: "system-ui, -apple-system, sans-serif",
     }}>
       <NavDrawer
         appKey="costing"
