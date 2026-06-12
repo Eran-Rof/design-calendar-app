@@ -339,6 +339,7 @@ import r_internal_pim_styles_style_id_link_shopify from "./internal/pim/styles/[
 import r_internal_pim_styles_style_id_pull_shopify_images from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 import r_internal_planning_buy_plan_to_po from "./internal/planning/buy-plan-to-po.js";
 import r_internal_planning_link_planning_vendor from "./internal/planning/link-planning-vendor.js";
+import r_internal_planning_promote_style_color from "./internal/planning/promote-style-color.js";
 import r_internal_planning_sync_tangerine_supply from "./internal/planning/sync-tangerine-supply.js";
 import r_internal_pos_id_messages from "./internal/pos/[id]/messages.js";
 import r_internal_preferred_vendors_index from "./internal/preferred-vendors/index.js";
@@ -823,6 +824,7 @@ export const ROUTES = [
   { pattern: "/api/internal/planning/sync-tangerine-supply", handler: r_internal_planning_sync_tangerine_supply },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: r_internal_planning_link_planning_vendor },
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
+  { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
   { pattern: "/api/internal/procurement/bookkeeper-queue", handler: r_internal_procurement_bookkeeper_queue_index },
   { pattern: "/api/internal/compliance/automation-rules", handler: r_internal_compliance_automation_rules_index },
   { pattern: "/api/internal/procurement/broker-invoices", handler: r_internal_procurement_broker_invoices_index },

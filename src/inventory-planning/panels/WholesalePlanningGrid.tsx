@@ -89,6 +89,9 @@ export interface WholesalePlanningGridProps {
   // Delete a planner-added TBD row. Hidden on auto-synthesized rows
   // (the workbench enforces this server-side too).
   onDeleteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  // Promote a planner-added new style+color into the company masters.
+  onPromoteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  promotedTbdKeys?: Set<string>;
   // Undo the most recent + Add row from the toolbar — distinct from
   // the row-level ✕ so the planner can hit it without hunting for
   // the row when they realize they added the wrong thing.
@@ -220,7 +223,7 @@ export interface WholesalePlanningGridProps {
 // import block above. Pure-helper unit tests live alongside in
 // wholesale-planning/__tests__/gridUtils.test.ts.
 
-export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -2600,6 +2603,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   onUpdateTbdCustomer={onUpdateTbdCustomer}
                   onAddTbdNewCustomer={onAddTbdNewCustomer}
                   onDeleteTbdRow={onDeleteTbdRow}
+                  onPromoteTbdRow={onPromoteTbdRow}
+                  promotedTbdKeys={promotedTbdKeys}
                   onUpdateSystemOverride={onUpdateSystemOverride}
                   onUpdateUnitCost={onUpdateUnitCost}
                   saveAggBuyerOrOverride={saveAggBuyerOrOverride}

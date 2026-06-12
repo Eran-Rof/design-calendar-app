@@ -36,6 +36,14 @@ The reusable category reference list (used by the Future Demand Requests picker 
 
 Denim/pants styles carry an **inseam** (30 / 32 / 34) on the item master (`ip_item_master.inseam`, stamped by the Tangerine inseam style-merge). The wholesale grid shows an **Inseam** column, and inseam is a *grain* dimension: a style+color that exists in several inseams splits into **one planning line per inseam**, so each length is forecast and bought separately. Sizes still merge within an inseam (as everywhere). Styles with no inseam are unaffected — they stay a single line. In a Category/Sub-Cat/customer rollup that spans several inseams, the Inseam cell reads "(N inseams)". The column is toggleable (Columns button) and freezable like Style/Color.
 
+## Promote a new style/color to the company database
+
+New styles and colors you type on a TBD row stay **temporary** — they live only on the planning row and never touch the company masters. When you're ready to make one real, click the **🏢 DB** button at the end of the row (shown on planner-added rows that have a real style + color). It:
+- creates the SKU in the item master (`ip_item_master`, `sku_code = STYLE-COLOR`) so it's visible in ATS and planning, and
+- creates the style in the **Tangerine Style Master** (`style_master`), flagged `attributes.needs_review` so a merchandiser can find it and complete the details (brand, category, size scale, HTS, …).
+
+Both writes are idempotent (re-clicking is safe), and the button flips to **✓ in DB** once promoted. The server endpoint is `POST /api/internal/planning/promote-style-color`. *(A later update will notify the designated reviewers when a style is promoted — see the planning notifications work.)*
+
 ## Supply inputs (the Supply screen)
 
 The reconciliation reads three supply buckets and nets them against demand:

@@ -22,6 +22,8 @@ import type {
 } from "../types/wholesale";
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
+import { promoteStyleColor } from "../services/promoteStyleColorService";
+import { confirmDialog } from "../../shared/ui/warn";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
@@ -758,6 +760,9 @@ export default function WholesalePlanningWorkbench() {
   // upstream identifiers — same lifecycle as the style/color NEW
   // flags, which clear once the master "catches up").
   const [newCustomerIds, setNewCustomerIds] = useState<Set<string>>(() => new Set());
+  // style|color keys promoted into the company masters this session — drives
+  // the per-row "✓ in DB" state so the planner doesn't re-promote.
+  const [promotedTbdKeys, setPromotedTbdKeys] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     setNewCustomerIds((prev) => {
       const next = new Set(prev);
@@ -1689,6 +1694,47 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Promote a planner-added new style+color into the SHARED company masters
+  // (ip_item_master + style_master) so it shows in Tangerine + ATS, where
+  // someone completes the details. Opt-in (a TBD row's "🏢 DB" button) — the
+  // default stays temporary/planning-only. Idempotent server-side.
+  async function promoteTbdStyleColor(row: IpPlanningGridRow) {
+    const style = (row.sku_style ?? "").trim();
+    const color = (row.sku_color ?? "").trim();
+    if (!style || style.toUpperCase() === "TBD" || !color || color.toUpperCase() === "TBD") {
+      setToast({ text: "Give the row a real style and color before adding it to the database.", kind: "error" });
+      return;
+    }
+    const ok = await confirmDialog(
+      `Add "${style} / ${color}" to the company database?\n\n` +
+      `It will be created in the Style Master + item master and become visible in Tangerine and ATS. ` +
+      `It's flagged for review so someone can complete the details (brand, category, size scale, …).`,
+      { title: "Add to company database", icon: "🏢", confirmText: "Add to database", cancelText: "Cancel", confirmColor: "#3B82F6" },
+    );
+    if (!ok) return;
+    try {
+      const r = await promoteStyleColor({
+        style_code: style,
+        color,
+        description: row.sku_description ?? null,
+        group_name: row.group_name ?? null,
+        sub_category_name: row.sub_category_name ?? null,
+      });
+      setPromotedTbdKeys((prev) => new Set(prev).add(`${row.sku_style}|${row.sku_color}`));
+      const parts: string[] = [];
+      if (r.style_created) parts.push("style created"); else if (r.style_existed) parts.push("style already existed");
+      if (r.item_created) parts.push("item created"); else if (r.item_existed) parts.push("item already existed");
+      const warn = r.warnings.length ? ` (${r.warnings.join("; ")})` : "";
+      setToast({
+        text: `Added "${style} / ${color}" to the company database — ${parts.join(", ") || "done"}${warn}`,
+        kind: r.warnings.length ? "info" : "success",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Add to database failed — ${msg}`, kind: "error" });
+    }
+  }
+
   async function saveTbdColor(row: IpPlanningGridRow, color: string, isNewColor: boolean) {
     if (!selectedRun) return;
     const dup = findTbdDuplicate(row.sku_style ?? "", color, row.customer_id, row.period_code, row.forecast_id);
@@ -2326,6 +2372,8 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdDescription={saveTbdDescription}
               onAddTbdRow={addTbdRow}
               onDeleteTbdRow={deleteTbdRow}
+              onPromoteTbdRow={promoteTbdStyleColor}
+              promotedTbdKeys={promotedTbdKeys}
               onUndoLastAdd={undoLastAddedTbd}
               lastAddedTbdMarker={lastAddedTbdMarker}
               masterColorsLower={masterColorsLower}
