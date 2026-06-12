@@ -33,12 +33,12 @@ When the app is in Beta, the Planning card on the PLM home launcher carries a sm
 
 Every Planning screen sits inside a common header (the "Planning shell"):
 
-- A **← PLM** link (back to the home launcher) and a **← Planning** link (back to the Wholesale workbench, the app's home screen).
+- A collapsible **left navigation drawer** — the same shared drawer the other suite apps (GS1, Costing, Design Calendar) use. It lists every Planning screen (Wholesale, Ecom, Supply, Scenarios, Accuracy, Execution, Reports, Data quality, Admin); the current screen is highlighted. Collapse it to a thin icon rail with the ⟨ toggle; the choice is remembered. **← PLM** (back to the home launcher) lives in the drawer's footer.
 - The current screen's name in the header (e.g. "Wholesale Planning", "Supply Reconciliation"). The browser tab title follows it too, so multiple Planning tabs are easy to tell apart.
 - **✨ Ask AI** — a chat assistant (top-right). Ask it about forecasts, shortages, recommendations, lead times, or how to use a screen. It reads live planning data and this guide; it never invents figures.
 - **🔔 Notifications** — planning-relevant alerts, with an unread badge.
 
-Moving between screens is by the link buttons in each workbench's toolbar (**Ecom**, **Supply →**, **Scenarios**, **📊 Reports**, **Data quality**), or by editing the URL path directly.
+Move between screens from the **left drawer** (or by editing the URL path directly). *(The old in-workbench top menu bar — the "IP" logo row with Ecom / Supply / Scenarios / Reports links — has been removed; the drawer is now the single navigation surface.)*
 
 ## Where the numbers come from
 

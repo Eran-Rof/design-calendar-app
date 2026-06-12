@@ -51,23 +51,6 @@ export default function ReportsWorkbench() {
 
   return (
     <div style={S.app}>
-      <div style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>IP</div>
-          <div>
-            <div style={S.navTitle}>Demand & Inventory Planning</div>
-            <div style={S.navSub}>Reports · on-screen + Excel</div>
-          </div>
-        </div>
-        <div style={S.navRight}>
-          <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
-          <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
-          <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
-          <a href="/planning/execution" style={{ ...S.btnSecondary, textDecoration: "none" }}>Execution</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
-        </div>
-      </div>
-
       <div style={S.content}>
         {bootErr && <div style={{ color: PAL.red, marginBottom: 12 }}>Load failed — {bootErr}</div>}
 
