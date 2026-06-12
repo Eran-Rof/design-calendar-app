@@ -182,6 +182,11 @@ interface GridTableProps {
   // shows the SO (or PO receipt) qty falling in March across the
   // filtered SKUs. The totals-row Qty mirrors this.
   viewMode: "ats" | "so" | "po";
+  // Negative-ATS card active (activeSort === "negATS"). When on, the ATS
+  // period cells render the TRUE running balance (row.dates, which can go
+  // negative) instead of the clamped periodAvail — so the oversold sizes the
+  // card filtered to are actually visible (red). Off → normal clamped view.
+  negMode: boolean;
   showTotalsRow: boolean;
   // Whether to render prepack qtys as units (exploded) or as packs.
   // ON shows packs × units-per-pack; OFF shows pack count + faded
@@ -219,7 +224,7 @@ export const GridTable: React.FC<GridTableProps> = ({
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, viewMode, showTotalsRow, explodePpk, showImages, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, viewMode, negMode, showTotalsRow, explodePpk, showImages, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
@@ -937,7 +942,13 @@ export const GridTable: React.FC<GridTableProps> = ({
                   // renders as "—".
                   let qty: number | undefined;
                   if (viewMode === "ats") {
-                    qty = periodAvail(row, displayPeriods, periodIdx);
+                    // Neg ATS card active → show the true running balance
+                    // (signed, can be negative) so the oversold cells the
+                    // card filtered to actually render in red. Otherwise the
+                    // clamped per-period availability (periodAvail).
+                    qty = negMode
+                      ? (row.dates[p.endDate] ?? undefined)
+                      : periodAvail(row, displayPeriods, periodIdx);
                   } else if (!row.__collapsed && ev) {
                     const list = viewMode === "so" ? ev.sos : ev.pos;
                     qty = list.reduce((a, e) => a + (e.qty || 0), 0);

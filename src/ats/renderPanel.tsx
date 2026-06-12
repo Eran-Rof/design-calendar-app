@@ -512,6 +512,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             dragOverSku={dragOverSku} setDragOverSku={setDragOverSku}
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
             todayKey={todayKey} viewMode={viewMode ?? "ats"}
+            negMode={activeSort === "negATS"}
             showTotalsRow={showTotalsRow}
             explodePpk={explodePpk ?? true}
             showImages={showImages ?? true}
