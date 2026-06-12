@@ -475,7 +475,7 @@ export function NavDrawer({
               )
             }
             {!collapsed && favMods.length === 0 && (
-              <div style={{ color:C.textMuted, fontSize:12, padding:"2px 10px 7px", fontStyle:"italic" }}>Use ☆ to star the current view</div>
+              <div style={{ color:C.textMuted, fontSize:9.6, padding:"2px 10px 7px", fontStyle:"italic", opacity:0.6 }}>Use ☆ to star the current view</div>
             )}
             {favMods.map(m => (
               <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? m.label : undefined}
