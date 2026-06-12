@@ -14,6 +14,7 @@
 // 2c will hook the "newly promoted → notify designated reviewers" logic here.
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveInternalRecipientsDetailed } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 30 };
 
@@ -142,6 +143,49 @@ export default async function handler(req, res) {
     }
   } catch (e) {
     result.warnings.push(`style_master: ${e?.message ?? String(e)}`);
+  }
+
+  // Notify the designated reviewers (admins pick them via the "Style Master
+  // review" notification subscription on each employee). Only fires when a
+  // NEW style row was created — re-promoting an existing style is a no-op.
+  // Bell + email via the shared /api/send-notification fan-out; links to the
+  // Style Master "needs review" list. Best-effort: never fail the promote.
+  result.notified = 0;
+  if (result.style_created) {
+    try {
+      const { recipients } = await resolveInternalRecipientsDetailed(
+        admin, "style_review", { event: "style_master_promoted" },
+      );
+      if (recipients.length > 0) {
+        const origin = `https://${req.headers.host}`;
+        const label = color ? `${styleCode} / ${color}` : styleCode;
+        await Promise.all(recipients.map((rcp) => {
+          const hasInApp = typeof rcp.plm_user_id === "string" && rcp.plm_user_id;
+          return fetch(`${origin}/api/send-notification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: "style_master_promoted",
+              title: `New style needs review: ${label}`,
+              body: `Inventory Planning promoted "${label}" into the Style Master. Please complete its details (brand, category, size scale, HTS, …). Open the list of styles awaiting review.`,
+              link: "/tangerine?m=style_master&review=1",
+              metadata: {
+                style_id: result.style_id,
+                style_code: styleCode,
+                sku_code: skuCode,
+                ...(rcp.apps ? { target_apps: rcp.apps } : {}),
+              },
+              recipient: { internal_id: hasInApp ? rcp.plm_user_id : "style_reviewer", email: rcp.email },
+              dedupe_key: `style_promoted_${result.style_id}_${rcp.email}`,
+              email: true,
+            }),
+          }).catch(() => {});
+        }));
+        result.notified = recipients.length;
+      }
+    } catch (e) {
+      result.warnings.push(`notify: ${e?.message ?? String(e)}`);
+    }
   }
 
   return res.status(200).json(result);

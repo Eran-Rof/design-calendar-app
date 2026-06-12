@@ -42,7 +42,9 @@ New styles and colors you type on a TBD row stay **temporary** — they live onl
 - creates the SKU in the item master (`ip_item_master`, `sku_code = STYLE-COLOR`) so it's visible in ATS and planning, and
 - creates the style in the **Tangerine Style Master** (`style_master`), flagged `attributes.needs_review` so a merchandiser can find it and complete the details (brand, category, size scale, HTS, …).
 
-Both writes are idempotent (re-clicking is safe), and the button flips to **✓ in DB** once promoted. The server endpoint is `POST /api/internal/planning/promote-style-color`. *(A later update will notify the designated reviewers when a style is promoted — see the planning notifications work.)*
+Both writes are idempotent (re-clicking is safe), and the button flips to **✓ in DB** once promoted. The server endpoint is `POST /api/internal/planning/promote-style-color`.
+
+**Reviewer notification.** When a style is newly promoted, the designated reviewers get an **in-app bell + email** ("New style needs review: …") linking to the **Style Master** filtered to styles awaiting review (`/tangerine?m=style_master&review=1` — a **⚠ Needs review** toggle that shows planning-promoted styles still flagged `needs_review`). Who gets notified is controlled per person: an admin opens **Tangerine → Employees**, edits the employee, and ticks the **"Style Master review"** notification subscription (alongside the `INTERNAL_STYLE_REVIEW_EMAILS` env list). Reviewers complete the details in Style Master, and the style drops off the Needs-review list once `needs_review` is cleared.
 
 ## Supply inputs (the Supply screen)
 
