@@ -20,7 +20,7 @@ The app's chrome is a **left navigation drawer** (collapsible — use the ◀/�
 | **Tools** (near the bottom) | The **Grid/List** view toggle, **📋 Activity** log, and the **⚙️ Settings** master-data menu — all moved here from the top bar. |
 | **🧩 All Apps** | Switch to the other suite apps. |
 
-**Top bar** (dark, across the top): the Ring of Fire logo and the "Design Calendar" label on the left; **✨ Ask AI**, **🔔 Notifications** (with an unread-count badge), and **↩ Undo** on the right. The old T&A / Costing quick links, the Favorites star, and the user/Sign-Out cluster have moved into the drawer (use **🧩 All Apps** to reach T&A and Costing).
+**Top bar** (dark, across the top, everything left-aligned): the Ring of Fire logo and the "Design Calendar" label, then **✨ Ask AI** and **🔔 Notifications** (with an unread-count badge). The **↩ Undo** button now lives in the **filter bar**, immediately after the **⚙ Filters** button (Dashboard / Timeline / Calendar). The old T&A / Costing quick links, the Favorites star, and the user/Sign-Out cluster have moved into the drawer (use **🧩 All Apps** to reach T&A and Costing).
 
 > **Tip — Undo:** the **↩ Undo** button reverses your last change (drag, reschedule, edit). It holds several steps, and the number in parentheses tells you how many are available. Undo is also offered as a banner inside a task card after you change it.
 
