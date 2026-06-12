@@ -170,7 +170,16 @@ export const wholesaleRepo = {
   // customer_code is required + unique; we derive it from the name
   // (uppercase, alphanumeric + dashes) and append a short suffix on
   // collision so the planner doesn't have to think about codes.
-  async insertCustomer(name: string): Promise<{ id: string; name: string }> {
+  // opts.temp marks the customer TEMPORARY — it stays usable inside the
+  // planning app but is hidden from the Tangerine customer master + every
+  // picker (sales orders / AR / costing / …) via external_refs.planning_temp,
+  // and is auto-deleted when its owning run is deleted (opts.runId stamps
+  // the owner). Omit opts (or temp:false) to promote the customer straight
+  // into the shared company database — the original behaviour.
+  async insertCustomer(
+    name: string,
+    opts: { temp?: boolean; runId?: string | null } = {},
+  ): Promise<{ id: string; name: string }> {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("insertCustomer: name required");
     // Reuse an existing customer when the planner re-types a name
@@ -189,16 +198,20 @@ export const wholesaleRepo = {
       .replace(/[^A-Z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 60);
+    // Stamp external_refs.planning_added so the orange NEW badge persists
+    // across reloads. When temp, also stamp planning_temp + the owning run
+    // so the customer is hidden outside planning and cleaned up on run delete.
+    const externalRefs: Record<string, string> = { planning_added: "1" };
+    if (opts.temp) {
+      externalRefs.planning_temp = "1";
+      if (opts.runId) externalRefs.planning_run_id = opts.runId;
+    }
     let code = baseCode || "CUSTOMER";
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        // Stamp external_refs.planning_added so the orange NEW
-        // badge persists across reloads — until something else
-        // (Xoro / Shopify integration, manual master refresh)
-        // populates the customer's real upstream identifiers.
         const created = await withRetryOn57014("insertCustomer", () => sbPost<{ id: string; name: string }>(
           "ip_customer_master",
-          [{ customer_code: code, name: trimmed, external_refs: { planning_added: "1" } }],
+          [{ customer_code: code, name: trimmed, external_refs: externalRefs }],
           "return=representation",
         ));
         if (created[0]?.id) return { id: created[0].id, name: created[0].name };
@@ -490,8 +503,37 @@ export const wholesaleRepo = {
   // ON DELETE CASCADE on the run_id FKs across forecast, recs, TBD,
   // bucket buys, overrides, scenarios — so deleting the parent row
   // is sufficient to clean up the entire run.
+  //
+  // Temporary customers (created in this run via "keep temporary") are
+  // NOT cascaded — customers has no FK back to runs — so we clean them up
+  // explicitly. Order matters: the run delete first cascades away the
+  // run's TBD rows (which RESTRICT-reference the customer), THEN each temp
+  // customer is removed only if nothing else still references it (another
+  // run's TBD rows, a forecast, or a future-demand request). Best-effort:
+  // a failure here never blocks the run delete that already succeeded.
   async deletePlanningRun(id: string): Promise<void> {
+    let tempCustomerIds: string[] = [];
+    try {
+      const temps = await sbGet<{ id: string }>(
+        `ip_customer_master?select=id&external_refs->>planning_temp=eq.1&external_refs->>planning_run_id=eq.${id}`,
+      );
+      tempCustomerIds = temps.map((t) => t.id);
+    } catch { /* json-path filter unsupported / transient — skip cleanup */ }
+
     await sbDelete(`ip_planning_runs?id=eq.${id}`);
+
+    for (const custId of tempCustomerIds) {
+      try {
+        const [tbd, fc, fdr] = await Promise.all([
+          sbGet<{ id: string }>(`ip_wholesale_forecast_tbd?select=id&customer_id=eq.${custId}&limit=1`),
+          sbGet<{ id: string }>(`ip_wholesale_forecast?select=id&customer_id=eq.${custId}&limit=1`),
+          sbGet<{ id: string }>(`ip_future_demand_requests?select=id&customer_id=eq.${custId}&limit=1`),
+        ]);
+        if (tbd.length === 0 && fc.length === 0 && fdr.length === 0) {
+          await sbDelete(`ip_customer_master?id=eq.${custId}`);
+        }
+      } catch { /* leave the temp customer if anything still references it */ }
+    }
   },
 
   // ── Forecast rows ────────────────────────────────────────────────────────

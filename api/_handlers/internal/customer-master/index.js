@@ -154,6 +154,14 @@ export default async function handler(req, res) {
       .select(LIST_COLUMNS)
       .eq("entity_id", entityId)
       .is("deleted_at", null)
+      // Hide planning "temporary" customers. These are created in the
+      // Inventory Planning app for a single plan and must NOT appear in
+      // the Tangerine customer master or any picker that reads this
+      // endpoint (sales orders, AR invoices/receipts, allocations,
+      // drop-ship, returns). They stay visible only inside the planning
+      // app. Rows without the flag have external_refs->>planning_temp =
+      // null and pass via the is.null branch.
+      .or("external_refs->>planning_temp.is.null,external_refs->>planning_temp.neq.1")
       .order("name", { ascending: true })
       .limit(limit);
 

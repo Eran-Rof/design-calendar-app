@@ -35,6 +35,10 @@ export default async function handler(req, res) {
     .select("id, entity_id, code, customer_type, default_currency, status, billing_address, payment_terms")
     .eq("status", "active")
     .is("deleted_at", null)
+    // Hide planning "temporary" customers from the costing/RFQ picker —
+    // same rule as the Tangerine customer master (they live only in the
+    // planning app until promoted). Unflagged rows pass via is.null.
+    .or("external_refs->>planning_temp.is.null,external_refs->>planning_temp.neq.1")
     .limit(25);
   if (entityId) query = query.eq("entity_id", entityId);
   if (q) {

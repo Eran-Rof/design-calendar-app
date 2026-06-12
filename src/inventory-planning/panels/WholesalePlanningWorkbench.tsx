@@ -34,6 +34,7 @@ import WholesalePlanningGrid from "./WholesalePlanningGrid";
 import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
+import { confirmDialog } from "../../shared/ui/warn";
 import LastUploadStamp from "../../shared/ui/LastUploadStamp";
 import SystemHealthBanner from "../shared/components/SystemHealthBanner";
 import {
@@ -1652,13 +1653,32 @@ export default function WholesalePlanningWorkbench() {
       setToast({ text: "Customer name can't be empty", kind: "error" });
       return;
     }
+    // Ask whether to add this customer to the company database (visible in
+    // Tangerine + every app) or keep it temporary for this plan only. The
+    // safe default — keep temporary — is what a dismiss (overlay/Escape)
+    // resolves to, so we never leak a new customer into the ERP by accident.
+    const addToDatabase = await confirmDialog(
+      `"${trimmed}" is a new customer.\n\n` +
+      `Add it to the company database (visible in Tangerine and every app), ` +
+      `or keep it temporary for this plan only?\n\n` +
+      `Temporary customers stay inside Inventory Planning and are removed automatically when this run is deleted.`,
+      {
+        title: "New customer",
+        icon: "🏷️",
+        confirmText: "Add to company database",
+        cancelText: "Keep temporary",
+        confirmColor: "#3B82F6",
+      },
+    );
+    const isTemp = !addToDatabase;
     try {
-      const created = await wholesaleRepo.insertCustomer(trimmed);
-      // Append the new customer to local state so all dropdowns
-      // know about them right away. The minimal IpCustomer shape
-      // is enough for the picker (id + name) but we stamp
-      // external_refs.planning_added too so the NEW-badge logic in
-      // the cell + other dropdowns matches what the DB returned.
+      const created = await wholesaleRepo.insertCustomer(trimmed, { temp: isTemp, runId: selectedRun.id });
+      // Append the new customer to local state so all dropdowns know about
+      // them right away. Mirror the external_refs we wrote so the NEW /
+      // temp badge logic matches the DB.
+      const externalRefs: IpCustomer["external_refs"] = isTemp
+        ? { planning_added: "1", planning_temp: "1", planning_run_id: selectedRun.id }
+        : { planning_added: "1" };
       setCustomers((prev) => {
         if (prev.some((c) => c.id === created.id)) return prev;
         const newRow: IpCustomer = {
@@ -1670,7 +1690,7 @@ export default function WholesalePlanningWorkbench() {
           country: null,
           channel_id: null,
           active: true,
-          external_refs: { planning_added: "1" },
+          external_refs: externalRefs,
         };
         return [...prev, newRow].sort((a, b) => a.name.localeCompare(b.name));
       });
@@ -1682,7 +1702,12 @@ export default function WholesalePlanningWorkbench() {
         return next;
       });
       await saveTbdCustomer(row, created.id, created.name);
-      setToast({ text: `Added new customer "${created.name}" and assigned the row to them`, kind: "success" });
+      setToast({
+        text: isTemp
+          ? `Added "${created.name}" as a temporary customer (this plan only) and assigned the row to them`
+          : `Added new customer "${created.name}" to the company database and assigned the row to them`,
+        kind: "success",
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Add customer failed — ${msg}`, kind: "error" });

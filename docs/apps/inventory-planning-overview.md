@@ -36,6 +36,16 @@ The reusable category reference list (used by the Future Demand Requests picker 
 
 Denim/pants styles carry an **inseam** (30 / 32 / 34) on the item master (`ip_item_master.inseam`, stamped by the Tangerine inseam style-merge). The wholesale grid shows an **Inseam** column, and inseam is a *grain* dimension: a style+color that exists in several inseams splits into **one planning line per inseam**, so each length is forecast and bought separately. Sizes still merge within an inseam (as everywhere). Styles with no inseam are unaffected — they stay a single line. In a Category/Sub-Cat/customer rollup that spans several inseams, the Inseam cell reads "(N inseams)". The column is toggleable (Columns button) and freezable like Style/Color.
 
+## Temporary vs company customers
+
+When you type a brand-new customer name on a TBD row ("Add as NEW customer"), planning asks whether to:
+- **Add to company database** — writes a normal customer that shows up in Tangerine and every app (sales orders, AR, costing, etc.). Use this for a real customer you've confirmed.
+- **Keep temporary** (the safe default) — the customer is usable inside Inventory Planning only. It's flagged `external_refs.planning_temp` + the owning run, **hidden from the Tangerine customer master and all pickers**, and **deleted automatically when its run is deleted** (unless it's still referenced by another run/forecast/request). Dismissing the prompt keeps it temporary, so a new name never leaks into the ERP by accident.
+
+This stops planning scratch customers from polluting the company database. The shared `customers` table is filtered at the `customer-master` endpoint (which feeds the Tangerine customer grid + the sales-order / AR / allocations / drop-ship / returns pickers) and the costing customer picker; planning's own dropdowns intentionally still show temp customers so you can keep working with them.
+
+> New styles/colors added in planning are already temporary — they live only on the planning TBD row and never reach the item/style master (a future opt-in will let you promote them).
+
 ## Supply inputs (the Supply screen)
 
 The reconciliation reads three supply buckets and nets them against demand:

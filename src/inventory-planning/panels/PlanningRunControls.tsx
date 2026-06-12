@@ -182,7 +182,8 @@ export default function PlanningRunControls({
     const ok = await confirmDialog(
       `Permanently DELETE planning run "${selected.name}"?\n\n` +
       `This also deletes ALL of its data — forecasts, recommendations, projected inventory, ` +
-      `scenarios, approvals and exports tied to this run. It cannot be undone.\n\n` +
+      `scenarios, approvals and exports tied to this run, plus any temporary customers created in it ` +
+      `(unless they're still used elsewhere). It cannot be undone.\n\n` +
       `(A run that already has execution batches can't be deleted — remove those in the Execution screen first.)`,
       { title: "Delete planning run", confirmText: "Delete run", icon: "🗑" },
     );
