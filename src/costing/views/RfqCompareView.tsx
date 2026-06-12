@@ -24,6 +24,7 @@ import type {
   RfqCompareQuote,
 } from "../services/costingApi";
 import { fmtDateDisplay } from "../helpers";
+import CollapsibleHeader from "../panels/CollapsibleHeader";
 
 const fmtUnit = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -376,8 +377,21 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
     <div style={cardStyle}>
       <MatrixHeader rfq={rfq} />
 
-      {/* Project-level summary line */}
-      <div style={{ padding: "10px 16px", background: C.bandBg, borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+      {/* Project-level summary line — collapsible via the ▾ triangle. */}
+      <CollapsibleHeader
+        storageKey={`compare-summary-${rfq.id}`}
+        title="summary"
+        style={{ padding: "10px 16px", background: C.bandBg, borderBottom: `1px solid ${C.border}`, fontSize: 13 }}
+        collapsedSummary={
+          <div style={{ color: C.subtle, fontSize: 12, paddingRight: 24 }}>
+            {cheapestVendorIdx >= 0
+              ? `Lowest: ${quotes[cheapestVendorIdx].vendor_name || "Vendor"} (${money(extendedTotals[cheapestVendorIdx])})`
+              : "No priced quotes"}
+            {` · ${quotes.length} vendor${quotes.length === 1 ? "" : "s"}`}
+          </div>
+        }
+      >
+      <div style={{ fontSize: 13 }}>
         {cheapestVendorIdx >= 0 ? (
           <span>
             <strong style={{ color: C.bestFg }}>Lowest total:</strong>{" "}
@@ -405,6 +419,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
           {quotes.length} vendor{quotes.length === 1 ? "" : "s"} · {rfq.line_items.length} line{rfq.line_items.length === 1 ? "" : "s"}
         </span>
       </div>
+      </CollapsibleHeader>
 
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>

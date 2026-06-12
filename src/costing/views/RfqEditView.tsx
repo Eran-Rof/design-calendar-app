@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
+import CollapsibleHeader from "../panels/CollapsibleHeader";
 import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme } from "../../tanda/rfq/RfqQuotesAndMessages";
 import { getRfq, updateRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
@@ -350,19 +351,33 @@ export default function RfqEditView() {
 
       {detail && (
         <>
-          {/* Header strip: vendor / customer / project / line count — read-only context. */}
-          <div style={{
-            display: "flex", gap: 18, marginBottom: 14, padding: "10px 14px",
-            background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
-            fontSize: 12,
-          }}>
-            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code} (not sent yet)` : "—")} />
-            <ContextField label="Customer" value={customerName || "—"} />
-            <ContextField label="Source project" value={project?.project_name || "—"} />
-            <ContextField label="Lines" value={String(items.length)} />
-            <ContextField label="Currency" value={detail.rfq.currency || "USD"} />
-            <ContextField label="Created" value={detail.rfq.created_at ? fmtDateDisplay(detail.rfq.created_at.slice(0, 10)) : "—"} />
-          </div>
+          {/* Header strip: vendor / customer / project / line count — read-only
+              context. Collapsible via the ▾ triangle. */}
+          <CollapsibleHeader
+            storageKey="rfq-context"
+            title="context"
+            style={{
+              marginBottom: 14, padding: "10px 14px",
+              background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
+              fontSize: 12,
+            }}
+            collapsedSummary={
+              <div style={{ color: "#94A3B8", paddingRight: 24 }}>
+                {(invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code}` : "—"))}
+                {customerName ? ` · ${customerName}` : ""}
+                {` · ${items.length} line${items.length === 1 ? "" : "s"}`}
+              </div>
+            }
+          >
+            <div style={{ display: "flex", gap: 18 }}>
+              <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code} (not sent yet)` : "—")} />
+              <ContextField label="Customer" value={customerName || "—"} />
+              <ContextField label="Source project" value={project?.project_name || "—"} />
+              <ContextField label="Lines" value={String(items.length)} />
+              <ContextField label="Currency" value={detail.rfq.currency || "USD"} />
+              <ContextField label="Created" value={detail.rfq.created_at ? fmtDateDisplay(detail.rfq.created_at.slice(0, 10)) : "—"} />
+            </div>
+          </CollapsibleHeader>
 
           {/* Header form. Most fields are backfilled from the source costing
               project at generation (generate-rfqs.js) and are READ-ONLY here —
