@@ -503,7 +503,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                         {c && typeof c.unit === "number" ? (
                           <>
                             <div>{unit(c.unit)}{isMin && <span style={{ fontSize: 10, marginLeft: 4 }}>★</span>}</div>
-                            {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {unit(ext)}</div>}
+                            {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {money(ext)}</div>}
                             <div style={{ fontSize: 11, color: marginColor(mgn), fontWeight: mgn !== null ? 600 : 400 }}>
                               mgn {pctMargin(mgn)}
                             </div>
