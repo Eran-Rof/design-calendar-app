@@ -9,7 +9,7 @@ import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import { readDrillParam } from "./scorecardDrill";
-import SalesOrderMatrixBody, { type SalesOrderMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./SalesOrderMatrixBody";
+import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
@@ -253,7 +253,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
   // few non-matrix flat lines. The body owns its state; we read it at save via
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
-  const bodyRef = useRef<SalesOrderMatrixBodyHandle>(null);
+  const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
   // The body reports its totals up via onTotalsChange; the prominent totals now
   // render inside the matrix body (big line), so we only keep the setter.
@@ -657,7 +657,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
             (95% of styles) + a "+ Add non-matrix line" button for one-offs. */}
         <div style={{ marginBottom: 12 }}>
-          <SalesOrderMatrixBody
+          <LineMatrixBody
             ref={bodyRef}
             editable={editable}
             canAdd={editable || canAddStyles}
