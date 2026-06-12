@@ -129,9 +129,10 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 ### Day-to-day
 
 1. **New PO** → pick vendor (SearchableSelect), brand (defaults to entity brand), order date, expected date, payment terms, notes.
-2. **Add lines two ways:**
-   - **By matrix** — expand *"➕ Add by matrix (color × size grid)"*, pick a style, fill the `EditableSizeMatrix` (type qtys inline; a "Unit cost $" header field stamps one cost across every color row, then tweak per row). "Add to PO" resolves each non-zero cell to a SKU and appends a line.
-   - **Manually** — "+ Add line", pick a SKU, type description / qty / unit $.
+2. **Add lines — the body IS the size matrix** (the same `LineMatrixBody` the Sales Order modal uses, in `mode="po"`). It opens with the matrix ready:
+   - **➕ Add style (matrix)** — pick a style → fill its color × size grid inline, with a per-row **Unit Cost $** column + a "set all rows" header field. The new style picker is inserted at the **top** of existing styles. (PO mode shows cost, not margin or on-hand.)
+   - **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU / qty / Unit Cost $ row.
+   - At save, every filled cell resolves to an `ip_item_master` SKU and posts with `unit_cost_cents`. The Save / Close buttons sit in a **frozen footer** that stays visible as the matrix grows.
 3. **Save draft** — header + lines persist; `po_number` stays null.
 4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). Lines become line-locked. The PO number is **never** reassigned.
 5. **Mark in-transit / Mark received** — advance status.

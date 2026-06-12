@@ -1,4 +1,4 @@
-﻿// src/tanda/InternalPurchaseOrders.tsx
+// src/tanda/InternalPurchaseOrders.tsx
 //
 // P16 / M11 — native Purchase Order entry (origination). List + create/edit
 // modal. Mirrors the Sales Order modal (M10): vendor/brand/payment-terms
@@ -6,12 +6,11 @@
 // /api/internal/style-matrix → editable MatrixGrid → resolve-sku per cell).
 // PO number is system-assigned on Issue.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
-import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
-import type { EditableMatrixRow } from "../shared/matrix";
+import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
@@ -37,26 +36,17 @@ const C = {
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
-const numInputStyle: React.CSSProperties = { ...inputStyle, width: "8ch", textAlign: "right" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
-const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borderColor: "#7f1d1d", padding: "2px 8px" };
 
 type PO = {
   id: string; po_number: string | null; vendor_id: string; brand_id: string | null;
   order_date: string; expected_date: string | null; status: string; currency: string;
   payment_terms_id: string | null; notes: string | null; subtotal_cents: number | string; total_cents: number | string;
 };
-type POLine = { key: number; inventory_item_id: string; description: string; qty_ordered: string; unit_cost_dollars: string };
 type Vendor = { id: string; name: string; code?: string };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string };
 type Lookup = { id: string; code?: string; name: string };
-type StyleListRow = { id: string; style_code: string; style_name: string | null; description: string | null };
-type MatrixPayload = {
-  style: { id: string; style_code: string; style_name: string | null };
-  sizes: string[]; colors: string[]; inseams: string[];
-  skus: Array<{ id: string; color: string | null; size: string | null; inseam: string | null }>;
-};
 
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
@@ -208,7 +198,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [expectedDate, setExpectedDate] = useState(po?.expected_date || "");
   const [paymentTermsId, setPaymentTermsId] = useState(po?.payment_terms_id || "");
   const [notes, setNotes] = useState(po?.notes || "");
-  const [lines, setLines] = useState<POLine[]>([{ key: 1, inventory_item_id: "", description: "", qty_ordered: "", unit_cost_dollars: "" }]);
+  // Line body is the shared size matrix (mode="po" → Unit Cost $, no margin/ATS).
+  const bodyRef = useRef<LineMatrixBodyHandle>(null);
+  const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
 
   const [items, setItems] = useState<Item[]>([]);
   const [brands, setBrands] = useState<Lookup[]>([]);
@@ -222,72 +214,43 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);
 
-  // Load existing PO lines when editing.
+  // Load existing PO lines when editing → seed the matrix body. If the detail
+  // endpoint decorates lines with style_code/color/size they regroup into
+  // per-style matrices; otherwise they seed as flat lines (still editable).
   useEffect(() => {
-    if (isNew || !po) return;
+    if (isNew || !po) { setSeed(null); return; }
     fetch(`/api/internal/purchase-orders/${po.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full?.lines) return;
-      setLines(full.lines.map((l: { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number }, i: number) => ({
-        key: i + 1, inventory_item_id: l.inventory_item_id || "", description: l.description || "",
-        qty_ordered: String(l.qty_ordered ?? ""), unit_cost_dollars: l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "",
-      })));
+      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null };
+      const byStyle = new Map<string, SeedSection>();
+      const flat: FlatLine[] = [];
+      let fk = 1;
+      for (const l of (full.lines as DLine[])) {
+        const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
+        if (l.style_code && l.size) {
+          let sec = byStyle.get(l.style_code);
+          if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
+          sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered, unit: dollars });
+        } else {
+          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
+        }
+      }
+      setSeed({ sections: [...byStyle.values()], flat });
     }).catch(() => {});
   }, [isNew, po]);
-
-  function updateLine(idx: number, patch: Partial<POLine>) { setLines((p) => p.map((l, i) => i === idx ? { ...l, ...patch } : l)); }
-  function addLine() { setLines((p) => [...p, { key: (p[p.length - 1]?.key ?? 0) + 1, inventory_item_id: "", description: "", qty_ordered: "", unit_cost_dollars: "" }]); }
-  function removeLine(idx: number) { setLines((p) => p.filter((_, i) => i !== idx)); }
-
-  // Auto-append a fresh row once the last row has a Style + qty>0.
-  useEffect(() => {
-    if (!editable) return;
-    setLines((p) => {
-      const last = p[p.length - 1];
-      if (last && last.inventory_item_id && Number(last.qty_ordered) > 0) {
-        return [...p, { key: (last.key ?? 0) + 1, inventory_item_id: "", description: "", qty_ordered: "", unit_cost_dollars: "" }];
-      }
-      return p;
-    });
-  }, [lines, editable]);
-
-  const totalCents = useMemo(() => lines.reduce((s, l) => {
-    const qty = Number(l.qty_ordered) || 0; const unit = Math.round((Number(l.unit_cost_dollars) || 0) * 100);
-    return s + Math.round(qty * unit);
-  }, 0), [lines]);
-
-  function apiLines() {
-    return lines
-      .filter((l) => Number(l.qty_ordered) > 0)
-      .map((l) => ({
-        inventory_item_id: l.inventory_item_id || null,
-        description: l.description.trim() || null,
-        qty_ordered: Number(l.qty_ordered),
-        unit_cost_cents: Math.round((Number(l.unit_cost_dollars) || 0) * 100),
-      }));
-  }
-
-  // Append matrix-resolved lines (called by the matrix entry sub-panel).
-  function appendLines(newLines: Array<{ inventory_item_id: string; description: string; qty: number; unitCostDollars: string }>) {
-    setLines((p) => {
-      // Drop a trailing empty row so appended lines read cleanly.
-      const base = p.filter((l) => l.inventory_item_id || Number(l.qty_ordered) > 0);
-      let key = (p[p.length - 1]?.key ?? 0);
-      const appended = newLines.map((nl) => ({
-        key: ++key, inventory_item_id: nl.inventory_item_id, description: nl.description,
-        qty_ordered: String(nl.qty), unit_cost_dollars: nl.unitCostDollars,
-      }));
-      return [...base, ...appended, { key: ++key, inventory_item_id: "", description: "", qty_ordered: "", unit_cost_dollars: "" }];
-    });
-  }
 
   async function save(): Promise<string | null> {
     setErr(null);
     if (!vendorId) { setErr("Pick a vendor."); return null; }
-    if (apiLines().length === 0) { setErr("Add at least one line with a quantity."); return null; }
+    // The matrix body resolves every filled cell + flat line to a SKU. Map its
+    // generic unit_price_cents onto the PO's unit_cost_cents.
+    const resolved = (await bodyRef.current?.resolve()) || [];
+    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents }));
+    if (lines.length === 0) { setErr("Add at least one line with a quantity."); return null; }
     const body: Record<string, unknown> = {
       vendor_id: vendorId, brand_id: brandId || null,
       order_date: orderDate, expected_date: expectedDate || null,
-      payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines: apiLines(),
+      payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines,
     };
     if (isNew) {
       const r = await fetch("/api/internal/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -351,42 +314,22 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
 
-        {/* Matrix line entry — pick a style, fill a color × size grid, append resolved SKU lines. */}
-        {editable && <MatrixEntry onAppend={appendLines} setErr={setErr} />}
-
-        <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-          {editable && <button onClick={addLine} style={btnSecondary}>+ Add line</button>}
-        </div>
-        <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 180 }} /><col style={{ width: 90 }} /><col style={{ width: 110 }} /><col style={{ width: 36 }} /></colgroup>
-            <thead><tr>
-              <th style={th}>#</th><th style={th}>Style / SKU</th><th style={th}>Description</th><th style={th}>Qty</th><th style={th}>Unit $</th><th style={th}></th>
-            </tr></thead>
-            <tbody>
-              {lines.map((l, idx) => (
-                <tr key={l.key}>
-                  <td style={td}>{idx + 1}</td>
-                  <td style={td}>
-                    <SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateLine(idx, { inventory_item_id: v })}
-                      options={[{ value: "", label: "(select)" }, ...items.map((it) => ({ value: it.id, label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`, searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""}` }))]}
-                      placeholder="(pick style…)" disabled={!editable} />
-                  </td>
-                  <td style={td}><input type="text" value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} disabled={!editable} placeholder="optional" style={inputStyle} /></td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateLine(idx, { qty_ordered: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0" style={numInputStyle} /></td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.unit_cost_dollars} onChange={(e) => updateLine(idx, { unit_cost_dollars: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editable) { e.preventDefault(); if (idx === lines.length - 1) addLine(); } }} disabled={!editable} placeholder="0.00" style={numInputStyle} /></td>
-                  <td style={td}>{editable && lines.length > 1 && <button type="button" onClick={() => removeLine(idx)} style={btnDanger}>✕</button>}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot><tr><td style={td} colSpan={3}><span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase" }}>Total</span></td><td style={{ ...td, fontWeight: 700 }} colSpan={3}>{fmtCents(totalCents)}</td></tr></tfoot>
-          </table>
+        {/* Line body — the shared size matrix, exactly like the Sales Order modal
+            (mode="po": Unit Cost $ column, no margin / availability). Default-open. */}
+        <div style={{ marginTop: 12, marginBottom: 12 }}>
+          <LineMatrixBody
+            ref={bodyRef}
+            mode="po"
+            editable={editable}
+            items={items}
+            seed={seed}
+            showOnHand={false}
+          />
         </div>
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
           {editable && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Save draft" : "Save draft"}</button>}
           {editable && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Issue"}</button>}
@@ -394,131 +337,6 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {!isNew && (po?.status === "issued" || po?.status === "in_transit") && <button onClick={() => void transition("received")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>📥 Mark received</button>}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Matrix line entry sub-panel ─────────────────────────────────────────────
-// Pick a style → fetch /api/internal/style-matrix → render the shared editable
-// size-matrix (EditableSizeMatrix): type quantities inline into a color × size
-// grid, with a per-row Unit cost column + a "set all rows" header field. "Add to
-// PO" resolves each non-zero cell to a SKU and appends, stamping the row's cost.
-function MatrixEntry({ onAppend, setErr }: { onAppend: (lines: Array<{ inventory_item_id: string; description: string; qty: number; unitCostDollars: string }>) => void; setErr: (m: string | null) => void }) {
-  const [open, setOpen] = useState(false);
-  const [styles, setStyles] = useState<StyleListRow[]>([]);
-  const [styleId, setStyleId] = useState("");
-  const [payload, setPayload] = useState<MatrixPayload | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [qtys, setQtys] = useState<Record<string, number>>({}); // key = matrixCellKey(color, size)
-  const [unitMap, setUnitMap] = useState<Record<string, string>>({}); // unit cost $ per color row
-  const [resolving, setResolving] = useState(false);
-
-  useEffect(() => {
-    if (!open || styles.length) return;
-    fetch("/api/internal/style-master").then((r) => r.json())
-      .then((d) => setStyles(Array.isArray(d) ? d : (d.rows || d.styles || []))).catch(() => {});
-  }, [open, styles.length]);
-
-  useEffect(() => {
-    if (!styleId) { setPayload(null); setQtys({}); setUnitMap({}); return; }
-    let cancelled = false;
-    setLoading(true); setQtys({}); setUnitMap({});
-    fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`)
-      .then((r) => r.ok ? r.json() : Promise.reject(new Error("style-matrix fetch failed")))
-      .then((d: MatrixPayload) => { if (!cancelled) setPayload(d); })
-      .catch(() => { if (!cancelled) setPayload(null); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [styleId]);
-
-  const styleOptions = useMemo(() => styles.map((s) => {
-    const name = s.style_name || s.description || "";
-    return { value: s.id, label: name ? `${s.style_code} — ${name}` : s.style_code, searchHaystack: `${s.style_code} ${name}` };
-  }), [styles]);
-
-  // One grid row per color (rowKey = color); size columns from the scale.
-  const rows = useMemo<EditableMatrixRow[]>(() => {
-    if (!payload) return [];
-    const colors = payload.colors.length ? payload.colors : [null];
-    return colors.map((color) => ({ key: color ?? "", color: color ?? null }));
-  }, [payload]);
-
-  async function addToPo() {
-    if (!payload) return;
-    const cells = Object.entries(qtys).filter(([, q]) => q > 0);
-    if (cells.length === 0) { setErr("Enter a quantity in at least one matrix cell."); return; }
-    setResolving(true); setErr(null);
-    try {
-      const resolved: Array<{ inventory_item_id: string; description: string; qty: number; unitCostDollars: string }> = [];
-      for (const [key, qty] of cells) {
-        const [color, size] = key.split("__");
-        const r = await fetch("/api/internal/style-matrix/resolve-sku", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ style_id: payload.style.id, style_code: payload.style.style_code, color: color || null, size }),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.id) throw new Error(j.error || `Could not resolve SKU for ${payload.style.style_code} ${color} ${size}`);
-        resolved.push({
-          inventory_item_id: j.id,
-          description: `${payload.style.style_code} ${color || ""} ${size}`.replace(/\s+/g, " ").trim(),
-          qty, unitCostDollars: (unitMap[color] || "").trim(),
-        });
-      }
-      onAppend(resolved);
-      // Reset the grid for the next style.
-      setQtys({}); setStyleId(""); setPayload(null); setUnitMap({});
-      notify(`Added ${resolved.length} line${resolved.length === 1 ? "" : "s"} from the matrix.`, "success");
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setResolving(false); }
-  }
-
-  return (
-    <div style={{ marginTop: 12, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "8px 12px", background: "#0b1220", color: C.text, border: 0, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-        <span style={{ color: C.textMuted, marginRight: 6 }}>{open ? "▼" : "▶"}</span>➕ Add by matrix (color × size grid)
-      </button>
-      {open && (
-        <div style={{ padding: 12 }}>
-          <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <div style={{ minWidth: 320 }}>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Style</div>
-              <SearchableSelect value={styleId || null} onChange={(v) => setStyleId(v)} options={styleOptions} placeholder="Search style code or name…" inputStyle={inputStyle} />
-            </div>
-            <button onClick={() => void addToPo()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} disabled={resolving || !payload}>
-              {resolving ? "Resolving…" : "Add to PO"}
-            </button>
-          </div>
-
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>Type quantities directly into the grid. Use the <b>Unit cost</b> header field to stamp one cost across every color row, then tweak rows as needed. Empty / zero cells are skipped.</div>
-
-          {loading ? (
-            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-          ) : !styleId ? (
-            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Pick a style to build a matrix.</div>
-          ) : !payload || payload.sizes.length === 0 ? (
-            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No sizes found for this style.</div>
-          ) : (
-            <EditableSizeMatrix
-              rows={rows}
-              sizes={payload.sizes}
-              qty={qtys}
-              onQtyChange={(rowKey, size, value) => setQtys((p) => {
-                const k = matrixCellKey(rowKey, size);
-                const copy = { ...p };
-                if (value > 0) copy[k] = value; else delete copy[k];
-                return copy;
-              })}
-              unit={{
-                label: "Unit cost $",
-                placeholder: "0.00",
-                values: unitMap,
-                onChange: (rowKey, v) => setUnitMap((p) => ({ ...p, [rowKey]: v })),
-                onSetAll: (v) => setUnitMap(() => Object.fromEntries(rows.map((r) => [r.key, v]))),
-              }}
-            />
-          )}
-        </div>
-      )}
     </div>
   );
 }
