@@ -18,6 +18,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -253,8 +254,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines — size matrix</div>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 8 }}>
         {editable && (
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={addSection} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>➕ Add style (matrix)</button>
@@ -308,6 +308,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
                 rows={rows} sizes={s.payload.sizes}
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}
+                onHandTitle={atsMode ? `ATS${atsAsOfDate ? ` (${fmtDateDisplay(atsAsOfDate)})` : ""}` : "on-hand"}
                 unit={{ label: "Unit $", placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
               />
             )}
