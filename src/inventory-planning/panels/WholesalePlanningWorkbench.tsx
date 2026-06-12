@@ -257,6 +257,12 @@ export default function WholesalePlanningWorkbench() {
       const active = rs.find((r) => r.status === "active") ?? rs[0] ?? null;
       if (active) setSelectedRunId(active.id);
     }
+    // Report whether a run will be selectable. When there are NO runs (e.g.
+    // the planner deleted them all), no run is ever selected, so the
+    // [selectedRun] effect never flips bootstrap run-data→ready and the
+    // "Loading forecast and inventory" bar hangs forever. The mount effect
+    // uses this to jump straight to "ready" in that case.
+    return rs.length > 0;
   }, [selectedRunId]);
 
   const loadRunData = useCallback(async () => {
@@ -292,10 +298,11 @@ export default function WholesalePlanningWorkbench() {
     setLoading(true);
     setBootstrapPhase("masters");
     loadMasters()
-      .then(() => {
-        // Move to run-data so the status bar reflects what's happening
-        // next. The [selectedRun] effect picks up loadRunData below.
-        setBootstrapPhase((prev) => (prev === "masters" ? "run-data" : prev));
+      .then((hasRun) => {
+        // With a run, advance to run-data (the [selectedRun] effect loads it
+        // and flips to ready). With NO runs, finish bootstrap immediately so
+        // the loader dismisses to the empty state instead of hanging.
+        setBootstrapPhase((prev) => (prev === "masters" ? (hasRun ? "run-data" : "ready") : prev));
       })
       .catch((e) => {
         setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
