@@ -27,7 +27,7 @@ import { fmtDateDisplay } from "../helpers";
 
 const fmtUnit = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-const fmtPct = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+const fmtPct = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // DARK palette — matches the rest of the Costing module (RfqListView): page
 // #0F172A, cards #1E293B, borders #334155, text #E2E8F0, muted #94A3B8.
@@ -79,7 +79,7 @@ function marginColor(m: number | null): string {
   return C.marginBad;                              // <18% (incl. negative) red
 }
 function pctMargin(m: number | null): string {
-  return m === null ? "—" : `${(m * 100).toFixed(0)}%`;
+  return m === null ? "—" : `${(m * 100).toFixed(2)}%`;
 }
 
 export default function RfqCompareView() {
@@ -503,7 +503,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                         {c && typeof c.unit === "number" ? (
                           <>
                             <div>{unit(c.unit)}{isMin && <span style={{ fontSize: 10, marginLeft: 4 }}>★</span>}</div>
-                            {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {money(ext)}</div>}
+                            {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {unit(ext)}</div>}
                             <div style={{ fontSize: 11, color: marginColor(mgn), fontWeight: mgn !== null ? 600 : 400 }}>
                               mgn {pctMargin(mgn)}
                             </div>

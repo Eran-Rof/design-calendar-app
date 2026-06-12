@@ -38,8 +38,10 @@ import type { CostingLine } from "../types";
 import type { StyleHit } from "../services/costingApi";
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Grand-total project amounts (footer cost/sales) render as whole dollars — no decimals.
+const fmtMoney0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const fmtQty   = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-const fmtPct   = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fmtPct   = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function n(v: number | null | undefined): number {
   if (v == null) return 0;
@@ -1212,14 +1214,14 @@ export default function CostingGrid() {
               if (c.key === "_landed" || (isDdp && c.key === "target_cost")) {
                 return (
                   <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total cost = Σ qty × cost basis">
-                    {fmtMoney.format(totalCost)}
+                    {fmtMoney0.format(totalCost)}
                   </div>
                 );
               }
               if (c.key === "sell_target") {
                 return (
                   <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total sales = Σ qty × Sell Tgt">
-                    {fmtMoney.format(totalSales)}
+                    {fmtMoney0.format(totalSales)}
                   </div>
                 );
               }
