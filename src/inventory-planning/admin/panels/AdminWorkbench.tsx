@@ -12,8 +12,9 @@ import RolesPermissionsPanel from "./RolesPermissionsPanel";
 import IntegrationHealthDashboard from "./IntegrationHealthDashboard";
 import JobRunsDashboard from "./JobRunsDashboard";
 import AuditExplorer from "./AuditExplorer";
+import RunsAdminPanel from "./RunsAdminPanel";
 
-type TabKey = "roles" | "integrations" | "jobs" | "audit";
+type TabKey = "roles" | "runs" | "integrations" | "jobs" | "audit";
 
 export default function AdminWorkbench() {
   const [user, setUser] = useState<IpUserWithPermissions | null>(null);
@@ -32,6 +33,7 @@ export default function AdminWorkbench() {
         </div>
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabBtn active={tab === "roles"} onClick={() => setTab("roles")}>Roles & permissions</TabBtn>
+          <TabBtn active={tab === "runs"} onClick={() => setTab("runs")}>Runs</TabBtn>
           <TabBtn active={tab === "integrations"} onClick={() => setTab("integrations")}>Integration health</TabBtn>
           <TabBtn active={tab === "jobs"} onClick={() => setTab("jobs")}>Job runs</TabBtn>
           <TabBtn active={tab === "audit"} onClick={() => setTab("audit")}>Audit explorer</TabBtn>
@@ -39,6 +41,9 @@ export default function AdminWorkbench() {
 
         {tab === "roles" && user && (
           <RolesPermissionsPanel currentUser={user} onToast={setToast} />
+        )}
+        {tab === "runs" && (
+          <RunsAdminPanel onToast={setToast} />
         )}
         {tab === "integrations" && (
           <IntegrationHealthDashboard />
