@@ -207,7 +207,7 @@ export function EditableSizeMatrix({
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = stampValue(bulk); if (v !== null) { unit.onSetAll(v); setBulk(v); } } }}
                   placeholder={unit.placeholder || "set all"}
                   title="Type a value and press Enter (or tab out) to stamp it onto every row, then edit individual rows as needed."
-                  style={{ ...unitInput, width: "9ch", borderColor: C.primary }}
+                  style={{ ...unitInput, borderColor: C.primary }}
                 />
               </th>
             )}
@@ -280,7 +280,7 @@ export function EditableSizeMatrix({
         </tbody>
         <tfoot>
           <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
-            <td colSpan={leadCols} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
+            <td colSpan={leadCols} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "left" }}>Grand Total</td>
             {sizes.map((sz) => (
               <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: colTotals[sz] ? C.amber : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
                 {colTotals[sz] || "—"}

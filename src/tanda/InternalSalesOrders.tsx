@@ -255,7 +255,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
   const bodyRef = useRef<SalesOrderMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
-  const [bodyTotals, setBodyTotals] = useState<BodyTotals>({ qty: 0, cents: 0, costCents: 0, marginPct: 0, marginEstimated: true });
+  // The body reports its totals up via onTotalsChange; the prominent totals now
+  // render inside the matrix body (big line), so we only keep the setter.
+  const [, setBodyTotals] = useState<BodyTotals>({ qty: 0, cents: 0, costCents: 0, marginPct: 0, marginEstimated: true });
   const [stagedDocs, setStagedDocs] = useState<File[]>([]);
   // Item 3 — Factor / credit-insurance approval (manual entry; Rosenthal API auto-fill reserved).
   const [factorStatus, setFactorStatus] = useState(so?.factor_approval_status || "not_submitted");
@@ -509,6 +511,19 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
+  // Shared Save / Close actions — rendered in the sticky footer AND in a
+  // duplicate bar at the top of the modal. On a CONFIRMED order the matrix stays
+  // editable (e.g. to fill in unit prices); save(false) PATCHes the lines
+  // without changing status, so we surface a plain "Save" there too.
+  const saveCloseButtons = (
+    <>
+      <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
+      {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
+      {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
+      {!editable && !isNew && so?.status === "confirmed" && <button onClick={() => void save(false)} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save"}</button>}
+    </>
+  );
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
@@ -528,6 +543,12 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             `Sales order ${so?.so_number || "(draft)"} — ${so?.status}`
           )}
         </h3>
+
+        {/* Duplicate Save / Close bar at the top so they're reachable without
+            scrolling past the (often tall) size matrix. Mirrors the sticky footer. */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
+          {saveCloseButtons}
+        </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
@@ -633,17 +654,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         {/* Lines header — totals + projected margin, and (on a confirmed SO) an
             "Add styles" button that re-opens the grids to append more styles. */}
-        <div style={{ marginTop: 4, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: 18, alignItems: "baseline", fontSize: 13 }}>
-            <span style={{ color: C.textMuted }}>Total qty <b style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{bodyTotals.qty.toLocaleString()}</b></span>
-            <span style={{ color: C.textMuted }}>Total <b style={{ color: C.success, fontVariantNumeric: "tabular-nums" }}>{fmtCents(bodyTotals.cents)}</b></span>
-            <span style={{ color: C.textMuted, display: "inline-flex", flexDirection: "column" }}>
-              <span>Proj. margin <b style={{ color: bodyTotals.marginPct >= 20 ? C.success : C.warn, fontVariantNumeric: "tabular-nums" }}>{bodyTotals.cents > 0 ? `${bodyTotals.marginPct.toFixed(1)}%` : "—"}</b></span>
-              {bodyTotals.cents > 0 && bodyTotals.marginEstimated && <span style={{ fontSize: 10, color: C.textMuted }}>estimated — no cost data (assumes 21%)</span>}
-            </span>
-          </div>
-          {canAddStyles && <button onClick={() => setAddMode(true)} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} title="Re-open the grids to add more styles to this confirmed order">✏️ Add styles</button>}
+        <div style={{ marginTop: 4, marginBottom: 6, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           {addMode && <span style={{ fontSize: 11, color: C.warn }}>Adding styles — Save to apply.</span>}
+          {canAddStyles && <button onClick={() => setAddMode(true)} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} title="Re-open the grids to add more styles to this confirmed order">✏️ Add styles</button>}
         </div>
 
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
@@ -683,11 +696,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
-            {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
-            {/* Confirm only when the order isn't already confirmed (draft → confirm).
-                In Add-styles mode it's already confirmed, so just Save changes. */}
-            {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
+            {saveCloseButtons}
           </div>
         </div>
       </div>
