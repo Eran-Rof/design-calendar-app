@@ -117,6 +117,13 @@ You'll be warned — with the option to **delete the incomplete rows and continu
 > total, and the grid's footer **Total cost / Total sales**) are shown as **whole
 > dollars** with no decimals for readability. Quantities remain whole numbers.
 
+> **Collapsible headers.** Every informational header block — the **project
+> Details** card, the **RFQ context** strip, and the **Compare RFQs** project
+> summary — has a small **▾ triangle** in its top-right corner. Click it to
+> collapse the block down to a one-line summary (and **▸** to expand again),
+> reclaiming vertical space while you work the grid below. Your choice is
+> remembered per header across reloads.
+
 ### When a vendor revises a quote
 
 A vendor can reopen an already-submitted quote and resubmit revised figures. When

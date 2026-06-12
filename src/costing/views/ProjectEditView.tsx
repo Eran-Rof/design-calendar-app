@@ -9,6 +9,7 @@ import { navigate, getEditId } from "../helpers";
 import type { CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
 import PlanFlowWidget from "../panels/PlanFlowWidget";
+import CollapsibleHeader from "../panels/CollapsibleHeader";
 import CompliancePanel from "../panels/CompliancePanel";
 import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
@@ -264,12 +265,27 @@ export default function ProjectEditView() {
 
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4, marginBottom: 12 }}>{error}</div>}
 
-      {/* Details — always-visible page header (no "Details" label, not a tab). */}
+      {/* Details — page header (no "Details" label, not a tab). Collapsible via
+          the ▾ triangle to reclaim space while working the grid below. */}
+      <CollapsibleHeader
+        storageKey="project-details"
+        title="details"
+        style={{
+          background: "#1E293B",
+          border: `1px solid ${headerComplete ? "#334155" : "#EF444480"}`,
+          borderRadius: 6,
+          padding: "14px 16px", marginBottom: 4, maxWidth: 880,
+        }}
+        collapsedSummary={
+          <div style={{ fontSize: 12, color: "#94A3B8", paddingRight: 24 }}>
+            {form.project_name || "Untitled project"}
+            {form.brand ? ` · ${form.brand}` : ""}
+            {customerDisplayName(project?.customer as never) ? ` · ${customerDisplayName(project?.customer as never)}` : ""}
+          </div>
+        }
+      >
       <div style={{
-        background: "#1E293B",
-        border: `1px solid ${headerComplete ? "#334155" : "#EF444480"}`,
-        borderRadius: 6,
-        padding: "14px 16px", marginBottom: 4, maxWidth: 880, display: "grid",
+        display: "grid",
         gridTemplateColumns: "repeat(4, 1fr)", gap: "10px 14px",
       }}>
         <Field label="Project name" span={2} required>
@@ -344,6 +360,7 @@ export default function ProjectEditView() {
           <textarea value={form.notes || ""} onChange={(e) => setField("notes", e.target.value || null)} rows={2} style={{ ...inp, fontFamily: "inherit", resize: "vertical" }} />
         </Field>
       </div>
+      </CollapsibleHeader>
 
       {/* Header-incomplete banner — shown when any required field is still empty.
           Disappears the moment the last required field is filled. */}
