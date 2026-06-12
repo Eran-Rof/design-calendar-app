@@ -112,8 +112,13 @@ export interface WholesalePlanningGridProps {
   // "truly new, not in master at all" (orange badge).
   masterColorsByStyleLower?: Map<string, Set<string>>;
   // (style_code, group_name, sub_category_name) tuples from item
-  // master. Drives the TBD style picker's category-wide list.
+  // master. Drives the TBD style picker's category-wide list AND lets
+  // the Category / Sub Cat filters populate before a build.
   masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>;
+  // Full customer master (id + name). Seeds the Customer filter so it's
+  // usable before a build — without it the dropdown was empty until the
+  // run's forecast was built (rows are the only other source).
+  masterCustomers?: Array<{ id: string; name: string }>;
   // Reassign a TBD row's customer. Picking a real customer promotes
   // the stock-buy line into that customer's committed demand; the
   // grid re-loads after save and the row shows under the new
@@ -215,7 +220,7 @@ export interface WholesalePlanningGridProps {
 // import block above. Pure-helper unit tests live alongside in
 // wholesale-planning/__tests__/gridUtils.test.ts.
 
-export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -425,34 +430,47 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
-    // Pull from rows so any planner-added customer that has been
-    // assigned to a TBD line shows up in the filter dropdown — the
-    // memo intentionally walks every row (TBD + non-TBD) so freshly
-    // created customers don't have to wait for a build to surface.
+    // Seed from the customer master so the filter is usable BEFORE a
+    // build — an unbuilt run has no rows, so a rows-only memo left the
+    // Customer dropdown empty until the planner built the forecast. The
+    // master list lets them pre-scope the build by customer.
+    for (const c of masterCustomers ?? []) s.set(c.id, c.name);
+    // Then pull from rows so any planner-added customer that has been
+    // assigned to a TBD line shows up too — the memo intentionally walks
+    // every row (TBD + non-TBD) so freshly created customers don't have
+    // to wait for a build to surface.
     for (const r of rows) s.set(r.customer_id, r.customer_name);
     return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
+  }, [rows, masterCustomers]);
 
-  // Categories are now sourced from the item master GroupName attribute
+  // Categories are sourced from the item master GroupName attribute
   // (text, no FK), so the filter operates on the string directly.
+  // masterStyles carries the same group_name per style straight from the
+  // item master, so the Category filter populates before a build too.
   const groupNames = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) if (r.group_name) s.add(r.group_name);
+    for (const m of masterStyles ?? []) if (m.group_name) s.add(m.group_name);
     return Array.from(s).sort();
-  }, [rows]);
+  }, [rows, masterStyles]);
 
   // Sub cat options are scoped to the selected Category — picking
   // "Joggers" in the Category dropdown narrows the Sub Cat list to
   // only the sub cats found under Joggers. When no category is chosen,
-  // every sub cat is offered.
+  // every sub cat is offered. Merges master styles so sub cats are
+  // pickable pre-build (same rationale as the Category filter above).
   const subCategoryNames = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) {
       if (filterCategory.length > 0 && !filterCategory.includes(r.group_name ?? "—")) continue;
       if (r.sub_category_name) s.add(r.sub_category_name);
     }
+    for (const m of masterStyles ?? []) {
+      if (filterCategory.length > 0 && !filterCategory.includes(m.group_name ?? "—")) continue;
+      if (m.sub_category_name) s.add(m.sub_category_name);
+    }
     return Array.from(s).sort();
-  }, [rows, filterCategory]);
+  }, [rows, masterStyles, filterCategory]);
 
   // When category changes and the current sub cat selection is no
   // longer valid in the new scope, clear it so the user doesn't see

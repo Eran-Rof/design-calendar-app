@@ -2331,6 +2331,7 @@ export default function WholesalePlanningWorkbench() {
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}
+              masterCustomers={customers}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}
               systemSuggestionsOn={systemSuggestionsOn}

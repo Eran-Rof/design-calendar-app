@@ -22,6 +22,16 @@ with Tangerine in both directions. Build notes live in
 | **Execution** | `/planning/execution` | Gather recommendations into execution **batches** (buy plans) → export / writeback / **Tangerine POs** |
 | **Admin** | `/planning/admin` | Roles (`ip_roles`/`ip_user_roles`), integration health, job runs, audit |
 
+## Wholesale filters populate before a build
+
+A brand-new planning run has **no forecast rows** until you click **Build forecast** — the grid stays empty until then. To let you *pre-scope* the build, the **Customer**, **Category**, **Sub Cat**, and **Style** filters above the grid are seeded from the item/customer masters, so they list every value even before a build. Pick a customer or category first, then **Build (filtered)** to forecast just that slice. (Period also pre-lists from the run's horizon.) The remaining filters — recommended action, confidence, forecast method — are *outputs* of a build and only appear once rows exist.
+
+The **Category** filter is the merchandising group (`ip_item_master.attributes.group_name` — DENIM, PANTS, TEE, …); **Sub Cat** is the finer `category_name`. These come straight from the item master, so adding items via **Add new items** makes new categories selectable immediately.
+
+### Category master (`ip_category_master`)
+
+The reusable category reference list (used by the Future Demand Requests picker and the Reports category dimension) is seeded from the distinct group names on the item master. **Add new items** also registers any new group it encounters, so the list stays current. If it ever looks empty, re-run **Add new items** or re-apply the seed migration `…_seed_ip_category_master_from_items.sql`.
+
 ## Supply inputs (the Supply screen)
 
 The reconciliation reads three supply buckets and nets them against demand:

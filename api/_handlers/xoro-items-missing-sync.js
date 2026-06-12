@@ -70,6 +70,7 @@ export default async function handler(req, res) {
     inserted: 0,
     new_skus: 0,
     skipped_no_sku: 0,
+    categories_registered: 0,
     errors: [],
   };
 
@@ -182,6 +183,40 @@ export default async function handler(req, res) {
       continue;
     }
     result.inserted += chunk.length;
+  }
+
+  // 5. Register any new merchandising groups (Xoro GroupName) into
+  // ip_category_master. The planning "Category" filter + the Future Demand
+  // Requests picker both read this table; it shipped with no production
+  // writer, so it stayed empty until the one-time migration backfill. Doing
+  // it here keeps it current as new groups arrive on new items. Idempotent
+  // via onConflict category_code + ignoreDuplicates, so existing rows
+  // (demo + backfilled) are never touched. Best-effort: a failure here must
+  // not fail the item insert that already succeeded.
+  try {
+    const groups = new Map(); // UPPER code → display name
+    for (const r of toInsert) {
+      const g = r.attributes?.group_name;
+      if (!g) continue;
+      const name = String(g).trim();
+      const code = name.toUpperCase();
+      if (code) groups.set(code, name);
+    }
+    if (groups.size > 0) {
+      const catRows = Array.from(groups, ([code, name]) => ({
+        category_code: code,
+        name,
+        segment: "wholesale",
+        external_refs: { source: "ip_item_master.group_name" },
+      }));
+      const { error: catErr } = await admin
+        .from("ip_category_master")
+        .upsert(catRows, { onConflict: "category_code", ignoreDuplicates: true });
+      if (catErr) result.errors.push(`category register: ${catErr.message}`);
+      else result.categories_registered = catRows.length;
+    }
+  } catch (e) {
+    result.errors.push(`category register: ${e?.message ?? String(e)}`);
   }
 
   return res.status(200).json(result);
