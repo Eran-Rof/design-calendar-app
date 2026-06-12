@@ -61,13 +61,18 @@ export interface SalesOrderMatrixBodyProps {
    *  available-to-ship ADDS native PO inbound expected to arrive by this date. */
   atsAsOfDate?: string | null;
   onTotalsChange?: (t: BodyTotals) => void;
+  /** Show the Add-style / Add-line buttons even when not directly editable
+   *  (e.g. a confirmed SO). Defaults to `editable`. Clicking an add button
+   *  calls onRequestEdit() first so the newly-added row is editable. */
+  canAdd?: boolean;
+  onRequestEdit?: () => void;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMatrixBodyProps>(function SalesOrderMatrixBody(
-  { editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange }, ref,
+  { editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit }, ref,
 ) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -98,7 +103,9 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
     catch (e) { patchSection(id, { loading: false, err: e instanceof Error ? e.message : String(e) }); }
   }
 
-  function addSection() { setSections((p) => [...p, { id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null }]); }
+  // New style/line pickers prepend (on TOP of existing styles, not the bottom),
+  // and request edit mode so a just-added row is editable on a confirmed order.
+  function addSection() { onRequestEdit?.(); setSections((p) => [{ id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null }, ...p]); }
   function removeSection(id: number) { setSections((p) => p.filter((s) => s.id !== id)); }
   function setQty(id: number, rowKey: string, size: string, n: number) {
     setSections((p) => p.map((s) => {
@@ -111,7 +118,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
   function setAllUnit(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
 
-  function addFlat() { setFlat((p) => [...p, { key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }]); }
+  function addFlat() { onRequestEdit?.(); setFlat((p) => [{ key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }, ...p]); }
   function updateFlat(idx: number, patch: Partial<FlatLine>) { setFlat((p) => p.map((l, i) => (i === idx ? { ...l, ...patch } : l))); }
   function removeFlat(idx: number) { setFlat((p) => p.filter((_, i) => i !== idx)); }
 
@@ -255,7 +262,7 @@ const SalesOrderMatrixBody = forwardRef<SalesOrderMatrixBodyHandle, SalesOrderMa
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 8 }}>
-        {editable && (
+        {(canAdd ?? editable) && (
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={addSection} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>➕ Add style (matrix)</button>
             <button onClick={addFlat} style={btnSecondary}>+ Add non-matrix line</button>
