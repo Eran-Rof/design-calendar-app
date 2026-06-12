@@ -48,6 +48,9 @@ export type EditableSizeMatrixProps = {
   allowNegative?: boolean;
   /** Faint per-cell on-hand hint (never negative). Key = matrixCellKey(rowKey, size). */
   onHand?: Record<string, number>;
+  /** Tooltip shown on hover over each per-cell hint. Defaults to "on-hand";
+   *  callers in ATS mode pass e.g. "ATS (07/09/2026)". */
+  onHandTitle?: string;
   /** Optional editable per-row unit value with a bulk "set all" header field. */
   unit?: {
     label: string;
@@ -152,7 +155,7 @@ function QtyCell({
 }
 
 export function EditableSizeMatrix({
-  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, unit,
+  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit,
   allowNegative = false,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
@@ -196,7 +199,9 @@ export function EditableSizeMatrix({
             ))}
             <th style={{ ...thBase, textAlign: "center" }}>Total</th>
             {unit && (
-              <th style={{ ...thBase, textAlign: "right", minWidth: 110 }}>
+              // paddingRight matches the per-row unit cell (6px) so the "set all"
+              // input lines up exactly under the per-row price inputs below it.
+              <th style={{ ...thBase, textAlign: "right", minWidth: 110, paddingRight: 6 }}>
                 <div style={{ marginBottom: 4 }}>{unit.label}</div>
                 <input
                   type="text"
@@ -235,7 +240,7 @@ export function EditableSizeMatrix({
                   return (
                     <td key={sz} style={{ padding: "4px 6px", textAlign: "center" }}>
                       {oh != null && (
-                        <div style={{ fontSize: 9, color: C.textMuted, lineHeight: 1, marginBottom: 2 }} title="on-hand">{oh}</div>
+                        <div style={{ fontSize: 9, color: C.textMuted, lineHeight: 1, marginBottom: 2 }} title={onHandTitle}>{oh}</div>
                       )}
                       <QtyCell
                         rowKey={row.key}
