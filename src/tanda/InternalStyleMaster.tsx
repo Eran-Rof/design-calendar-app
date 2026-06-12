@@ -220,6 +220,13 @@ export default function InternalStyleMaster() {
   // used by Customer Master, COA, and the T6 GlobalSearchPalette.
   const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  // "Needs review" filter — shows only styles flagged by an Inventory Planning
+  // promotion (attributes.needs_review / source=planning_promoted) so a
+  // merchandiser can complete their details. Defaults ON when arrived at via
+  // the notification deep-link (?review=1).
+  const [reviewOnly, setReviewOnly] = useState<boolean>(() => {
+    try { return new URLSearchParams(window.location.search).get("review") === "1"; } catch { return false; }
+  });
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
   const [assigningScales, setAssigningScales] = useState(false);
@@ -351,6 +358,15 @@ export default function InternalStyleMaster() {
   }, [qDebounced, includeDeleted]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Styles awaiting review = flagged by a planning promotion. Filtered
+  // client-side from the loaded set (the subset is small + recent).
+  const isNeedsReview = (s: Style): boolean => {
+    const a = s.attributes as { needs_review?: unknown; source?: unknown } | null | undefined;
+    return !!a && (a.needs_review === true || a.source === "planning_promoted");
+  };
+  const reviewCount = useMemo(() => rows.filter(isNeedsReview).length, [rows]);
+  const visibleRows = useMemo(() => (reviewOnly ? rows.filter(isNeedsReview) : rows), [rows, reviewOnly]);
   useEffect(() => { void loadDimValues(); }, [loadDimValues]);
   useEffect(() => { void loadBrands(); }, [loadBrands]);
   useEffect(() => { void loadGenders(); }, [loadGenders]);
@@ -489,6 +505,17 @@ export default function InternalStyleMaster() {
           />
           Show deleted
         </label>
+        <label
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: reviewCount > 0 ? "#D97706" : C.textSub, fontWeight: reviewCount > 0 ? 700 : 400 }}
+          title="Show only styles promoted from Inventory Planning that still need their master details completed"
+        >
+          <input
+            type="checkbox"
+            checked={reviewOnly}
+            onChange={(e) => setReviewOnly(e.target.checked)}
+          />
+          ⚠ Needs review{reviewCount > 0 ? ` (${reviewCount})` : ""}
+        </label>
         <TablePrefsButton
           tableKey={STYLE_MASTER_TABLE_KEY}
           columns={STYLE_MASTER_COLUMNS}
@@ -497,7 +524,7 @@ export default function InternalStyleMaster() {
           onReset={resetToDefault}
         />
         <ExportButton
-          rows={rows.map((r) => ({
+          rows={visibleRows.map((r) => ({
             ...r,
             base_fabric_code: r.base_fabric?.code ?? null,
             base_fabric_name: r.base_fabric?.name ?? null,
@@ -542,8 +569,10 @@ export default function InternalStyleMaster() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: "calc(100vh - 220px)", overflowY: "auto", overflowX: "auto" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No styles found.</div>
+        ) : visibleRows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
+            {reviewOnly ? "No styles awaiting review." : "No styles found."}
+          </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -568,7 +597,7 @@ export default function InternalStyleMaster() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {visibleRows.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}

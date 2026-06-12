@@ -72,6 +72,22 @@ export default async function handler(req, res, params) {
       return res.status(400).json({ error: "No mutable fields supplied" });
     }
 
+    // Self-clearing review flag: if this style was flagged for review by an
+    // Inventory Planning promotion, editing it = the reviewer is completing
+    // the details, so drop attributes.needs_review (and it leaves the Style
+    // Master "Needs review" list). Skip when the caller is already sending an
+    // explicit attributes value so we don't clobber it.
+    if (!Object.prototype.hasOwnProperty.call(v.data, "attributes")) {
+      try {
+        const { data: cur } = await admin.from("style_master").select("attributes").eq("id", id).maybeSingle();
+        const attrs = cur?.attributes && typeof cur.attributes === "object" ? { ...cur.attributes } : null;
+        if (attrs && attrs.needs_review) {
+          delete attrs.needs_review;
+          v.data.attributes = attrs;
+        }
+      } catch { /* non-fatal — the edit still goes through, flag just lingers */ }
+    }
+
     const { data, error } = await admin
       .from("style_master")
       .update({ ...v.data, updated_at: new Date().toISOString() })

@@ -28,6 +28,7 @@ const CATEGORY_VARS = {
   finance:       "INTERNAL_FINANCE_EMAILS",
   edi:           "INTERNAL_EDI_EMAILS",
   vendor_alert:  "INTERNAL_VENDOR_ALERT_EMAILS",
+  style_review:  "INTERNAL_STYLE_REVIEW_EMAILS",
 };
 
 const ROLE_TO_CATEGORY = {
