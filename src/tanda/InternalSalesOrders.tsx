@@ -645,14 +645,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           {fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
         </div>
 
-        {/* Lines header — the Add-style / Add-line buttons live in the matrix body
-            itself (always shown, even on a confirmed SO); this row just carries the
-            "adding styles" hint once you've started appending to a confirmed order. */}
-        {addMode && (
-          <div style={{ marginTop: 4, marginBottom: 6, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, color: C.warn }}>Adding styles — Save to apply.</span>
-          </div>
-        )}
+        {/* The Add-style / Add-line buttons live in the matrix body itself
+            (always shown, even on a confirmed SO). */}
 
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
             (95% of styles) + a "+ Add non-matrix line" button for one-offs. */}
