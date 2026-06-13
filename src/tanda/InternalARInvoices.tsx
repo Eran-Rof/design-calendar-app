@@ -603,6 +603,7 @@ function ARInvoiceModal({
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [items, setItems] = useState<ARItem[]>([]); // inventory items for the line picker
+  const [rawLines, setRawLines] = useState<ARInvoiceLine[] | null>(null); // existing lines awaiting matrix grouping
   const [paymentTerms, setPaymentTerms] = useState<{ id: string; code: string; name: string }[]>([]);
   // Line body is the shared size matrix (mode="ar" → editable, amount-only flat
   // lines for freight/fees, per-line revenue override).
@@ -622,7 +623,9 @@ function ARInvoiceModal({
       .then((r) => r.json())
       .then((arr: { id: string; code: string; name: string }[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
       .catch(() => {});
-    // Inventory items for the line picker (searchable dropdown).
+    // Inventory items for the line picker (searchable dropdown). Also the
+    // style/color/size source that lets existing AR lines regroup into the
+    // matrix on open — so we flag when this fetch has settled (ok OR failed).
     fetch("/api/internal/items?limit=5000")
       .then((r) => (r.ok ? r.json() : []))
       .then((arr: ARItem[]) => setItems(Array.isArray(arr) ? arr : []))
@@ -662,22 +665,9 @@ function ARInvoiceModal({
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         const full = await r.json() as ARInvoiceFull;
         if (cancelled) return;
-        if (full.lines?.length > 0) {
-          // Seed the matrix body. AR detail lines aren't decorated with
-          // style/color/size, so existing lines seed as flat rows (still fully
-          // editable, incl. amount-only + per-line revenue).
-          const flat: FlatLine[] = full.lines.map((l, i) => ({
-            key: i + 1,
-            inventory_item_id: l.inventory_item_id || "",
-            qty_ordered: l.quantity != null ? String(l.quantity) : "",
-            unit_price_dollars: l.unit_price_cents ? centsToDollarsStr(l.unit_price_cents) : "",
-            line_total_dollars: !l.unit_price_cents && l.line_total_cents ? centsToDollarsStr(l.line_total_cents) : "",
-            description: l.description || "",
-            revenue_account_id: l.revenue_account_id || "",
-            label: l.inventory_item_id ? (l.description || "(saved item)") : undefined,
-          }));
-          setSeed({ sections: [], flat });
-        }
+        // Stash the raw lines; the matrix grouping (below) runs once the item
+        // master is also loaded so each line can resolve its style/color/size.
+        setRawLines(full.lines || []);
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -686,6 +676,55 @@ function ARInvoiceModal({
     })();
     return () => { cancelled = true; };
   }, [invoice, isNew]);
+
+  // Build the seed once the invoice lines are loaded. AR invoices open in MATRIX
+  // format by default: any inventory line whose SKU resolves to a sized apparel
+  // item (style + size) is grouped into a per-style color × size grid; everything
+  // else (amount-only charges, non-apparel SKUs, SKUs we can't resolve) falls
+  // back to a flat line. This is what makes an invoice created from allocations /
+  // SO→invoice open as a matrix. We resolve the exact line SKUs via ?ids= so even
+  // now-inactive items still carry their style/color/size.
+  useEffect(() => {
+    if (rawLines == null) return;
+    let cancelled = false;
+    (async () => {
+      const lineIds = [...new Set(rawLines.map((l) => l.inventory_item_id).filter(Boolean) as string[])];
+      const byId = new Map<string, ARItem>(items.map((it) => [it.id, it]));
+      if (lineIds.length > 0) {
+        try {
+          const r = await fetch(`/api/internal/items?ids=${encodeURIComponent(lineIds.join(","))}`);
+          if (r.ok) { const arr = (await r.json()) as ARItem[]; if (Array.isArray(arr)) for (const it of arr) byId.set(it.id, it); }
+        } catch { /* fall back to the active-items list already in byId */ }
+      }
+      if (cancelled) return;
+      const sectionMap = new Map<string, SeedSection>();
+      const flat: FlatLine[] = [];
+      let flatKey = 1;
+      for (const l of rawLines) {
+        const item = l.inventory_item_id ? byId.get(l.inventory_item_id) : undefined;
+        const qty = l.quantity != null ? Number(l.quantity) : 0;
+        const matrixable = !!item?.style_code && !!item?.size && qty > 0 && !!l.unit_price_cents;
+        if (matrixable && item) {
+          let sec = sectionMap.get(item.style_code!);
+          if (!sec) { sec = { styleCode: item.style_code!, cells: [] }; sectionMap.set(item.style_code!, sec); }
+          sec.cells.push({ color: item.color || null, size: item.size!, qty, unit: centsToDollarsStr(l.unit_price_cents) });
+        } else {
+          flat.push({
+            key: flatKey++,
+            inventory_item_id: l.inventory_item_id || "",
+            qty_ordered: l.quantity != null ? String(l.quantity) : "",
+            unit_price_dollars: l.unit_price_cents ? centsToDollarsStr(l.unit_price_cents) : "",
+            line_total_dollars: !l.unit_price_cents && l.line_total_cents ? centsToDollarsStr(l.line_total_cents) : "",
+            description: l.description || "",
+            revenue_account_id: l.revenue_account_id || "",
+            label: l.inventory_item_id ? (l.description || item?.sku_code || "(saved item)") : undefined,
+          });
+        }
+      }
+      if (!cancelled) setSeed({ sections: [...sectionMap.values()], flat });
+    })();
+    return () => { cancelled = true; };
+  }, [rawLines, items]);
 
   // Auto-compute due_date if payment_terms_id is set and operator hasn't typed
   // a date themselves. Uses compute_due_date RPC; falls back silently on error.
