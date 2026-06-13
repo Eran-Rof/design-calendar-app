@@ -745,7 +745,9 @@ function AddReceiptModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Cancel stay reachable as the receipt-application grid grows. */}
+        <div style={{ position: "sticky", bottom: -24, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -24px -24px", padding: "14px 24px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={saving}>Cancel</button>
           <button onClick={() => void save()} style={btnPrimary} disabled={saving}>
             {saving ? "Saving…" : "Create draft"}

@@ -792,7 +792,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Post / Cancel stay reachable as the entry-line grid grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => requestClose()} style={btnSecondary} disabled={submitting}>Cancel</button>
           <button
             onClick={() => void submit()}

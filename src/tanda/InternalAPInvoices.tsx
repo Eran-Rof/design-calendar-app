@@ -1085,7 +1085,9 @@ function APInvoiceModal({
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            {/* Sticky action footer — pinned to the bottom of the scrolling
+                modal so Save / Close stay reachable on tall invoices. */}
+            <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
               <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
               {editable && (
                 <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !formValid}>

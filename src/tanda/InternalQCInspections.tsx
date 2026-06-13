@@ -414,7 +414,9 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Close stay reachable as the inspection checklist grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>
             {savedId && <button onClick={() => void deleteInspection()} style={btnDanger} disabled={submitting}>Delete</button>}
           </div>

@@ -250,7 +250,7 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
           />
         </Row>
         <Row label="Reference (optional)"><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="ACH batch ref, check #, etc." style={inp} /></Row>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div style={{ position: "sticky", bottom: -22, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -22px -22px", padding: "14px 22px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={() => void save()} disabled={saving} style={btnPrimary}>{saving ? "Creating…" : "Create"}</button>
         </div>

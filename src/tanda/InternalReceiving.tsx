@@ -405,7 +405,9 @@ function ReceiptModal({ receipt, onClose, onSaved }: { receipt: Receipt | null; 
           Posting creates the inventory layer at landed cost and queues any rollup AP invoices for bookkeeper approval.
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Post / Save / Close stay reachable as the receipt-line grid grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
           {editable && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
           {editable && savedId && <button onClick={() => void postReceipt()} style={btnPrimary} disabled={submitting} title="Create the inventory layer at landed cost and queue rollup AP invoices">{submitting ? "…" : "Post receipt"}</button>}

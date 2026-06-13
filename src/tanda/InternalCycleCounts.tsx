@@ -375,7 +375,7 @@ function StartCountModal({
           onChange={(e) => setScopeText(e.target.value)}
         />
       </Field>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+      <div style={{ position: "sticky", bottom: -24, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -24px -24px", padding: "14px 24px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
         <button type="button" style={btnSecondary} onClick={onClose} disabled={submitting}>Cancel</button>
         <button type="button" style={btnPrimary} onClick={submit} disabled={submitting}>
           {submitting ? "Starting…" : "Start count"}
@@ -592,7 +592,7 @@ function DetailModal({
             </table>
           </div>
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+          <div style={{ position: "sticky", bottom: -24, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -24px -24px", padding: "14px 24px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
             <button type="button" style={btnSecondary} onClick={onClose}>Close</button>
             {data.status === "in_progress" && (
               <>
