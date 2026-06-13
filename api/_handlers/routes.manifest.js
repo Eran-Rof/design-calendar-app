@@ -583,6 +583,7 @@ export default [
   ["/api/internal/audit/row-history"                         , "./internal/audit/row-history.js"],
   ["/api/internal/audit/log"                                 , "./internal/audit/log.js"],
   ["/api/internal/recon/run-cash"                            , "./internal/recon/run-cash.js"],
+  ["/api/internal/costing/awarded-quotes"                    , "./internal/costing/awarded-quotes.js"],
   ["/api/internal/costing/projects"                          , "./internal/costing/projects/index.js"],
   ["/api/internal/costing/projects/:id"                      , "./internal/costing/projects/[id]/index.js"],
   ["/api/internal/costing/projects/:id/lines"                , "./internal/costing/projects/[id]/lines.js"],
