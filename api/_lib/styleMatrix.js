@@ -604,7 +604,30 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   const isApparel = opts.isApparel !== false; // default true; ingest passes false
   const colorVal = color ? String(color).trim() : null;
   const canonSize = String(normalizeSize(String(size).trim()));   // store + create canonical
-  const inseamVal = inseam ? String(inseam).trim() : null;
+  let inseamVal = inseam ? String(inseam).trim() : null;
+
+  // Inherit the apparel dims (inseam / length / fit) from an existing sibling SKU
+  // of this style (same colour preferred) so a NEW size variant of an apparel
+  // bottom satisfies the apparel_dims_required CHECK. The matrix only carries
+  // colour/size (+ optional inseam), so without this the insert would fail with
+  // "violates check constraint apparel_dims_required". Inheriting the inseam also
+  // keeps find/create consistent (no null-inseam duplicate of an inseam SKU).
+  let lengthVal = null, fitVal = null, siblingApparel = null;
+  {
+    let tq = admin.from("ip_item_master").select("inseam, length, fit, is_apparel").eq("entity_id", entityId).eq("style_id", style_id);
+    if (colorVal) tq = tq.eq("color", colorVal);
+    let { data: trows } = await tq.limit(5);
+    if ((!trows || !trows.length) && colorVal) {
+      ({ data: trows } = await admin.from("ip_item_master").select("inseam, length, fit, is_apparel").eq("entity_id", entityId).eq("style_id", style_id).limit(5));
+    }
+    const tmpl = (trows || []).find((r) => r.inseam || r.length || r.fit) || (trows || [])[0] || null;
+    if (tmpl) {
+      if (!inseamVal && tmpl.inseam) inseamVal = String(tmpl.inseam).trim();
+      lengthVal = tmpl.length ? String(tmpl.length).trim() : null;
+      fitVal = tmpl.fit ? String(tmpl.fit).trim() : null;
+      siblingApparel = tmpl.is_apparel;
+    }
+  }
 
   // Find existing — match ANY stored spelling of this size (SML/S/SMALL all
   // resolve to the same row) so we REUSE rather than fork a duplicate. Tolerate
@@ -637,9 +660,13 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   // sku_code is globally UNIQUE — retry with a numeric suffix on collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const skuCode = attempt === 0 ? base : `${base}-${attempt}`;
+    // Flag is_apparel only when all five matrix dims are present (the CHECK
+    // requires it); otherwise create a non-apparel partial SKU so the save
+    // succeeds — it surfaces in the merchandiser-review list to be completed.
+    const apparelFinal = (isApparel || siblingApparel) && !!colorVal && !!canonSize && !!inseamVal && !!lengthVal && !!fitVal;
     const { data: created, error } = await admin
       .from("ip_item_master")
-      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, is_apparel: isApparel })
+      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, length: lengthVal, fit: fitVal, is_apparel: apparelFinal })
       .select("id")
       .single();
     if (!error && created) return { id: created.id, created: true };

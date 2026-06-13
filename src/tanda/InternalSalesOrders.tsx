@@ -402,8 +402,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     sizeCache.current.set(styleId, out);
     return out;
   }
+  // The picked PO file is kept so it can be auto-attached to the SO on save.
+  const poFileRef = useRef<File | null>(null);
   function pickFile(file: File) {
     setPoFileName(file.name);
+    poFileRef.current = file;
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || "");
@@ -474,6 +477,13 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       setSeedKey((k) => k + 1);
       setSeed({ sections, flat: [] });
       summary.push(`${sections.length} style${sections.length === 1 ? "" : "s"} prefilled`);
+    }
+    // Auto-attach the uploaded PO file to the SO's supporting documents (staged;
+    // uploaded on save). Skip the paste-text path (no file).
+    if (poFileRef.current) {
+      const f = poFileRef.current;
+      setStagedDocs((prev) => prev.some((x) => x.name === f.name && x.size === f.size) ? prev : [...prev, f]);
+      summary.push(`Attached ${f.name}`);
     }
     setPoReview({ warnings, summary, unmatched });
     setPoAmbig([]);
@@ -787,7 +797,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           <Field label="Payment terms">
             <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
-              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(select)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.name, searchHaystack: `${t.name} ${t.code || ""}` }))]} placeholder="(select)" disabled={!editable} />
           </Field>
         </div>
 
@@ -935,7 +945,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 </Field>
                 <div style={{ textAlign: "center", color: C.textMuted, fontSize: 11, margin: "10px 0" }}>— or —</div>
                 <Field label="Paste the PO / order email">
-                  <textarea value={poText} onChange={(e) => { setPoText(e.target.value); if (e.target.value) { setPoB64(""); setPoFileName(""); } }} disabled={poParsing}
+                  <textarea value={poText} onChange={(e) => { setPoText(e.target.value); if (e.target.value) { setPoB64(""); setPoFileName(""); poFileRef.current = null; } }} disabled={poParsing}
                     placeholder="Paste the customer's order email or PO text here…" rows={6}
                     style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
                 </Field>
