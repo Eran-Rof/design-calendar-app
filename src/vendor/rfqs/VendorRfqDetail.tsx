@@ -227,8 +227,21 @@ export default function VendorRfqDetail() {
     if (over) {
       const pctStr = over.pct >= 10 ? String(Math.round(over.pct)) : over.pct.toFixed(1);
       const submitAnyway = await showConfirm({
-        title: "Your quote is above target",
-        message: `Your quoted price is ${pctStr}% higher than Ring of Fire's target.\n\nYou can submit it as-is, or sharpen your pricing to be more competitive. To update your quote after submission, use the Revise quote button.`,
+        // Headline + overage % rendered big and bright red inside the message
+        // (the shared dialog's own title is fixed-size) so it really lands.
+        message: (
+          <div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: "#FF1A1A", lineHeight: 1.15, marginBottom: 14 }}>
+              Your quote is above target
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: "#FF1A1A", lineHeight: 1.25 }}>
+              Your quoted price is {pctStr}% higher than Ring of Fire's target.
+            </div>
+            <div style={{ fontSize: 13, color: TH.textMuted, marginTop: 16 }}>
+              You can submit it as-is, or sharpen your pricing to be more competitive. To update your quote after submission, use the Revise quote button.
+            </div>
+          </div>
+        ),
         tone: "warn",
         confirmLabel: "Submit anyway",
         cancelLabel: "Be more competitive",
