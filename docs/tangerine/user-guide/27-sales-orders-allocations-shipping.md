@@ -110,6 +110,8 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 
 > **Save / Close are duplicated at the top.** Because the matrix can grow tall, the same Save / Close buttons from the sticky footer also appear in a small bar directly under the modal title, so you can save without scrolling.
 
+> **Unsaved-changes guard.** On a **new** order that already has data (customer, PO #, dates, or any matrix lines), clicking **Close** or clicking outside the modal first asks *"This sales order hasn't been saved. Close and discard your changes?"* — so an in-progress or AI-prefilled order isn't lost by an accidental click. (Saving normally closes without the prompt.)
+
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
 ### Fulfillment source — Production vs ATS

@@ -13,7 +13,7 @@ import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatL
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
-import { notify } from "../shared/ui/warn";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import {
   resolveLine, buildSeedFromResolved, matchCustomer, matchPaymentTerms, isoDate,
   type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning,
@@ -667,9 +667,25 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // duplicate bar at the top of the modal. On a CONFIRMED order the matrix stays
   // editable (e.g. to fill in unit prices); save(false) PATCHes the lines
   // without changing status, so we surface a plain "Save" there too.
+  // Unsaved-changes guard: warn before closing (Close button or click-outside)
+  // when the order carries data that hasn't been saved.
+  function hasUnsavedData(): boolean {
+    const hasLines = (bodyRef.current?.getStyleCodes() || []).length > 0;
+    if (isNew) {
+      return hasLines || !!customerId || !!customerPo.trim() || !!notes.trim() || !!reqShip || !!cancelDate
+        || !!shipToLocationId || !!brandId || !!channelId || !!buyerId || !!paymentTermsId || !!fulfillmentSource;
+    }
+    return addMode; // editing an existing SO — warn only once they start adding/editing lines
+  }
+  async function requestClose() {
+    if (submitting) return;
+    if (hasUnsavedData() && !(await confirmDialog("This sales order hasn't been saved. Close and discard your changes?"))) return;
+    onClose();
+  }
+
   const saveCloseButtons = (
     <>
-      <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
+      <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
       {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
       {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
       {!editable && !isNew && so?.status === "confirmed" && <button onClick={() => void save(false)} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save"}</button>}
@@ -677,7 +693,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   );
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+    <div onClick={() => void requestClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         {/* When the SO has been billed into an AR invoice, the header turns
             green and links straight to that invoice (?m=ar_invoices&q=<INV#>).
@@ -722,7 +738,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "start" }}>
           <Field label="Customer PO # *">
             <input type="text" value={customerPo} onChange={(e) => setCustomerPo(e.target.value)} disabled={!editable}
-              style={{ ...inputStyle, borderColor: editable && !customerPo.trim() ? C.warn : (inputStyle.border as string) }}
+              style={{ ...inputStyle, borderColor: editable && !customerPo.trim() ? C.warn : C.cardBdr }}
               placeholder="the customer's PO number" />
             {editable && !customerPo.trim() && (
               <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required — enter the customer PO before adding styles.</div>
