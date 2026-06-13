@@ -13,7 +13,7 @@
 //    caller must ask the operator which to use before building the seed.
 
 import type { SeedSection } from "../LineMatrixBody";
-import { distributeByPack, hasUsablePack, isPartialCarton, type SizePack } from "../../shared/sizeScale";
+import { distributeByPack, hasUsablePack, isPartialCarton, packForInseam, type SizePack, type NestedSizePack } from "../../shared/sizeScale";
 
 export type ParsedPoLine = {
   style_code: string | null;
@@ -37,7 +37,7 @@ export type StyleLite = {
   id: string;
   style_code: string;
   style_name?: string | null;
-  attributes?: { size_scale_pack?: Record<string, number> } | null;
+  attributes?: { size_scale_pack?: SizePack | NestedSizePack } | null;
 };
 
 export type PrefillWarning = { style: string; detail: string };
@@ -206,7 +206,9 @@ export async function buildSeedFromResolved(
           // Show the source total in this colour's Qty quick-fill box.
           if (!quickFillByStyle.has(chosen.style_code)) quickFillByStyle.set(chosen.style_code, {});
           quickFillByStyle.get(chosen.style_code)![color || ""] = effectiveTotal;
-          const pack: SizePack = chosen.attributes?.size_scale_pack || {};
+          // PO uploads carry no inseam context, so use the style's representative
+          // pack (flat pack as-is, or the first inseam column when per-inseam).
+          const pack: SizePack = packForInseam(chosen.attributes?.size_scale_pack, null);
           if (hasUsablePack(sizes, pack)) {
             const dist = distributeByPack(effectiveTotal, sizes, pack);
             for (const [size, q] of Object.entries(dist)) if (q > 0) cells.push({ color, size, qty: q, unit });

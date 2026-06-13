@@ -23,7 +23,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
-import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, type SizePack } from "../shared/sizeScale";
+import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { confirmDialog } from "../shared/ui/warn";
 
 const C = {
@@ -37,7 +37,7 @@ const numInput: React.CSSProperties = { background: "#0b1220", color: C.text, bo
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 
-type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null; attributes?: { size_scale_pack?: Record<string, number> } | null };
+type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null; attributes?: { size_scale_pack?: SizePack | NestedSizePack } | null };
 type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; on_hand_qty?: number; avg_cost_cents?: number | null };
 type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
@@ -468,8 +468,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // Qty column. Only offered when editable and the style has a usable pack
         // for these sizes.
         const sizesList = s.payload?.sizes || [];
-        const pack: SizePack = styles.find((st) => st.id === s.styleId)?.attributes?.size_scale_pack || {};
-        const packUsable = editable && hasUsablePack(sizesList, pack);
+        // The pack ratio may be flat or per-inseam (Style Master → 📐 Scale).
+        // Resolve it for the row's inseam (rowKey = `color|inseam`) so each inseam
+        // row distributes by its own pack; a flat pack applies to every inseam.
+        const rawPack = styles.find((st) => st.id === s.styleId)?.attributes?.size_scale_pack;
+        const packForRow = (rk: string): SizePack => packForInseam(rawPack, rk.split("|")[1] || null);
+        const packUsableFor = (rk: string) => editable && hasUsablePack(sizesList, packForRow(rk));
         // Carton check (Phase C): a carton is packed per color×size SKU, so flag
         // each cell whose qty is a positive non-multiple of the carton size.
         // Collected into ONE banner per style (operator: "one warning, not per size").
@@ -509,8 +513,8 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 onHandTitle={atsMode ? `ATS${atsAsOfDate ? ` (${fmtDateDisplay(atsAsOfDate)})` : ""}` : "on-hand"}
                 unit={{ label: moneyLabel, placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
                 quickFill={editable ? {
-                  onApply: (rk, total) => setRowQtys(s.id, rk, distributeByPack(total, sizesList, pack)),
-                  enabledFor: () => packUsable,
+                  onApply: (rk, total) => setRowQtys(s.id, rk, distributeByPack(total, sizesList, packForRow(rk))),
+                  enabledFor: (rk) => packUsableFor(rk),
                   disabledTitle: "Set a size scale (pack) for this style in Style Master → 📐 Scale to enable quick-fill.",
                   valueFor: (rk) => s.quickFill?.[rk],
                 } : undefined}

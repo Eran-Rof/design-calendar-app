@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-13 (Manufacturing M5b — buy parts onto a vendor bill that stocks part inventory; user-guide ch44)
+**Last updated:** 2026-06-13 (Style Master inseam auto-fill + per-inseam pack matrix; user-guide ch02/27/28)
 
 ## Summary
 
@@ -21,6 +21,7 @@
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
 > **Recent cross-cutting landings (2026-06-13)** — not tied to a single phase row:
+> - **Style Master inseams auto-fill + per-inseam pack matrix** — (1) editing an existing bottoms style now **auto-fills the inseams it already sells** from its SKUs (read via `/api/internal/style-matrix`, the same set the Inventory Matrix shows) so the operator no longer has to re-type them; merged declared-first and persisted on the next Save. (2) The **📐 Scale** (pack ratio) window becomes a **size × inseam pack matrix** for styles that declare inseams — one pack-qty column per inseam, so each inseam carries its own size curve; pre-seeded from any existing flat pack. Storage stays backward-compatible (`size_scale_pack` is flat `{size:qty}` with no inseams, nested `{inseam:{size:qty}}` with them); the SO/PO **Qty quick-fill** resolves the matching inseam's curve per row (shared `packForInseam` in `src/shared/sizeScale.ts`, +9 unit tests). User-guide ch02/27/28.
 > - **Customer style numbers on Style Master** — new `style_customer_numbers` table (migration `20260873000000`) maps one base style → each customer's own style number, so customer-customized / private-label variants stop forking a new style row per customer (the cause of the `…PL-COLOR-SIZE-<customer>` SKU sprawl). New `GET/POST /api/internal/style-customer-numbers` + `PATCH/DELETE /:id`; a self-managing **"Customer style numbers"** section in the Style edit modal (mirrors the Fabrics section). Reverse-lookup index for resolving a customer PO's number → base style (feeds the AI Upload-customer-PO flow + manufacturing module). User-guide ch02.
 > - **Color Master normalized + NavDrawer fix** (#1288 + normalization) — registered the Color Master panel in `src/erp/modules.ts` so it actually appears under **Master Data → Color Master** (#1285 added the panel/route/mount but not the modules.ts entry that feeds the visible NavDrawer). **Normalized the colour picklist** 1,106 raw spellings → **857 canonical** (migration `20260868000000`, applied prod): case + spacing + size-leaked-into-colour + abbreviation (Lt/Dk/Hthr/Chrcl/Gry…) folding, proper mixed-case canonical. `styleMatrix.js` now aligns declared colours to existing SKU colours case-insensitively. ⚠️ The matching **live-SKU `ip_item_master.color` rewrite is deferred** — 84% of affected rows have NULL size/inseam with size+print baked into `sku_code`; needs a structured size/inseam backfill first (see OPERATOR-TODO 🟣).
 >

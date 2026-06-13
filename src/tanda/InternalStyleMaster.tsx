@@ -680,6 +680,36 @@ export default function InternalStyleMaster() {
   );
 }
 
+// Keep only positive integer size→qty entries from one pack column.
+function cleanPackCol(col: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (col && typeof col === "object") {
+    for (const [k, v] of Object.entries(col as Record<string, unknown>)) {
+      const n = Math.floor(Number(v));
+      if (k && Number.isFinite(n) && n > 0) out[k] = n;
+    }
+  }
+  return out;
+}
+// Normalize a stored size_scale_pack into the editor's per-inseam shape
+// (Record<inseam, {size:qty}>). The stored value is either flat ({size:qty},
+// styles with no inseams) — which lands under the "" key (shared) — or already
+// nested per-inseam ({inseam:{size:qty}}).
+function normalizeStoredPack(raw: unknown): Record<string, Record<string, number>> {
+  if (!raw || typeof raw !== "object") return {};
+  const nested = Object.values(raw as Record<string, unknown>).some((v) => v != null && typeof v === "object");
+  if (nested) {
+    const out: Record<string, Record<string, number>> = {};
+    for (const [ins, col] of Object.entries(raw as Record<string, unknown>)) {
+      const c = cleanPackCol(col);
+      if (Object.keys(c).length) out[String(ins)] = c;
+    }
+    return out;
+  }
+  const flat = cleanPackCol(raw);
+  return Object.keys(flat).length ? { "": flat } : {};
+}
+
 interface ModalProps {
   mode: "add" | "edit";
   style?: Style;
@@ -753,18 +783,13 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // Per-style size-scale PACK ratio (size → representative qty), e.g. { S:2, M:3,
   // L:3, XL:2 }. Defines how a single total typed into the SO / PO matrix Qty
   // column is split across sizes. Persisted in style attributes.size_scale_pack.
+  // Per-inseam pack ratio. Keyed by inseam; the "" key holds the shared/flat pack
+  // for styles with no inseams. Serialized back to flat ({size:qty}) when the
+  // style has no inseams, or nested ({inseam:{size:qty}}) when it does.
   const [scaleOpen, setScaleOpen] = useState(false);
-  const [scalePack, setScalePack] = useState<Record<string, number>>(() => {
-    const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.size_scale_pack;
-    const out: Record<string, number> = {};
-    if (fromAttr && typeof fromAttr === "object") {
-      for (const [k, v] of Object.entries(fromAttr as Record<string, unknown>)) {
-        const n = Math.floor(Number(v));
-        if (k && Number.isFinite(n) && n > 0) out[k] = n;
-      }
-    }
-    return out;
-  });
+  const [packByInseam, setPackByInseam] = useState<Record<string, Record<string, number>>>(
+    () => normalizeStoredPack((style?.attributes as Record<string, unknown> | undefined)?.size_scale_pack),
+  );
 
   // Declared COLORS — the colors this style is offered in, stored as an array of
   // color_master ids in attributes.color_ids. These drive the SO/PO size-matrix
@@ -800,15 +825,38 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     const s = sizeScales.find((x) => x.id === form.size_scale_id);
     return Array.isArray(s?.sizes) ? s!.sizes : [];
   }, [sizeScales, form.size_scale_id]);
-  const scaleTotal = useMemo(() => scaleSizes.reduce((t, sz) => t + (scalePack[sz] || 0), 0), [scaleSizes, scalePack]);
-  const setScaleQty = (sz: string, raw: string) =>
-    setScalePack((p) => {
+  // Inseam columns the Scale window offers — the style's declared inseams, or a
+  // single shared column ("") when the style has none.
+  const scaleInseamKeys = useMemo<string[]>(() => (inseams.length ? inseams : [""]), [inseams]);
+  const getScaleQty = (ins: string, sz: string) => packByInseam[ins]?.[sz] || 0;
+  const setScaleQty = (ins: string, sz: string, raw: string) =>
+    setPackByInseam((p) => {
       const n = Math.floor(Number(raw));
+      const col = { ...(p[ins] || {}) };
+      if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) delete col[sz];
+      else col[sz] = n;
       const next = { ...p };
-      if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) delete next[sz];
-      else next[sz] = n;
+      if (Object.keys(col).length) next[ins] = col; else delete next[ins];
       return next;
     });
+  const inseamColTotal = (ins: string) => scaleSizes.reduce((t, sz) => t + getScaleQty(ins, sz), 0);
+  const scaleTotal = useMemo(
+    () => scaleInseamKeys.reduce((t, ins) => t + scaleSizes.reduce((u, sz) => u + (packByInseam[ins]?.[sz] || 0), 0), 0),
+    [scaleInseamKeys, scaleSizes, packByInseam],
+  );
+  // Serialize the editor state back to the stored shape: flat when no inseams,
+  // nested per-inseam otherwise.
+  const serializeScalePack = (): Record<string, unknown> => {
+    if (inseams.length) {
+      const out: Record<string, Record<string, number>> = {};
+      for (const ins of inseams) {
+        const c = cleanPackCol(packByInseam[ins]);
+        if (Object.keys(c).length) out[ins] = c;
+      }
+      return out;
+    }
+    return cleanPackCol(packByInseam[""]);
+  };
 
   // Country list (country_master) for the COO pickers — ISO-2 + name.
   useEffect(() => {
@@ -846,6 +894,33 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Surface the inseams this style already sells (derived from its SKUs /
+  // inventory, the same set the Inventory Matrix and SO/PO grids show) so an
+  // existing bottoms style shows its inseams in Style Master without the operator
+  // re-typing them. Merged in declared-first + deduped; persisted on the next
+  // Save. Edit mode only — a brand-new style has no SKUs. Non-fatal on error.
+  useEffect(() => {
+    if (mode !== "edit" || !style?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(style.id)}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        if (cancelled) return;
+        const fromSkus = Array.isArray(j?.inseams) ? (j.inseams as unknown[]).map((x) => String(x).trim()).filter(Boolean) : [];
+        if (fromSkus.length) {
+          setInseams((prev) => {
+            const seen = new Set(prev);
+            const add = fromSkus.filter((v) => !seen.has(v));
+            return add.length ? [...prev, ...add] : prev;
+          });
+        }
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, style?.id]);
 
   // Load active seasons for the SearchableSelect picker. Non-fatal on error.
   // style_master.season stays free TEXT storing the chosen season NAME — this
@@ -1093,7 +1168,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         unit_weight_kg:       form.unit_weight_kg.trim() === "" ? null : Number(form.unit_weight_kg),
         units_per_carton:     form.units_per_carton.trim() === "" ? null : Math.floor(Number(form.units_per_carton)),
         carton_cbm_m3:        form.carton_cbm_m3.trim() === "" ? null : Number(form.carton_cbm_m3),
-        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: scalePack, color_ids: colorIds, inseams },
+        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: serializeScalePack(), color_ids: colorIds, inseams },
       };
       let url: string;
       let method: string;
@@ -1323,7 +1398,23 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
               <button
                 type="button"
-                onClick={() => setScaleOpen(true)}
+                onClick={() => {
+                  // When the style has inseams but the pack was only ever entered
+                  // flat (no inseams before), seed each inseam column from that
+                  // flat pack so the operator adjusts rather than starts from zero.
+                  setPackByInseam((p) => {
+                    if (!inseams.length) return p;
+                    const flat = p[""];
+                    const hasPerInseam = inseams.some((i) => p[i] && Object.keys(p[i]).length);
+                    if (flat && Object.keys(flat).length && !hasPerInseam) {
+                      const seeded: Record<string, Record<string, number>> = {};
+                      for (const i of inseams) seeded[i] = { ...flat };
+                      return seeded;
+                    }
+                    return p;
+                  });
+                  setScaleOpen(true);
+                }}
                 disabled={!form.size_scale_id}
                 style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0, opacity: form.size_scale_id ? 1 : 0.5 }}
                 title={form.size_scale_id
@@ -1644,52 +1735,104 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           >
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📐 Size Scale — pack ratio</div>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
-              Enter a representative quantity per size (the ratio is what matters). In an SO or
-              PO size matrix, typing one total in the <strong>Qty</strong> column splits it across
-              sizes in this proportion, then rounds each size up to a full carton of {24}.
+              Enter a representative quantity per size (the ratio is what matters)
+              {inseams.length > 0 ? <> — one column <strong>per inseam</strong>, so each inseam can have its own size curve</> : null}.
+              In an SO or PO size matrix, typing one total in the <strong>Qty</strong> column splits it
+              across sizes in that row{inseams.length > 0 ? "’s inseam" : ""} proportion, then rounds each
+              size up to a full carton of {24}.
             </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr>
-                  <th style={{ ...th, position: "static" }}>Size</th>
-                  <th style={{ ...th, position: "static", textAlign: "right" }}>Pack qty</th>
-                  <th style={{ ...th, position: "static", textAlign: "right" }}>% of pack</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scaleSizes.map((sz) => {
-                  const q = scalePack[sz] || 0;
-                  const pct = scaleTotal > 0 ? (q / scaleTotal) * 100 : 0;
-                  return (
-                    <tr key={sz} style={{ borderBottom: `1px solid ${C.cardBdr}` }}>
-                      <td style={{ padding: "6px 10px", color: C.textSub }}>{sz}</td>
-                      <td style={{ padding: "6px 10px", textAlign: "right" }}>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={q ? String(q) : ""}
-                          onChange={(e) => { if (/^\d*$/.test(e.target.value)) setScaleQty(sz, e.target.value); }}
-                          placeholder="0"
-                          style={{ ...inputStyle, width: "8ch", textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}
-                        />
-                      </td>
-                      <td style={{ padding: "6px 10px", textAlign: "right", color: C.textMuted, fontFamily: "monospace" }}>
-                        {q ? `${pct.toFixed(0)}%` : "—"}
-                      </td>
+            {inseams.length === 0 ? (
+              /* No inseams — single pack-qty column with %-of-pack. */
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...th, position: "static" }}>Size</th>
+                    <th style={{ ...th, position: "static", textAlign: "right" }}>Pack qty</th>
+                    <th style={{ ...th, position: "static", textAlign: "right" }}>% of pack</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scaleSizes.map((sz) => {
+                    const q = getScaleQty("", sz);
+                    const pct = scaleTotal > 0 ? (q / scaleTotal) * 100 : 0;
+                    return (
+                      <tr key={sz} style={{ borderBottom: `1px solid ${C.cardBdr}` }}>
+                        <td style={{ padding: "6px 10px", color: C.textSub }}>{sz}</td>
+                        <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={q ? String(q) : ""}
+                            onChange={(e) => { if (/^\d*$/.test(e.target.value)) setScaleQty("", sz, e.target.value); }}
+                            placeholder="0"
+                            style={{ ...inputStyle, width: "8ch", textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                          />
+                        </td>
+                        <td style={{ padding: "6px 10px", textAlign: "right", color: C.textMuted, fontFamily: "monospace" }}>
+                          {q ? `${pct.toFixed(0)}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
+                    <td style={{ padding: "8px 10px", fontWeight: 700, color: C.textSub }}>Total</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 800, color: C.primary, fontFamily: "monospace" }}>{scaleTotal || "—"}</td>
+                    <td style={{ padding: "8px 10px" }} />
+                  </tr>
+                </tfoot>
+              </table>
+            ) : (
+              /* Inseams declared — size × inseam pack matrix, one pack-qty column
+                 per inseam with a per-inseam total in the footer. */
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...th, position: "static" }}>Size</th>
+                      {inseams.map((ins) => (
+                        <th key={ins} style={{ ...th, position: "static", textAlign: "right", whiteSpace: "nowrap" }}>{ins}&Prime;</th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, color: C.textSub }}>Total</td>
-                  <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 800, color: C.primary, fontFamily: "monospace" }}>{scaleTotal || "—"}</td>
-                  <td style={{ padding: "8px 10px" }} />
-                </tr>
-              </tfoot>
-            </table>
+                  </thead>
+                  <tbody>
+                    {scaleSizes.map((sz) => (
+                      <tr key={sz} style={{ borderBottom: `1px solid ${C.cardBdr}` }}>
+                        <td style={{ padding: "6px 10px", color: C.textSub, whiteSpace: "nowrap" }}>{sz}</td>
+                        {inseams.map((ins) => {
+                          const q = getScaleQty(ins, sz);
+                          return (
+                            <td key={ins} style={{ padding: "6px 10px", textAlign: "right" }}>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={q ? String(q) : ""}
+                                onChange={(e) => { if (/^\d*$/.test(e.target.value)) setScaleQty(ins, sz, e.target.value); }}
+                                placeholder="0"
+                                style={{ ...inputStyle, width: "7ch", textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
+                      <td style={{ padding: "8px 10px", fontWeight: 700, color: C.textSub }}>Total</td>
+                      {inseams.map((ins) => (
+                        <td key={ins} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 800, color: C.primary, fontFamily: "monospace" }}>
+                          {inseamColTotal(ins) || "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 16 }}>
-              <button type="button" onClick={() => setScalePack({})} style={btnSecondary} disabled={scaleTotal === 0}>Clear all</button>
+              <button type="button" onClick={() => setPackByInseam({})} style={btnSecondary} disabled={scaleTotal === 0}>Clear all</button>
               <button type="button" onClick={() => setScaleOpen(false)} style={btnPrimary}>Done</button>
             </div>
           </div>
