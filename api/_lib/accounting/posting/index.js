@@ -31,6 +31,9 @@ import { apInvoiceGrirMatch } from "./rules/apInvoiceGrirMatch.js";
 import { landedCostRevaluation } from "./rules/landedCostRevaluation.js";
 import { qcVendorCredit } from "./rules/qcVendorCredit.js";
 import { partAdjustment } from "./rules/partAdjustment.js";
+import { mfgBuildIssue } from "./rules/mfgBuildIssue.js";
+import { mfgServiceCapitalized } from "./rules/mfgServiceCapitalized.js";
+import { mfgBuildComplete } from "./rules/mfgBuildComplete.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -66,6 +69,11 @@ const RULE_BY_KIND = {
   // Manufacturing — parts have their OWN FIFO pool (partConsumePlan /
   // partInventoryLayers drains below), separate from style inventory.
   part_adjustment:       partAdjustment,
+  // Manufacturing build orders (M4): issue components → WIP, capitalize a
+  // conversion service → WIP, complete a build (WIP → finished goods).
+  mfg_build_issue:       mfgBuildIssue,
+  mfg_service_capitalized: mfgServiceCapitalized,
+  mfg_build_complete:    mfgBuildComplete,
 };
 
 export class PostingError extends Error {

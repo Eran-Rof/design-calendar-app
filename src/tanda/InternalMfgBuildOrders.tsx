@@ -1,0 +1,324 @@
+// src/tanda/InternalMfgBuildOrders.tsx
+//
+// Tangerine — Manufacturing Build Orders.
+// Assemble a finished style from its BOM: draft → release → issue (parts/styles
+// into WIP at FIFO cost) → capitalize conversion services → complete (WIP →
+// finished-goods inventory at actual cost). Shows the live WIP cost rollup.
+
+import { useEffect, useRef, useState } from "react";
+import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
+
+type ItemLite = { id: string; sku_code: string; description: string | null };
+type Component = {
+  id: string;
+  component_kind: "part" | "service" | "finished_style";
+  qty_required: number; qty_consumed: number; actual_cost_cents: number;
+  service_charge_cents: number | null; service_capitalized: boolean; service_vendor_name: string | null;
+  component_code: string | null; component_label: string | null;
+};
+type Rollup = { parts_cost_cents: number; style_cost_cents: number; service_cost_cents: number; total_cents: number };
+type Build = {
+  id: string; build_number: string; finished_item_id: string; target_qty: number; completed_qty: number;
+  status: "draft" | "released" | "issued" | "in_progress" | "completed" | "cancelled";
+  accumulated_cost_cents: number; finished_unit_cost_cents: number | null;
+  finished_item?: { sku_code: string; description: string | null } | null;
+  components?: Component[]; rollup?: Rollup;
+};
+
+const C = {
+  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
+  primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
+};
+const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
+const btnSecondary: React.CSSProperties = { background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12 };
+const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" };
+const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
+const STATUS_COLOR: Record<string, string> = { draft: C.textMuted, released: C.primary, issued: C.warn, in_progress: C.warn, completed: C.success, cancelled: C.danger };
+const KIND_LABEL: Record<string, string> = { part: "Part", service: "Service", finished_style: "Finished style" };
+const money = (c: number | null | undefined) => c == null ? "—" : `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export default function InternalMfgBuildOrders() {
+  const [rows, setRows] = useState<Build[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+
+  async function load() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setRows(await r.json() as Build[]);
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  return (
+    <div style={{ color: C.text }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22 }}>Build Orders</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: C.textMuted }}>
+            Assemble a finished style from its BOM. Costs flow through WIP to finished-goods inventory at actual cost.
+          </p>
+        </div>
+        <button onClick={() => setNewOpen(true)} style={btnPrimary}>+ New build</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
+        <ExportButton
+          rows={rows.map((b) => ({ build_number: b.build_number, finished_sku: b.finished_item?.sku_code ?? "", target_qty: b.target_qty, status: b.status, accumulated_cost_cents: b.accumulated_cost_cents, finished_unit_cost_cents: b.finished_unit_cost_cents })) as unknown as Array<Record<string, unknown>>}
+          filename="build-orders"
+          sheetName="Build Orders"
+          columns={[
+            { key: "build_number", header: "Build #" },
+            { key: "finished_sku", header: "Finished SKU" },
+            { key: "target_qty", header: "Target Qty", format: "number" },
+            { key: "status", header: "Status" },
+            { key: "accumulated_cost_cents", header: "WIP/Accum Cost", format: "currency_cents" },
+            { key: "finished_unit_cost_cents", header: "Finished Unit Cost", format: "currency_cents" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
+      </div>
+
+      {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>Error: {err}</div>}
+
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+        {loading ? <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+          : rows.length === 0 ? <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No build orders yet. Create one with &quot;+ New build&quot;.</div>
+          : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Build #</th>
+                  <th style={th}>Finished Style</th>
+                  <th style={{ ...th, textAlign: "right" }}>Target</th>
+                  <th style={th}>Status</th>
+                  <th style={{ ...th, textAlign: "right" }}>WIP/Accum</th>
+                  <th style={{ ...th, textAlign: "right" }}>Unit Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((b) => (
+                  <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => setDetailId(b.id)}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{b.build_number}</td>
+                    <td style={td}>{b.finished_item?.sku_code ?? "—"}{b.finished_item?.description ? <span style={{ color: C.textSub }}> — {b.finished_item.description}</span> : null}</td>
+                    <td style={{ ...td, textAlign: "right" }}>{b.target_qty.toLocaleString()}</td>
+                    <td style={td}><span style={{ color: STATUS_COLOR[b.status] }}>{b.status}</span></td>
+                    <td style={{ ...td, textAlign: "right" }}>{money(b.accumulated_cost_cents)}</td>
+                    <td style={{ ...td, textAlign: "right" }}>{money(b.finished_unit_cost_cents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+
+      {newOpen && <NewBuildModal onClose={() => setNewOpen(false)} onCreated={(bid) => { setNewOpen(false); void load(); setDetailId(bid); }} />}
+      {detailId && <BuildDetail buildId={detailId} onClose={() => setDetailId(null)} onChanged={() => void load()} />}
+    </div>
+  );
+}
+
+function ItemPicker({ onChange }: { onChange: (id: string, label: string) => void }) {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<ItemLite[]>([]);
+  const [chosen, setChosen] = useState(""); const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      try { const r = await fetch(`/api/internal/items?q=${encodeURIComponent(q)}&limit=50`); if (r.ok) setResults(await r.json() as ItemLite[]); } catch { /* */ }
+    }, 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [q, open]);
+  return (
+    <div style={{ position: "relative" }}>
+      <input style={inputStyle} placeholder="Search the style to build…" value={open ? q : chosen} onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => setQ(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && results.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", marginTop: 2 }}>
+          {results.map((it) => (
+            <div key={it.id} onMouseDown={() => { const label = `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`; setChosen(label); onChange(it.id, label); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
+              <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{it.sku_code}</span>{it.description ? <span style={{ color: C.textSub }}> — {it.description}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [finishedItemId, setFinishedItemId] = useState("");
+  const [targetQty, setTargetQty] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    setSubmitting(true); setErr(null);
+    try {
+      const qty = parseFloat(targetQty);
+      if (!finishedItemId) throw new Error("Pick a finished style");
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error("Enter a target quantity");
+      const r = await fetch(`/api/internal/build-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ finished_item_id: finishedItemId, target_qty: qty }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const b = await r.json();
+      onCreated(b.id);
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(520px, 95vw)", color: C.text }}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>New build order</h3>
+        <div style={{ marginBottom: 12 }}>
+          <Lbl>Finished style *</Lbl>
+          <ItemPicker onChange={(id) => setFinishedItemId(id)} />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Its active BOM is snapshotted when you Release the build.</div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Lbl>Target quantity *</Lbl>
+          <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={inputStyle} placeholder="e.g. 500" autoFocus />
+        </div>
+        {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 12 }}>{err}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !finishedItemId}>{submitting ? "Creating…" : "Create draft"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose: () => void; onChanged: () => void }) {
+  const [build, setBuild] = useState<Build | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setBuild(await r.json() as Build);
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : String(e)); }
+  }
+  useEffect(() => { void load(); }, [buildId]);
+
+  async function act(path: string, body?: Record<string, unknown>) {
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Build ${path} ok.`, "success");
+      await load(); onChanged();
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function capitalizeService(componentId: string, label: string, suggested: number | null) {
+    const def = suggested != null ? (suggested / 100).toFixed(2) : "";
+    const v = await promptDialog(`Conversion charge for "${label}" ($)`, { inputType: "number", defaultValue: def, placeholder: "0.00", required: true });
+    if (v === null) return;
+    const dollars = parseFloat(v);
+    if (!Number.isFinite(dollars) || dollars <= 0) { notify("Enter a positive amount", "error"); return; }
+    await act("service", { component_id: componentId, charge_cents: Math.round(dollars * 100) });
+  }
+
+  const status = build?.status;
+  const allServicesCapitalized = (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(940px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", color: C.text }}>
+        <div style={{ padding: "18px 20px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h3 style={{ margin: 0, fontSize: 18 }}>{build ? build.build_number : "Build"}{build?.status ? <span style={{ marginLeft: 10, fontSize: 13, color: STATUS_COLOR[build.status] }}>● {build.status}</span> : null}</h3>
+            <button onClick={onClose} style={btnSecondary}>Close</button>
+          </div>
+          {build?.finished_item && <div style={{ fontSize: 13, color: C.textSub, marginTop: 4 }}>{build.finished_item.sku_code} — {build.finished_item.description} · target {build.target_qty}</div>}
+        </div>
+
+        <div style={{ padding: "12px 20px", overflowY: "auto", flex: 1 }}>
+          {!build ? <div style={{ color: C.textMuted, padding: 20 }}>Loading…</div> : (
+            <>
+              {/* WIP rollup */}
+              {build.rollup && (
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16, padding: 12, background: "#0b1220", borderRadius: 8 }}>
+                  <Stat label="Parts" value={money(build.rollup.parts_cost_cents)} />
+                  <Stat label="Consumed styles" value={money(build.rollup.style_cost_cents)} />
+                  <Stat label="Services" value={money(build.rollup.service_cost_cents)} />
+                  <Stat label="WIP total" value={money(build.rollup.total_cents)} strong />
+                  <Stat label="Proj. unit cost" value={build.target_qty > 0 ? money(Math.round(build.rollup.total_cents / build.target_qty)) : "—"} />
+                  {build.finished_unit_cost_cents != null && <Stat label="Finished unit cost" value={money(build.finished_unit_cost_cents)} strong />}
+                </div>
+              )}
+
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Kind</th><th style={th}>Item</th>
+                    <th style={{ ...th, textAlign: "right" }}>Qty req.</th>
+                    <th style={{ ...th, textAlign: "right" }}>Consumed</th>
+                    <th style={{ ...th, textAlign: "right" }}>Actual cost</th>
+                    <th style={th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(build.components || []).map((c) => (
+                    <tr key={c.id}>
+                      <td style={{ ...td, color: C.textSub }}>{KIND_LABEL[c.component_kind]}</td>
+                      <td style={td}><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? <span style={{ color: C.textSub }}> — {c.component_label}</span> : null}{c.component_kind === "service" && c.service_vendor_name ? <span style={{ color: C.textMuted, fontSize: 11 }}> · {c.service_vendor_name}</span> : null}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{c.qty_required}</td>
+                      <td style={{ ...td, textAlign: "right", color: C.textSub }}>{c.component_kind === "service" ? "—" : c.qty_consumed}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{money(c.actual_cost_cents)}</td>
+                      <td style={{ ...td, textAlign: "right" }}>
+                        {c.component_kind === "service" && !c.service_capitalized && (status === "released" || status === "issued") && (
+                          <button disabled={busy} onClick={() => void capitalizeService(c.id, c.component_label || c.component_code || "service", c.service_charge_cents)} style={btnSecondary}>Capitalize</button>
+                        )}
+                        {c.component_kind === "service" && c.service_capitalized && <span style={{ color: C.success, fontSize: 12 }}>✓ capitalized</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>{err}</div>}
+            </>
+          )}
+        </div>
+
+        {/* Action footer */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: 16, borderTop: `1px solid ${C.cardBdr}`, background: C.card }}>
+          {status === "draft" && <button disabled={busy} onClick={() => void act("release")} style={btnPrimary}>Release (snapshot BOM)</button>}
+          {status === "released" && <button disabled={busy} onClick={() => void act("issue")} style={btnPrimary}>Issue components → WIP</button>}
+          {status === "issued" && (
+            <button disabled={busy || !allServicesCapitalized} title={allServicesCapitalized ? "" : "Capitalize all service charges first"} onClick={async () => { if (await confirmDialog(`Complete build ${build?.build_number}? This moves WIP into finished-goods inventory.`)) void act("complete"); }} style={btnPrimary}>Complete → finished goods</button>
+          )}
+          {(status === "draft" || status === "released" || status === "issued") && (
+            <button disabled={busy} onClick={async () => { if (await confirmDialog(`Cancel build ${build?.build_number}?`)) { await fetch(`/api/internal/build-orders/${buildId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) }); await load(); onChanged(); } }} style={btnDanger}>Cancel build</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: strong ? 18 : 15, fontWeight: strong ? 700 : 500, color: C.text }}>{value}</div>
+    </div>
+  );
+}
+
+function Lbl({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{children}</div>;
+}
