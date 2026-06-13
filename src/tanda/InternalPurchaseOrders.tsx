@@ -307,15 +307,17 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   }, [isNew, po]);
 
   // ── Create PO from a Sales Order ────────────────────────────────────────────
-  // A PO can't be created from an SO whose stock is already committed (allocated)
-  // or that's already billed (invoiced) — those orders are past the buying stage.
-  const PO_FROM_SO_BLOCKED = ["allocated", "invoiced"];
+  // A PO can only be created from an SO that's still in the buying stage —
+  // a draft or confirmed order. Anything past that (allocated / fulfilling /
+  // shipped / invoiced / closed) has committed or billed stock, and cancelled
+  // orders are dead. Allow-list so any future SO status defaults to blocked.
+  const PO_FROM_SO_ALLOWED = ["draft", "confirmed"];
   // Load SOs for the picker (debounced) — only qualifying orders are shown.
   useEffect(() => {
     if (!soPickOpen) return;
     const t = setTimeout(() => {
       const qs = soQuery.trim() ? `?q=${encodeURIComponent(soQuery.trim())}&limit=50` : "?limit=50";
-      fetch(`/api/internal/sales-orders${qs}`).then((r) => r.ok ? r.json() : []).then((a) => setSoList((Array.isArray(a) ? a : []).filter((so) => !PO_FROM_SO_BLOCKED.includes(so.status)))).catch(() => {});
+      fetch(`/api/internal/sales-orders${qs}`).then((r) => r.ok ? r.json() : []).then((a) => setSoList((Array.isArray(a) ? a : []).filter((so) => PO_FROM_SO_ALLOWED.includes(so.status)))).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
   }, [soPickOpen, soQuery]);
@@ -329,10 +331,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       const r = await fetch(`/api/internal/sales-orders/${soId}`);
       const full = await r.json();
       if (!r.ok) throw new Error(full.error || `HTTP ${r.status}`);
-      // Guard: never build a PO from an allocated / invoiced SO.
-      if (PO_FROM_SO_BLOCKED.includes(full.status)) {
+      // Guard: only a draft / confirmed SO can seed a PO.
+      if (!PO_FROM_SO_ALLOWED.includes(full.status)) {
         setSoBusy(false);
-        notify(`Sales order ${full.so_number || ""} is ${full.status} — a PO can't be created from an ${full.status} sales order.`, "error");
+        notify(`Sales order ${full.so_number || ""} is ${full.status} — a PO can only be created from a draft or confirmed sales order.`, "error");
         return;
       }
       type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
