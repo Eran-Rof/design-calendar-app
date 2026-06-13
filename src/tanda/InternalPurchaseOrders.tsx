@@ -209,6 +209,13 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [soQuery, setSoQuery] = useState("");
   const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null }[]>([]);
   const [soBusy, setSoBusy] = useState(false);
+  // Get-PO-price (awarded RFQ) flow.
+  type AwardQuote = { costing_line_id: string; style_code: string; vendor_id: string; vendor_name: string | null; quoted_cost: number | null; currency: string; awarded_at: string | null; quoted_date: string | null };
+  const [priceAskOpen, setPriceAskOpen] = useState(false);   // "is this from an SO?"
+  const [awardOpen, setAwardOpen] = useState(false);
+  const [awardQuotes, setAwardQuotes] = useState<AwardQuote[]>([]);
+  const [awardPick, setAwardPick] = useState<Record<string, string>>({}); // styleCode → chosen costing_line_id
+  const applyAwardAfterSO = useRef(false);
 
   // ── Rich header fields ──────────────────────────────────────────────────────
   const [poType, setPoType] = useState("");
@@ -338,14 +345,63 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       if (full.requested_ship_date) setRequestedDeliveryDate(full.requested_ship_date);
       if (full.cancel_date) setCancelDate(full.cancel_date);
       setSeedKey((k) => k + 1);
-      setSeed({ sections: [...byStyle.values()], flat });
+      const sections = [...byStyle.values()];
+      setSeed({ sections, flat });
       setSoPickOpen(false);
-      notify("PO matrix prefilled from the sales order — set unit costs (or use Get PO price).", "success");
+      notify("PO matrix prefilled from the sales order.", "success");
+      // Get-PO-price flow: after the SO fills the matrix, pull awarded RFQ prices.
+      if (applyAwardAfterSO.current) {
+        applyAwardAfterSO.current = false;
+        await openAwardDialog(sections.map((s) => s.styleCode));
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSoBusy(false);
     }
+  }
+
+  // ── Get PO price (awarded RFQ) ──────────────────────────────────────────────
+  // Fetch awarded quotes (optionally scoped to the given styles) and open the
+  // picker. Defaults each style's selection to its newest award.
+  async function openAwardDialog(styleCodes?: string[]) {
+    try {
+      const qs = styleCodes && styleCodes.length ? `?style_codes=${encodeURIComponent(styleCodes.join(","))}` : "";
+      const r = await fetch(`/api/internal/costing/awarded-quotes${qs}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const quotes = (j.quotes || []) as AwardQuote[];
+      if (quotes.length === 0) { notify("No awarded RFQ quotes found for these styles.", "info"); return; }
+      const pick: Record<string, string> = {};
+      for (const q of quotes) if (!pick[q.style_code]) pick[q.style_code] = q.costing_line_id; // newest first
+      setAwardQuotes(quotes); setAwardPick(pick); setAwardOpen(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Apply the chosen awards: stamp each style's awarded cost as the section's
+  // default unit and set the PO vendor (warn if the picks span vendors).
+  function applyAwards() {
+    const chosen = awardQuotes.filter((q) => awardPick[q.style_code] === q.costing_line_id);
+    const existing = new Map((seed?.sections || []).map((s) => [s.styleCode, s]));
+    const sections: SeedSection[] = [];
+    const styleCodesSeen = new Set<string>();
+    for (const q of chosen) {
+      const prev = existing.get(q.style_code);
+      const unit = q.quoted_cost != null ? String(q.quoted_cost) : undefined;
+      sections.push(prev ? { ...prev, defaultUnit: unit } : { styleCode: q.style_code, cells: [], defaultUnit: unit });
+      styleCodesSeen.add(q.style_code);
+    }
+    // Keep any existing sections that weren't part of the award picks.
+    for (const s of seed?.sections || []) if (!styleCodesSeen.has(s.styleCode)) sections.push(s);
+    const vendorIds = [...new Set(chosen.map((q) => q.vendor_id))];
+    if (vendorIds.length === 1) setVendorId(vendorIds[0]);
+    setSeedKey((k) => k + 1);
+    setSeed({ sections, flat: seed?.flat || [] });
+    setAwardOpen(false);
+    if (vendorIds.length > 1) notify("Awarded prices applied. Heads-up: the selected awards span multiple vendors — a PO is to one vendor, so pick the vendor manually.", "info");
+    else notify("Awarded prices + vendor applied — review before saving.", "success");
   }
 
   async function save(): Promise<string | null> {
@@ -525,7 +581,8 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {/* Build the matrix from an existing Sales Order (new PO only). */}
         {isNew && editable && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-            <button type="button" onClick={() => { setSoQuery(""); setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
+            <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
+            <button type="button" onClick={() => setPriceAskOpen(true)} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>💲 Get PO price</button>
             {salesOrderId && <span style={{ fontSize: 11, color: C.success }}>✓ linked to a sales order</span>}
           </div>
         )}
@@ -587,6 +644,53 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
               <button onClick={() => setSoPickOpen(false)} style={btnSecondary} disabled={soBusy}>{soBusy ? "Loading…" : "Cancel"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Get-PO-price: is this PO from an SO? */}
+      {priceAskOpen && (
+        <div onClick={(e) => { e.stopPropagation(); setPriceAskOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(440px, 95vw)", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Get PO price</h3>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: 16 }}>Is this PO being created from a Sales Order?</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => { setPriceAskOpen(false); applyAwardAfterSO.current = true; setSoQuery(""); setSoPickOpen(true); }} style={btnPrimary}>Yes — pick the SO first</button>
+              <button onClick={() => { setPriceAskOpen(false); void openAwardDialog(); }} style={btnSecondary}>No — just awarded prices</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Awarded-RFQ picker. */}
+      {awardOpen && (
+        <div onClick={(e) => { e.stopPropagation(); setAwardOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>The newest awarded quote is pre-selected per style. Pick a different award if several exist; Apply stamps the awarded cost onto the matrix and sets the vendor.</div>
+            {[...new Set(awardQuotes.map((q) => q.style_code))].map((code) => {
+              const opts = awardQuotes.filter((q) => q.style_code === code);
+              return (
+                <div key={code} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{code}</div>
+                  {opts.map((q) => {
+                    const active = awardPick[code] === q.costing_line_id;
+                    return (
+                      <label key={q.costing_line_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", fontSize: 13 }}>
+                        <input type="radio" name={`award-${code}`} checked={active} onChange={() => setAwardPick((p) => ({ ...p, [code]: q.costing_line_id }))} />
+                        <span style={{ color: C.text }}>{q.vendor_name || "(vendor)"}</span>
+                        <span style={{ color: C.success, fontFamily: "monospace" }}>${q.quoted_cost != null ? q.quoted_cost.toFixed(2) : "—"} {q.currency}</span>
+                        <span style={{ color: C.textMuted, fontSize: 12 }}>awarded {q.awarded_at ? fmtDateDisplay(q.awarded_at.slice(0, 10)) : (q.quoted_date ? fmtDateDisplay(q.quoted_date) : "—")}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setAwardOpen(false)} style={btnSecondary}>Cancel</button>
+              <button onClick={applyAwards} style={btnPrimary}>Apply to matrix</button>
             </div>
           </div>
         </div>
