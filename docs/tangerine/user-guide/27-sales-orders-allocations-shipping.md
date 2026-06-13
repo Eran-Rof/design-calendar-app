@@ -68,6 +68,7 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 | Buyer | optional | `SearchableSelect` of the **buyers on the selected customer** (from Customer Master → Buyers). Records which buyer placed the order (`sales_orders.buyer_id`). Re-fetched when the customer changes; cleared if you switch customers. Disabled until a customer is picked. Validated server-side to belong to the order's customer. |
 | Ship-to location | optional | The customer's `customer_locations` (stores / DCs). Re-fetched when the customer changes. |
 | SO number | — | Read-only; shows "(assigned on confirm)". |
+| **Customer PO #** | **yes (to add styles)** | `sales_orders.customer_po` — the buyer's own purchase-order reference. **Required before you can add any styles**: the matrix's ➕ Add style / + Add non-matrix line buttons stay hidden, and a ⚠️ banner prompts for it, until this is filled. Free text. This is also the field the **🤖 Upload customer PO** AI flow fills in. |
 | Order date | yes | Defaults to today. |
 | Start Ship | optional | `requested_ship_date`. |
 | Cancel date | optional | |

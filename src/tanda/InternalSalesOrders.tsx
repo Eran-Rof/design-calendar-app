@@ -64,6 +64,7 @@ type SO = {
   cancel_date: string | null; status: string; payment_terms_id: string | null; ar_account_id: string | null;
   buyer_id?: string | null; buyer_name?: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
+  customer_po?: string | null;
   fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
@@ -249,6 +250,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [buyerId, setBuyerId] = useState(so?.buyer_id || "");
   const [buyers, setBuyers] = useState<{ id: string; name: string; title: string | null }[]>([]);
   const [notes, setNotes] = useState(so?.notes || "");
+  // Customer's PO number (their reference). Required before styles can be added.
+  const [customerPo, setCustomerPo] = useState(so?.customer_po || "");
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
   // few non-matrix flat lines. The body owns its state; we read it at save via
@@ -377,6 +380,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
         payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: resolvedLines,
+        customer_po: customerPo.trim() || null,
         fulfillment_source: fulfillmentSource || null,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
@@ -564,6 +568,20 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           <Field label="SO number"><input type="text" value={so?.so_number || ""} readOnly disabled placeholder="(assigned on confirm)" style={{ ...inputStyle, opacity: 0.6 }} /></Field>
         </div>
 
+        {/* Customer PO number — the buyer's reference. Required before styles can
+            be added (gates the matrix's Add buttons below). Also the field the
+            AI "Upload customer PO" flow fills in. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <Field label="Customer PO # *">
+            <input type="text" value={customerPo} onChange={(e) => setCustomerPo(e.target.value)} disabled={!editable}
+              style={{ ...inputStyle, borderColor: editable && !customerPo.trim() ? C.warn : (inputStyle.border as string) }}
+              placeholder="the customer's PO number" />
+            {editable && !customerPo.trim() && (
+              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required — enter the customer PO before adding styles.</div>
+            )}
+          </Field>
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           <Field label="Start Ship"><input type="date" value={reqShip} onChange={(e) => setReqShip(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
@@ -649,12 +667,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             (always shown, even on a confirmed SO). */}
 
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
-            (95% of styles) + a "+ Add non-matrix line" button for one-offs. */}
+            (95% of styles) + a "+ Add non-matrix line" button for one-offs.
+            The Add buttons stay hidden until a Customer PO # is entered. */}
+        {editable && !customerPo.trim() && (
+          <div style={{ marginBottom: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12 }}>
+            ⚠️ Enter the <strong>Customer PO #</strong> above to start adding styles.
+          </div>
+        )}
         <div style={{ marginBottom: 12 }}>
           <LineMatrixBody
             ref={bodyRef}
             editable={editable}
-            canAdd={editable || canAddStyles}
+            canAdd={(editable || canAddStyles) && !!customerPo.trim()}
             onRequestEdit={() => { if (!editable) setAddMode(true); }}
             items={items}
             seed={seed}
