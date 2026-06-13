@@ -23,6 +23,7 @@ export type ModuleKey =
   | "part_master"
   | "service_item_master"
   | "part_inventory"
+  | "mfg_bom"
   | "rma_reason_master"
   | "adjustment_type_master"
   | "adjustment_reason_master"
@@ -327,6 +328,7 @@ export const MODULES: ModuleDef[] = [
   { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Inventory" },
   // Manufacturing — parts inventory + (later) BOM + build orders.
   { key: "part_inventory",    label: "Part Inventory",    emoji: "🧩", group: "Manufacturing" },
+  { key: "mfg_bom",           label: "Bill of Materials", emoji: "📋", group: "Manufacturing" },
   // P7-9: M47 Customer Service / Cases panel.
   { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
   // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by

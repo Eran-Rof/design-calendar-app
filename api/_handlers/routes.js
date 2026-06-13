@@ -310,6 +310,8 @@ import r_internal_marketplace_inquire from "./internal/marketplace/inquire.js";
 import r_internal_marketplace_inquiries from "./internal/marketplace/inquiries.js";
 import r_internal_messages_inbox from "./internal/messages/inbox.js";
 import r_internal_messages_unread_count from "./internal/messages/unread-count.js";
+import r_internal_mfg_boms_id from "./internal/mfg-boms/[id].js";
+import r_internal_mfg_boms_index from "./internal/mfg-boms/index.js";
 import r_internal_notification_preferences_index from "./internal/notification-preferences/index.js";
 import r_internal_notifications_index from "./internal/notifications/index.js";
 import r_internal_notifications_mark_read from "./internal/notifications/mark-read.js";
@@ -1060,6 +1062,7 @@ export const ROUTES = [
   { pattern: "/api/internal/carriers/:id", handler: r_internal_carriers_id },
   { pattern: "/api/internal/disputes/:id", handler: r_internal_disputes_id_index },
   { pattern: "/api/internal/insights/:id", handler: r_internal_insights_id },
+  { pattern: "/api/internal/mfg-boms/:id", handler: r_internal_mfg_boms_id },
   { pattern: "/api/internal/payments/:id", handler: r_internal_payments_id_index },
   { pattern: "/api/vendor/workspaces/:id", handler: r_vendor_workspaces_id_index },
   { pattern: "/api/internal/factors/:id", handler: r_internal_factors_id },
@@ -1247,6 +1250,7 @@ export const ROUTES = [
   { pattern: "/api/internal/disputes", handler: r_internal_disputes_index },
   { pattern: "/api/internal/entities", handler: r_internal_entities_index },
   { pattern: "/api/internal/insights", handler: r_internal_insights_index },
+  { pattern: "/api/internal/mfg-boms", handler: r_internal_mfg_boms_index },
   { pattern: "/api/internal/payments", handler: r_internal_payments_index },
   { pattern: "/api/shopify/inventory", handler: r_shopify_inventory },
   { pattern: "/api/vendor/compliance", handler: r_vendor_compliance_index },

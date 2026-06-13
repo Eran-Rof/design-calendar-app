@@ -356,6 +356,9 @@ export default [
   ["/api/internal/part-adjustments/:id"                       , "./internal/part-adjustments/[id].js"],
   ["/api/internal/part-adjustments"                           , "./internal/part-adjustments/index.js"],
   ["/api/internal/part-inventory"                             , "./internal/part-inventory/index.js"],
+  // Manufacturing module (M3) — Bill of Materials.
+  ["/api/internal/mfg-boms/:id"                               , "./internal/mfg-boms/[id].js"],
+  ["/api/internal/mfg-boms"                                   , "./internal/mfg-boms/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],

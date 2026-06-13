@@ -10,7 +10,7 @@ This chapter grows as the module ships in phases. The current state:
 |---|---|---|
 | **M1 — Masters** | Part Master + Service Item Master | ✅ Shipped |
 | M2 — Part inventory | Parts get their own FIFO stock + GL; on-hand view + adjustments | ✅ Shipped |
-| M3 — BOM | Per-style recipe of parts + services + consumed styles | ⬜ |
+| M3 — BOM | Per-style recipe of parts + services + consumed styles | ✅ Shipped |
 | M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ⬜ |
 | M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ⬜ |
 | M6 — Reports | WIP aging, build-cost variance, parts valuation | ⬜ |
@@ -40,3 +40,17 @@ Parts now hold real stock in their **own FIFO pool**, completely separate from f
   - Every adjustment is posted to the general ledger immediately and is immutable; correct a mistake with an opposing adjustment.
 
 Behind the scenes parts use a dedicated FIFO engine (`part_inventory_layers` + `part_fifo_consume`) and a new control account **1360 Inventory – Parts** (subledger by part), mirroring the finished-goods FIFO engine but kept entirely separate. How parts are *purchased* (a vendor bill / PO that stocks parts) is wired up alongside the build-order work in a later chunk; today, opening balances and corrections seed and maintain part stock.
+
+## M3 — bill of materials (shipped)
+
+A **BOM** is the recipe for assembling a finished style. Find it under **Manufacturing → Bill of Materials** (`/tangerine?m=mfg_bom`).
+
+- **+ New BOM** — pick the **finished style** to build (type to search your styles), set a **version** and **status** (draft / active / archived), optionally a **default conversion vendor** (the factory) and notes.
+- **Components** — add a row per component. Each row picks a **kind**, then the item:
+  - **Part** — a `part_master` component (blank tee, label, trim, packaging) consumed from part inventory.
+  - **Service** — a `service_item_master` charge (print, sew, pack) billed by the factory.
+  - **Finished style** — an existing finished style consumed into the build (e.g. a base jean → its `PL` packed/labeled variant).
+  - Set **Qty/unit** (how much of the component goes into one finished unit), an optional **Scrap %**, and a **Cost** basis (Actual/FIFO is the default).
+- **One active version per finished style** — saving a second BOM as *active* for the same style is rejected; archive the old one or bump the version. Drafts and archives can coexist.
+
+A BOM is just the recipe — nothing is consumed or costed until you run a **build order** against it (M4). The two example flows (printed tee = blank-tee part + print service; PL jean = base style + labels part + sew/pack services) are both modeled as a single BOM each.
