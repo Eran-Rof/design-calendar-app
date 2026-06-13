@@ -152,6 +152,17 @@ A short read and a **⚠️ flag** on any size that looks stockout-suppressed (l
 because it sold out, not because demand was low) round it out. This is a
 **buy-planning guide** and isn't saved to the line (costing lines are color-grain).
 
+### ✨ Ask AI (analytics)
+
+The costing nav bar has an **✨ Ask AI** button that opens the suite's analytics
+assistant without leaving the module. Ask it natural-language questions about your
+sales, margins, styles and customers and it answers from the live database — e.g.
+*"which styles had a gross margin under 18% in the last 3 months?"*,
+*"show me my top 10 styles by trailing-3-month sales"*,
+*"compare last-year vs trailing-3-month sales for RYB0412"*, or
+*"which customers are buying less than they did last year?"*. Starter questions are
+shown on first open; click one or type your own.
+
 ### When a vendor revises a quote
 
 A vendor can reopen an already-submitted quote and resubmit revised figures. When
