@@ -25,6 +25,18 @@ const MAP: Record<string, string> = {
   wash: "#5b7a99", lightwash: "#9bb3c9", medwash: "#5e7e9e", medium: "#6e7e8e", darkwash: "#34506e", dark: "#3a3a3a", light: "#cfcfcf",
   glacier: "#a9c7d1", frost: "#cfe0e3", iceberg: "#9fbfa9", abyss: "#23303a", midnight: "#1a2238", eclipse: "#2a2a33",
   falcon: "#6a5d52", typhoon: "#4a5258", horizon: "#8aa0b0", americana: "#3b4a6b", vanish: "#2f4a66", rinse: "#2a3f5c",
+  // Squished abbreviations (no word boundary) seen in two-tone "A/B" colourways
+  // + short codes — added so combo halves + abbreviated colours resolve.
+  hthr: "#9aa0a8", chrclhthr: "#5a5f66", chrlhthr: "#5a5f66", hthrgry: "#9aa0a8", mhthrgry: "#9aa0a8",
+  mdhthrgry: "#9aa0a8", mdmgryhthr: "#9aa0a8", medhthr: "#9aa0a8", mdgry: "#8a8a8a", whtcapgrey: "#b0b0b0", whtcap: "#b0b0b0",
+  nv: "#000080", nvy: "#000080", wht: "#ffffff", owt: "#f5f4ef", olv: "#708238", lavndr: "#b9a0cf", lav: "#b9a0cf",
+  burg: "#6e2233", brgndy: "#6e2233", burgndy: "#6e2233", khk: "#c3b091", chrcl: "#36454f", blck: "#000000",
+  blk: "#000000", gry: "#808080", chrc: "#36454f", drk: "#3a3a3a",
+  salsa: "#b23b3b", egret: "#efece2", peony: "#e07ba0", orchid: "#a865b0", grapewine: "#5a2a4a", grapewinemanta: "#5a2a4a",
+  stormy: "#5a6470", icebrggreen: "#9fbfa9", icebergreen: "#9fbfa9", mnlssnight: "#1a2238", moonlssnights: "#1a2238",
+  moonlessnights: "#1a2238", clouddancer: "#eceae0", navalacademy: "#1f3a5f", blncdeblnc: "#f5f4ef", blancdeblanc: "#f5f4ef",
+  sangromni: "#7a2238", sangria: "#7a2238", tibetanred: "#b23b3b", discharge: "#8a8a8a", dkspring: "#2e5d3a",
+  dksprng: "#2e5d3a", forgetmenot: "#8aa0c8", spiral: "#b9a0cf", sparky: "#c8c8c8", spacedye: "#9aa0a8",
 };
 
 const norm = (s: string): string => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
