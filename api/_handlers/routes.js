@@ -177,6 +177,7 @@ import r_internal_costing_lines_line_id_quotes_quote_id from "./internal/costing
 import r_internal_costing_lines_line_id_quotes_index from "./internal/costing/lines/[line_id]/quotes/index.js";
 import r_internal_costing_lines_line_id_revise from "./internal/costing/lines/[line_id]/revise.js";
 import r_internal_costing_lines_line_id_select_quote from "./internal/costing/lines/[line_id]/select-quote.js";
+import r_internal_costing_lines_line_id_suggest from "./internal/costing/lines/[line_id]/suggest.js";
 import r_internal_costing_masters_freeform from "./internal/costing/masters/freeform.js";
 import r_internal_costing_projects_id_generate_rfqs from "./internal/costing/projects/[id]/generate-rfqs.js";
 import r_internal_costing_projects_id_index from "./internal/costing/projects/[id]/index.js";
@@ -662,6 +663,7 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/styles/:style_id/description", handler: r_internal_pim_styles_style_id_description_index },
   { pattern: "/api/internal/pim/styles/:style_id/attributes", handler: r_internal_pim_styles_style_id_attributes },
   { pattern: "/api/vendor/marketplace/inquiries/:id/respond", handler: r_vendor_marketplace_inquiries_id_respond },
+  { pattern: "/api/internal/costing/lines/:line_id/suggest", handler: r_internal_costing_lines_line_id_suggest },
   { pattern: "/api/internal/costing/lines/:line_id/quotes", handler: r_internal_costing_lines_line_id_quotes_index },
   { pattern: "/api/internal/costing/lines/:line_id/revise", handler: r_internal_costing_lines_line_id_revise },
   { pattern: "/api/internal/procurement/receipts/:id/post", handler: r_internal_procurement_receipts_post },

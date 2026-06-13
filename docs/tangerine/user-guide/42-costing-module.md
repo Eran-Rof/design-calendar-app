@@ -124,6 +124,23 @@ You'll be warned — with the option to **delete the incomplete rows and continu
 > reclaiming vertical space while you work the grid below. Your choice is
 > remembered per header across reloads.
 
+### ✨ AI cost suggestion (co-pilot)
+
+**Right-click any row** in the costing grid and choose **✨ AI cost suggestion**.
+A co-pilot reads everything you'd normally check by hand — the style's **last-year
+and trailing-3-month** sales (cost, sell price, margin), the book **avg cost**, and
+the real **purchase-order history** across every vendor — and recommends:
+
+- a **cost** (DDP *Target cost* on DDP projects, or *FOB cost* otherwise),
+- a **sell target**, and
+- the resulting **gross margin %**,
+
+each with a **confidence score**, a plain-English **rationale**, and the **signals**
+it used. Nothing is saved until you click **Apply** (apply a single value, or
+*Apply cost + sell* for both) — the numbers then flow through the normal line save,
+so margin recompute and any RFQ-revision prompts still fire. If a style has no
+sales or PO history, the co-pilot says so rather than guessing.
+
 ### When a vendor revises a quote
 
 A vendor can reopen an already-submitted quote and resubmit revised figures. When
