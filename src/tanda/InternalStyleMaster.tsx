@@ -2037,7 +2037,7 @@ function StyleCustomerNumbersSection({ styleId }: { styleId: string }) {
   }
   async function loadCustomers() {
     try {
-      const r = await fetch(`/api/internal/customers?limit=5000`);
+      const r = await fetch(`/api/internal/customer-master?limit=5000`);
       if (!r.ok) return;
       const data = await r.json();
       if (Array.isArray(data)) setCustomers(data as CustomerLite[]);
