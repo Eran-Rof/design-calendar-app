@@ -12,7 +12,7 @@ This chapter grows as the module ships in phases. The current state:
 | M2 — Part inventory | Parts get their own FIFO stock + GL; on-hand view + adjustments | ✅ Shipped |
 | M3 — BOM | Per-style recipe of parts + services + consumed styles | ✅ Shipped |
 | M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ✅ Shipped |
-| M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ⬜ |
+| M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ✅ Shipped |
 | M6 — Reports | WIP aging, build-cost variance, parts valuation | ⬜ |
 
 ## The two real-world flows this is built for
@@ -71,4 +71,19 @@ The build detail view shows a live **WIP rollup** — parts cost, consumed-style
 
 > The printed tee: release pulls the blank tee + the print service into the build; issue draws the blank tee into WIP at FIFO cost; capitalize the printer's charge into WIP; complete creates the printed-tee inventory at *blank cost + print charge*. The PL jean works the same way, additionally consuming the base finished style.
 
-**Coming in M5:** instead of completing the build manually, you'll **receive the finished good against a conversion PO** and that receipt completes the build automatically — plus purchasing parts onto a PO/vendor bill that stocks part inventory.
+## M5 — receive the finished good against a conversion PO (shipped)
+
+Instead of pressing **Complete** by hand, you can let **receiving** close the build — the flow the operator asked for ("a PO may be issued for the printed t-shirt… how is it received against the PO?").
+
+How it works:
+1. Run the build through **Release → Issue → capitalize services** (so WIP holds the full cost), exactly as in M4.
+2. Cut a **conversion / subcontract PO** (a native Purchase Order) for the finished style — e.g. the print job that returns printed tees — and **link it to the build** (the build's *conversion PO* field).
+3. When the finished goods arrive, **receive them against that PO** and post the receipt as normal.
+
+On posting, Tangerine detects the build link and **completes the build automatically**: it skips the ordinary goods-receipt path (no GRNI / landed-cost layer at the PO's nominal price) and instead moves the build's accumulated WIP into finished-goods inventory at the **real build cost** — `DR <style inventory> / CR 1305 WIP` plus the finished FIFO layer at `accumulated ÷ received qty`. The build flips to *completed*, the received quantity becomes the completed quantity, and the receipt is stamped with the finished layer.
+
+Guards: the build must be *issued* and **all service charges capitalized** first (otherwise the receipt is rejected with a clear message), so the finished cost is never understated.
+
+> So the printed-tee PO is received exactly like any other PO — but because it's a conversion PO tied to a build, the receipt's effect is "finish the build," valuing the printed tees at *blank-tee cost + print charge* rather than at the PO's headline price.
+
+**Not yet wired (follow-on):** purchasing **parts** onto a vendor bill / PO that stocks part inventory directly. Today parts are stocked via opening-balance/adjustments (Part Inventory → Adjust). The build flow itself is complete.
