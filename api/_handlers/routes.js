@@ -315,6 +315,9 @@ import r_internal_notifications_index from "./internal/notifications/index.js";
 import r_internal_notifications_mark_read from "./internal/notifications/mark-read.js";
 import r_internal_onboarding_vendor_id_index from "./internal/onboarding/[vendor_id]/index.js";
 import r_internal_onboarding_index from "./internal/onboarding/index.js";
+import r_internal_part_adjustments_id from "./internal/part-adjustments/[id].js";
+import r_internal_part_adjustments_index from "./internal/part-adjustments/index.js";
+import r_internal_part_inventory_index from "./internal/part-inventory/index.js";
 import r_internal_part_master_id from "./internal/part-master/[id].js";
 import r_internal_part_master_index from "./internal/part-master/index.js";
 import r_internal_payment_terms_id from "./internal/payment-terms/[id].js";
@@ -1005,6 +1008,7 @@ export const ROUTES = [
   { pattern: "/api/internal/approval-requests/:id", handler: r_internal_approval_requests_id },
   { pattern: "/api/internal/onboarding/:vendor_id", handler: r_internal_onboarding_vendor_id_index },
   { pattern: "/api/internal/adjustment-types/:id", handler: r_internal_adjustment_types_id },
+  { pattern: "/api/internal/part-adjustments/:id", handler: r_internal_part_adjustments_id },
   { pattern: "/api/internal/prepack-matrices/:id", handler: r_internal_prepack_matrices_id },
   { pattern: "/api/internal/price-list-items/:id", handler: r_internal_price_list_items_id },
   { pattern: "/api/internal/price-promotions/:id", handler: r_internal_price_promotions_id },
@@ -1114,6 +1118,7 @@ export const ROUTES = [
   { pattern: "/api/cron/ip-freshness-refresh", handler: r_cron_ip_freshness_refresh },
   { pattern: "/api/internal/adjustment-types", handler: r_internal_adjustment_types_index },
   { pattern: "/api/internal/income-statement", handler: r_internal_income_statement_index },
+  { pattern: "/api/internal/part-adjustments", handler: r_internal_part_adjustments_index },
   { pattern: "/api/internal/prepack-matrices", handler: r_internal_prepack_matrices_index },
   { pattern: "/api/internal/price-list-items", handler: r_internal_price_list_items_index },
   { pattern: "/api/internal/price-promotions", handler: r_internal_price_promotions_index },
@@ -1138,6 +1143,7 @@ export const ROUTES = [
   { pattern: "/api/cron/tpl-inventory-pull", handler: r_cron_tpl_inventory_pull },
   { pattern: "/api/internal/approval-rules", handler: r_internal_approval_rules_index },
   { pattern: "/api/internal/b2b-price-list", handler: r_internal_b2b_price_list_index },
+  { pattern: "/api/internal/part-inventory", handler: r_internal_part_inventory_index },
   { pattern: "/api/internal/sustainability", handler: r_internal_sustainability_index },
   { pattern: "/api/internal/vendor-invites", handler: r_internal_vendor_invites_index },
   { pattern: "/api/internal/workflow-rules", handler: r_internal_workflow_rules_index },

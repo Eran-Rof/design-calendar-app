@@ -9,7 +9,7 @@ This chapter grows as the module ships in phases. The current state:
 | Phase | What it adds | Status |
 |---|---|---|
 | **M1 — Masters** | Part Master + Service Item Master | ✅ Shipped |
-| M2 — Part inventory | Parts get their own FIFO stock (received via AP), with GL | ⬜ |
+| M2 — Part inventory | Parts get their own FIFO stock + GL; on-hand view + adjustments | ✅ Shipped |
 | M3 — BOM | Per-style recipe of parts + services + consumed styles | ⬜ |
 | M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ⬜ |
 | M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ⬜ |
@@ -28,3 +28,15 @@ Two new Master Data panels are the foundation; both are documented in [02-master
 - **🛠️ Service Item Master** (`/tangerine?m=service_item_master`) — outsourced conversion/labor charges, server-coded `SVC-NNNNN`, with a service kind, default vendor/charge, and a *Capitalize to WIP* switch that decides whether the charge rolls into the finished good's value or expenses directly.
 
 With the masters in place you can catalog every component and service. Building actual recipes and running builds arrives in M3–M5.
+
+## M2 — part inventory (shipped)
+
+Parts now hold real stock in their **own FIFO pool**, completely separate from finished-style inventory — they never appear in the Inventory Matrix or ATS.
+
+- **🧩 Part Inventory** (`/tangerine?m=part_inventory`, under **Manufacturing**) shows on-hand by part: quantity, average unit cost, total value, and layer count, with a running **Total parts value**. Export to xlsx.
+- **Adjust / opening balance** — the **+ Adjust** button (or per-row **Adjust**) opens a modal to change a part's on-hand:
+  - **Increase** (opening balance / found / correction-up) — enter a quantity and **unit cost**, pick a **counter account** (e.g. an opening-balance equity or found-income account). This creates a FIFO cost layer and posts **DR 1360 Inventory-Parts / CR** your counter account.
+  - **Decrease** (damage / shrinkage / write-off / correction-down) — enter a quantity and pick an **expense account**. This FIFO-consumes the oldest layers at their actual cost and posts **DR** expense **/ CR 1360 Inventory-Parts**.
+  - Every adjustment is posted to the general ledger immediately and is immutable; correct a mistake with an opposing adjustment.
+
+Behind the scenes parts use a dedicated FIFO engine (`part_inventory_layers` + `part_fifo_consume`) and a new control account **1360 Inventory – Parts** (subledger by part), mirroring the finished-goods FIFO engine but kept entirely separate. How parts are *purchased* (a vendor bill / PO that stocks parts) is wired up alongside the build-order work in a later chunk; today, opening balances and corrections seed and maintain part stock.

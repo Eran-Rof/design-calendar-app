@@ -22,6 +22,7 @@ export type ModuleKey =
   | "fabric_mill_master"
   | "part_master"
   | "service_item_master"
+  | "part_inventory"
   | "rma_reason_master"
   | "adjustment_type_master"
   | "adjustment_reason_master"
@@ -148,7 +149,7 @@ export type ModuleKey =
   // M15 — External / Partner API key admin.
   | "api_keys";
 
-export type GroupKey = "Master Data" | "EDI" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+export type GroupKey = "Master Data" | "EDI" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Manufacturing" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 export type ModuleDef = {
   key: ModuleKey;
@@ -175,7 +176,7 @@ export const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] 
   // Customs → Broker → 3-Way Match → Recon → Bookkeeper → EDI chain is visible.
   // 🚚 is distinct from 📦 (Inventory) and every other section emoji.
   { section: "Procurement", emoji: "🚚", groups: ["Procurement"] },
-  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
+  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Manufacturing", "Shadow Mirror"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
@@ -204,6 +205,7 @@ export const GROUP_ICON: Record<GroupKey, string> = {
   "ESG & Compliance": "🌱",
   "Workflow":         "⚙️",
   "Inventory":        "📦",
+  "Manufacturing":    "🛠️",
   "Customer Service": "🎧",
   "Shopify":          "🛍️",
   "Marketplaces":     "🛒",
@@ -323,6 +325,8 @@ export const MODULES: ModuleDef[] = [
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
   { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Inventory" },
+  // Manufacturing — parts inventory + (later) BOM + build orders.
+  { key: "part_inventory",    label: "Part Inventory",    emoji: "🧩", group: "Manufacturing" },
   // P7-9: M47 Customer Service / Cases panel.
   { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
   // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by

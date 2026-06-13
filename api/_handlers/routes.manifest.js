@@ -352,6 +352,10 @@ export default [
   ["/api/internal/part-master"                                , "./internal/part-master/index.js"],
   ["/api/internal/service-items/:id"                          , "./internal/service-items/[id].js"],
   ["/api/internal/service-items"                              , "./internal/service-items/index.js"],
+  // Manufacturing module (M2) — part FIFO inventory + adjustments.
+  ["/api/internal/part-adjustments/:id"                       , "./internal/part-adjustments/[id].js"],
+  ["/api/internal/part-adjustments"                           , "./internal/part-adjustments/index.js"],
+  ["/api/internal/part-inventory"                             , "./internal/part-inventory/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],

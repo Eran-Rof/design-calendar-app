@@ -183,6 +183,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/fabric-mills", label: "Fabric Mill Master",        app: "tanda", route: "/tangerine?m=fabric_mill_master", group: "Master Data", icon: "🏭" },
   { key: "tanda/master/part-master",  label: "Part Master",               app: "tanda", route: "/tangerine?m=part_master",       group: "Master Data", icon: "🧩" },
   { key: "tanda/master/service-items", label: "Service Item Master",      app: "tanda", route: "/tangerine?m=service_item_master", group: "Master Data", icon: "🛠️" },
+  { key: "tanda/mfg/part-inventory",  label: "Part Inventory",            app: "tanda", route: "/tangerine?m=part_inventory",    group: "Manufacturing", icon: "🧩" },
   { key: "tanda/master/carriers",     label: "Carrier Master",            app: "tanda", route: "/tangerine?m=carrier_master",     group: "Master Data", icon: "🚚" },
   { key: "tanda/master/buyer-scopes", label: "Buyer Scope Master",        app: "tanda", route: "/tangerine?m=buyer_scope_master", group: "Master Data", icon: "🛒" },
   // P18-F — internal B2B admin (buyers + wholesale price list).
