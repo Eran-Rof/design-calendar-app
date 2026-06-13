@@ -390,14 +390,17 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return list;
   }
   // Style → matrix size columns (cached per style id within this parse).
-  const sizeCache = useRef<Map<string, string[]>>(new Map());
-  async function fetchSizes(styleId: string): Promise<string[]> {
+  const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[] }>>(new Map());
+  async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[] }> {
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
     const p = r.ok ? await r.json() : null;
-    const sizes: string[] = Array.isArray(p?.sizes) ? p.sizes : [];
-    sizeCache.current.set(styleId, sizes);
-    return sizes;
+    const out = {
+      sizes: Array.isArray(p?.sizes) ? p.sizes : [],
+      colors: Array.isArray(p?.colors) ? p.colors : [],
+    };
+    sizeCache.current.set(styleId, out);
+    return out;
   }
   function pickFile(file: File) {
     setPoFileName(file.name);
@@ -465,7 +468,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     }
 
     sizeCache.current.clear();
-    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchSizes);
+    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix);
     if (sections.length) {
       // Reset the seed so the body re-seeds with the prefilled grids.
       setSeedKey((k) => k + 1);
@@ -497,7 +500,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         resolved.push({ line: roundedLine, chosen });
       }
       sizeCache.current.clear();
-      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchSizes);
+      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix);
       setSeedKey((k) => k + 1);
       setSeed({ sections, flat: [] });
       setPoReview((prev) => prev ? { ...prev, warnings, summary: [...prev.summary, "Rounded sizes up to full cartons"] } : prev);
