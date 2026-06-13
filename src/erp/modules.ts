@@ -25,6 +25,7 @@ export type ModuleKey =
   | "part_inventory"
   | "mfg_bom"
   | "mfg_build_orders"
+  | "mfg_reports"
   | "rma_reason_master"
   | "adjustment_type_master"
   | "adjustment_reason_master"
@@ -331,6 +332,7 @@ export const MODULES: ModuleDef[] = [
   { key: "part_inventory",    label: "Part Inventory",    emoji: "🧩", group: "Manufacturing" },
   { key: "mfg_bom",           label: "Bill of Materials", emoji: "📋", group: "Manufacturing" },
   { key: "mfg_build_orders",  label: "Build Orders",      emoji: "🛠️", group: "Manufacturing" },
+  { key: "mfg_reports",       label: "Mfg Reports",       emoji: "📊", group: "Manufacturing" },
   // P7-9: M47 Customer Service / Cases panel.
   { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
   // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by

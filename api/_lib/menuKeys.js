@@ -114,6 +114,7 @@ const KEYS = [
   "tanda/mfg/part-inventory",
   "tanda/mfg/boms",
   "tanda/mfg/build-orders",
+  "tanda/mfg/reports",
   "tanda/master/carriers",
   "tanda/master/buyer-scopes",
   // P18-F — internal B2B admin (buyers + wholesale price list).
