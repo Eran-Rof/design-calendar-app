@@ -152,6 +152,7 @@ import r_internal_cases_index from "./internal/cases/index.js";
 import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
 import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
+import r_internal_colors_id from "./internal/colors/[id].js";
 import r_internal_colors_index from "./internal/colors/index.js";
 import r_internal_commissions_accruals from "./internal/commissions/accruals.js";
 import r_internal_commissions_accrue from "./internal/commissions/accrue.js";
@@ -1052,6 +1053,7 @@ export const ROUTES = [
   { pattern: "/api/internal/vendors/:id", handler: r_internal_vendors_id_index },
   { pattern: "/api/vendor/contracts/:id", handler: r_vendor_contracts_id_index },
   { pattern: "/api/vendor/shipments/:id", handler: r_vendor_shipments_id },
+  { pattern: "/api/internal/colors/:id", handler: r_internal_colors_id },
   { pattern: "/api/vendor/api-keys/:id", handler: r_vendor_api_keys_id_index },
   { pattern: "/api/vendor/disputes/:id", handler: r_vendor_disputes_id_index },
   { pattern: "/api/vendor/invoices/:id", handler: r_vendor_invoices_id },
