@@ -35,7 +35,7 @@ async function resolveDefaultEntity(admin) {
 const PO_HEADER_COLS =
   "po_type, customer_id, po_prefix, vendor_contact, vendor_email, vendor_ref, factory_location, coo, " +
   "requested_delivery_date, ship_window_start, ship_window_end, port_date, acknowledged_date, cancel_date, " +
-  "ship_to_location_id, bill_to_entity_id, ship_method, freight_forwarder, season, channel_id, department_category_id";
+  "ship_to_location_id, bill_to_entity_id, ship_method, freight_forwarder, season, channel_id, department_category_id, sales_order_id";
 const SELECT_COLS =
   "id, entity_id, brand_id, vendor_id, po_number, order_date, expected_date, status, " +
   "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at, " + PO_HEADER_COLS;
@@ -73,6 +73,7 @@ export function normalizeHeader(body) {
     season: text("season"),
     channel_id: uuid("channel_id"),
     department_category_id: uuid("department_category_id"),
+    sales_order_id: uuid("sales_order_id"),
   };
 }
 
