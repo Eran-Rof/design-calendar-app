@@ -18,9 +18,15 @@ ALTER TABLE style_master
   ADD COLUMN IF NOT EXISTS units_per_carton integer,
   ADD COLUMN IF NOT EXISTS carton_cbm_m3    numeric(12,5);
 
-ALTER TABLE style_master
-  ADD CONSTRAINT style_master_units_per_carton_pos
-    CHECK (units_per_carton IS NULL OR units_per_carton > 0);
+-- Idempotent: the columns were applied to prod out-of-band (Management API),
+-- so `supabase db push` re-runs this file; guard the constraint add.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'style_master_units_per_carton_pos' AND conrelid = 'style_master'::regclass) THEN
+    ALTER TABLE style_master
+      ADD CONSTRAINT style_master_units_per_carton_pos
+        CHECK (units_per_carton IS NULL OR units_per_carton > 0);
+  END IF;
+END $$;
 
 COMMENT ON COLUMN style_master.unit_weight_kg   IS 'Weight of one unit, in kilograms (rolls up to PO total weight).';
 COMMENT ON COLUMN style_master.units_per_carton IS 'Units per master/shipping carton (rolls up to PO total cartons).';

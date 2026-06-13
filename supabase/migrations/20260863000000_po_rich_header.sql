@@ -34,11 +34,20 @@ ALTER TABLE purchase_orders
   ADD COLUMN IF NOT EXISTS channel_id            uuid REFERENCES channel_master(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS department_category_id uuid REFERENCES ip_category_master(id) ON DELETE SET NULL;
 
-ALTER TABLE purchase_orders
-  ADD CONSTRAINT purchase_orders_po_type_chk
-    CHECK (po_type IS NULL OR po_type IN ('stock','replenishment','made_to_order','sample','drop_ship')),
-  ADD CONSTRAINT purchase_orders_ship_method_chk
-    CHECK (ship_method IS NULL OR ship_method IN ('sea','air','ground'));
+-- Idempotent: columns added to prod out-of-band, so `supabase db push` re-runs
+-- this file; guard each constraint add.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'purchase_orders_po_type_chk' AND conrelid = 'purchase_orders'::regclass) THEN
+    ALTER TABLE purchase_orders
+      ADD CONSTRAINT purchase_orders_po_type_chk
+        CHECK (po_type IS NULL OR po_type IN ('stock','replenishment','made_to_order','sample','drop_ship'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'purchase_orders_ship_method_chk' AND conrelid = 'purchase_orders'::regclass) THEN
+    ALTER TABLE purchase_orders
+      ADD CONSTRAINT purchase_orders_ship_method_chk
+        CHECK (ship_method IS NULL OR ship_method IN ('sea','air','ground'));
+  END IF;
+END $$;
 
 COMMENT ON COLUMN purchase_orders.po_type IS 'stock / replenishment / made_to_order / sample / drop_ship';
 COMMENT ON COLUMN purchase_orders.customer_id IS 'Customer this PO is being bought for (drop-ship / made-to-order).';
