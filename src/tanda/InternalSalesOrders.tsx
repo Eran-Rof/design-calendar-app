@@ -459,7 +459,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         const pick = picks[(line.style_code || "").toLowerCase()] || "base";
         chosen = pick === "ppk" ? res.ppk : res.base;
       }
-      if (chosen) resolved.push({ line, chosen });
+      // res.line carries any style/color split out of a combined "STYLE-COLOR" code.
+      if (chosen) resolved.push({ line: res.line, chosen });
       else unmatched.push(`Style "${line.style_code || line.description || "?"}" — not found, add manually`);
     }
 
@@ -486,10 +487,12 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         const res = resolveLine(line, styles);
         const chosen = res.chosen || (res.ambiguous ? res.base : undefined);
         if (!chosen) continue;
+        // res.line carries any split-out style/color from a combined code.
+        const baseLine = res.line;
         // Round each per-size cell up to a full carton of 24 (non-PPK only).
-        const roundedLine: ParsedPoLine = res.ambiguous || !line.size_breakdown ? line : {
-          ...line,
-          size_breakdown: line.size_breakdown.map((sb) => ({ size: sb.size, qty: Math.ceil(Math.max(0, sb.qty) / 24) * 24 })),
+        const roundedLine: ParsedPoLine = res.ambiguous || !baseLine.size_breakdown ? baseLine : {
+          ...baseLine,
+          size_breakdown: baseLine.size_breakdown.map((sb) => ({ size: sb.size, qty: Math.ceil(Math.max(0, sb.qty) / 24) * 24 })),
         };
         resolved.push({ line: roundedLine, chosen });
       }

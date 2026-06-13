@@ -72,7 +72,8 @@ Rules:
 - customer_po_number = the customer's own PO number / order number for this order.
 - customer_name = the buyer / retailer placing the order (NOT our company).
 - payment_terms = the literal terms text if present (e.g. "Net 30", "Net 60", "2/10 Net 30"), else null.
-- For each ordered style return one line. style_code = the style number / item number as printed (often our style code like RYB0594, or RYB0594PPK for a prepack). color = the color/colorway if given. description = the product description.
+- For each ordered style return one line. style_code = the style number / item number ONLY (often our style code like RYB0594, or RYB0594PPK for a prepack). color = the color/colorway if given.
+- IMPORTANT: customer item codes often glue the style and color together, e.g. "RYB187810-OPEN SEA", "RYB0594/RED", "RYB0594 BLACK". In that case put ONLY the leading style number in style_code (e.g. "RYB187810") and the trailing color text in color (e.g. "OPEN SEA"). Do not return the combined string as style_code. description = the product description.
 - unit_price = the per-unit selling price as a plain number (strip $, commas).
 - total_qty = the total units ordered for that style+color across all sizes.
 - size_breakdown = the per-size quantities IF the PO lists a size run (e.g. S 12, M 24, L 24, XL 12). Use the size labels exactly as printed. If the PO gives only a single total with no size split, return null for size_breakdown (still fill total_qty).

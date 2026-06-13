@@ -67,20 +67,57 @@ export type LineResolution = {
   matched: boolean;     // at least one style matched
 };
 
+/**
+ * Split a combined "STYLE-COLOR" code (e.g. "RYB187810-OPEN SEA") into the
+ * longest style_code that is a real style + the trailing remainder as a color.
+ * The match must end on a separator boundary (-, _, /, space) so "RYB1878"
+ * doesn't wrongly match "RYB187810…". Returns null when nothing splits.
+ */
+function splitCombinedCode(raw: string, styles: StyleLite[]): { code: string; color: string | null } | null {
+  const up = raw.toUpperCase();
+  let best: StyleLite | null = null;
+  for (const s of styles) {
+    const sc = s.style_code.toUpperCase();
+    if (up.length > sc.length && up.startsWith(sc) && /[-_/\s]/.test(up.charAt(sc.length))) {
+      if (!best || sc.length > best.style_code.length) best = s;
+    }
+  }
+  if (!best) return null;
+  const color = raw.slice(best.style_code.length).replace(/^[-_/\s]+/, "").trim() || null;
+  return { code: best.style_code, color };
+}
+
 /** Resolve one parsed line to a style, detecting base-vs-PPK ambiguity. */
 export function resolveLine(line: ParsedPoLine, styles: StyleLite[]): LineResolution {
-  const code = (line.style_code || "").trim();
-  if (!code) return { line, ambiguous: false, matched: false };
+  const raw = (line.style_code || "").trim();
+  if (!raw) return { line, ambiguous: false, matched: false };
+
+  let code = raw;
+  let outLine = line;
+  // Direct match on the code as-is?
+  const baseRaw = baseStyleCode(raw).toUpperCase();
+  const directHit = styles.some((s) => baseStyleCode(s.style_code).toUpperCase() === baseRaw);
+  if (!directHit) {
+    // Try to peel a "STYLE-COLOR" combined code — the customer's PO often writes
+    // e.g. "RYB187810-OPEN SEA" as one token.
+    const split = splitCombinedCode(raw, styles);
+    if (split) {
+      code = split.code;
+      // Use the peeled color only when the line didn't already carry one.
+      outLine = { ...line, style_code: split.code, color: line.color || split.color };
+    }
+  }
+
   const baseC = baseStyleCode(code).toUpperCase();
   const sameBase = styles.filter((s) => baseStyleCode(s.style_code).toUpperCase() === baseC);
   const ppk = sameBase.find((s) => isPpkStyle(s.style_code));
   const base = sameBase.find((s) => !isPpkStyle(s.style_code));
   // The PO explicitly names a PPK style → use PPK, no question.
-  if (isPpkStyle(code) && ppk) return { line, base, ppk, chosen: ppk, ambiguous: false, matched: true };
+  if (isPpkStyle(code) && ppk) return { line: outLine, base, ppk, chosen: ppk, ambiguous: false, matched: true };
   // Both variants exist and the PO used the base form → ask the operator.
-  if (base && ppk) return { line, base, ppk, ambiguous: true, matched: true };
+  if (base && ppk) return { line: outLine, base, ppk, ambiguous: true, matched: true };
   const only = base || ppk;
-  return { line, base, ppk, chosen: only, ambiguous: false, matched: !!only };
+  return { line: outLine, base, ppk, chosen: only, ambiguous: false, matched: !!only };
 }
 
 // ── Resolved lines → matrix seed + warnings ──────────────────────────────────
