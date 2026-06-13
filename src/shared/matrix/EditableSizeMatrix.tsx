@@ -68,6 +68,18 @@ export type EditableSizeMatrixProps = {
      *  (plain, no grouping commas — callers parse the value with Number()). */
     forceDecimals?: number;
   };
+  /** Optional per-row quick-fill: a "Qty" column between the lead columns and
+   *  the first size. The operator types one TOTAL for the row and on Enter/Tab
+   *  the caller distributes it across the sizes (via the style's stored size
+   *  scale). Opt-in so the inventory-adjustment / transfer grids stay unchanged. */
+  quickFill?: {
+    /** Distribute `total` across this row's sizes. Caller owns the math + qty. */
+    onApply: (rowKey: string, total: number) => void;
+    /** Disable the input for a row that has no usable scale (tooltip explains). */
+    enabledFor?: (rowKey: string) => boolean;
+    /** Tooltip for a row whose scale is missing (when enabledFor returns false). */
+    disabledTitle?: string;
+  };
 };
 
 /** Cell-state key shared by callers (qty + on-hand maps). */
@@ -154,9 +166,45 @@ function QtyCell({
   );
 }
 
+/**
+ * Quick-fill "Qty" cell — the operator types one total for the row and on
+ * Enter/Tab the parent distributes it across the row's sizes via the style's
+ * stored size scale. Local string buffer (digits only); the typed value stays
+ * visible for reference (the row Total column shows the true distributed sum).
+ */
+function QuickFillCell({
+  rowKey, enabled, disabledTitle, onApply,
+}: {
+  rowKey: string;
+  enabled: boolean;
+  disabledTitle?: string;
+  onApply: (rowKey: string, total: number) => void;
+}) {
+  const [buf, setBuf] = React.useState("");
+  const apply = () => {
+    const n = Math.floor(Number(buf));
+    if (Number.isFinite(n) && n > 0) onApply(rowKey, n);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={buf}
+      disabled={!enabled}
+      onChange={(e) => { if (/^\d*$/.test(e.target.value)) setBuf(e.target.value); }}
+      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } }}
+      onBlur={apply}
+      placeholder={enabled ? "total" : "—"}
+      title={enabled ? "Type a total and press Enter/Tab to fill every size from this style's size scale (rounded up to full cartons)" : (disabledTitle || "No size scale set for this style")}
+      aria-label={`Quick-fill total ${rowKey}`}
+      style={{ ...cellInput, width: "7ch", borderColor: enabled ? C.primary : C.cardBdr, opacity: enabled ? 1 : 0.5, color: C.text }}
+    />
+  );
+}
+
 export function EditableSizeMatrix({
   rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit,
-  allowNegative = false,
+  allowNegative = false, quickFill,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
 
@@ -194,6 +242,7 @@ export function EditableSizeMatrix({
           <tr style={{ background: C.headerBg }}>
             <th style={{ ...thBase, textAlign: "left" }}>Color</th>
             {showRise && <th style={{ ...thBase, textAlign: "left" }}>{riseLabel}</th>}
+            {quickFill && <th style={{ ...thBase, textAlign: "center", minWidth: 64 }} title="Type a total here to auto-fill the sizes from the style's size scale">Qty</th>}
             {sizes.map((sz) => (
               <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 56 }}>{sz}</th>
             ))}
@@ -233,6 +282,16 @@ export function EditableSizeMatrix({
                 <td style={{ padding: "6px 12px", color: "#D1D5DB", borderRight: `1px solid ${C.rowBdr}` }}>{row.color || "—"}</td>
                 {showRise && (
                   <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>
+                )}
+                {quickFill && (
+                  <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                    <QuickFillCell
+                      rowKey={row.key}
+                      enabled={quickFill.enabledFor ? quickFill.enabledFor(row.key) : true}
+                      disabledTitle={quickFill.disabledTitle}
+                      onApply={quickFill.onApply}
+                    />
+                  </td>
                 )}
                 {sizes.map((sz) => {
                   const k = matrixCellKey(row.key, sz);
@@ -286,6 +345,7 @@ export function EditableSizeMatrix({
         <tfoot>
           <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
             <td colSpan={leadCols} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "left" }}>Grand Total</td>
+            {quickFill && <td />}
             {sizes.map((sz) => (
               <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: colTotals[sz] ? C.amber : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
                 {colTotals[sz] || "—"}
