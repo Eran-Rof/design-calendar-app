@@ -76,6 +76,14 @@ function isPpkStyle(styleCode) {
   return /PPK/i.test(String(styleCode ?? ""));
 }
 
+// Dedupe a list preserving first-seen order (drops falsy entries).
+function dedupeOrdered(list) {
+  const seen = new Set();
+  const out = [];
+  for (const v of list) { if (v && !seen.has(v)) { seen.add(v); out.push(v); } }
+  return out;
+}
+
 /**
  * Build the matrix payload for one style.
  *
@@ -94,7 +102,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   const explodePpk = opts.explodePpk === true;
   const { data: style } = await admin
     .from("style_master")
-    .select("id, style_code, style_name, description, size_scale_id, brand_id, gender_code")
+    .select("id, style_code, style_name, description, size_scale_id, brand_id, gender_code, attributes")
     .eq("id", styleId)
     .maybeSingle();
   if (!style) return null;
@@ -118,9 +126,32 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
     const seen = new Set();
     for (const s of skus) { const sz = normalizeSize(s.size); if (sz && !seen.has(sz)) { seen.add(sz); sizes.push(sz); } }
   }
-  const colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
-  const inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
+  let colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
+  let inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
   const rises = [...new Set(skus.map((s) => s.rise).filter(Boolean))];
+
+  // Declared colors / inseams from Style Master (style_master.attributes). These
+  // render as matrix rows even when no SKU exists yet — so a brand-new style and
+  // the AI "Upload customer PO" prefill have color (× inseam) rows to fill into.
+  // Declared values lead (operator's order); SKU-derived extras follow, deduped.
+  const attrs = style.attributes && typeof style.attributes === "object" ? style.attributes : {};
+  const declaredColorIds = Array.isArray(attrs.color_ids)
+    ? attrs.color_ids.filter((x) => typeof x === "string" && x)
+    : [];
+  if (declaredColorIds.length) {
+    const { data: cmRows } = await admin
+      .from("color_master")
+      .select("id, name")
+      .eq("entity_id", entityId)
+      .in("id", declaredColorIds);
+    const nameById = new Map((cmRows || []).map((r) => [r.id, r.name]));
+    const declaredNames = declaredColorIds.map((id) => nameById.get(id)).filter(Boolean);
+    colors = dedupeOrdered([...declaredNames, ...colors]);
+  }
+  const declaredInseams = Array.isArray(attrs.inseams)
+    ? attrs.inseams.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+  if (declaredInseams.length) inseams = dedupeOrdered([...declaredInseams, ...inseams]);
 
   // On-hand (Σ remaining_qty) + available (M18 view) + last-received per item.
   // Per-warehouse on-hand breakdown (additive, backward-compatible): the by-size

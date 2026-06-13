@@ -340,6 +340,7 @@ export default [
   ["/api/internal/size-scales"                               , "./internal/size-scales/index.js"],
   ["/api/internal/seasons/:id"                               , "./internal/seasons/[id].js"],
   ["/api/internal/seasons"                                   , "./internal/seasons/index.js"],
+  ["/api/internal/colors"                                    , "./internal/colors/index.js"],
   ["/api/internal/categories"                                , "./internal/categories/index.js"],
   ["/api/internal/fabric-mills/:id"                           , "./internal/fabric-mills/[id].js"],
   ["/api/internal/fabric-mills"                               , "./internal/fabric-mills/index.js"],

@@ -152,6 +152,7 @@ import r_internal_cases_index from "./internal/cases/index.js";
 import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
 import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
+import r_internal_colors_index from "./internal/colors/index.js";
 import r_internal_commissions_accruals from "./internal/commissions/accruals.js";
 import r_internal_commissions_accrue from "./internal/commissions/accrue.js";
 import r_internal_commissions_payouts from "./internal/commissions/payouts.js";
@@ -1240,6 +1241,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/scorecard", handler: r_vendor_scorecard },
   { pattern: "/api/vendor/shipments", handler: r_vendor_shipments },
   { pattern: "/api/internal/brands", handler: r_internal_brands_index },
+  { pattern: "/api/internal/colors", handler: r_internal_colors_index },
   { pattern: "/api/internal/search", handler: r_internal_search_index },
   { pattern: "/api/internal/states", handler: r_internal_states_index },
   { pattern: "/api/shopify/returns", handler: r_shopify_returns },
