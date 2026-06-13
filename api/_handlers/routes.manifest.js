@@ -356,6 +356,8 @@ export default [
   ["/api/internal/part-adjustments/:id"                       , "./internal/part-adjustments/[id].js"],
   ["/api/internal/part-adjustments"                           , "./internal/part-adjustments/index.js"],
   ["/api/internal/part-inventory"                             , "./internal/part-inventory/index.js"],
+  // Manufacturing module (M5b) — purchase parts onto a vendor bill.
+  ["/api/internal/part-purchases"                             , "./internal/part-purchases/index.js"],
   // Manufacturing module (M3) — Bill of Materials.
   ["/api/internal/mfg-boms/:id"                               , "./internal/mfg-boms/[id].js"],
   ["/api/internal/mfg-boms"                                   , "./internal/mfg-boms/index.js"],

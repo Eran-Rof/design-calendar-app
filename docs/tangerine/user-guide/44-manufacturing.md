@@ -86,7 +86,9 @@ Guards: the build must be *issued* and **all service charges capitalized** first
 
 > So the printed-tee PO is received exactly like any other PO — but because it's a conversion PO tied to a build, the receipt's effect is "finish the build," valuing the printed tees at *blank-tee cost + print charge* rather than at the PO's headline price.
 
-**Not yet wired (follow-on):** purchasing **parts** onto a vendor bill / PO that stocks part inventory directly. Today parts are stocked via opening-balance/adjustments (Part Inventory → Adjust). The build flow itself is complete.
+### Buying parts (shipped)
+
+Parts are stocked the proper way too — as a **vendor purchase**, not just opening-balance adjustments. In **Part Inventory**, **+ Receive purchase** (or **Buy** on a part row) opens a modal: pick the **part** and **vendor**, enter **quantity** and **unit cost**, optionally a bill number. On save it **creates a vendor bill and posts it** — `DR 1360 Inventory-Parts / CR Accounts Payable` — and stocks the part into its FIFO pool at the purchase cost. So the parts you'll consume in builds enter inventory at real purchase cost and leave a payable for the vendor, exactly like buying finished goods. (Built on the AP posting engine via a part line on the vendor bill.)
 
 ## M6 — manufacturing reports (shipped)
 

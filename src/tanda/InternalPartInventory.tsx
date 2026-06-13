@@ -45,12 +45,15 @@ export default function InternalPartInventory() {
   const [rows, setRows] = useState<OnHandRow[]>([]);
   const [parts, setParts] = useState<PartLite[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [includeZero, setIncludeZero] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustPart, setAdjustPart] = useState<string>("");
+  const [purchaseOpen, setPurchaseOpen] = useState(false);
+  const [purchasePart, setPurchasePart] = useState<string>("");
 
   const totalValue = useMemo(() => rows.reduce((s, r) => s + r.value_cents, 0), [rows]);
 
@@ -82,9 +85,15 @@ export default function InternalPartInventory() {
       if (r.ok) { const d = await r.json(); if (Array.isArray(d)) setAccounts(d as Account[]); }
     } catch { /* non-fatal */ }
   }
+  async function loadVendors() {
+    try {
+      const r = await fetch(`/api/internal/vendor-master?limit=5000`);
+      if (r.ok) { const d = await r.json(); if (Array.isArray(d)) setVendors(d as { id: string; name: string }[]); }
+    } catch { /* non-fatal */ }
+  }
 
   useEffect(() => { void load(); }, [includeZero]);
-  useEffect(() => { void loadParts(); void loadAccounts(); }, []);
+  useEffect(() => { void loadParts(); void loadAccounts(); void loadVendors(); }, []);
 
   return (
     <div style={{ color: C.text }}>
@@ -95,7 +104,10 @@ export default function InternalPartInventory() {
             On-hand parts in their own FIFO pool — separate from finished-style inventory. Adjust posts to GL (1360 Inventory-Parts).
           </p>
         </div>
-        <button onClick={() => { setAdjustPart(""); setAdjustOpen(true); }} style={btnPrimary}>+ Adjust / opening balance</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setPurchasePart(""); setPurchaseOpen(true); }} style={btnPrimary}>+ Receive purchase</button>
+          <button onClick={() => { setAdjustPart(""); setAdjustOpen(true); }} style={btnSecondary}>+ Adjust / opening balance</button>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -159,7 +171,8 @@ export default function InternalPartInventory() {
                   <td style={{ ...td, textAlign: "right" }}>{fmtMoney(r.value_cents)}</td>
                   <td style={{ ...td, textAlign: "right", color: C.textSub }}>{r.layer_count}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => { setAdjustPart(r.part_id); setAdjustOpen(true); }} style={btnSecondary}>Adjust</button>
+                    <button onClick={() => { setPurchasePart(r.part_id); setPurchaseOpen(true); }} style={btnSecondary}>Buy</button>
+                    <button onClick={() => { setAdjustPart(r.part_id); setAdjustOpen(true); }} style={{ ...btnSecondary, marginLeft: 6 }}>Adjust</button>
                   </td>
                 </tr>
               ))}
@@ -177,6 +190,77 @@ export default function InternalPartInventory() {
           onSaved={() => { setAdjustOpen(false); void load(); }}
         />
       )}
+      {purchaseOpen && (
+        <PurchaseModal
+          parts={parts}
+          vendors={vendors}
+          presetPartId={purchasePart}
+          onClose={() => setPurchaseOpen(false)}
+          onSaved={() => { setPurchaseOpen(false); void load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PurchaseModal({ parts, vendors, presetPartId, onClose, onSaved }: {
+  parts: PartLite[]; vendors: { id: string; name: string }[]; presetPartId: string;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const [partId, setPartId] = useState(presetPartId || "");
+  const [vendorId, setVendorId] = useState("");
+  const [qty, setQty] = useState("");
+  const [unitCost, setUnitCost] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const partOptions: SearchableSelectOption[] = useMemo(() => parts.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })), [parts]);
+  const vendorOptions: SearchableSelectOption[] = useMemo(() => vendors.map((v) => ({ value: v.id, label: v.name })), [vendors]);
+
+  async function submit() {
+    setSubmitting(true); setErr(null);
+    try {
+      const qtyNum = parseFloat(qty); const costNum = parseFloat(unitCost);
+      if (!partId) throw new Error("Pick a part");
+      if (!vendorId) throw new Error("Pick a vendor");
+      if (!Number.isFinite(qtyNum) || qtyNum <= 0) throw new Error("Enter a quantity");
+      if (!Number.isFinite(costNum) || costNum < 0) throw new Error("Enter a unit cost");
+      const r = await fetch(`/api/internal/part-purchases`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ part_id: partId, vendor_id: vendorId, qty: qtyNum, unit_cost_cents: Math.round(costNum * 100), invoice_number: invoiceNumber.trim() || undefined }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify("Part purchase posted — stock received.", "success");
+      onSaved();
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+        <h3 style={{ margin: "0 0 6px", fontSize: 18 }}>Receive part purchase</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: C.textMuted }}>Creates a vendor bill and stocks the part — posts DR 1360 Inventory-Parts / CR Accounts Payable.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Label>Part *</Label>
+            <SearchableSelect value={partId} onChange={setPartId} options={partOptions} placeholder="Pick a part…" />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Label>Vendor *</Label>
+            <SearchableSelect value={vendorId} onChange={setVendorId} options={vendorOptions} placeholder="Pick a vendor…" />
+          </div>
+          <div><Label>Quantity *</Label><input type="number" min="0" step="1" value={qty} onChange={(e) => setQty(e.target.value)} style={inputStyle} placeholder="0" autoFocus /></div>
+          <div><Label>Unit cost ($) *</Label><input type="number" min="0" step="0.0001" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} style={inputStyle} placeholder="0.00" /></div>
+          <div style={{ gridColumn: "1 / -1" }}><Label>Bill / invoice # (optional)</Label><input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} style={inputStyle} placeholder="auto-generated if blank" /></div>
+        </div>
+        {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>{err}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !partId || !vendorId}>{submitting ? "Posting…" : "Receive & post"}</button>
+        </div>
+      </div>
     </div>
   );
 }
