@@ -69,15 +69,19 @@ From the **AR Invoices** panel, click **+ New invoice**.
 Each line must resolve to a positive `line_total_cents`. There are two paths:
 
 1. **Quantity + unit price path** — supply `quantity` and `unit_price_cents` (UI: dollars). The DB trigger `ar_invoice_lines_compute_total_trg` computes `line_total_cents = quantity * unit_price_cents`.
-2. **Flat total path** — supply only `line_total_cents` (UI: "Or total $") when no per-unit breakdown applies (e.g. a flat service line). The trigger preserves the explicit value.
+2. **Flat total path** — supply only `line_total_cents` (UI: the **Amount $** column on a non-matrix line) when no per-unit breakdown applies (e.g. a flat service / freight line). The trigger preserves the explicit value.
 
 **Inventory contract:** if a line carries `inventory_item_id` (uuid into `ip_item_master`), it **must** use the quantity + unit price path. The unit price is the **selling price** (not the cost) — the COGS amount is derived at post time from the FIFO layer consumption (see next section). A line without `inventory_item_id` is treated as a service / non-inventory line and never generates a COGS entry.
 
 The trigger `ar_invoice_lines_maintain_total` rebuilds `ar_invoices.total_amount_cents` after every line insert / update / delete. The UI shows a running total under the lines table.
 
-### ☰ List / ▦ Matrix view
+### The line body is the size matrix (shared with Sales Orders)
 
-The Lines section of the invoice modal has a **☰ List / ▦ Matrix** toggle. **List** is the editable default (add/edit lines, pick the style, set qty and price). **Matrix** is a read-only **color × size grid** of the invoice's inventory lines (rows = color, columns = size, with row/column totals) — handy for verifying the size breakdown of a wholesale invoice. Each line stores only an item id; the matrix resolves those ids to the SKU's color/size. Flat-amount / service lines and items with no color/size appear in a **"Non-matrix lines"** list beneath the grid.
+The invoice line body is the **same editable size-matrix body the Sales Order modal uses** (`LineMatrixBody`, `mode="ar"`), open by default:
+- **➕ Add style (matrix)** — pick a style → fill its color × size grid inline, with a per-row **Unit $**; new pickers insert on top.
+- **+ Add non-matrix line** — a flat row that doubles as an **amount-only charge** (freight / fees / discounts): enter a **Description** + **Amount $** with no SKU, or a SKU + Qty + Unit $.
+- **Revenue routing:** inventory/style (matrix) lines route revenue **server-side** (header → customer → entity default); added flat lines default server-side too but expose an optional per-line **Revenue acct** override.
+- Save / Close sit in a **frozen footer**. (The old ☰ List / ▦ Matrix read-only toggle and the per-line price-suggest were removed in favour of this unified editable body.)
 
 ## Posting — Approval gate + FIFO consume
 

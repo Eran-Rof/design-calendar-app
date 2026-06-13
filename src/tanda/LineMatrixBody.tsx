@@ -40,8 +40,8 @@ type MatrixSku = { id: string; color: string | null; size: string | null; inseam
 type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
 
-export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string };
-export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number };
+export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
+export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null };
 export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[] };
 export interface LineMatrixBodyHandle { resolve: () => Promise<ResolvedLine[]> }
 
@@ -57,6 +57,10 @@ export interface LineMatrixBodyProps {
   mode?: "so" | "po" | "ar";
   editable: boolean;
   items: FlatItem[];                         // 500-item list for the non-matrix picker
+  /** AR only — postable revenue/offset accounts for the per-flat-line revenue
+   *  picker. SKU/matrix lines route revenue server-side; flat lines default to
+   *  server-side (blank) but the operator may override here. */
+  revenueAccounts?: { value: string; label: string }[];
   seed?: { sections: SeedSection[]; flat: FlatLine[] } | null;
   /** Show the faint on-hand number above each size cell. Off for Production
    *  fulfillment (the order is being made, not shipped from stock). Default true. */
@@ -80,7 +84,7 @@ export type BodyTotals = { qty: number; cents: number; costCents: number; margin
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -189,10 +193,16 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       }
     }
     for (const l of flat) {
-      const q = Number(l.qty_ordered) || 0; if (!(q > 0)) continue;
-      const unit = Math.round((Number(l.unit_price_dollars) || 0) * 100);
-      qty += q; cents += Math.round(q * unit);
-      costCents += Math.round(q * unit * (1 - MARGIN_FALLBACK)); // flat lines have no matrix cost source
+      const q = Number(l.qty_ordered) || 0;
+      if (q > 0) {
+        const unit = Math.round((Number(l.unit_price_dollars) || 0) * 100);
+        qty += q; cents += Math.round(q * unit);
+        costCents += Math.round(q * unit * (1 - MARGIN_FALLBACK)); // flat lines have no matrix cost source
+      } else if (mode === "ar") {
+        // AR amount-only line (freight / fees / discounts): add its amount to the total.
+        const totalStr = (l.line_total_dollars || "").replace(/,/g, "").trim();
+        if (totalStr !== "") { const t = Math.round((Number(totalStr) || 0) * 100); cents += t; costCents += Math.round(t * (1 - MARGIN_FALLBACK)); }
+      }
     }
     const marginPct = cents > 0 ? ((cents - costCents) / cents) * 100 : 0;
     return { qty, cents, costCents, marginPct, marginEstimated: realCostCells === 0 };
@@ -258,7 +268,25 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       }
       for (const l of flat) {
         const q = Number(l.qty_ordered) || 0;
-        if (q > 0 && l.inventory_item_id) lines.push({ inventory_item_id: l.inventory_item_id, qty_ordered: q, unit_price_cents: Math.round((Number(l.unit_price_dollars) || 0) * 100) });
+        const unitCents = Math.round((Number(l.unit_price_dollars) || 0) * 100);
+        if (mode === "ar") {
+          // AR flat line: a SKU line (item + qty + unit) OR an amount-only line
+          // (description + amount, no SKU — freight / fees / discounts).
+          const totalStr = (l.line_total_dollars || "").replace(/,/g, "").trim();
+          const totalCents = totalStr !== "" ? Math.round((Number(totalStr) || 0) * 100) : null;
+          const hasSku = !!l.inventory_item_id && q > 0;
+          if (!hasSku && totalCents == null) continue;
+          lines.push({
+            inventory_item_id: l.inventory_item_id || null,
+            qty_ordered: hasSku ? q : 0,
+            unit_price_cents: hasSku ? unitCents : 0,
+            description: l.description?.trim() || null,
+            line_total_cents: !hasSku && totalCents != null ? totalCents : undefined,
+            revenue_account_id: l.revenue_account_id || null,
+          });
+          continue;
+        }
+        if (q > 0 && l.inventory_item_id) lines.push({ inventory_item_id: l.inventory_item_id, qty_ordered: q, unit_price_cents: unitCents });
       }
       return lines;
     },
@@ -305,24 +333,52 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         </div>
       )}
 
-      {/* Non-matrix flat lines (the ~5%) — rendered ABOVE the matrix sections so
-          a newly-added line lands on top of existing data, like a new style. */}
+      {/* Non-matrix flat lines — rendered ABOVE the matrix sections so a newly-
+          added line lands on top of existing data, like a new style. In AR mode
+          these double as amount-only charge lines (freight / fees / discounts),
+          with an optional per-line revenue account. */}
       {flat.length > 0 && (
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /><col style={{ width: 36 }} /></colgroup>
-            <thead><tr><th style={th}>#</th><th style={th}>Non-matrix SKU</th><th style={th}>Qty</th><th style={th}>{moneyLabel}</th><th style={th}></th></tr></thead>
-            <tbody>
-              {flat.map((l, idx) => (
-                <tr key={l.key}>
-                  <td style={td}>{idx + 1}</td>
-                  <td style={td}><SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateFlat(idx, { inventory_item_id: v })} options={flatOptions} placeholder="(pick SKU…)" disabled={!editable} /></td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateFlat(idx, { qty_ordered: e.target.value })} disabled={!editable} placeholder="0" style={numInput} /></td>
-                  <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateFlat(idx, { unit_price_dollars: e.target.value })} onBlur={() => { const n = Number((l.unit_price_dollars || "").replace(/,/g, "")); if (l.unit_price_dollars.trim() !== "" && Number.isFinite(n)) updateFlat(idx, { unit_price_dollars: n.toFixed(2) }); }} disabled={!editable} placeholder="0.00" style={numInput} /></td>
-                  <td style={td}>{editable && <button type="button" onClick={() => removeFlat(idx)} style={btnDanger}>✕</button>}</td>
-                </tr>
-              ))}
-            </tbody>
+            {mode === "ar" ? (
+              <>
+                <colgroup><col style={{ width: 28 }} /><col /><col style={{ width: 150 }} /><col style={{ width: 60 }} /><col style={{ width: 84 }} /><col style={{ width: 90 }} /><col /><col style={{ width: 30 }} /></colgroup>
+                <thead><tr><th style={th}>#</th><th style={th}>Description</th><th style={th}>SKU (optional)</th><th style={th}>Qty</th><th style={th}>Unit $</th><th style={th}>Amount $</th><th style={th}>Revenue acct</th><th style={th}></th></tr></thead>
+                <tbody>
+                  {flat.map((l, idx) => {
+                    const hasSku = !!l.inventory_item_id && Number(l.qty_ordered) > 0;
+                    return (
+                      <tr key={l.key}>
+                        <td style={td}>{idx + 1}</td>
+                        <td style={td}><input type="text" value={l.description ?? ""} onChange={(e) => updateFlat(idx, { description: e.target.value })} disabled={!editable} placeholder="(freight / fee / item)" style={{ ...numInput, textAlign: "left" }} /></td>
+                        <td style={td}><SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateFlat(idx, { inventory_item_id: v || "" })} options={flatOptions} placeholder="(none)" disabled={!editable} /></td>
+                        <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateFlat(idx, { qty_ordered: e.target.value })} disabled={!editable} placeholder="0" style={numInput} /></td>
+                        <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateFlat(idx, { unit_price_dollars: e.target.value })} onBlur={() => { const n = Number((l.unit_price_dollars || "").replace(/,/g, "")); if (l.unit_price_dollars.trim() !== "" && Number.isFinite(n)) updateFlat(idx, { unit_price_dollars: n.toFixed(2) }); }} disabled={!editable} placeholder="0.00" style={numInput} /></td>
+                        <td style={td}><input type="text" inputMode="decimal" value={l.line_total_dollars ?? ""} onChange={(e) => updateFlat(idx, { line_total_dollars: e.target.value })} onBlur={() => { const s = (l.line_total_dollars || "").replace(/,/g, ""); const n = Number(s); if (s.trim() !== "" && Number.isFinite(n)) updateFlat(idx, { line_total_dollars: n.toFixed(2) }); }} disabled={!editable || hasSku} placeholder="amount" title="Amount-only line (no SKU): freight, fees, discounts" style={numInput} /></td>
+                        <td style={td}><SearchableSelect value={l.revenue_account_id || null} onChange={(v) => updateFlat(idx, { revenue_account_id: v || "" })} options={[{ value: "", label: "(server default)" }, ...(revenueAccounts || [])]} placeholder="(server default)" disabled={!editable} /></td>
+                        <td style={td}>{editable && <button type="button" onClick={() => removeFlat(idx)} style={btnDanger}>✕</button>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </>
+            ) : (
+              <>
+                <colgroup><col style={{ width: 36 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /><col style={{ width: 36 }} /></colgroup>
+                <thead><tr><th style={th}>#</th><th style={th}>Non-matrix SKU</th><th style={th}>Qty</th><th style={th}>{moneyLabel}</th><th style={th}></th></tr></thead>
+                <tbody>
+                  {flat.map((l, idx) => (
+                    <tr key={l.key}>
+                      <td style={td}>{idx + 1}</td>
+                      <td style={td}><SearchableSelect value={l.inventory_item_id || null} onChange={(v) => updateFlat(idx, { inventory_item_id: v })} options={flatOptions} placeholder="(pick SKU…)" disabled={!editable} /></td>
+                      <td style={td}><input type="text" inputMode="decimal" value={l.qty_ordered} onChange={(e) => updateFlat(idx, { qty_ordered: e.target.value })} disabled={!editable} placeholder="0" style={numInput} /></td>
+                      <td style={td}><input type="text" inputMode="decimal" value={l.unit_price_dollars} onChange={(e) => updateFlat(idx, { unit_price_dollars: e.target.value })} onBlur={() => { const n = Number((l.unit_price_dollars || "").replace(/,/g, "")); if (l.unit_price_dollars.trim() !== "" && Number.isFinite(n)) updateFlat(idx, { unit_price_dollars: n.toFixed(2) }); }} disabled={!editable} placeholder="0.00" style={numInput} /></td>
+                      <td style={td}>{editable && <button type="button" onClick={() => removeFlat(idx)} style={btnDanger}>✕</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </>
+            )}
           </table>
         </div>
       )}

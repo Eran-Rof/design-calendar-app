@@ -1,11 +1,11 @@
-﻿// src/tanda/InternalARInvoices.tsx
+// src/tanda/InternalARInvoices.tsx
 //
 // Tangerine P4 Chunk 4 — Accounts Receivable invoice admin UI.
 // Lists invoices with status/customer/date/search filters. Add/Edit modal
 // supports customer dropdown, GL account overrides, and inventory or
 // flat-amount lines. Post / Void actions wired to dedicated handlers.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
@@ -24,9 +24,7 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
-import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
-import { useItemResolver } from "./hooks/useItemResolver";
-import LineViewToggle from "./components/LineViewToggle";
+import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
 import { readDrillParam } from "./scorecardDrill";
 
 // Universal column-visibility registry for this panel (operator ask #1).
@@ -606,43 +604,14 @@ function ARInvoiceModal({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [items, setItems] = useState<ARItem[]>([]); // inventory items for the line picker
   const [paymentTerms, setPaymentTerms] = useState<{ id: string; code: string; name: string }[]>([]);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { key: 1, description: "", inventory_item_id: "", quantity: "", unit_price_dollars: "", line_total_dollars: "", revenue_account_id: "" },
-  ]);
+  // Line body is the shared size matrix (mode="ar" → editable, amount-only flat
+  // lines for freight/fees, per-line revenue override).
+  const bodyRef = useRef<LineMatrixBodyHandle>(null);
+  const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
   const [loading, setLoading] = useState(!isNew);
   const [stagedDocs, setStagedDocs] = useState<File[]>([]); // attached before save (new invoice)
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // ▦ Matrix / ☰ List toggle for the lines section.
-  const [lineView, setLineView] = useState<"list" | "matrix">("list");
-
-  // Resolve each line's inventory_item_id → {color,size} for the matrix view.
-  // Defer the fetch until the operator actually opens the matrix.
-  const lineItemIds = useMemo(
-    () => lines.map((l) => l.inventory_item_id).filter(Boolean) as string[],
-    [lines],
-  );
-  const { itemMap: resolvedItems } = useItemResolver(lineItemIds, lineView === "matrix");
-  // Merge the modal's loaded `items` list as a fallback resolver source.
-  const matrixData = useMemo(() => {
-    const itemLookup = new Map<string, ARItem>();
-    for (const it of items) itemLookup.set(it.id, it);
-    const matrixEntries: MatrixEntry[] = [];
-    const fallback: { label: string; qty: number }[] = [];
-    for (const l of lines) {
-      const qty = Number(l.quantity) || 0;
-      const resolved = l.inventory_item_id
-        ? (resolvedItems.get(l.inventory_item_id) || itemLookup.get(l.inventory_item_id))
-        : undefined;
-      if (resolved && resolved.color && resolved.size) {
-        matrixEntries.push({ color: resolved.color, size: resolved.size, qty });
-      } else {
-        const sku = resolved?.sku_code;
-        fallback.push({ label: sku || l.description || "(flat-amount line)", qty });
-      }
-    }
-    return { matrixEntries, fallback };
-  }, [lines, resolvedItems, items]);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=1000")
@@ -694,16 +663,20 @@ function ARInvoiceModal({
         const full = await r.json() as ARInvoiceFull;
         if (cancelled) return;
         if (full.lines?.length > 0) {
-          const ll = full.lines.map((l, i) => ({
+          // Seed the matrix body. AR detail lines aren't decorated with
+          // style/color/size, so existing lines seed as flat rows (still fully
+          // editable, incl. amount-only + per-line revenue).
+          const flat: FlatLine[] = full.lines.map((l, i) => ({
             key: i + 1,
-            description: l.description || "",
             inventory_item_id: l.inventory_item_id || "",
-            quantity: l.quantity != null ? String(l.quantity) : "",
+            qty_ordered: l.quantity != null ? String(l.quantity) : "",
             unit_price_dollars: l.unit_price_cents ? centsToDollarsStr(l.unit_price_cents) : "",
             line_total_dollars: !l.unit_price_cents && l.line_total_cents ? centsToDollarsStr(l.line_total_cents) : "",
+            description: l.description || "",
             revenue_account_id: l.revenue_account_id || "",
+            label: l.inventory_item_id ? (l.description || "(saved item)") : undefined,
           }));
-          setLines(ll);
+          setSeed({ sections: [], flat });
         }
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
@@ -732,77 +705,25 @@ function ARInvoiceModal({
     return () => { cancelled = true; };
   }, [paymentTermsId, invoiceDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function addLine() {
-    setLines((ll) => [...ll, {
-      key: (ll[ll.length - 1]?.key || 0) + 1,
-      description: "", inventory_item_id: "", quantity: "",
-      unit_price_dollars: "", line_total_dollars: "", revenue_account_id: "",
-    }]);
-  }
-  function updateLine(idx: number, patch: Partial<DraftLine>) {
-    setLines((ll) => ll.map((l, i) => i === idx ? { ...l, ...patch } : l));
-  }
-  function removeLine(idx: number) {
-    if (lines.length <= 1) return;
-    setLines((ll) => ll.filter((_, i) => i !== idx));
-  }
-
-  // M43 — suggest a unit price from the Pricing Engine for the line's SKU +
-  // this invoice's customer + qty. Prefills only when the unit-price box is empty
-  // (manual entries/edits preserved); `force` overwrites (the ↻ button). The
-  // engine prices at style level; the resolve endpoint maps the SKU → style.
-  const [priceSrc, setPriceSrc] = useState<Record<number, string>>({});
-  async function suggestPrice(lineKey: number, itemId: string, qtyStr: string, force: boolean) {
-    if (!itemId || !customerId) return;
-    try {
-      const p = new URLSearchParams({ customer_id: customerId, item_id: itemId });
-      const qn = Number(qtyStr); if (Number.isFinite(qn) && qn > 0) p.set("qty", String(qn));
-      const r = await fetch(`/api/internal/pricing/resolve?${p.toString()}`);
-      if (!r.ok) return;
-      const j = await r.json();
-      if (j?.price_cents == null) { if (force) notify("No price found for this style/customer.", "info"); return; }
-      const dollars = centsToDollarsStr(j.price_cents);
-      setLines((prev) => prev.map((l) => l.key === lineKey ? (force || !l.unit_price_dollars ? { ...l, unit_price_dollars: dollars } : l) : l));
-      if (j.source_list_code) setPriceSrc((m) => ({ ...m, [lineKey]: j.source_list_code }));
-    } catch { /* non-fatal — operator can type the price */ }
-  }
-
-  const totalCents = useMemo(() => {
-    let total = 0n;
-    for (const l of lines) {
-      if (l.unit_price_dollars && l.quantity) {
-        const up = dollarsToCentsBigInt(l.unit_price_dollars);
-        const qty = Number(l.quantity);
-        if (up != null && Number.isFinite(qty) && qty > 0) {
-          total += up * BigInt(Math.round(qty));
-        }
-      } else if (l.line_total_dollars) {
-        const t = dollarsToCentsBigInt(l.line_total_dollars);
-        if (t != null) total += t;
-      }
-    }
-    return total;
-  }, [lines]);
-
   async function submit() {
     setSubmitting(true);
     setErr(null);
     try {
-      const apiLines = lines.map((l) => {
+      // Resolve the matrix grids + flat lines, then map the body's generic
+      // shape onto the AR line payload (same shape the handler already expects:
+      // inventory line = item+qty+unit_price_cents; amount-only = line_total_cents;
+      // optional per-line revenue_account_id).
+      const resolved = (await bodyRef.current?.resolve()) || [];
+      if (resolved.length === 0) { setErr("Add at least one line."); setSubmitting(false); return; }
+      const apiLines = resolved.map((r) => {
         const out: Record<string, unknown> = {
-          description: l.description || null,
-          revenue_account_id: l.revenue_account_id || null,
+          description: r.description || null,
+          revenue_account_id: r.revenue_account_id || null,
         };
-        if (l.inventory_item_id) out.inventory_item_id = l.inventory_item_id;
-        if (l.quantity) out.quantity = Number(l.quantity);
-        if (l.unit_price_dollars) {
-          const up = dollarsToCentsBigInt(l.unit_price_dollars);
-          if (up != null) out.unit_price_cents = up.toString();
-        }
-        if (l.line_total_dollars && !l.unit_price_dollars) {
-          const t = dollarsToCentsBigInt(l.line_total_dollars);
-          if (t != null) out.line_total_cents = t.toString();
-        }
+        if (r.inventory_item_id) out.inventory_item_id = r.inventory_item_id;
+        if (r.qty_ordered) out.quantity = r.qty_ordered;
+        if (r.unit_price_cents) out.unit_price_cents = String(r.unit_price_cents);
+        if (r.line_total_cents != null && !r.unit_price_cents) out.line_total_cents = String(r.line_total_cents);
         return out;
       });
 
@@ -854,16 +775,9 @@ function ARInvoiceModal({
     }
   }
 
-  const formValid =
-    !!customerId && !!invoiceDate &&
-    lines.length > 0 &&
-    lines.every((l) => {
-      const hasUnitPath = !!l.unit_price_dollars && !!l.quantity && Number(l.quantity) > 0;
-      const hasFlatPath = !!l.line_total_dollars;
-      if (!hasUnitPath && !hasFlatPath) return false;
-      if (l.inventory_item_id && !hasUnitPath) return false; // inventory needs qty
-      return true;
-    });
+  // Header validity only; line validity is enforced by the body's resolve()
+  // (it skips empty/invalid rows) and the "add at least one line" guard in submit.
+  const formValid = !!customerId && !!invoiceDate;
 
   return (
     <div onClick={onClose} style={{
@@ -1021,124 +935,18 @@ function ARInvoiceModal({
               <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" />
             </Field>
 
-            <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <LineViewToggle value={lineView} onChange={setLineView} />
-                {editable && lineView === "list" && (
-                  <button type="button" onClick={addLine} style={btnSecondary}>+ Add line</button>
-                )}
-              </div>
+            <div style={{ marginTop: 16, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Lines</div>
+              <LineMatrixBody
+                ref={bodyRef}
+                mode="ar"
+                editable={editable}
+                items={items}
+                seed={seed}
+                showOnHand={false}
+                revenueAccounts={accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))}
+              />
             </div>
-
-            {lineView === "matrix" ? (
-              <div style={{ marginBottom: 12 }}>
-                <LineColorSizeMatrix entries={matrixData.matrixEntries} />
-                {matrixData.fallback.length > 0 && (
-                  <div style={{ marginTop: 10, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
-                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-                      Non-matrix lines (no color/size)
-                    </div>
-                    {matrixData.fallback.map((f, i) => (
-                      <div key={i} style={{ fontSize: 12, color: C.textSub, display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-                        <span>{f.label}</span>
-                        {f.qty > 0 && <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>qty {f.qty.toLocaleString()}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-            <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...th, width: 36 }}>#</th>
-                    <th style={th}>Description</th>
-                    <th style={th}>Style (optional)</th>
-                    <th style={{ ...th, width: 70 }}>Qty</th>
-                    <th style={{ ...th, width: 100 }}>Unit $</th>
-                    <th style={{ ...th, width: 110 }}>Or total $</th>
-                    <th style={th} title="Revenue account, OR an expense account to offset (e.g. rebilling a vendor for a personal portion of a bill)">Revenue / offset acct</th>
-                    <th style={{ ...th, width: 36 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((l, idx) => (
-                    <tr key={l.key}>
-                      <td style={td}>{idx + 1}</td>
-                      <td style={td}>
-                        <input type="text" value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} disabled={!editable} style={inputStyle} />
-                      </td>
-                      <td style={td}>
-                        <SearchableSelect
-                          value={l.inventory_item_id || null}
-                          onChange={(v) => { updateLine(idx, { inventory_item_id: v }); if (v) void suggestPrice(l.key, v, l.quantity, false); }}
-                          options={(() => {
-                            const opts = [
-                              { value: "", label: "(select)" },
-                              ...items.map((it) => ({
-                                value: it.id,
-                                label: `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`,
-                                searchHaystack: `${it.sku_code} ${it.style_code || ""} ${it.description || ""} ${it.color || ""} ${it.size || ""}`,
-                              })),
-                            ];
-                            if (l.inventory_item_id && !opts.some((o) => o.value === l.inventory_item_id)) {
-                              opts.push({ value: l.inventory_item_id, label: "(saved item)", searchHaystack: l.inventory_item_id });
-                            }
-                            return opts;
-                          })()}
-                          placeholder="(select)"
-                          disabled={!editable}
-                        />
-                      </td>
-                      <td style={td}>
-                        <input type="number" min="0" step="0.0001" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })} disabled={!editable} style={inputStyle} />
-                      </td>
-                      <td style={td}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <input type="text" value={l.unit_price_dollars} onChange={(e) => updateLine(idx, { unit_price_dollars: e.target.value })} disabled={!editable} placeholder="unit $" style={inputStyle} />
-                          {editable && l.inventory_item_id && customerId && <button type="button" title="Suggest price from the pricing engine" onClick={() => void suggestPrice(l.key, l.inventory_item_id, l.quantity, true)} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 12 }}>↻</button>}
-                        </div>
-                        {priceSrc[l.key] && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>from {priceSrc[l.key]}</div>}
-                      </td>
-                      <td style={td}>
-                        <input type="text" value={l.line_total_dollars} onChange={(e) => updateLine(idx, { line_total_dollars: e.target.value })} disabled={!editable || (!!l.unit_price_dollars && !!l.quantity)} placeholder="0.00" style={inputStyle} />
-                      </td>
-                      <td style={td}>
-                        <SearchableSelect
-                          value={l.revenue_account_id || null}
-                          onChange={(v) => updateLine(idx, { revenue_account_id: v })}
-                          options={[
-                            { value: "", label: "(header default)" },
-                            ...accounts.filter((a) => a.is_postable).map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
-                          ]}
-                          placeholder="(header default)"
-                          disabled={!editable}
-                        />
-                      </td>
-                      <td style={td}>
-                        {editable && lines.length > 1 && (
-                          <button type="button" onClick={() => removeLine(idx)} style={btnDanger}>✕</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td style={td} colSpan={5}>
-                      <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Total</span>
-                    </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700 }}>
-                      {fmtCents(totalCents.toString())}
-                    </td>
-                    <td style={td} colSpan={2}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            )}
 
             {!isNew && invoice && (
               <div style={{ marginTop: 16, marginBottom: 16 }}>
@@ -1169,7 +977,7 @@ function ARInvoiceModal({
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
               {editable && (
                 <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !formValid}>
