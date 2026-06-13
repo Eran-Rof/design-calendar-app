@@ -141,6 +141,12 @@ import r_internal_bank_transactions_match_candidates from "./internal/bank-trans
 import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/unmatch.js";
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
+import r_internal_build_orders_id from "./internal/build-orders/[id].js";
+import r_internal_build_orders_complete from "./internal/build-orders/complete.js";
+import r_internal_build_orders_index from "./internal/build-orders/index.js";
+import r_internal_build_orders_issue from "./internal/build-orders/issue.js";
+import r_internal_build_orders_release from "./internal/build-orders/release.js";
+import r_internal_build_orders_service from "./internal/build-orders/service.js";
 import r_internal_bulk_process from "./internal/bulk/process.js";
 import r_internal_buyer_scope_master_id from "./internal/buyer-scope-master/[id].js";
 import r_internal_buyer_scope_master_index from "./internal/buyer-scope-master/index.js";
@@ -763,10 +769,13 @@ export const ROUTES = [
   { pattern: "/api/internal/notifications/:id/mark-read", handler: r_internal_notifications_mark_read },
   { pattern: "/api/internal/sales-reps/:id/assignments", handler: r_internal_sales_reps_id_assignments },
   { pattern: "/api/internal/shopify/process-refund/:id", handler: r_internal_shopify_process_refund_id },
+  { pattern: "/api/internal/build-orders/:id/complete", handler: r_internal_build_orders_complete },
   { pattern: "/api/internal/edi/customer-partners/:id", handler: r_internal_edi_customer_partners_id },
   { pattern: "/api/internal/sales-orders/:id/allocate", handler: r_internal_sales_orders_allocate },
   { pattern: "/api/internal/sustainability/:id/review", handler: r_internal_sustainability_id_review },
   { pattern: "/api/vendor/onboarding/steps/:step_name", handler: r_vendor_onboarding_steps_step_name },
+  { pattern: "/api/internal/build-orders/:id/release", handler: r_internal_build_orders_release },
+  { pattern: "/api/internal/build-orders/:id/service", handler: r_internal_build_orders_service },
   { pattern: "/api/internal/documents/:id/signed-url", handler: r_internal_documents_signed_url },
   { pattern: "/api/internal/gl-periods/:id/preflight", handler: r_internal_gl_periods_preflight },
   { pattern: "/api/internal/procurement/receipts/:id", handler: r_internal_procurement_receipts_id },
@@ -774,6 +783,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/discount-offers/:id/accept", handler: r_vendor_discount_offers_id_accept },
   { pattern: "/api/vendor/discount-offers/:id/reject", handler: r_vendor_discount_offers_id_reject },
   { pattern: "/api/internal/edi/:vendor_id/messages", handler: r_internal_edi_vendor_id_messages },
+  { pattern: "/api/internal/build-orders/:id/issue", handler: r_internal_build_orders_issue },
   { pattern: "/api/internal/contracts/:id/versions", handler: r_internal_contracts_id_versions },
   { pattern: "/api/internal/costing/lines/:line_id", handler: r_internal_costing_lines_line_id_index },
   { pattern: "/api/internal/payments/:id/fx-detail", handler: r_internal_payments_id_fx_detail },
@@ -1031,6 +1041,7 @@ export const ROUTES = [
   { pattern: "/api/internal/tpl-shipments/:id", handler: r_internal_tpl_shipments_id },
   { pattern: "/api/internal/vendor-master/:id", handler: r_internal_vendor_master_id },
   { pattern: "/api/internal/b2b-accounts/:id", handler: r_internal_b2b_accounts_id },
+  { pattern: "/api/internal/build-orders/:id", handler: r_internal_build_orders_id },
   { pattern: "/api/internal/fabric-codes/:id", handler: r_internal_fabric_codes_id },
   { pattern: "/api/internal/fabric-mills/:id", handler: r_internal_fabric_mills_id },
   { pattern: "/api/internal/fixed-assets/:id", handler: r_internal_fixed_assets_id },
@@ -1178,6 +1189,7 @@ export const ROUTES = [
   { pattern: "/api/cron/po-issued-notify", handler: r_cron_po_issued_notify },
   { pattern: "/api/cron/shopify-backfill", handler: r_cron_shopify_backfill },
   { pattern: "/api/internal/b2b-accounts", handler: r_internal_b2b_accounts_index },
+  { pattern: "/api/internal/build-orders", handler: r_internal_build_orders_index },
   { pattern: "/api/internal/edi-messages", handler: r_internal_edi_messages_index },
   { pattern: "/api/internal/edi-partners", handler: r_internal_edi_partners_index },
   { pattern: "/api/internal/fabric-codes", handler: r_internal_fabric_codes_index },

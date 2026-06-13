@@ -359,6 +359,13 @@ export default [
   // Manufacturing module (M3) — Bill of Materials.
   ["/api/internal/mfg-boms/:id"                               , "./internal/mfg-boms/[id].js"],
   ["/api/internal/mfg-boms"                                   , "./internal/mfg-boms/index.js"],
+  // Manufacturing module (M4) — Build orders + lifecycle.
+  ["/api/internal/build-orders/:id/release"                  , "./internal/build-orders/release.js"],
+  ["/api/internal/build-orders/:id/issue"                    , "./internal/build-orders/issue.js"],
+  ["/api/internal/build-orders/:id/service"                  , "./internal/build-orders/service.js"],
+  ["/api/internal/build-orders/:id/complete"                 , "./internal/build-orders/complete.js"],
+  ["/api/internal/build-orders/:id"                          , "./internal/build-orders/[id].js"],
+  ["/api/internal/build-orders"                              , "./internal/build-orders/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],

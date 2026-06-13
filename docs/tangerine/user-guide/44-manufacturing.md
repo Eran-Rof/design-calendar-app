@@ -11,7 +11,7 @@ This chapter grows as the module ships in phases. The current state:
 | **M1 — Masters** | Part Master + Service Item Master | ✅ Shipped |
 | M2 — Part inventory | Parts get their own FIFO stock + GL; on-hand view + adjustments | ✅ Shipped |
 | M3 — BOM | Per-style recipe of parts + services + consumed styles | ✅ Shipped |
-| M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ⬜ |
+| M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ✅ Shipped |
 | M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ⬜ |
 | M6 — Reports | WIP aging, build-cost variance, parts valuation | ⬜ |
 
@@ -54,3 +54,21 @@ A **BOM** is the recipe for assembling a finished style. Find it under **Manufac
 - **One active version per finished style** — saving a second BOM as *active* for the same style is rejected; archive the old one or bump the version. Drafts and archives can coexist.
 
 A BOM is just the recipe — nothing is consumed or costed until you run a **build order** against it (M4). The two example flows (printed tee = blank-tee part + print service; PL jean = base style + labels part + sew/pack services) are both modeled as a single BOM each.
+
+## M4 — build orders + WIP (shipped)
+
+A **build order** runs a BOM to produce real finished-goods inventory, with all costs flowing through a **Work-In-Process (WIP)** account at **actual cost**. Find it under **Manufacturing → Build Orders** (`/tangerine?m=mfg_build_orders`).
+
+The lifecycle:
+
+1. **New build** — pick the finished style and a **target quantity**. Creates a *draft*.
+2. **Release** — snapshots the style's active BOM into the build, scaling each component to `qty_per_unit × target × (1 + scrap%)`. Status → *released*.
+3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1305 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*.
+4. **Capitalize services** — for each conversion/labor **service** component, click **Capitalize** and enter the factory's actual charge. Posts `DR 1305 WIP / CR 2000 AP` (the vendor bill) and rolls the charge into WIP.
+5. **Complete → finished goods** — moves the full accumulated WIP into finished-goods inventory: posts `DR <style inventory> / CR 1305 WIP` and creates the finished style's **FIFO layer at the real build cost** (`accumulated ÷ completed qty`), tagged `source_kind = manufacture`. Status → *completed*. (You must capitalize all service charges first.)
+
+The build detail view shows a live **WIP rollup** — parts cost, consumed-style cost, service cost, WIP total, and the projected/finished unit cost. **WIP is a control account** keyed by build order, so the WIP balance always reconciles per build. A build can be **cancelled** before completion; a completed build keeps its journal entries.
+
+> The printed tee: release pulls the blank tee + the print service into the build; issue draws the blank tee into WIP at FIFO cost; capitalize the printer's charge into WIP; complete creates the printed-tee inventory at *blank cost + print charge*. The PL jean works the same way, additionally consuming the base finished style.
+
+**Coming in M5:** instead of completing the build manually, you'll **receive the finished good against a conversion PO** and that receipt completes the build automatically — plus purchasing parts onto a PO/vendor bill that stocks part inventory.

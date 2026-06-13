@@ -28,6 +28,7 @@ const VALID_SOURCE_KIND = new Set([
   "transfer_in",
   "credit_memo_return",   // P4-2 — AR credit memo with return-to-stock line
   "po_receipt",           // P13/C1 — PO goods-receipt layer at landed unit cost
+  "manufacture",          // M4 — finished goods off a manufacturing build (WIP→FG)
 ]);
 
 const VALID_CONSUMER_KIND = new Set([
