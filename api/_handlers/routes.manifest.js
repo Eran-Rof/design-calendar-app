@@ -334,6 +334,8 @@ export default [
   ["/api/internal/fabric-codes"                              , "./internal/fabric-codes/index.js"],
   ["/api/internal/style-fabric-codes/:id"                    , "./internal/style-fabric-codes/[id].js"],
   ["/api/internal/style-fabric-codes"                        , "./internal/style-fabric-codes/index.js"],
+  ["/api/internal/style-customer-numbers/:id"                , "./internal/style-customer-numbers/[id].js"],
+  ["/api/internal/style-customer-numbers"                    , "./internal/style-customer-numbers/index.js"],
   ["/api/internal/payment-terms/:id"                         , "./internal/payment-terms/[id].js"],
   ["/api/internal/payment-terms"                             , "./internal/payment-terms/index.js"],
   ["/api/internal/size-scales/:id"                           , "./internal/size-scales/[id].js"],

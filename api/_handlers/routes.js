@@ -449,6 +449,8 @@ import r_internal_size_scales_index from "./internal/size-scales/index.js";
 import r_internal_states_index from "./internal/states/index.js";
 import r_internal_style_classifications_id from "./internal/style-classifications/[id].js";
 import r_internal_style_classifications_index from "./internal/style-classifications/index.js";
+import r_internal_style_customer_numbers_id from "./internal/style-customer-numbers/[id].js";
+import r_internal_style_customer_numbers_index from "./internal/style-customer-numbers/index.js";
 import r_internal_style_fabric_codes_id from "./internal/style-fabric-codes/[id].js";
 import r_internal_style_fabric_codes_index from "./internal/style-fabric-codes/index.js";
 import r_internal_style_master_id from "./internal/style-master/[id].js";
@@ -986,6 +988,7 @@ export const ROUTES = [
   { pattern: "/api/edi/outbound/po", handler: r_edi_outbound_po },
   { pattern: "/api/internal/ar-receipt-applications/:id", handler: r_internal_ar_receipt_applications_id },
   { pattern: "/api/internal/inventory-cycle-counts/:id", handler: r_internal_inventory_cycle_counts_id },
+  { pattern: "/api/internal/style-customer-numbers/:id", handler: r_internal_style_customer_numbers_id },
   { pattern: "/api/internal/inventory-adjustments/:id", handler: r_internal_inventory_adjustments_id },
   { pattern: "/api/internal/style-classifications/:id", handler: r_internal_style_classifications_id },
   { pattern: "/api/internal/employee-departments/:id", handler: r_internal_employee_departments_id },
@@ -1067,6 +1070,7 @@ export const ROUTES = [
   { pattern: "/api/internal/notification-preferences", handler: r_internal_notification_preferences_index },
   { pattern: "/api/cron/walmart-settlements-weekly", handler: r_cron_walmart_settlements_weekly },
   { pattern: "/api/internal/inventory-cycle-counts", handler: r_internal_inventory_cycle_counts_index },
+  { pattern: "/api/internal/style-customer-numbers", handler: r_internal_style_customer_numbers_index },
   { pattern: "/api/cron/notification-digest-flush", handler: r_cron_notification_digest_flush },
   { pattern: "/api/internal/inventory-adjustments", handler: r_internal_inventory_adjustments_index },
   { pattern: "/api/internal/phase-change-requests", handler: r_internal_phase_change_requests_index },

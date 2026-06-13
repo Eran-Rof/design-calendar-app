@@ -1602,6 +1602,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           <StyleFabricsSection styleId={style.id} />
         )}
 
+        {/* Customer style numbers — one base style ⇄ each customer's own number,
+            so customer-customized variants don't fork new style rows. */}
+        {mode === "edit" && style && (
+          <StyleCustomerNumbersSection styleId={style.id} />
+        )}
+
         {/* Operator ask #6 — notes log section. Only meaningful on existing
             rows, so we render it for edit mode only. */}
         {mode === "edit" && style && (
@@ -1984,6 +1990,160 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
                 style={{ ...inputStyle, minWidth: 0 }}
                 placeholder="optional"
               />
+            </Field>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8 }}>
+            <button onClick={() => setAddOpen(false)} style={btnSecondary}>Cancel</button>
+            <button onClick={() => void addLink()} style={btnPrimary}>Add</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Customer style numbers — one base style ⇄ each customer's own style number.
+// Self-managing: reads/writes /api/internal/style-customer-numbers directly.
+// Lets one base style serve many customers without forking a style row each.
+// ─────────────────────────────────────────────────────────────────────────────
+type CustomerLite = { id: string; name: string; code?: string | null };
+type StyleCustomerLink = {
+  id: string;
+  customer_id: string;
+  customer_style_number: string;
+  notes: string | null;
+  customer?: CustomerLite | null;
+};
+
+function StyleCustomerNumbersSection({ styleId }: { styleId: string }) {
+  const [links, setLinks] = useState<StyleCustomerLink[]>([]);
+  const [customers, setCustomers] = useState<CustomerLite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [draft, setDraft] = useState({ customer_id: "", customer_style_number: "", notes: "" });
+
+  async function loadLinks() {
+    try {
+      const r = await fetch(`/api/internal/style-customer-numbers?style_id=${styleId}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setLinks(await r.json() as StyleCustomerLink[]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function loadCustomers() {
+    try {
+      const r = await fetch(`/api/internal/customers?limit=5000`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (Array.isArray(data)) setCustomers(data as CustomerLite[]);
+    } catch { /* non-fatal */ }
+  }
+  useEffect(() => { void loadLinks(); void loadCustomers(); }, [styleId]);
+
+  const customerOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: "", label: "(select customer)" },
+    ...customers.map((c) => ({ value: c.id, label: c.code ? `${c.name} (${c.code})` : c.name, searchHaystack: `${c.name} ${c.code ?? ""}` })),
+  ], [customers]);
+
+  async function addLink() {
+    setErr(null);
+    try {
+      if (!draft.customer_id) throw new Error("Select a customer");
+      if (!draft.customer_style_number.trim()) throw new Error("Enter the customer's style number");
+      const r = await fetch(`/api/internal/style-customer-numbers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ style_id: styleId, customer_id: draft.customer_id, customer_style_number: draft.customer_style_number.trim(), notes: draft.notes || null }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setAddOpen(false);
+      setDraft({ customer_id: "", customer_style_number: "", notes: "" });
+      await loadLinks();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+  async function removeLink(id: string) {
+    if (!(await confirmDialog("Remove this customer style-number mapping?"))) return;
+    try {
+      const r = await fetch(`/api/internal/style-customer-numbers/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await loadLinks();
+    } catch (e: unknown) {
+      notify(`Remove failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, padding: 12, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Customer style numbers</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>One base style, many customers — record each customer&apos;s own number so a customer PO resolves to this style.</div>
+        </div>
+        {!addOpen && <button onClick={() => setAddOpen(true)} style={btnSecondary}>+ Add customer #</button>}
+      </div>
+
+      {err && (
+        <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>{err}</div>
+      )}
+
+      {loading ? (
+        <div style={{ color: C.textMuted, fontSize: 12, padding: "4px 0" }}>Loading…</div>
+      ) : links.length === 0 ? (
+        <div style={{ color: C.textMuted, fontSize: 12, padding: "4px 0" }}>No customer style numbers mapped.</div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={th}>Customer</th>
+              <th style={th}>Their style #</th>
+              <th style={th}>Notes</th>
+              <th style={{ ...th, width: 70 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {links.map((l) => (
+              <tr key={l.id}>
+                <td style={td}>{l.customer ? (l.customer.code ? `${l.customer.name} (${l.customer.code})` : l.customer.name) : <span style={{ color: C.textMuted }}>(unknown)</span>}</td>
+                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{l.customer_style_number}</td>
+                <td style={td}>{l.notes ?? "—"}</td>
+                <td style={{ ...td, textAlign: "right" }}>
+                  <button onClick={() => void removeLink(l.id)} style={btnDanger}>Remove</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {addOpen && (
+        <div style={{ marginTop: 10, padding: 10, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, minWidth: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <Field label="Customer">
+              <SearchableSelect
+                value={draft.customer_id || null}
+                onChange={(v) => setDraft({ ...draft, customer_id: v })}
+                options={customerOptions}
+                placeholder="Search customer…"
+              />
+            </Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8, minWidth: 0 }}>
+            <Field label="Customer's style #">
+              <input type="text" value={draft.customer_style_number}
+                onChange={(e) => setDraft({ ...draft, customer_style_number: e.target.value })}
+                style={{ ...inputStyle, minWidth: 0 }} placeholder="e.g. ABC-123" />
+            </Field>
+            <Field label="Notes">
+              <input type="text" value={draft.notes}
+                onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+                style={{ ...inputStyle, minWidth: 0 }} placeholder="optional" />
             </Field>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8 }}>
