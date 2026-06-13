@@ -231,10 +231,10 @@ export default function VendorRfqDetail() {
         // (the shared dialog's own title is fixed-size) so it really lands.
         message: (
           <div>
-            <div style={{ fontSize: 30, fontWeight: 800, color: "#FF1A1A", lineHeight: 1.15, marginBottom: 14 }}>
+            <div style={{ fontSize: 30, fontWeight: 600, color: "#FF1A1A", lineHeight: 1.15, marginBottom: 14 }}>
               Your quote is above target
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: "#FF1A1A", lineHeight: 1.25 }}>
+            <div style={{ fontSize: 26, fontWeight: 600, color: "#FF1A1A", lineHeight: 1.25 }}>
               Your quoted price is {pctStr}% higher than Ring of Fire's target.
             </div>
             <div style={{ fontSize: 13, color: TH.textMuted, marginTop: 16 }}>
