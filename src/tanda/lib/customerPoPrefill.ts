@@ -155,6 +155,9 @@ export async function buildSeedFromResolved(
   fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
 ): Promise<{ sections: SeedSection[]; warnings: PrefillWarning[] }> {
   const byStyle = new Map<string, Cell[]>();
+  // Per style+colour total to show in the matrix Qty quick-fill box (assorted /
+  // total lines that were spread across the sizes from one number).
+  const quickFillByStyle = new Map<string, Record<string, number>>();
   const warnings: PrefillWarning[] = [];
 
   for (const { line, chosen } of resolved) {
@@ -200,6 +203,9 @@ export async function buildSeedFromResolved(
         const fromBreakdown = (line.size_breakdown || []).reduce((s, sb) => s + Math.max(0, Math.floor(sb.qty)), 0);
         const effectiveTotal = total > 0 ? total : fromBreakdown;
         if (effectiveTotal > 0) {
+          // Show the source total in this colour's Qty quick-fill box.
+          if (!quickFillByStyle.has(chosen.style_code)) quickFillByStyle.set(chosen.style_code, {});
+          quickFillByStyle.get(chosen.style_code)![color || ""] = effectiveTotal;
           const pack: SizePack = chosen.attributes?.size_scale_pack || {};
           if (hasUsablePack(sizes, pack)) {
             const dist = distributeByPack(effectiveTotal, sizes, pack);
@@ -224,6 +230,7 @@ export async function buildSeedFromResolved(
   const sections: SeedSection[] = [...byStyle.entries()].map(([styleCode, cells]) => ({
     styleCode,
     cells: cells.map((c) => ({ color: c.color, size: c.size, qty: c.qty, unit: c.unit })),
+    quickFill: quickFillByStyle.get(styleCode),
   }));
   return { sections, warnings };
 }

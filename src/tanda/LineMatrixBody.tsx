@@ -44,7 +44,7 @@ type FlatItem = { id: string; sku_code: string; style_code?: string | null; desc
 
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
 export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
-export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string };
+export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string; quickFill?: Record<string, number> };
 export interface LineMatrixBodyHandle {
   resolve: () => Promise<ResolvedLine[]>;
   /** Style codes currently in the matrix (resolved sections). */
@@ -54,7 +54,7 @@ export interface LineMatrixBodyHandle {
   applyUnitByStyle: (byStyle: Record<string, string>) => void;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string } };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; quickFill?: Record<string, string> };
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
@@ -193,7 +193,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       }
       const dates = (sec.requestedShipDate || sec.vendorConfirmedShipDate) ? { requested: sec.requestedShipDate || undefined, confirmed: sec.vendorConfirmedShipDate || undefined } : undefined;
       const defaultUnit = sec.defaultUnit;
-      setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates }]);
+      // Per-color imported total → keyed by rowKey, shown in the Qty quick-fill box.
+      const quickFill: Record<string, string> | undefined = sec.quickFill
+        ? Object.fromEntries(Object.entries(sec.quickFill).map(([color, total]) => [rowKeyOf(color || null, null), String(total)]))
+        : undefined;
+      setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates, quickFill }]);
       if (st) loadPayload(st.id).then((pl) => {
         // Apply a per-section default unit (e.g. an awarded RFQ cost) to every
         // color row that doesn't already carry a unit from a seeded cell.
@@ -508,6 +512,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   onApply: (rk, total) => setRowQtys(s.id, rk, distributeByPack(total, sizesList, pack)),
                   enabledFor: () => packUsable,
                   disabledTitle: "Set a size scale (pack) for this style in Style Master → 📐 Scale to enable quick-fill.",
+                  valueFor: (rk) => s.quickFill?.[rk],
                 } : undefined}
               />
             )}
