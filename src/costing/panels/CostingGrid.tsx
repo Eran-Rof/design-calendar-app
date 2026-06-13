@@ -25,6 +25,7 @@ import HistoricalCostCell from "./HistoricalCostCell";
 import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
 import CostSuggestModal from "./CostSuggestModal";
+import SizeCurveModal from "./SizeCurveModal";
 import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
@@ -380,6 +381,8 @@ export default function CostingGrid() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; lineId: string } | null>(null);
   // AI cost co-pilot modal — opened from the row context menu.
   const [suggestLineId, setSuggestLineId] = useState<string | null>(null);
+  // AI size-curve modal — opened from the row context menu.
+  const [sizeCurveLineId, setSizeCurveLineId] = useState<string | null>(null);
   const openContextMenu = (e: React.MouseEvent, lineId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1293,6 +1296,21 @@ export default function CostingGrid() {
           >
             ✨ AI cost suggestion
           </button>
+          <button
+            type="button"
+            onClick={() => { setSizeCurveLineId(ctxMenu.lineId); closeContextMenu(); }}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", color: "#E2E8F0",
+              border: "none", borderRadius: 4,
+              padding: "8px 12px", fontSize: 12, fontWeight: 500,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            📐 AI size curve
+          </button>
         </div>
       )}
 
@@ -1307,6 +1325,13 @@ export default function CostingGrid() {
             onClose={() => setSuggestLineId(null)}
           />
         );
+      })()}
+
+      {/* AI size-curve modal */}
+      {sizeCurveLineId && (() => {
+        const sline = lines.find((l) => l.id === sizeCurveLineId);
+        if (!sline) return null;
+        return <SizeCurveModal line={sline} onClose={() => setSizeCurveLineId(null)} />;
       })()}
     </div>
   );

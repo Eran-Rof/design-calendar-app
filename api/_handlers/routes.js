@@ -177,6 +177,7 @@ import r_internal_costing_lines_line_id_quotes_quote_id from "./internal/costing
 import r_internal_costing_lines_line_id_quotes_index from "./internal/costing/lines/[line_id]/quotes/index.js";
 import r_internal_costing_lines_line_id_revise from "./internal/costing/lines/[line_id]/revise.js";
 import r_internal_costing_lines_line_id_select_quote from "./internal/costing/lines/[line_id]/select-quote.js";
+import r_internal_costing_lines_line_id_size_curve from "./internal/costing/lines/[line_id]/size-curve.js";
 import r_internal_costing_lines_line_id_suggest from "./internal/costing/lines/[line_id]/suggest.js";
 import r_internal_costing_masters_freeform from "./internal/costing/masters/freeform.js";
 import r_internal_costing_projects_id_generate_rfqs from "./internal/costing/projects/[id]/generate-rfqs.js";
@@ -658,6 +659,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/projects/:id/generate-rfqs", handler: r_internal_costing_projects_id_generate_rfqs },
   { pattern: "/api/internal/costing/lines/:line_id/compliance", handler: r_internal_costing_lines_line_id_compliance_index },
   { pattern: "/api/internal/costing/lines/:line_id/po-history", handler: r_internal_costing_lines_line_id_po_history },
+  { pattern: "/api/internal/costing/lines/:line_id/size-curve", handler: r_internal_costing_lines_line_id_size_curve },
   { pattern: "/api/internal/pim/styles/:style_id/link-shopify", handler: r_internal_pim_styles_style_id_link_shopify },
   { pattern: "/api/internal/shopify/stores/:id/bulk-sync-meta", handler: r_internal_shopify_stores_id_bulk_sync_meta },
   { pattern: "/api/internal/pim/styles/:style_id/description", handler: r_internal_pim_styles_style_id_description_index },
