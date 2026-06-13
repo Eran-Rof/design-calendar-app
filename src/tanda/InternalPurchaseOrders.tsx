@@ -270,7 +270,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setSeason(full.season || ""); setChannelId(full.channel_id || ""); setDepartmentCategoryId(full.department_category_id || "");
       if (full.logistics_rollup) setRollup(full.logistics_rollup);
       if (!full?.lines) return;
-      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null };
+      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -278,7 +278,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
-          if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
+          if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
           sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered, unit: dollars });
         } else {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
@@ -294,7 +294,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     // The matrix body resolves every filled cell + flat line to a SKU. Map its
     // generic unit_price_cents onto the PO's unit_cost_cents.
     const resolved = (await bodyRef.current?.resolve()) || [];
-    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents }));
+    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents, requested_ship_date: r.requested_ship_date ?? null, vendor_confirmed_ship_date: r.vendor_confirmed_ship_date ?? null }));
     if (lines.length === 0) { setErr("Add at least one line with a quantity."); return null; }
     const body: Record<string, unknown> = {
       vendor_id: vendorId, brand_id: brandId || null,
@@ -471,6 +471,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             items={items}
             seed={seed}
             showOnHand={false}
+            showLineDates
           />
         </div>
 

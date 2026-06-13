@@ -89,6 +89,7 @@ export function validateInsert(body) {
     if (!Number.isFinite(qty) || qty <= 0) continue; // skip empty/zero lines
     const unit = l.unit_cost_cents == null || l.unit_cost_cents === "" ? 0 : Math.round(Number(l.unit_cost_cents));
     if (!Number.isFinite(unit) || unit < 0) return { error: `line ${ln}: unit_cost_cents must be >= 0` };
+    const dre = /^\d{4}-\d{2}-\d{2}$/;
     normLines.push({
       line_number: ln++,
       inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
@@ -96,6 +97,8 @@ export function validateInsert(body) {
       qty_ordered: qty,
       unit_cost_cents: unit,
       line_total_cents: Math.round(qty * unit),
+      requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
+      vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
     });
   }
   if (normLines.length === 0) return { error: "at least one line with qty_ordered > 0 is required" };
