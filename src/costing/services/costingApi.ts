@@ -130,6 +130,35 @@ export async function suggestLineCosts(lineId: string, signal?: AbortSignal): Pr
   return json<CostSuggestion>(await fetch(`/api/internal/costing/lines/${lineId}/suggest`, { signal }));
 }
 
+// ── AI size-curve forecast ───────────────────────────────────────────────────
+// Informational — the server learns the per-size split from the style's own
+// 24-month sales history and applies it to the line's target_qty.
+export interface SizeCurveSize {
+  size: string;
+  units: number;
+  pct: number;
+  suggested_qty?: number;
+  flag?: string;
+}
+export interface SizeCurveForecast {
+  style_code: string | null;
+  color: string | null;
+  target_qty: number | null;
+  size_scale_label: string | null;
+  basis: string;
+  total_units_analyzed: number;
+  txn_count: number;
+  insufficient_data: boolean;
+  sizes: SizeCurveSize[];
+  narrative: string;
+  model: string;
+  generated_at: string;
+}
+
+export async function forecastSizeCurve(lineId: string, signal?: AbortSignal): Promise<SizeCurveForecast> {
+  return json<SizeCurveForecast>(await fetch(`/api/internal/costing/lines/${lineId}/size-curve`, { signal }));
+}
+
 // Stage B fork: mark a Sent/Quoted line 'revised' (locked) server-side + close
 // its superseded vendor RFQ. The new Draft copy is created by the caller via
 // upsertLines. 409 if the line isn't Sent/Quoted.

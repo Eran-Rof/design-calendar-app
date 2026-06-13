@@ -141,6 +141,17 @@ it used. Nothing is saved until you click **Apply** (apply a single value, or
 so margin recompute and any RFQ-revision prompts still fire. If a style has no
 sales or PO history, the co-pilot says so rather than guessing.
 
+### 📐 AI size curve
+
+Right-click a row and choose **📐 AI size curve** to see how the style's demand
+splits **by size**, learned from its own **last-24-months** wholesale sales (pack
+sales are exploded to units first). Each size shows its **% of demand** and — when
+the row has an order qty — the **suggested units** to buy in that size (rounded so
+the split sums exactly to your order quantity, ordered by the assigned size scale).
+A short read and a **⚠️ flag** on any size that looks stockout-suppressed (low
+because it sold out, not because demand was low) round it out. This is a
+**buy-planning guide** and isn't saved to the line (costing lines are color-grain).
+
 ### When a vendor revises a quote
 
 A vendor can reopen an already-submitted quote and resubmit revised figures. When
