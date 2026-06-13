@@ -315,6 +315,8 @@ import r_internal_notifications_index from "./internal/notifications/index.js";
 import r_internal_notifications_mark_read from "./internal/notifications/mark-read.js";
 import r_internal_onboarding_vendor_id_index from "./internal/onboarding/[vendor_id]/index.js";
 import r_internal_onboarding_index from "./internal/onboarding/index.js";
+import r_internal_part_master_id from "./internal/part-master/[id].js";
+import r_internal_part_master_index from "./internal/part-master/index.js";
 import r_internal_payment_terms_id from "./internal/payment-terms/[id].js";
 import r_internal_payment_terms_index from "./internal/payment-terms/index.js";
 import r_internal_payments_id_fx_detail from "./internal/payments/[id]/fx-detail.js";
@@ -430,6 +432,8 @@ import r_internal_scorecards_index from "./internal/scorecards/index.js";
 import r_internal_search_index from "./internal/search/index.js";
 import r_internal_seasons_id from "./internal/seasons/[id].js";
 import r_internal_seasons_index from "./internal/seasons/index.js";
+import r_internal_service_items_id from "./internal/service-items/[id].js";
+import r_internal_service_items_index from "./internal/service-items/index.js";
 import r_internal_shopify_backfill from "./internal/shopify/backfill.js";
 import r_internal_shopify_post_cogs_id from "./internal/shopify/post-cogs/[id].js";
 import r_internal_shopify_post_order_id from "./internal/shopify/post-order/[id].js";
@@ -1014,6 +1018,7 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-accounts/:id", handler: r_internal_bank_accounts_id },
   { pattern: "/api/internal/payment-terms/:id", handler: r_internal_payment_terms_id },
   { pattern: "/api/internal/sales-returns/:id", handler: r_internal_sales_returns_id },
+  { pattern: "/api/internal/service-items/:id", handler: r_internal_service_items_id },
   { pattern: "/api/internal/tpl-shipments/:id", handler: r_internal_tpl_shipments_id },
   { pattern: "/api/internal/vendor-master/:id", handler: r_internal_vendor_master_id },
   { pattern: "/api/internal/b2b-accounts/:id", handler: r_internal_b2b_accounts_id },
@@ -1028,6 +1033,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-invoices/:id", handler: r_internal_ar_invoices_id },
   { pattern: "/api/internal/ar-receipts/:id", handler: r_internal_ar_receipts_id },
   { pattern: "/api/internal/gl-accounts/:id", handler: r_internal_gl_accounts_id },
+  { pattern: "/api/internal/part-master/:id", handler: r_internal_part_master_id },
   { pattern: "/api/internal/price-lists/:id", handler: r_internal_price_lists_id },
   { pattern: "/api/internal/rma-reasons/:id", handler: r_internal_rma_reasons_id },
   { pattern: "/api/internal/size-scales/:id", handler: r_internal_size_scales_id },
@@ -1141,6 +1147,7 @@ export const ROUTES = [
   { pattern: "/api/internal/notifications", handler: r_internal_notifications_index },
   { pattern: "/api/internal/payment-terms", handler: r_internal_payment_terms_index },
   { pattern: "/api/internal/sales-returns", handler: r_internal_sales_returns_index },
+  { pattern: "/api/internal/service-items", handler: r_internal_service_items_index },
   { pattern: "/api/internal/tpl-providers", handler: r_internal_tpl_providers_index },
   { pattern: "/api/internal/tpl-shipments", handler: r_internal_tpl_shipments_index },
   { pattern: "/api/internal/trial-balance", handler: r_internal_trial_balance_index },
@@ -1183,6 +1190,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-receipts", handler: r_internal_ar_receipts_index },
   { pattern: "/api/internal/ats-by-size", handler: r_internal_ats_by_size },
   { pattern: "/api/internal/gl-accounts", handler: r_internal_gl_accounts_index },
+  { pattern: "/api/internal/part-master", handler: r_internal_part_master_index },
   { pattern: "/api/internal/phase-notes", handler: r_internal_phase_notes_index },
   { pattern: "/api/internal/price-lists", handler: r_internal_price_lists_index },
   { pattern: "/api/internal/rma-reasons", handler: r_internal_rma_reasons_index },
