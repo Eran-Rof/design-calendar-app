@@ -30,6 +30,7 @@ import InternalColorMaster        from "./tanda/InternalColorMaster";
 import InternalFabricMillMaster   from "./tanda/InternalFabricMillMaster";
 import InternalPartMaster         from "./tanda/InternalPartMaster";
 import InternalServiceItemMaster  from "./tanda/InternalServiceItemMaster";
+import InternalPartInventory      from "./tanda/InternalPartInventory";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
 import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
@@ -466,6 +467,7 @@ export default function Tangerine() {
         {activeModule === "fabric_mill_master"    && <InternalFabricMillMaster />}
         {activeModule === "part_master"           && <InternalPartMaster />}
         {activeModule === "service_item_master"   && <InternalServiceItemMaster />}
+        {activeModule === "part_inventory"        && <InternalPartInventory />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
         {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
