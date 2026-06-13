@@ -154,8 +154,8 @@ because it sold out, not because demand was low) round it out. This is a
 
 ### ✨ Ask AI (analytics)
 
-The costing nav bar has an **✨ Ask AI** button that opens the suite's analytics
-assistant without leaving the module. Ask it natural-language questions about your
+The costing **top bar** has an **✨ Ask AI** button (next to 🔔 Notifications) that
+opens the suite's analytics assistant without leaving the module. Ask it natural-language questions about your
 sales, margins, styles and customers and it answers from the live database — e.g.
 *"which styles had a gross margin under 18% in the last 3 months?"*,
 *"show me my top 10 styles by trailing-3-month sales"*,
