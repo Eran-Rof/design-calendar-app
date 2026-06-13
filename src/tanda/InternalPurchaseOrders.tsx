@@ -615,7 +615,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             </Field>
             <Field label="Payment terms">
               <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
-                options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(select)" disabled={!editable} />
+                options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.name, searchHaystack: `${t.name} ${t.code || ""}` }))]} placeholder="(select)" disabled={!editable} />
             </Field>
           </div>
         </Section>

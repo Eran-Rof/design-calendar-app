@@ -82,7 +82,7 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 
 On a **new** sales order, next to the Customer PO # field is a **🤖 Upload customer PO** button. It reads the customer's purchase order and prefills the whole order so you only have to review it.
 
-1. Click **🤖 Upload customer PO**. Either **choose a file** (PDF, Excel `.xlsx`/`.xls`, or `.csv`/`.txt`) **or paste the order email** into the text box, then **Read & prefill**. The document is sent to `POST /api/internal/sales-orders/parse-customer-po`, which uses Claude (Sonnet) to extract a structured PO.
+1. Click **🤖 Upload customer PO**. Either **choose a file** (PDF, Excel `.xlsx`/`.xls`, or `.csv`/`.txt`) **or paste the order email** into the text box, then **Read & prefill**. The document is sent to `POST /api/internal/sales-orders/parse-customer-po`, which uses Claude (Sonnet) to extract a structured PO. **A chosen file is also auto-attached to the order's Supporting Documents** (staged, uploaded when you save) so the original PO is filed with the SO.
 2. **Header prefill** — the AI's customer name, payment terms, start-ship / cancel dates, and PO number are matched to your masters and filled in (an unmatched customer or term is listed in the review banner for you to pick by hand).
 3. **Matrix prefill** — each ordered style is matched to Style Master and dropped into the size matrix:
    - **Exact sizes** when the PO lists a size run (S 12 · M 24 · …) go straight into the cells. Any size that isn't a full **carton of 24** is flagged; a **Round those sizes up to full cartons** button rounds each up.
