@@ -16,6 +16,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { readDrillParam } from "./scorecardDrill";
+import RowHistory from "./components/RowHistory";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
@@ -474,6 +475,13 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             showLineDates
           />
         </div>
+
+        {/* Audit trail — who changed which field, when (T11 row_changes). */}
+        {!isNew && po && (
+          <div style={{ marginTop: 16 }}>
+            <RowHistory source_table="purchase_orders" source_id={po.id} />
+          </div>
+        )}
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
