@@ -148,6 +148,7 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
    - **Per-style dates** — each style block has a **Requested ship** and **Vendor-confirmed ship** date pair (PO only). They're stamped onto every SKU line of that style at save (`purchase_order_lines.requested_ship_date` / `vendor_confirmed_ship_date`) and repopulate when you re-open the PO.
    - **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU / qty / Unit Cost $ row.
    - At save, every filled cell resolves to an `ip_item_master` SKU and posts with `unit_cost_cents`. The Save / Close buttons sit in a **frozen footer** that stays visible as the matrix grows.
+   - **Unsaved-changes guard** — on a **new** PO that already has data (vendor, lines, or any header field), **Close** or a click outside the modal first asks *"This purchase order hasn't been saved. Close and discard your changes?"*, so a PO built from an SO or by hand isn't lost to an accidental click.
 3. **Audit trail** — re-open any saved PO to see the **Audit trail** timeline at the bottom (the shared T11 `RowHistory`): every header/line field change is recorded with the changed columns, before/after values, and timestamp (`row_changes`, via the universal audit trigger now attached to `purchase_orders` + `purchase_order_lines`).
 3. **Save draft** — header + lines persist; `po_number` stays null.
 4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). Lines become line-locked. The PO number is **never** reassigned.

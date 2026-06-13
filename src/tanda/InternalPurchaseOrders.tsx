@@ -13,7 +13,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { notify } from "../shared/ui/warn";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { readDrillParam } from "./scorecardDrill";
 import RowHistory from "./components/RowHistory";
@@ -499,8 +499,24 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     finally { setSubmitting(false); }
   }
 
+  // Unsaved-changes guard: warn before closing (Close button or click-outside)
+  // a NEW PO that carries data that hasn't been saved.
+  function hasUnsavedData(): boolean {
+    if (!isNew) return false;
+    const hasLines = (bodyRef.current?.getStyleCodes() || []).length > 0;
+    return hasLines || !!vendorId || !!salesOrderId || !!notes.trim() || !!poType || !!customerId
+      || !!requestedDeliveryDate || !!expectedDate || !!cancelDate || !!shipWindowStart
+      || !!vendorContact.trim() || !!vendorEmail.trim() || !!vendorRef.trim() || !!factoryLocation.trim()
+      || !!season || !!channelId || !!departmentCategoryId;
+  }
+  async function requestClose() {
+    if (submitting) return;
+    if (hasUnsavedData() && !(await confirmDialog("This purchase order hasn't been saved. Close and discard your changes?"))) return;
+    onClose();
+  }
+
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+    <div onClick={() => void requestClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New purchase order" : `Purchase order ${po?.po_number || "(draft)"} — ${po?.status}`}</h3>
 
@@ -657,7 +673,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
+          <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
           {editable && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Save draft" : "Save draft"}</button>}
           {editable && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Issue"}</button>}
           {!isNew && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}
