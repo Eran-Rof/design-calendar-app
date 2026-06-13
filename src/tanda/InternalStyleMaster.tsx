@@ -998,8 +998,8 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       { value: "", label: "(select)" },
       ...sizeScales.map((s) => ({
         value: s.id,
-        label: `${s.code} — ${s.name}`,
-        searchHaystack: `${s.code} ${s.name}`,
+        label: s.name,                       // name only (operator: hide the code)
+        searchHaystack: `${s.code} ${s.name}`, // still searchable by code
       })),
     ];
     // Defensive: surface the style's current scale if it didn't come back
