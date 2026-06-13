@@ -107,6 +107,29 @@ export async function deleteLine(lineId: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/lines/${lineId}`, { method: "DELETE" }));
 }
 
+// ── AI cost co-pilot ─────────────────────────────────────────────────────────
+// Advisory only — the server reads LY/T3 comp + PO history and returns a
+// suggested cost / sell / margin with rationale. It never writes the line; the
+// caller applies values via updateLine.
+export interface CostSuggestion {
+  is_ddp: boolean;
+  insufficient_data: boolean;
+  suggested_target_cost: number | null;
+  suggested_fob_cost: number | null;
+  suggested_sell_target: number | null;
+  suggested_margin_pct: number | null;
+  confidence: number | null;
+  rationale: string;
+  signals: string[];
+  comps_used: Record<string, unknown>;
+  model: string;
+  generated_at: string;
+}
+
+export async function suggestLineCosts(lineId: string, signal?: AbortSignal): Promise<CostSuggestion> {
+  return json<CostSuggestion>(await fetch(`/api/internal/costing/lines/${lineId}/suggest`, { signal }));
+}
+
 // Stage B fork: mark a Sent/Quoted line 'revised' (locked) server-side + close
 // its superseded vendor RFQ. The new Draft copy is created by the caller via
 // upsertLines. 409 if the line isn't Sent/Quoted.

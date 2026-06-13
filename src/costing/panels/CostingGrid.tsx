@@ -24,6 +24,7 @@ import FabricPickerCell from "./FabricPickerCell";
 import HistoricalCostCell from "./HistoricalCostCell";
 import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
+import CostSuggestModal from "./CostSuggestModal";
 import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
@@ -377,6 +378,8 @@ export default function CostingGrid() {
   // line id + screen coords. Null = closed. Closes on outside-click / Escape /
   // scroll so it never strands over a moved row.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; lineId: string } | null>(null);
+  // AI cost co-pilot modal — opened from the row context menu.
+  const [suggestLineId, setSuggestLineId] = useState<string | null>(null);
   const openContextMenu = (e: React.MouseEvent, lineId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1275,8 +1278,36 @@ export default function CostingGrid() {
           >
             Duplicate row (pick new vendor)
           </button>
+          <button
+            type="button"
+            onClick={() => { setSuggestLineId(ctxMenu.lineId); closeContextMenu(); }}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", color: "#E2E8F0",
+              border: "none", borderRadius: 4,
+              padding: "8px 12px", fontSize: 12, fontWeight: 500,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            ✨ AI cost suggestion
+          </button>
         </div>
       )}
+
+      {/* AI cost co-pilot modal */}
+      {suggestLineId && (() => {
+        const sline = lines.find((l) => l.id === suggestLineId);
+        if (!sline) return null;
+        return (
+          <CostSuggestModal
+            line={sline}
+            onApply={(patch) => updateLineGuarded(sline.id, patch)}
+            onClose={() => setSuggestLineId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
