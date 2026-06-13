@@ -152,6 +152,8 @@ import r_internal_cases_index from "./internal/cases/index.js";
 import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
 import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
+import r_internal_colors_id from "./internal/colors/[id].js";
+import r_internal_colors_index from "./internal/colors/index.js";
 import r_internal_commissions_accruals from "./internal/commissions/accruals.js";
 import r_internal_commissions_accrue from "./internal/commissions/accrue.js";
 import r_internal_commissions_payouts from "./internal/commissions/payouts.js";
@@ -1053,6 +1055,7 @@ export const ROUTES = [
   { pattern: "/api/internal/vendors/:id", handler: r_internal_vendors_id_index },
   { pattern: "/api/vendor/contracts/:id", handler: r_vendor_contracts_id_index },
   { pattern: "/api/vendor/shipments/:id", handler: r_vendor_shipments_id },
+  { pattern: "/api/internal/colors/:id", handler: r_internal_colors_id },
   { pattern: "/api/vendor/api-keys/:id", handler: r_vendor_api_keys_id_index },
   { pattern: "/api/vendor/disputes/:id", handler: r_vendor_disputes_id_index },
   { pattern: "/api/vendor/invoices/:id", handler: r_vendor_invoices_id },
@@ -1242,6 +1245,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/scorecard", handler: r_vendor_scorecard },
   { pattern: "/api/vendor/shipments", handler: r_vendor_shipments },
   { pattern: "/api/internal/brands", handler: r_internal_brands_index },
+  { pattern: "/api/internal/colors", handler: r_internal_colors_index },
   { pattern: "/api/internal/search", handler: r_internal_search_index },
   { pattern: "/api/internal/states", handler: r_internal_states_index },
   { pattern: "/api/shopify/returns", handler: r_shopify_returns },

@@ -149,6 +149,8 @@ type SizeScaleLite = { id: string; code: string; name: string; sizes?: string[] 
 
 type SeasonLite = { id: string; code: string; name: string };
 
+type ColorLite = { id: string; name: string; code?: string | null; hex?: string | null };
+
 // gender_master row (Chunk J item 13) — replaces the hardcoded GENDER_OPTIONS.
 type GenderMaster = { id: string; code: string; label: string; sort_order: number };
 
@@ -762,6 +764,25 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     return out;
   });
 
+  // Declared COLORS — the colors this style is offered in, stored as an array of
+  // color_master ids in attributes.color_ids. These drive the SO/PO size-matrix
+  // rows (api/_lib/styleMatrix.js merges them with the SKU-derived colors) so a
+  // brand-new style renders its color rows before any SKU exists. The master
+  // list (searchable + admin add-new) loads from /api/internal/colors.
+  const [colorMaster, setColorMaster] = useState<ColorLite[]>([]);
+  const [colorIds, setColorIds] = useState<string[]>(() => {
+    const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.color_ids;
+    return Array.isArray(fromAttr) ? fromAttr.filter((x): x is string => typeof x === "string" && !!x) : [];
+  });
+  // Declared INSEAMS — the inseam lengths this (bottoms) style is offered in,
+  // stored as a string array in attributes.inseams. Drive the matrix inseam rows
+  // the same way colors do. Optional — only bottoms set these.
+  const [inseams, setInseams] = useState<string[]>(() => {
+    const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.inseams;
+    return Array.isArray(fromAttr) ? fromAttr.map((x) => String(x).trim()).filter(Boolean) : [];
+  });
+  const [inseamDraft, setInseamDraft] = useState("");
+
   // Which COO row's AI "Suggest HTS" list is currently open / loading (null = none).
   const [htsRowIdx, setHtsRowIdx] = useState<number | null>(null);
   const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct", val: string) =>
@@ -840,6 +861,20 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     return () => { cancelled = true; };
   }, []);
 
+  // Load the color master for the Colors picker. Non-fatal on error.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/colors`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled && Array.isArray(data)) setColorMaster(data as ColorLite[]);
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Probe whether a GS1 company prefix is configured so we can enable/disable
   // the "Generate UPCs" checkbox. Add mode only — existing styles keep their
   // Xoro/Excel UPCs untouched. Non-fatal on error (checkbox stays disabled).
@@ -897,6 +932,65 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         notify(`Could not save new season to master: ${e instanceof Error ? e.message : String(e)}`, "error");
       }
     })();
+  }, []);
+
+  // ── Colors (declared, multi-select) ────────────────────────────────────────
+  const colorNameById = useMemo(() => {
+    const m = new Map<string, ColorLite>();
+    for (const c of colorMaster) m.set(c.id, c);
+    return m;
+  }, [colorMaster]);
+  // The colors NOT already selected, for the "add a color" dropdown.
+  const colorPickOptions: SearchableSelectOption[] = useMemo(() => {
+    const picked = new Set(colorIds);
+    return colorMaster
+      .filter((c) => !picked.has(c.id))
+      .map((c) => ({ value: c.id, label: c.code ? `${c.name} (${c.code})` : c.name, searchHaystack: `${c.name} ${c.code ?? ""}` }));
+  }, [colorMaster, colorIds]);
+  const addColorToStyle = useCallback((id: string) => {
+    if (!id) return;
+    setColorIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }, []);
+  const removeColorFromStyle = useCallback((id: string) => {
+    setColorIds((prev) => prev.filter((x) => x !== id));
+  }, []);
+  // Admin "+ Add new color" — POST to the color master, then select the new
+  // (or pre-existing, case-insensitive) color. The endpoint is idempotent and
+  // returns the row's id either way so we can attach it to this style.
+  const addNewColor = useCallback((qRaw: string) => {
+    const name = qRaw.trim();
+    if (!name) return;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/colors`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (!r.ok) {
+          const msg = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
+          notify(`Could not add color to master: ${msg}`, "error");
+          return;
+        }
+        const saved = await r.json() as ColorLite;
+        setColorMaster((prev) => prev.some((c) => c.id === saved.id) ? prev : [...prev, saved]);
+        setColorIds((prev) => prev.includes(saved.id) ? prev : [...prev, saved.id]);
+      } catch (e: unknown) {
+        notify(`Could not add color to master: ${e instanceof Error ? e.message : String(e)}`, "error");
+      }
+    })();
+  }, []);
+
+  // ── Inseams (declared, multi-value free entry) ─────────────────────────────
+  const COMMON_INSEAMS = ["28", "29", "30", "31", "32", "34", "36"];
+  const addInseam = useCallback((raw: string) => {
+    const v = raw.trim();
+    if (!v) return;
+    setInseams((prev) => prev.includes(v) ? prev : [...prev, v]);
+    setInseamDraft("");
+  }, []);
+  const removeInseam = useCallback((v: string) => {
+    setInseams((prev) => prev.filter((x) => x !== v));
   }, []);
 
   const sizeScaleOptions: SearchableSelectOption[] = useMemo(() => {
@@ -997,7 +1091,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         unit_weight_kg:       form.unit_weight_kg.trim() === "" ? null : Number(form.unit_weight_kg),
         units_per_carton:     form.units_per_carton.trim() === "" ? null : Math.floor(Number(form.units_per_carton)),
         carton_cbm_m3:        form.carton_cbm_m3.trim() === "" ? null : Number(form.carton_cbm_m3),
-        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: scalePack },
+        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: scalePack, color_ids: colorIds, inseams },
       };
       let url: string;
       let method: string;
@@ -1370,6 +1464,76 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               Yes (enforce 5-dim matrix on linked items)
             </label>
           </Field>
+
+          {/* Colors — the colors this style is offered in. Drive the SO/PO size
+              matrix rows. Searchable picker over the color master; admins can
+              add a brand-new color inline (everyone can pick existing ones). */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Colors">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {colorIds.length === 0 && (
+                  <span style={{ fontSize: 12, color: C.textMuted }}>No colors yet — add the colors this style comes in.</span>
+                )}
+                {colorIds.map((id) => {
+                  const c = colorNameById.get(id);
+                  return (
+                    <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px 3px 8px" }}>
+                      {c?.hex && <span style={{ width: 12, height: 12, borderRadius: "50%", background: c.hex, border: "1px solid rgba(255,255,255,0.3)", flexShrink: 0 }} />}
+                      {c ? (c.code ? `${c.name} (${c.code})` : c.name) : <em style={{ color: C.textMuted }}>color {id.slice(0, 8)}…</em>}
+                      <button type="button" onClick={() => removeColorFromStyle(id)} title="Remove color" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                    </span>
+                  );
+                })}
+              </div>
+              <div style={{ maxWidth: 360 }}>
+                <SearchableSelect
+                  value={null}
+                  onChange={(v) => { if (v) addColorToStyle(v); }}
+                  options={colorPickOptions}
+                  placeholder="Search colors to add…"
+                  onAddNew={isAdmin ? addNewColor : undefined}
+                  addNewLabel={isAdmin ? (q) => `+ Add new color “${q.trim()}” to master` : undefined}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                These become the color rows in the Sales Order / Purchase Order size matrix.
+                {isAdmin ? " You can add a new color to the master." : " Only admins can add a brand-new color to the master."}
+              </div>
+            </Field>
+          </div>
+
+          {/* Inseams — optional, bottoms only. Each declared inseam becomes a
+              matrix row (color × inseam × size) on SO / PO entry. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Inseams (optional — bottoms)">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {inseams.length === 0 && (
+                  <span style={{ fontSize: 12, color: C.textMuted }}>No inseams — leave empty for tops / non-bottoms.</span>
+                )}
+                {inseams.map((v) => (
+                  <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px" }}>
+                    {v}
+                    <button type="button" onClick={() => removeInseam(v)} title="Remove inseam" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  value={inseamDraft}
+                  onChange={(e) => setInseamDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addInseam(inseamDraft); } }}
+                  placeholder="e.g. 32"
+                  style={{ ...inputStyle, width: "10ch" }}
+                />
+                <button type="button" onClick={() => addInseam(inseamDraft)} style={btnSecondary} disabled={!inseamDraft.trim()}>+ Add inseam</button>
+                <span style={{ fontSize: 11, color: C.textMuted }}>quick add:</span>
+                {COMMON_INSEAMS.filter((v) => !inseams.includes(v)).map((v) => (
+                  <button key={v} type="button" onClick={() => addInseam(v)} style={{ ...btnSecondary, padding: "4px 8px", fontSize: 12 }}>{v}</button>
+                ))}
+              </div>
+            </Field>
+          </div>
 
           {/* Pack / logistics — roll up to PO total weight / cartons / CBM. */}
           <Field label="Pack / logistics">

@@ -101,6 +101,7 @@ const KEYS = [
   "tanda/master/factors",
   "tanda/master/size-scales",
   "tanda/master/seasons",
+  "tanda/master/colors",
   "tanda/master/rma-reasons",
   "tanda/master/adjustment-types",
   "tanda/master/adjustment-reasons",

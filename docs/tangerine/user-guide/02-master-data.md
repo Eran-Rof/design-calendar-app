@@ -91,6 +91,35 @@ The **Pack / logistics** row holds three per-style shipping attributes:
 
 These feed the **Purchase Order** header roll-ups (shown read-only there): total weight = units × unit weight; total cartons = units ÷ units-per-carton (rounded up); total CBM = cartons × carton CBM. All optional — a PO shows `—` for any style that hasn't set them.
 
+### Colors (which colors the style runs)
+
+The **Colors** section declares the colors a style is offered in. Each color you add appears as a **chip**; the **✕** removes it. Use the **"Search colors to add…"** dropdown to attach an existing color from the **Color Master** (see below) — type to filter the full color list.
+
+These declared colors become the **color rows in the Sales Order and Purchase Order size matrix** — including a brand-new style that has no SKUs yet, and the AI **"Upload customer PO"** prefill on a new Sales Order. (Previously a style's colors were inferred only from SKUs that already existed, so a new style had no rows to fill.)
+
+- **Anyone** can pick existing colors.
+- **Admins** also get a **"+ Add new color … to master"** row at the bottom of the dropdown — type a colour that isn't in the master yet and choose it to create the color and attach it in one step. Non-admins only see existing colors. (Adding a colour that already exists, case-insensitively, just re-uses the existing one.)
+
+### Inseams (bottoms only — optional)
+
+Below Colors, the **Inseams** section declares the inseam lengths a bottoms style runs (e.g. `30`, `32`, `34`). Type one and press **Enter** or **+ Add inseam**, or tap a **quick-add** preset. Each inseam becomes an extra matrix dimension on SO / PO entry (color × inseam × size). Leave it empty for tops and non-bottoms.
+
+## 🎨 Color Master
+
+Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). The Color Master is the curated list of colors styles can be offered in. It is **prepopulated from every distinct colour already present in the catalog** (the existing item/SKU colours), so the picker starts full of your real colours. Standard panel features apply: search, **Show inactive**, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. Each row shows a colour **swatch** when a hex is set.
+
+### What a color row is
+
+| Field | Meaning |
+|---|---|
+| **Name** | The colour label that appears as a matrix row, e.g. `Black`, `Charcoal Hthr`. Required; unique per entity (case-insensitive). |
+| **Code** | An optional short colour code. |
+| **Hex** | An optional `#RRGGBB` swatch shown next to the colour chip. |
+
+### How it relates to Style Master
+
+Style Master stores a style's chosen colours as a list of color-master ids in the style's attributes — there is no foreign-key column on the style, so this master is purely additive and backward-compatible. Renaming a colour in the master updates it everywhere it's used. **Only admins** can add a new colour to the master (inline from the Style Master Colors picker).
+
 ## 🍂 Season Master
 
 Find it under **Master Data → Seasons** (`/tangerine?m=season_master`). A season is a named merchandising window — `FW26`, `SS27`, `HOLIDAY26` — that styles are tagged with.

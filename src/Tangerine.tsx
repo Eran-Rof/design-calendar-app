@@ -26,6 +26,7 @@ import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalSizeScales         from "./tanda/InternalSizeScales";
 import InternalSeasonMaster       from "./tanda/InternalSeasonMaster";
+import InternalColorMaster        from "./tanda/InternalColorMaster";
 import InternalFabricMillMaster   from "./tanda/InternalFabricMillMaster";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
@@ -459,6 +460,7 @@ export default function Tangerine() {
         {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "size_scales"          && <InternalSizeScales />}
         {activeModule === "season_master"        && <InternalSeasonMaster />}
+        {activeModule === "color_master"         && <InternalColorMaster />}
         {activeModule === "fabric_mill_master"    && <InternalFabricMillMaster />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
