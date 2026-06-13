@@ -505,11 +505,6 @@ export default function VendorRfqDetail() {
               <button onClick={() => void reviseQuote()} disabled={saving} style={btnPrimary}>{saving ? "Working…" : "Revise quote"}</button>
             )}
           </div>
-          {(quote.status === "submitted" || quote.status === "under_review") && !deadlinePassed && rfq.status !== "closed" && rfq.status !== "awarded" && (
-            <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 10 }}>
-              Need to change your pricing? Click <b>Revise quote</b> — your current submission is saved, and you can edit and re-submit while this RFQ is open.
-            </div>
-          )}
 
           {/* Read-only history of THIS vendor's own prior versions. */}
           {quote.revisions && quote.revisions.length > 0 && (
