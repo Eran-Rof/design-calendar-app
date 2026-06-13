@@ -202,9 +202,40 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
 
+  // ── Rich header fields ──────────────────────────────────────────────────────
+  const [poType, setPoType] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [poPrefix, setPoPrefix] = useState("");
+  const [vendorContact, setVendorContact] = useState("");
+  const [vendorEmail, setVendorEmail] = useState("");
+  const [vendorRef, setVendorRef] = useState("");
+  const [factoryLocation, setFactoryLocation] = useState("");
+  const [coo, setCoo] = useState("");
+  const [requestedDeliveryDate, setRequestedDeliveryDate] = useState("");
+  const [shipWindowStart, setShipWindowStart] = useState("");
+  const [shipWindowEnd, setShipWindowEnd] = useState("");
+  const [portDate, setPortDate] = useState("");
+  const [acknowledgedDate, setAcknowledgedDate] = useState("");
+  const [cancelDate, setCancelDate] = useState("");
+  const [shipToLocationId, setShipToLocationId] = useState("");
+  const [billToEntityId, setBillToEntityId] = useState("");
+  const [shipMethod, setShipMethod] = useState("");
+  const [freightForwarder, setFreightForwarder] = useState("");
+  const [season, setSeason] = useState("");
+  const [channelId, setChannelId] = useState("");
+  const [departmentCategoryId, setDepartmentCategoryId] = useState("");
+  const [rollup, setRollup] = useState<{ weight_kg: number; cartons: number; cbm_m3: number; complete: boolean } | null>(null);
+
   const [items, setItems] = useState<Item[]>([]);
   const [brands, setBrands] = useState<Lookup[]>([]);
   const [paymentTerms, setPaymentTerms] = useState<Lookup[]>([]);
+  const [customers, setCustomers] = useState<{ id: string; name: string; customer_code?: string }[]>([]);
+  const [warehouses, setWarehouses] = useState<{ id: string; name: string; code?: string }[]>([]);
+  const [entities, setEntities] = useState<{ id: string; code?: string; legal_name?: string; name?: string }[]>([]);
+  const [channels, setChannels] = useState<Lookup[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string; category_code?: string }[]>([]);
+  const [seasons, setSeasons] = useState<{ id: string; name: string }[]>([]);
+  const [countries, setCountries] = useState<{ iso2?: string; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -212,6 +243,13 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     fetch("/api/internal/items?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/customer-master?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setCustomers(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/warehouses").then((r) => r.ok ? r.json() : []).then((a) => setWarehouses(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/entities?flat=true").then((r) => r.ok ? r.json() : []).then((a) => setEntities(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/channels").then((r) => r.json()).then((d) => setChannels(Array.isArray(d.channels) ? d.channels : [])).catch(() => {});
+    fetch("/api/internal/categories").then((r) => r.ok ? r.json() : []).then((a) => setCategories(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/seasons").then((r) => r.ok ? r.json() : []).then((a) => setSeasons(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/countries").then((r) => r.ok ? r.json() : []).then((a) => setCountries(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);
 
   // Load existing PO lines when editing → seed the matrix body. If the detail
@@ -220,6 +258,17 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   useEffect(() => {
     if (isNew || !po) { setSeed(null); return; }
     fetch(`/api/internal/purchase-orders/${po.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
+      if (!full) return;
+      // Populate the rich-header state from the full PO record + the rollup.
+      setPoType(full.po_type || ""); setCustomerId(full.customer_id || ""); setPoPrefix(full.po_prefix || "");
+      setVendorContact(full.vendor_contact || ""); setVendorEmail(full.vendor_email || ""); setVendorRef(full.vendor_ref || "");
+      setFactoryLocation(full.factory_location || ""); setCoo(full.coo || "");
+      setRequestedDeliveryDate(full.requested_delivery_date || ""); setShipWindowStart(full.ship_window_start || ""); setShipWindowEnd(full.ship_window_end || "");
+      setPortDate(full.port_date || ""); setAcknowledgedDate(full.acknowledged_date || ""); setCancelDate(full.cancel_date || "");
+      setShipToLocationId(full.ship_to_location_id || ""); setBillToEntityId(full.bill_to_entity_id || "");
+      setShipMethod(full.ship_method || ""); setFreightForwarder(full.freight_forwarder || "");
+      setSeason(full.season || ""); setChannelId(full.channel_id || ""); setDepartmentCategoryId(full.department_category_id || "");
+      if (full.logistics_rollup) setRollup(full.logistics_rollup);
       if (!full?.lines) return;
       type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null };
       const byStyle = new Map<string, SeedSection>();
@@ -251,6 +300,15 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       vendor_id: vendorId, brand_id: brandId || null,
       order_date: orderDate, expected_date: expectedDate || null,
       payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines,
+      // Rich header
+      po_type: poType || null, customer_id: customerId || null, po_prefix: poPrefix.trim() || null,
+      vendor_contact: vendorContact.trim() || null, vendor_email: vendorEmail.trim() || null, vendor_ref: vendorRef.trim() || null,
+      factory_location: factoryLocation.trim() || null, coo: coo || null,
+      requested_delivery_date: requestedDeliveryDate || null, ship_window_start: shipWindowStart || null, ship_window_end: shipWindowEnd || null,
+      port_date: portDate || null, acknowledged_date: acknowledgedDate || null, cancel_date: cancelDate || null,
+      ship_to_location_id: shipToLocationId || null, bill_to_entity_id: billToEntityId || null,
+      ship_method: shipMethod || null, freight_forwarder: freightForwarder.trim() || null,
+      season: season || null, channel_id: channelId || null, department_category_id: departmentCategoryId || null,
     };
     if (isNew) {
       const r = await fetch("/api/internal/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -290,29 +348,118 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New purchase order" : `Purchase order ${po?.po_number || "(draft)"} — ${po?.status}`}</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Vendor">
-            <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
-              options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))}
-              placeholder="(pick vendor…)" disabled={!editable} />
-          </Field>
-          <Field label="Brand">
-            <SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)}
-              options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.code ? `${b.code} — ${b.name}` : b.name }))]} placeholder="(entity default)" disabled={!editable} />
-          </Field>
-          <Field label="PO number"><input type="text" value={po?.po_number || ""} readOnly disabled placeholder="(assigned on issue)" style={{ ...inputStyle, opacity: 0.6 }} /></Field>
-        </div>
+        {/* Identity & status */}
+        <Section title="Identity &amp; status">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+            <Field label="PO type">
+              <select value={poType} onChange={(e) => setPoType(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
+                <option value="">(select)</option>
+                {[["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </Field>
+            <Field label="Customer">
+              <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
+                options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable} />
+            </Field>
+            <Field label="PO number prefix"><input type="text" value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} disabled={!editable} style={inputStyle} placeholder="PO (default)" title="Overrides the 'PO-' prefix used when the PO is issued" /></Field>
+            <Field label="PO number / status">
+              <input type="text" value={po?.po_number ? `${po.po_number} · ${po.status}` : (po?.status || "(draft — assigned on issue)")} readOnly disabled style={{ ...inputStyle, opacity: 0.6 }} />
+            </Field>
+          </div>
+        </Section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-          <Field label="Expected date"><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-          <Field label="Payment terms">
-            <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
-              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(select)" disabled={!editable} />
-          </Field>
-        </div>
+        {/* Vendor / supplier */}
+        <Section title="Vendor / supplier">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Vendor">
+              <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
+                options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))}
+                placeholder="(pick vendor…)" disabled={!editable} />
+            </Field>
+            <Field label="Vendor contact"><input type="text" value={vendorContact} onChange={(e) => setVendorContact(e.target.value)} disabled={!editable} style={inputStyle} placeholder="contact name" /></Field>
+            <Field label="Vendor email"><input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} disabled={!editable} style={inputStyle} placeholder="name@vendor.com" /></Field>
+            <Field label="Vendor PO / ref #"><input type="text" value={vendorRef} onChange={(e) => setVendorRef(e.target.value)} disabled={!editable} style={inputStyle} placeholder="their reference" /></Field>
+            <Field label="Factory / production location"><input type="text" value={factoryLocation} onChange={(e) => setFactoryLocation(e.target.value)} disabled={!editable} style={inputStyle} placeholder="factory / city" /></Field>
+            <Field label="COO (country of origin)">
+              <SearchableSelect value={coo || null} onChange={(v) => setCoo(v || "")}
+                options={[{ value: "", label: "(none)" }, ...countries.map((c) => ({ value: c.name, label: c.name, searchHaystack: `${c.name} ${c.iso2 || ""}` }))]} placeholder="(none)" disabled={!editable} />
+            </Field>
+          </div>
+        </Section>
+
+        {/* Dates */}
+        <Section title="Dates">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Requested delivery / in-DC"><input type="date" value={requestedDeliveryDate} onChange={(e) => setRequestedDeliveryDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Ship window start"><input type="date" value={shipWindowStart} onChange={(e) => setShipWindowStart(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Ship window end"><input type="date" value={shipWindowEnd} onChange={(e) => setShipWindowEnd(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Port date"><input type="date" value={portDate} onChange={(e) => setPortDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Vendor-confirmed / ack."><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Expected date"><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+          </div>
+        </Section>
+
+        {/* Logistics & destination */}
+        <Section title="Logistics &amp; destination">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Ship-to location / warehouse">
+              <SearchableSelect value={shipToLocationId || null} onChange={(v) => setShipToLocationId(v || "")}
+                options={[{ value: "", label: "(none)" }, ...warehouses.map((w) => ({ value: w.id, label: w.code ? `${w.code} — ${w.name}` : w.name }))]} placeholder="(none)" disabled={!editable} />
+            </Field>
+            <Field label="Bill-to entity">
+              <SearchableSelect value={billToEntityId || null} onChange={(v) => setBillToEntityId(v || "")}
+                options={[{ value: "", label: "(default entity)" }, ...entities.map((e) => ({ value: e.id, label: e.code || e.legal_name || e.name || e.id.slice(0, 8) }))]} placeholder="(default entity)" disabled={!editable} />
+            </Field>
+            <Field label="Ship method / mode">
+              <select value={shipMethod} onChange={(e) => setShipMethod(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
+                <option value="">(select)</option>
+                {[["sea", "Sea"], ["air", "Air"], ["ground", "Ground"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </Field>
+            <Field label="Consolidator / forwarder"><input type="text" value={freightForwarder} onChange={(e) => setFreightForwarder(e.target.value)} disabled={!editable} style={inputStyle} placeholder="freight forwarder" /></Field>
+          </div>
+        </Section>
+
+        {/* Classification & terms */}
+        <Section title="Classification &amp; terms">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Brand">
+              <SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)}
+                options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.code ? `${b.code} — ${b.name}` : b.name }))]} placeholder="(entity default)" disabled={!editable} />
+            </Field>
+            <Field label="Season">
+              <SearchableSelect value={season || null} onChange={(v) => setSeason(v || "")}
+                options={[{ value: "", label: "(none)" }, ...seasons.map((s) => ({ value: s.name, label: s.name }))]} placeholder="(none)" disabled={!editable} />
+            </Field>
+            <Field label="Channel">
+              <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v || "")}
+                options={[{ value: "", label: "(none)" }, ...channels.map((c) => ({ value: c.id, label: c.code ? `${c.code} — ${c.name}` : c.name }))]} placeholder="(none)" disabled={!editable} />
+            </Field>
+            <Field label="Department">
+              <SearchableSelect value={departmentCategoryId || null} onChange={(v) => setDepartmentCategoryId(v || "")}
+                options={[{ value: "", label: "(none)" }, ...categories.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.category_code || ""}` }))]} placeholder="(none)" disabled={!editable} />
+            </Field>
+            <Field label="Payment terms">
+              <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
+                options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.code ? `${t.code} — ${t.name}` : t.name }))]} placeholder="(select)" disabled={!editable} />
+            </Field>
+          </div>
+        </Section>
 
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
+
+        {/* Totals roll-up from Style Master logistics (read-only). On a new PO it
+            populates after the first save (the server computes it from the lines). */}
+        <div style={{ display: "flex", gap: 24, alignItems: "baseline", padding: "10px 12px", marginTop: 12, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>
+          <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Roll-up</span>
+          <span style={{ color: C.textMuted, fontSize: 13 }}>Total weight <b style={{ color: C.text, marginLeft: 6, fontVariantNumeric: "tabular-nums" }}>{rollup ? `${rollup.weight_kg.toLocaleString()} kg` : "—"}</b></span>
+          <span style={{ color: C.textMuted, fontSize: 13 }}>Cartons <b style={{ color: C.text, marginLeft: 6, fontVariantNumeric: "tabular-nums" }}>{rollup ? rollup.cartons.toLocaleString() : "—"}</b></span>
+          <span style={{ color: C.textMuted, fontSize: 13 }}>Total CBM <b style={{ color: C.text, marginLeft: 6, fontVariantNumeric: "tabular-nums" }}>{rollup ? `${rollup.cbm_m3.toLocaleString()} m³` : "—"}</b></span>
+          {rollup && !rollup.complete && <span style={{ fontSize: 11, color: C.warn }}>some styles missing weight/carton/CBM in Style Master</span>}
+          {!rollup && <span style={{ fontSize: 11, color: C.textMuted }}>populates after save</span>}
+        </div>
 
         {/* Line body — the shared size matrix, exactly like the Sales Order modal
             (mode="po": Unit Cost $ column, no margin / availability). Default-open. */}
@@ -345,6 +492,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+// Grouped header section — a titled bordered block for the rich PO header.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>{title}</div>
       {children}
     </div>
   );
