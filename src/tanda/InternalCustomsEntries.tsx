@@ -343,7 +343,9 @@ function EntryModal({ entry, onClose, onSaved }: { entry: Entry | null; onClose:
           Header value/duty/§301/MPF/HMF totals are summed from the lines. Landed-cost revaluation onto FIFO inventory layers posts in a later chunk — this entry is record-only.
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Close stay reachable as the entry-line grid grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>{savedId && <button onClick={() => void del()} style={btnDanger} disabled={submitting}>Delete entry</button>}</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>

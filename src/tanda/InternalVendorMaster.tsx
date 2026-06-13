@@ -671,13 +671,6 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
-            {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
-          </button>
-        </div>
-
         {mode === "edit" && vendor && (
           <div style={{ marginTop: 16 }}>
             <DocumentAttachmentList
@@ -692,6 +685,16 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
         {mode === "edit" && vendor && (
           <RowHistory source_table="vendors" source_id={vendor.id} />
         )}
+
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Cancel stay reachable on tall records (negative margins span
+            the modal's 20px padding; bottom:-20 cancels its padding-bottom). */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
+            {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );

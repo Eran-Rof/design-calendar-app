@@ -117,6 +117,8 @@ Click **Void** on any non-void row. The handler:
 
 Voids are non-destructive — the original JEs stay in the GL with `status='reversed'`, and the reversing JEs net them to zero. The invoice row is preserved (you can re-open the modal in read-only mode to see lines + linked JEs).
 
+> **Frozen Save/Close footer.** The AP Invoice edit modal keeps its **Save / Close** (and **Record payment**) buttons pinned to the bottom as the modal scrolls, so they stay reachable on tall invoices with many lines + attachments. Same behaviour across the AR Receipts, Journal Entry, Receiving, QC Inspection, Cycle Count and Customs Entry modals.
+
 ## Document attachments
 
 Inside the AP Invoice edit modal, the **Supporting documents** section embeds `<DocumentAttachmentList>` (M29) scoped to `contextTable='invoices'` and the invoice's id. Supported kinds:

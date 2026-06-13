@@ -242,7 +242,7 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           </>
         )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+        <div style={{ position: "sticky", bottom: -22, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -22px -22px", padding: "14px 22px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <div style={{ display: "flex", gap: 8 }}>
             {step > 1 && <button onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)} style={btnSecondary}>Back</button>}

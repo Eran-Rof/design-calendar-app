@@ -67,6 +67,8 @@ Same shape as Add, with **one difference**: `Style code` is locked. Codes are in
 
 The **Season** field is a searchable dropdown sourced from the Season Master (below). Pick an existing season, or — as an admin — type a new one and choose **"+ Add new season"** to add it to the master inline. The chosen season name is stored on the style as plain text, so older free-text seasons that predate the master still display correctly.
 
+> **Frozen Save/Cancel footer.** The Style, Customer, Vendor and Fabric Code edit modals keep their **Save / Cancel** buttons pinned to the bottom of the modal as it scrolls — so on a tall record (many fields, document attachments, the audit timeline) you never have to scroll back up to save. Same behaviour as the Sales Order / Purchase Order / AR Invoice modals.
+
 ### Size scale + the 📐 Scale (pack ratio)
 
 Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *which* sizes a style runs (S–XL, 2T–4T, …); the **Scale** window says *how a buy is split across those sizes* — a reusable **pack ratio** used to auto-fill the SO and PO size matrices.

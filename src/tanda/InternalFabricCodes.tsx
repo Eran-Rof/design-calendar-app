@@ -473,7 +473,9 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Cancel stay reachable on tall records. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
           <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
