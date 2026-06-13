@@ -106,7 +106,7 @@ Below Colors, the **Inseams** section declares the inseam lengths a bottoms styl
 
 ## 🎨 Color Master
 
-Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). The Color Master is the curated list of colors styles can be offered in. It is **prepopulated from every distinct colour already present in the catalog** (the existing item/SKU colours), so the picker starts full of your real colours. Standard panel features apply: search, **Show inactive**, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. Each row shows a colour **swatch** when a hex is set.
+Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). The Color Master is the curated list of colors styles can be offered in. It is **prepopulated from every distinct colour already present in the catalog** (the existing item/SKU colours), so the picker starts full of your real colours — then **normalized** to a clean canonical set (1,106 raw spellings → 857: case, spacing, size-leaked-into-colour, and common abbreviations like `Lt`/`Dk`/`Hthr`/`Chrcl` are folded into one proper-cased name). The matching cleanup of the live SKU colours themselves is a separate, larger data-repair (tracked in OPERATOR-TODO); meanwhile the size matrix lines a declared colour up with existing SKU colours case-insensitively. Standard panel features apply: search, **Show inactive**, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. Each row shows a colour **swatch** when a hex is set.
 
 ### What a color row is
 

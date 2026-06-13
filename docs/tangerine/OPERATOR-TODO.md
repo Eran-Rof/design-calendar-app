@@ -23,6 +23,12 @@
 |---|---|---|
 | **Real auth on `/api/internal/*`** | Hardening after moving the app to the SSO-exempt custom domain `apps.ringoffire.com` | The app now lives at **apps.ringoffire.com** (no Vercel SSO — that fixed the recurring "Unexpected token '<'" / session-expiry outages). With SSO off, the internal API is gated only by the app's own login + a **client-bundled** `VITE_INTERNAL_API_TOKEN` — i.e. effectively reachable by URL. **Recommended:** add per-request auth (Supabase session/JWT) on `/api/internal/*` so data isn't exposed by URL alone. Not urgent, but should be done deliberately. Give the go-ahead and the agent will scope + build it. |
 
+## 🟣 Data-quality repair (needs your go-ahead; agent builds it)
+
+| Item | Why | Detail |
+|---|---|---|
+| **Catalog colour normalization — live SKUs** | Clean, consistent colours across inventory / matrix / reports | The new **Color Master picklist is normalized** (1,106 raw spellings → **857 canonical**; case + spacing + size-leak + abbreviations folded; applied to prod). But the matching rewrite of **`ip_item_master.color`** (the ~6,300 live SKU rows that still say `BLACK`/`Charcoal-30`/etc.) is **blocked** by a deeper corruption: **84% of those rows (5,322) have a NULL `size`/`inseam` field**, with the real size **and** print/graphic name baked into `sku_code` (e.g. `RYB0981PL-BLACK-34-SALTY'SSURFSHOP`). A blind colour rewrite would fuse genuinely-different products. **Prerequisite:** backfill the structured `size`/`inseam` fields from `sku_code` first, then the colour rewrite (+ the **106** genuinely-safe duplicate-SKU merges already identified) becomes safe. Give the go-ahead and the agent will scope the size/inseam backfill. *(Display is unaffected meanwhile: the size matrix now aligns declared colours to existing SKU colours case-insensitively.)* |
+
 ## 🟡 Go-live switches — when you're ready (operator-controlled, not blocking the build)
 
 | Switch | Effect | Pre-req |

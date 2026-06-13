@@ -145,7 +145,15 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       .eq("entity_id", entityId)
       .in("id", declaredColorIds);
     const nameById = new Map((cmRows || []).map((r) => [r.id, r.name]));
-    const declaredNames = declaredColorIds.map((id) => nameById.get(id)).filter(Boolean);
+    // Align a declared color to an existing SKU color when they match
+    // case-insensitively, so the row uses the SKU's exact spelling and its cells
+    // resolve (catalog colors are inconsistently cased — "BLACK" vs "Black"). A
+    // declared color with no SKU yet keeps its (canonical) spelling = empty row.
+    const skuColorByLower = new Map(colors.map((c) => [c.toLowerCase(), c]));
+    const declaredNames = declaredColorIds
+      .map((id) => nameById.get(id))
+      .filter(Boolean)
+      .map((n) => skuColorByLower.get(n.toLowerCase()) || n);
     colors = dedupeOrdered([...declaredNames, ...colors]);
   }
   const declaredInseams = Array.isArray(attrs.inseams)
