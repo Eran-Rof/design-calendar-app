@@ -147,7 +147,10 @@ export function NavDrawer({
   userBoxHeight,
 }: Props) {
   // Avatar shrinks to fit a fixed-height user box (DC's 64px-aligned top region).
-  const avatarSz = userBoxHeight ? Math.max(20, userBoxHeight - 9) : 30;
+  // Match the app-logo size (26) so the avatar and logo share the same icon
+  // column — that's what lets the user name line up to the same left edge as
+  // the app name (both = padding 8 + icon 26 + gap 10 = 44px).
+  const avatarSz = 26;
   const { favorites, toggleFavorite, logClick } = usePersonalization();
   const modToMenuKey = useMemo<Record<string, string>>(() => {
     const re = new RegExp(`[?&]${moduleParam}=([^&]+)`);
@@ -383,10 +386,10 @@ export function NavDrawer({
 
       {/* ── User info (name only, no email) ───────────────────────── */}
       <div
-        style={{ height: userBoxHeight, boxSizing: userBoxHeight ? "border-box" : undefined, padding: userBoxHeight ? (collapsed ? "0 4px" : "0 10px") : (collapsed ? "9px 4px" : "9px 10px"), borderBottom:`1px solid ${C.border}`, flexShrink:0, position:"relative", cursor: collapsed ? "default" : "pointer" }}
+        style={{ height: userBoxHeight, boxSizing: userBoxHeight ? "border-box" : undefined, padding: userBoxHeight ? (collapsed ? "0 4px" : "0 8px") : (collapsed ? "9px 4px" : "9px 8px"), borderBottom:`1px solid ${C.border}`, flexShrink:0, position:"relative", cursor: collapsed ? "default" : "pointer" }}
         onClick={e => { e.stopPropagation(); if (!collapsed) setUserOpen(v => !v); }}
       >
-        <div style={{ display:"flex", alignItems:"center", gap:8, justifyContent: collapsed ? "center" : "flex-start" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, justifyContent: collapsed ? "center" : "flex-start" }}>
           {userPhotoUrl
             ? <img src={userPhotoUrl} alt={userName || ""} style={{ width:avatarSz, height:avatarSz, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
             : <span style={{ width:avatarSz, height:avatarSz, borderRadius:"50%", background:avBg, color:"#fff", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{av}</span>
