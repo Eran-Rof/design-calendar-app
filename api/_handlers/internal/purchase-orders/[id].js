@@ -104,8 +104,20 @@ export default async function handler(req, res, params) {
     const { data: lines, error: lErr } = await admin.from("purchase_order_lines")
       .select("*").eq("purchase_order_id", id).order("line_number", { ascending: true });
     if (lErr) return res.status(500).json({ error: lErr.message });
+    // Decorate each line with its SKU decomposition so the PO modal regroups
+    // lines into the per-style size matrix on edit (mirrors the SO detail).
+    const itemIds = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
+    let skuById = new Map();
+    if (itemIds.length) {
+      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, sku_code").in("id", itemIds);
+      skuById = new Map((skus || []).map((s) => [s.id, s]));
+    }
+    const decorated = (lines || []).map((l) => {
+      const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, sku_code: s?.sku_code ?? null };
+    });
     const rollup = await computeLogisticsRollup(admin, lines || []);
-    return res.status(200).json({ ...po, lines: lines || [], logistics_rollup: rollup });
+    return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup });
   }
 
   if (req.method === "DELETE") {
@@ -163,11 +175,14 @@ export default async function handler(req, res, params) {
         const qty = Number(l.qty_ordered);
         if (!Number.isFinite(qty) || qty <= 0) continue;
         const unit = l.unit_cost_cents == null || l.unit_cost_cents === "" ? 0 : Math.round(Number(l.unit_cost_cents));
+        const dre = /^\d{4}-\d{2}-\d{2}$/;
         norm.push({
           purchase_order_id: id, line_number: ln++,
           inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
           description: l.description ? String(l.description).trim() : null,
           qty_ordered: qty, unit_cost_cents: unit, line_total_cents: Math.round(qty * unit),
+          requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
+          vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
         });
       }
       await admin.from("purchase_order_lines").delete().eq("purchase_order_id", id);
