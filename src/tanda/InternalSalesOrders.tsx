@@ -14,6 +14,10 @@ import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify } from "../shared/ui/warn";
+import {
+  resolveLine, buildSeedFromResolved, matchCustomer, matchPaymentTerms, isoDate,
+  type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning,
+} from "./lib/customerPoPrefill";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -252,12 +256,27 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [notes, setNotes] = useState(so?.notes || "");
   // Customer's PO number (their reference). Required before styles can be added.
   const [customerPo, setCustomerPo] = useState(so?.customer_po || "");
+  // 🤖 AI customer-PO upload (new SO only). Dialog + parse + base/PPK disambig
+  // + the post-prefill "double-check" review.
+  const [poUploadOpen, setPoUploadOpen] = useState(false);
+  const [poParsing, setPoParsing] = useState(false);
+  const [poErr, setPoErr] = useState<string | null>(null);
+  const [poText, setPoText] = useState("");
+  const [poFileName, setPoFileName] = useState("");
+  const [poB64, setPoB64] = useState("");
+  const [poParsed, setPoParsed] = useState<ParsedPo | null>(null);
+  const [poAmbig, setPoAmbig] = useState<{ res: LineResolution; pick: "base" | "ppk" }[]>([]);
+  const [poReview, setPoReview] = useState<{ warnings: PrefillWarning[]; summary: string[]; unmatched: string[] } | null>(null);
+  const [allStyles, setAllStyles] = useState<StyleLite[]>([]);
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
   // few non-matrix flat lines. The body owns its state; we read it at save via
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
+  // Bump to force LineMatrixBody to remount + re-seed (used after an AI PO
+  // prefill replaces the grids; the body otherwise seeds only once).
+  const [seedKey, setSeedKey] = useState(0);
   // The body reports its totals up via onTotalsChange; the prominent totals now
   // render inside the matrix body (big line), so we only keep the setter.
   const [, setBodyTotals] = useState<BodyTotals>({ qty: 0, cents: 0, costCents: 0, marginPct: 0, marginEstimated: true });
@@ -357,6 +376,129 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     if (!c) return;
     if (c.default_brand_id) setBrandId((cur) => cur || c.default_brand_id || "");
     if (c.default_channel_id) setChannelId((cur) => cur || c.default_channel_id || "");
+  }
+
+  // ── 🤖 AI customer-PO upload ───────────────────────────────────────────────
+  // Lazily load the style catalogue (with attributes.size_scale_pack) the first
+  // time the upload dialog opens — needed to resolve style codes + scales.
+  async function ensureStyles(): Promise<StyleLite[]> {
+    if (allStyles.length) return allStyles;
+    const r = await fetch("/api/internal/style-master?limit=10000");
+    const a = r.ok ? await r.json() : [];
+    const list = (Array.isArray(a) ? a : []) as StyleLite[];
+    setAllStyles(list);
+    return list;
+  }
+  // Style → matrix size columns (cached per style id within this parse).
+  const sizeCache = useRef<Map<string, string[]>>(new Map());
+  async function fetchSizes(styleId: string): Promise<string[]> {
+    if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
+    const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
+    const p = r.ok ? await r.json() : null;
+    const sizes: string[] = Array.isArray(p?.sizes) ? p.sizes : [];
+    sizeCache.current.set(styleId, sizes);
+    return sizes;
+  }
+  function pickFile(file: File) {
+    setPoFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      setPoB64(result.includes(",") ? result.split(",")[1] : result); // strip data: prefix
+    };
+    reader.readAsDataURL(file);
+  }
+  async function parsePO() {
+    setPoErr(null); setPoParsing(true); setPoReview(null);
+    try {
+      const payload = poB64 ? { filename: poFileName, base64: poB64 } : { text: poText };
+      const r = await fetch("/api/internal/sales-orders/parse-customer-po", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const parsed = j.parsed as ParsedPo;
+      setPoParsed(parsed);
+      const styles = await ensureStyles();
+      // Detect base/PPK ambiguity; if any, ask before building the seed.
+      const ambig = parsed.lines
+        .map((l) => resolveLine(l, styles))
+        .filter((res) => res.ambiguous)
+        .map((res) => ({ res, pick: "base" as "base" | "ppk" }));
+      if (ambig.length) { setPoAmbig(ambig); }
+      else { await applyParsed(parsed, styles, {}); }
+    } catch (e) {
+      setPoErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPoParsing(false);
+    }
+  }
+  // Build the prefill + header from a parsed PO. `picks` maps an ambiguous line's
+  // style_code (lower) → the chosen variant.
+  async function applyParsed(parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">) {
+    const summary: string[] = [];
+    const unmatched: string[] = [];
+
+    // Header
+    if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); summary.push(`PO # ${parsed.customer_po_number}`); }
+    const custId = matchCustomer(parsed.customer_name, customers);
+    if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
+    else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
+    const ptId = matchPaymentTerms(parsed.payment_terms, paymentTerms);
+    if (ptId) { setPaymentTermsId(ptId); summary.push(`Terms: ${paymentTerms.find((t) => t.id === ptId)?.name}`); }
+    else if (parsed.payment_terms) unmatched.push(`Payment terms "${parsed.payment_terms}" — pick manually`);
+    const ss = isoDate(parsed.start_ship_date); if (ss) { setReqShip(ss); summary.push(`Start ship ${fmtDateDisplay(ss)}`); }
+    const cd = isoDate(parsed.cancel_date); if (cd) { setCancelDate(cd); summary.push(`Cancel ${fmtDateDisplay(cd)}`); }
+
+    // Resolve each line to a chosen style (apply disambiguation picks).
+    const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
+    for (const line of parsed.lines) {
+      const res = resolveLine(line, styles);
+      let chosen = res.chosen;
+      if (res.ambiguous) {
+        const pick = picks[(line.style_code || "").toLowerCase()] || "base";
+        chosen = pick === "ppk" ? res.ppk : res.base;
+      }
+      if (chosen) resolved.push({ line, chosen });
+      else unmatched.push(`Style "${line.style_code || line.description || "?"}" — not found, add manually`);
+    }
+
+    sizeCache.current.clear();
+    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchSizes);
+    if (sections.length) {
+      // Reset the seed so the body re-seeds with the prefilled grids.
+      setSeedKey((k) => k + 1);
+      setSeed({ sections, flat: [] });
+      summary.push(`${sections.length} style${sections.length === 1 ? "" : "s"} prefilled`);
+    }
+    setPoReview({ warnings, summary, unmatched });
+    setPoAmbig([]);
+    setPoUploadOpen(false);
+  }
+  // Round every partial-carton (×24) prefilled size UP to a full carton, per the
+  // operator's "update qtys to full cartons" choice in the review banner.
+  function roundReviewToCartons() {
+    if (!poParsed) return;
+    void (async () => {
+      const styles = allStyles.length ? allStyles : await ensureStyles();
+      const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
+      for (const line of poParsed.lines) {
+        const res = resolveLine(line, styles);
+        const chosen = res.chosen || (res.ambiguous ? res.base : undefined);
+        if (!chosen) continue;
+        // Round each per-size cell up to a full carton of 24 (non-PPK only).
+        const roundedLine: ParsedPoLine = res.ambiguous || !line.size_breakdown ? line : {
+          ...line,
+          size_breakdown: line.size_breakdown.map((sb) => ({ size: sb.size, qty: Math.ceil(Math.max(0, sb.qty) / 24) * 24 })),
+        };
+        resolved.push({ line: roundedLine, chosen });
+      }
+      sizeCache.current.clear();
+      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchSizes);
+      setSeedKey((k) => k + 1);
+      setSeed({ sections, flat: [] });
+      setPoReview((prev) => prev ? { ...prev, warnings, summary: [...prev.summary, "Rounded sizes up to full cartons"] } : prev);
+    })();
   }
 
   async function save(confirm: boolean) {
@@ -571,7 +713,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         {/* Customer PO number — the buyer's reference. Required before styles can
             be added (gates the matrix's Add buttons below). Also the field the
             AI "Upload customer PO" flow fills in. */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "start" }}>
           <Field label="Customer PO # *">
             <input type="text" value={customerPo} onChange={(e) => setCustomerPo(e.target.value)} disabled={!editable}
               style={{ ...inputStyle, borderColor: editable && !customerPo.trim() ? C.warn : (inputStyle.border as string) }}
@@ -580,7 +722,42 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required — enter the customer PO before adding styles.</div>
             )}
           </Field>
+          {isNew && editable && (
+            <Field label="Or auto-fill from the customer's PO">
+              <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoUploadOpen(true); }}
+                style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, width: "100%" }}>
+                🤖 Upload customer PO
+              </button>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>PDF, Excel/CSV, or paste the email — AI fills the header + matrix.</div>
+            </Field>
+          )}
         </div>
+
+        {/* Post-prefill "double-check" review banner. */}
+        {poReview && (
+          <div style={{ marginBottom: 12, padding: "10px 12px", background: "#0b1f17", border: `1px solid ${C.success}`, borderRadius: 8 }}>
+            <div style={{ color: C.success, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🤖 Prefilled from the customer PO — please double-check everything before saving.</div>
+            {poReview.summary.length > 0 && <div style={{ fontSize: 12, color: C.textSub }}>{poReview.summary.join(" · ")}</div>}
+            {poReview.unmatched.length > 0 && (
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: C.warn, fontSize: 12 }}>
+                {poReview.unmatched.map((u, i) => <li key={i}>{u}</li>)}
+              </ul>
+            )}
+            {poReview.warnings.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <ul style={{ margin: 0, paddingLeft: 18, color: C.warn, fontSize: 12 }}>
+                  {poReview.warnings.map((w, i) => <li key={i}><strong>{w.style}</strong> — {w.detail}</li>)}
+                </ul>
+                {poReview.warnings.some((w) => /not a full carton/.test(w.detail)) && (
+                  <button type="button" onClick={roundReviewToCartons} style={{ ...btnSecondary, marginTop: 6, color: C.warn, borderColor: C.warn, fontSize: 12, padding: "4px 10px" }}>
+                    Round those sizes up to full cartons
+                  </button>
+                )}
+              </div>
+            )}
+            <button type="button" onClick={() => setPoReview(null)} style={{ ...btnSecondary, marginTop: 8, fontSize: 12, padding: "4px 10px" }}>Dismiss</button>
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
@@ -676,6 +853,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         )}
         <div style={{ marginBottom: 12 }}>
           <LineMatrixBody
+            key={seedKey}
             ref={bodyRef}
             editable={editable}
             canAdd={(editable || canAddStyles) && !!customerPo.trim()}
@@ -715,6 +893,73 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
         </div>
       </div>
+
+      {/* 🤖 AI customer-PO upload dialog. */}
+      {poUploadOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!poParsing) setPoUploadOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>🤖 Upload customer PO</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
+              Upload the customer's PO (PDF, Excel/CSV) or paste the email below. AI reads it and prefills the customer, terms, dates, PO #, and the size matrix — then you double-check before saving.
+            </div>
+
+            {poAmbig.length === 0 ? (
+              <>
+                <Field label="PO document">
+                  <input type="file" accept=".pdf,.xlsx,.xls,.csv,.txt,.eml" disabled={poParsing}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { setPoText(""); pickFile(f); } }}
+                    style={{ ...inputStyle, padding: 8 }} />
+                  {poFileName && <div style={{ fontSize: 11, color: C.textSub, marginTop: 4 }}>Selected: {poFileName}</div>}
+                </Field>
+                <div style={{ textAlign: "center", color: C.textMuted, fontSize: 11, margin: "10px 0" }}>— or —</div>
+                <Field label="Paste the PO / order email">
+                  <textarea value={poText} onChange={(e) => { setPoText(e.target.value); if (e.target.value) { setPoB64(""); setPoFileName(""); } }} disabled={poParsing}
+                    placeholder="Paste the customer's order email or PO text here…" rows={6}
+                    style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+                </Field>
+                {poErr && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "10px 0 0", fontSize: 12 }}>{poErr}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button onClick={() => setPoUploadOpen(false)} style={btnSecondary} disabled={poParsing}>Cancel</button>
+                  <button onClick={() => void parsePO()} style={btnPrimary} disabled={poParsing || (!poB64 && !poText.trim())}>
+                    {poParsing ? "Reading…" : "Read & prefill"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Base vs PPK disambiguation — one or more styles exist in both forms.
+              <>
+                <div style={{ fontSize: 13, color: C.textSub, marginBottom: 10 }}>These styles exist in both a <strong>base</strong> and a <strong>prepack (PPK)</strong> form. Pick which to order:</div>
+                {poAmbig.map((a, i) => (
+                  <div key={i} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}>PO line: <strong style={{ color: C.text }}>{a.res.line.style_code}</strong>{a.res.line.color ? ` · ${a.res.line.color}` : ""}{a.res.line.total_qty ? ` · ${a.res.line.total_qty} units` : ""}</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {(["base", "ppk"] as const).map((opt) => {
+                        const st = opt === "base" ? a.res.base : a.res.ppk;
+                        const active = a.pick === opt;
+                        return (
+                          <button key={opt} type="button" onClick={() => setPoAmbig((p) => p.map((x, j) => j === i ? { ...x, pick: opt } : x))}
+                            style={{ ...btnSecondary, flex: 1, color: active ? C.primary : C.textSub, borderColor: active ? C.primary : C.cardBdr, fontWeight: active ? 700 : 400 }}>
+                            {opt === "base" ? "Base" : "Prepack"}: {st?.style_code}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {poErr && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "10px 0 0", fontSize: 12 }}>{poErr}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                  <button onClick={() => setPoAmbig([])} style={btnSecondary} disabled={poParsing}>Back</button>
+                  <button disabled={poParsing} style={btnPrimary} onClick={() => {
+                    if (!poParsed) return;
+                    const picks = Object.fromEntries(poAmbig.map((a) => [(a.res.line.style_code || "").toLowerCase(), a.pick]));
+                    void applyParsed(poParsed, allStyles, picks);
+                  }}>Continue</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* M44 — ship modal (carrier + tracking; ships the allocated quantities). */}
       {shipOpen && (

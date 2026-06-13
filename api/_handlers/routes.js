@@ -400,6 +400,7 @@ import r_internal_sales_orders_id from "./internal/sales-orders/[id].js";
 import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.js";
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
+import r_internal_sales_orders_parse_customer_po from "./internal/sales-orders/parse-customer-po.js";
 import r_internal_sales_orders_ship from "./internal/sales-orders/ship.js";
 import r_internal_sales_orders_split from "./internal/sales-orders/split.js";
 import r_internal_sales_orders_wave from "./internal/sales-orders/wave.js";
@@ -826,6 +827,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-master/auto-assign-scales", handler: r_internal_style_master_auto_assign_scales },
   { pattern: "/api/internal/analytics/sustainability-trend", handler: r_internal_analytics_sustainability_trend },
   { pattern: "/api/internal/planning/sync-tangerine-supply", handler: r_internal_planning_sync_tangerine_supply },
+  { pattern: "/api/internal/sales-orders/parse-customer-po", handler: r_internal_sales_orders_parse_customer_po },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: r_internal_planning_link_planning_vendor },
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
