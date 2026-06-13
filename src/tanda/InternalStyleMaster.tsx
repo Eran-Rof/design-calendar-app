@@ -1240,7 +1240,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       type="text"
                       value={row.hts_code}
                       onChange={(e) => { setCooField(idx, "hts_code", e.target.value); if (htsRowIdx === idx) setHtsSuggestions([]); }}
-                      style={{ ...inputStyle, flex: 3, minWidth: 0 }}
+                      style={{ ...inputStyle, flex: "1 1 auto", minWidth: 120 }}
                       placeholder="e.g. 6203.42.4011"
                     />
                     <input
@@ -1249,11 +1249,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       min="0"
                       value={row.duty_rate_pct}
                       onChange={(e) => setCooField(idx, "duty_rate_pct", e.target.value)}
-                      style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                      style={{ ...inputStyle, flex: "0 0 11ch", minWidth: 0 }}
                       placeholder="Duty %"
                       title="HTS duty rate % for this country of origin"
                     />
-                    <div style={{ flex: 2, minWidth: 0 }}>
+                    <div style={{ flex: "0 0 24ch", minWidth: 0 }}>
                       <SearchableSelect
                         value={row.country || null}
                         onChange={(v) => setCooField(idx, "country", v || "")}
@@ -1265,7 +1265,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       type="button"
                       onClick={() => void fetchHtsSuggestions(idx)}
                       disabled={htsLoading && htsRowIdx === idx}
-                      style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
+                      style={{ ...btnSecondary, whiteSpace: "nowrap", flex: "0 1 auto", minWidth: 0, padding: "6px 10px", overflow: "hidden", textOverflow: "ellipsis" }}
                       title="Use Claude AI to suggest an HTS code + this country's duty rate from the style's Group + base fabric composition"
                     >
                       {htsLoading && htsRowIdx === idx ? "…" : "🤖 Suggest HTS"}
