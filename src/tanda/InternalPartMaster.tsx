@@ -39,7 +39,8 @@ type Part = {
   updated_at: string;
 };
 
-const PART_TYPES = ["blank_garment", "label", "trim", "packaging", "fabric", "generic"] as const;
+type PartTypeRow = { code: string; name: string };
+// Fallback labels for the 6 seed codes (used until the Part Type Master loads).
 const PART_TYPE_LABEL: Record<string, string> = {
   blank_garment: "Blank garment", label: "Label", trim: "Trim",
   packaging: "Packaging", fabric: "Fabric", generic: "Generic",
@@ -67,6 +68,7 @@ export default function InternalPartMaster() {
   const [rows, setRows] = useState<Part[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [fabricCodes, setFabricCodes] = useState<FabricCode[]>([]);
+  const [partTypes, setPartTypes] = useState<PartTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -79,6 +81,10 @@ export default function InternalPartMaster() {
     const m = new Map(vendors.map((v) => [v.id, v.name]));
     return (id: string | null) => (id ? m.get(id) ?? "—" : "—");
   }, [vendors]);
+  const partTypeLabel = useMemo(() => {
+    const m = new Map(partTypes.map((t) => [t.code, t.name]));
+    return (code: string) => m.get(code) ?? PART_TYPE_LABEL[code] ?? code;
+  }, [partTypes]);
 
   const { getRowProps } = useRowClickEdit<Part>({
     onRowClick: (r) => setEditing(r),
@@ -115,9 +121,15 @@ export default function InternalPartMaster() {
       if (r.ok) { const d = await r.json(); if (Array.isArray(d)) setFabricCodes(d as FabricCode[]); }
     } catch { /* non-fatal */ }
   }
+  async function loadPartTypes() {
+    try {
+      const r = await fetch(`/api/internal/part-types`);
+      if (r.ok) { const d = await r.json(); if (Array.isArray(d)) setPartTypes(d as PartTypeRow[]); }
+    } catch { /* non-fatal */ }
+  }
 
   useEffect(() => { void load(); }, [includeInactive]);
-  useEffect(() => { void loadVendors(); void loadFabricCodes(); }, []);
+  useEffect(() => { void loadVendors(); void loadFabricCodes(); void loadPartTypes(); }, []);
 
   async function del(s: Part) {
     if (!(await confirmDialog(`Delete part ${s.code} (${s.name})?\nThis cannot be undone — toggle is_active=false to retire it instead.`))) return;
@@ -157,7 +169,7 @@ export default function InternalPartMaster() {
           Show inactive
         </label>
         <ExportButton
-          rows={rows.map((s) => ({ ...s, vendor_name: vendorName(s.default_vendor_id), part_type_label: PART_TYPE_LABEL[s.part_type] ?? s.part_type })) as unknown as Array<Record<string, unknown>>}
+          rows={rows.map((s) => ({ ...s, vendor_name: vendorName(s.default_vendor_id), part_type_label: partTypeLabel(s.part_type) })) as unknown as Array<Record<string, unknown>>}
           filename="parts"
           sheetName="Parts"
           columns={[
@@ -205,7 +217,7 @@ export default function InternalPartMaster() {
                 <ScrollHighlightRow key={s.id} rowId={s.id} highlightedRowId={highlightedId} {...getRowProps(s)} style={!s.is_active ? { opacity: 0.5 } : undefined}>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{s.code}</td>
                   <td style={td}>{s.name}</td>
-                  <td style={{ ...td, color: C.textSub }}>{PART_TYPE_LABEL[s.part_type] ?? s.part_type}</td>
+                  <td style={{ ...td, color: C.textSub }}>{partTypeLabel(s.part_type)}</td>
                   <td style={{ ...td, color: C.textSub }}>{s.uom}</td>
                   <td style={{ ...td, color: C.textSub }}>{vendorName(s.default_vendor_id)}</td>
                   <td style={{ ...td, textAlign: "right" }}>{fmtMoney(s.default_unit_cost_cents)}</td>
@@ -222,10 +234,10 @@ export default function InternalPartMaster() {
       </div>
 
       {addOpen && (
-        <PartFormModal mode="add" vendors={vendors} fabricCodes={fabricCodes} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />
+        <PartFormModal mode="add" vendors={vendors} fabricCodes={fabricCodes} partTypes={partTypes} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />
       )}
       {editing && (
-        <PartFormModal mode="edit" part={editing} vendors={vendors} fabricCodes={fabricCodes} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />
+        <PartFormModal mode="edit" part={editing} vendors={vendors} fabricCodes={fabricCodes} partTypes={partTypes} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load(); }} />
       )}
     </div>
   );
@@ -236,11 +248,12 @@ interface ModalProps {
   part?: Part;
   vendors: Vendor[];
   fabricCodes: FabricCode[];
+  partTypes: PartTypeRow[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function PartFormModal({ mode, part, vendors, fabricCodes, onClose, onSaved }: ModalProps) {
+function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     name:            part?.name ?? "",
     part_type:       part?.part_type ?? "generic",
@@ -264,6 +277,14 @@ function PartFormModal({ mode, part, vendors, fabricCodes, onClose, onSaved }: M
     () => [{ value: "", label: "— none —" }, ...fabricCodes.map((f) => ({ value: f.id, label: `${f.code}${f.name ? ` — ${f.name}` : ""}` }))],
     [fabricCodes],
   );
+  const partTypeOptions: SearchableSelectOption[] = useMemo(() => {
+    const opts = partTypes.map((t) => ({ value: t.code, label: t.name }));
+    // Ensure the part's current value is selectable even if the master hasn't loaded / it's retired.
+    if (part?.part_type && !opts.some((o) => o.value === part.part_type)) {
+      opts.unshift({ value: part.part_type, label: PART_TYPE_LABEL[part.part_type] ?? part.part_type });
+    }
+    return opts;
+  }, [partTypes, part]);
 
   async function submit() {
     setSubmitting(true);
@@ -309,9 +330,7 @@ function PartFormModal({ mode, part, vendors, fabricCodes, onClose, onSaved }: M
             <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} placeholder="e.g. Blank Tee 5000 White" autoFocus />
           </Field>
           <Field label="Part type">
-            <select value={form.part_type} onChange={(e) => setForm({ ...form, part_type: e.target.value })} style={inputStyle}>
-              {PART_TYPES.map((t) => <option key={t} value={t}>{PART_TYPE_LABEL[t]}</option>)}
-            </select>
+            <SearchableSelect value={form.part_type} onChange={(v) => setForm({ ...form, part_type: v })} options={partTypeOptions} placeholder="Pick a type…" />
           </Field>
           <Field label="Unit of measure">
             <input type="text" value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })} style={inputStyle} placeholder="each" />

@@ -330,6 +330,8 @@ import r_internal_part_inventory_index from "./internal/part-inventory/index.js"
 import r_internal_part_master_id from "./internal/part-master/[id].js";
 import r_internal_part_master_index from "./internal/part-master/index.js";
 import r_internal_part_purchases_index from "./internal/part-purchases/index.js";
+import r_internal_part_types_id from "./internal/part-types/[id].js";
+import r_internal_part_types_index from "./internal/part-types/index.js";
 import r_internal_payment_terms_id from "./internal/payment-terms/[id].js";
 import r_internal_payment_terms_index from "./internal/payment-terms/index.js";
 import r_internal_payments_id_fx_detail from "./internal/payments/[id]/fx-detail.js";
@@ -1061,6 +1063,7 @@ export const ROUTES = [
   { pattern: "/api/internal/size-scales/:id", handler: r_internal_size_scales_id },
   { pattern: "/api/marketplace/listings/:id", handler: r_marketplace_listings_id },
   { pattern: "/api/internal/gl-periods/:id", handler: r_internal_gl_periods_id },
+  { pattern: "/api/internal/part-types/:id", handler: r_internal_part_types_id },
   { pattern: "/api/internal/warehouses/:id", handler: r_internal_warehouses_id },
   { pattern: "/api/internal/workspaces/:id", handler: r_internal_workspaces_id_index },
   { pattern: "/api/edi/inbound/:vendor_id", handler: r_edi_inbound_vendor_id },
@@ -1235,6 +1238,7 @@ export const ROUTES = [
   { pattern: "/api/internal/esg-scores", handler: r_internal_esg_scores_index },
   { pattern: "/api/internal/gl-periods", handler: r_internal_gl_periods_index },
   { pattern: "/api/internal/onboarding", handler: r_internal_onboarding_index },
+  { pattern: "/api/internal/part-types", handler: r_internal_part_types_index },
   { pattern: "/api/internal/sales-reps", handler: r_internal_sales_reps_index },
   { pattern: "/api/internal/scorecards", handler: r_internal_scorecards_index },
   { pattern: "/api/internal/warehouses", handler: r_internal_warehouses_index },

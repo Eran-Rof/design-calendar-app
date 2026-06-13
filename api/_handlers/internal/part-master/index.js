@@ -19,7 +19,8 @@ import { insertWithAutoCode } from "../../../_lib/autoCode.js";
 export const config = { maxDuration: 15 };
 
 const CODE_PREFIX = "PART-";
-const PART_TYPES = new Set(["blank_garment", "label", "trim", "packaging", "fabric", "generic"]);
+// part_type is now driven by the Part Type Master (part_type_master); any
+// non-empty code is accepted here and the UI constrains the picker to the master.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function corsHeaders(res) {
@@ -69,7 +70,7 @@ export default async function handler(req, res) {
       .order("code", { ascending: true });
 
     if (!includeInactive) query = query.eq("is_active", true);
-    if (partType && PART_TYPES.has(partType)) query = query.eq("part_type", partType);
+    if (partType) query = query.eq("part_type", partType);
     if (q) {
       const esc = q.replace(/[,()]/g, " ");
       query = query.or(`code.ilike.%${esc}%,name.ilike.%${esc}%`);
@@ -122,10 +123,8 @@ export function validateInsert(body) {
     return { error: "name is required" };
   }
 
-  const partType = body.part_type == null ? "generic" : String(body.part_type).trim();
-  if (!PART_TYPES.has(partType)) {
-    return { error: `part_type must be one of: ${[...PART_TYPES].join(", ")}` };
-  }
+  const partType = body.part_type == null || String(body.part_type).trim() === ""
+    ? "generic" : String(body.part_type).trim();
 
   let sortOrder = 0;
   if (body.sort_order != null && body.sort_order !== "") {

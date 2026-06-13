@@ -183,6 +183,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/fabric-mills", label: "Fabric Mill Master",        app: "tanda", route: "/tangerine?m=fabric_mill_master", group: "Master Data", icon: "🏭" },
   { key: "tanda/master/part-master",  label: "Part Master",               app: "tanda", route: "/tangerine?m=part_master",       group: "Master Data", icon: "🧩" },
   { key: "tanda/master/service-items", label: "Service Item Master",      app: "tanda", route: "/tangerine?m=service_item_master", group: "Master Data", icon: "🛠️" },
+  { key: "tanda/master/part-types",   label: "Part Type Master",          app: "tanda", route: "/tangerine?m=part_type_master", group: "Master Data", icon: "🏷️" },
   { key: "tanda/mfg/part-inventory",  label: "Part Inventory",            app: "tanda", route: "/tangerine?m=part_inventory",    group: "Manufacturing", icon: "🧩" },
   { key: "tanda/mfg/boms",            label: "Bill of Materials",         app: "tanda", route: "/tangerine?m=mfg_bom",          group: "Manufacturing", icon: "📋" },
   { key: "tanda/mfg/build-orders",    label: "Build Orders",              app: "tanda", route: "/tangerine?m=mfg_build_orders", group: "Manufacturing", icon: "🛠️" },

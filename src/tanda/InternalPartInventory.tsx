@@ -362,9 +362,7 @@ function AdjustModal({ parts, accounts, presetPartId, onClose, onSaved }: {
           </div>
           <div>
             <Label>Type</Label>
-            <select value={adjType} onChange={(e) => setAdjType(e.target.value)} style={inputStyle}>
-              {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+            <SearchableSelect value={adjType} onChange={setAdjType} options={typeOptions} placeholder="Pick a type…" />
           </div>
           <div>
             <Label>Quantity *</Label>

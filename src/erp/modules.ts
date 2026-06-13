@@ -22,6 +22,7 @@ export type ModuleKey =
   | "fabric_mill_master"
   | "part_master"
   | "service_item_master"
+  | "part_type_master"
   | "part_inventory"
   | "mfg_bom"
   | "mfg_build_orders"
@@ -240,6 +241,7 @@ export const MODULES: ModuleDef[] = [
   { key: "fabric_mill_master",   label: "Fabric Mill Master",        emoji: "🏭", group: "Master Data" },
   { key: "part_master",          label: "Part Master",               emoji: "🧩", group: "Master Data" },
   { key: "service_item_master",  label: "Service Item Master",       emoji: "🛠️", group: "Master Data" },
+  { key: "part_type_master",     label: "Part Type Master",          emoji: "🏷️", group: "Master Data" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
   { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
