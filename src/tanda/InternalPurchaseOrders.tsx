@@ -202,6 +202,13 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // Line body is the shared size matrix (mode="po" → Unit Cost $, no margin/ATS).
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
+  const [seedKey, setSeedKey] = useState(0); // bump to remount + re-seed the matrix body
+  const [salesOrderId, setSalesOrderId] = useState(""); // originating SO (Create from SO)
+  // Create-from-SO dialog.
+  const [soPickOpen, setSoPickOpen] = useState(false);
+  const [soQuery, setSoQuery] = useState("");
+  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null }[]>([]);
+  const [soBusy, setSoBusy] = useState(false);
 
   // ── Rich header fields ──────────────────────────────────────────────────────
   const [poType, setPoType] = useState("");
@@ -269,6 +276,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setShipToLocationId(full.ship_to_location_id || ""); setBillToEntityId(full.bill_to_entity_id || "");
       setShipMethod(full.ship_method || ""); setFreightForwarder(full.freight_forwarder || "");
       setSeason(full.season || ""); setChannelId(full.channel_id || ""); setDepartmentCategoryId(full.department_category_id || "");
+      setSalesOrderId(full.sales_order_id || "");
       if (full.logistics_rollup) setRollup(full.logistics_rollup);
       if (!full?.lines) return;
       type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
@@ -288,6 +296,57 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setSeed({ sections: [...byStyle.values()], flat });
     }).catch(() => {});
   }, [isNew, po]);
+
+  // ── Create PO from a Sales Order ────────────────────────────────────────────
+  // Load SOs for the picker (debounced on the search box).
+  useEffect(() => {
+    if (!soPickOpen) return;
+    const t = setTimeout(() => {
+      const qs = soQuery.trim() ? `?q=${encodeURIComponent(soQuery.trim())}&limit=50` : "?limit=50";
+      fetch(`/api/internal/sales-orders${qs}`).then((r) => r.ok ? r.json() : []).then((a) => setSoList(Array.isArray(a) ? a : [])).catch(() => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [soPickOpen, soQuery]);
+
+  // Pull an SO's lines into the PO matrix + copy across the sensible header
+  // fields. The SO carries SELLING prices, not costs, so unit cost is left blank
+  // (fill manually or via "Get PO price"). Records sales_order_id for traceability.
+  async function createFromSO(soId: string) {
+    setSoBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${soId}`);
+      const full = await r.json();
+      if (!r.ok) throw new Error(full.error || `HTTP ${r.status}`);
+      type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
+      const byStyle = new Map<string, SeedSection>();
+      const flat: FlatLine[] = [];
+      let fk = 1;
+      for (const l of (full.lines || []) as SLine[]) {
+        if (l.style_code && l.size) {
+          let sec = byStyle.get(l.style_code);
+          if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
+          sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered }); // no unit cost
+        } else if (l.inventory_item_id) {
+          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id, qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: "", label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
+        }
+      }
+      // Header carry-over from the SO.
+      setSalesOrderId(soId);
+      if (full.customer_id) setCustomerId(full.customer_id);
+      if (full.brand_id) setBrandId(full.brand_id);
+      if (full.channel_id) setChannelId(full.channel_id);
+      if (full.requested_ship_date) setRequestedDeliveryDate(full.requested_ship_date);
+      if (full.cancel_date) setCancelDate(full.cancel_date);
+      setSeedKey((k) => k + 1);
+      setSeed({ sections: [...byStyle.values()], flat });
+      setSoPickOpen(false);
+      notify("PO matrix prefilled from the sales order — set unit costs (or use Get PO price).", "success");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSoBusy(false);
+    }
+  }
 
   async function save(): Promise<string | null> {
     setErr(null);
@@ -310,6 +369,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       ship_to_location_id: shipToLocationId || null, bill_to_entity_id: billToEntityId || null,
       ship_method: shipMethod || null, freight_forwarder: freightForwarder.trim() || null,
       season: season || null, channel_id: channelId || null, department_category_id: departmentCategoryId || null,
+      sales_order_id: salesOrderId || null,
     };
     if (isNew) {
       const r = await fetch("/api/internal/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -462,10 +522,19 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {!rollup && <span style={{ fontSize: 11, color: C.textMuted }}>populates after save</span>}
         </div>
 
+        {/* Build the matrix from an existing Sales Order (new PO only). */}
+        {isNew && editable && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <button type="button" onClick={() => { setSoQuery(""); setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
+            {salesOrderId && <span style={{ fontSize: 11, color: C.success }}>✓ linked to a sales order</span>}
+          </div>
+        )}
+
         {/* Line body — the shared size matrix, exactly like the Sales Order modal
             (mode="po": Unit Cost $ column, no margin / availability). Default-open. */}
         <div style={{ marginTop: 12, marginBottom: 12 }}>
           <LineMatrixBody
+            key={seedKey}
             ref={bodyRef}
             mode="po"
             editable={editable}
@@ -493,6 +562,35 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {!isNew && (po?.status === "issued" || po?.status === "in_transit") && <button onClick={() => void transition("received")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>📥 Mark received</button>}
         </div>
       </div>
+
+      {/* Create-from-SO picker (dynamic search). */}
+      {soPickOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!soBusy) setSoPickOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>📋 Create PO from a Sales Order</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Pick a sales order — its styles, colors, sizes, and quantities fill the PO matrix. Unit costs stay blank (the SO carries selling prices, not costs).</div>
+            <input type="text" value={soQuery} onChange={(e) => setSoQuery(e.target.value)} autoFocus placeholder="Search SO # / customer / style…" style={{ ...inputStyle, marginBottom: 10 }} />
+            <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
+              {soList.length === 0 && <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>No sales orders.</div>}
+              {soList.map((so) => (
+                <div key={so.id} onClick={() => !soBusy && void createFromSO(so.id)}
+                  style={{ padding: "8px 12px", cursor: soBusy ? "default" : "pointer", borderBottom: `1px solid ${C.cardBdr}`, display: "flex", justifyContent: "space-between", gap: 8 }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#0b1220"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}>
+                  <span style={{ fontSize: 13 }}>
+                    <b>{so.so_number || "(draft)"}</b>
+                    <span style={{ color: C.textMuted, marginLeft: 8 }}>{customers.find((c) => c.id === so.customer_id)?.name || ""}</span>
+                  </span>
+                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setSoPickOpen(false)} style={btnSecondary} disabled={soBusy}>{soBusy ? "Loading…" : "Cancel"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
