@@ -222,20 +222,20 @@ export default function VendorRfqDetail() {
 
   async function submitQuote() {
     // If the quote comes in above target, give the vendor a chance to be more
-    // competitive before committing (they can't edit after submission).
+    // competitive before committing (after submission, edits go through Revise).
     const over = targetOverage();
     if (over) {
       const pctStr = over.pct >= 10 ? String(Math.round(over.pct)) : over.pct.toFixed(1);
       const submitAnyway = await showConfirm({
         title: "Your quote is above target",
-        message: `Your quoted price is ${pctStr}% higher than Ring of Fire's target.\n\nYou can submit it as-is, or sharpen your pricing to be more competitive. You won't be able to edit the quote after submission.`,
+        message: `Your quoted price is ${pctStr}% higher than Ring of Fire's target.\n\nYou can submit it as-is, or sharpen your pricing to be more competitive. To update your quote after submission, use the Revise quote button.`,
         tone: "warn",
         confirmLabel: "Submit anyway",
         cancelLabel: "Be more competitive",
       });
       if (!submitAnyway) { focusPriceField(over.firstOverId); return; }
     } else {
-      if (!await showConfirm({ title: "Submit quote?", message: "You can't edit it after submission.", tone: "warn", confirmLabel: "Submit" })) return;
+      if (!await showConfirm({ title: "Submit quote?", message: "To update your quote after submission, use the Revise quote button.", tone: "warn", confirmLabel: "Submit" })) return;
     }
     setSaving(true);
     try {
