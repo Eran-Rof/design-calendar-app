@@ -259,20 +259,34 @@ export function netDaysOf(s: string | null | undefined): number | null {
   return null;
 }
 
+/** True when a terms string carries an early-payment discount (e.g. "2%", "2/10"). */
+function hasDiscount(s: string | null | undefined): boolean {
+  return /\d\s*%|\d\s*\/\s*\d/.test(String(s || ""));
+}
+
 export function matchPaymentTerms(terms: string | null, list: { id: string; code?: string; name: string }[]): string | null {
   if (!terms) return null;
   const t = terms.trim().toLowerCase();
   if (!t) return null;
-  // 1) Exact / substring on name or code.
-  const hit = list.find((p) => p.name.toLowerCase() === t || (p.code || "").toLowerCase() === t
-    || p.name.toLowerCase().includes(t) || t.includes(p.name.toLowerCase()));
-  if (hit) return hit.id;
-  // 2) Loose: match on the net-days number — "30 DAYS" finds "Net 30".
+  // When the PO term has no early-pay discount, skip discount terms ("2% Net 30")
+  // and go to the next — a plain "Net 30" should match plain "Net 30".
+  const parsedDisc = hasDiscount(t);
+  const ok = (p: { name: string }) => parsedDisc || !hasDiscount(p.name);
+  const byLen = (a: { name: string }, b: { name: string }) => a.name.length - b.name.length;
+
+  // 1) Exact name / code (discount-filtered).
+  const exact = list.find((p) => ok(p) && (p.name.toLowerCase() === t || (p.code || "").toLowerCase() === t));
+  if (exact) return exact.id;
+  // 2) Same net-days — "30 DAYS" → "Net 30". Shortest name wins so the plain
+  //    term beats a discount variant; discount terms already filtered out.
   const days = netDaysOf(t);
   if (days != null) {
-    const byDays = list.find((p) => netDaysOf(p.name) === days || netDaysOf(p.code) === days);
-    if (byDays) return byDays.id;
+    const byDays = list.filter((p) => ok(p) && (netDaysOf(p.name) === days || netDaysOf(p.code) === days)).sort(byLen);
+    if (byDays.length) return byDays[0].id;
   }
+  // 3) Substring containment, last resort (discount-filtered, shortest wins).
+  const sub = list.filter((p) => ok(p) && (p.name.toLowerCase().includes(t) || t.includes(p.name.toLowerCase()))).sort(byLen);
+  if (sub.length) return sub[0].id;
   return null;
 }
 
