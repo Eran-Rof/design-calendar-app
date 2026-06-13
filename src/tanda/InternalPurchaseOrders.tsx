@@ -216,6 +216,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [awardQuotes, setAwardQuotes] = useState<AwardQuote[]>([]);
   const [awardPick, setAwardPick] = useState<Record<string, string>>({}); // styleCode → chosen costing_line_id
   const [awardMissing, setAwardMissing] = useState<string[]>([]); // SO styles with no awarded price
+  const [awardInPlace, setAwardInPlace] = useState(false); // apply onto existing matrix (preserve qty) vs add styles
   const applyAwardAfterSO = useRef(false);
 
   // ── Rich header fields ──────────────────────────────────────────────────────
@@ -397,6 +398,20 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // default unit and set the PO vendor (warn if the picks span vendors).
   function applyAwards() {
     const chosen = awardQuotes.filter((q) => awardPick[q.style_code] === q.costing_line_id);
+    const vendorIds0 = [...new Set(chosen.map((q) => q.vendor_id))];
+    // In-place: the styles are already in the matrix — stamp the awarded cost on
+    // their rows WITHOUT remounting, so the operator's quantities are preserved.
+    if (awardInPlace) {
+      const byStyle: Record<string, string> = {};
+      for (const q of chosen) if (q.quoted_cost != null) byStyle[q.style_code] = String(q.quoted_cost);
+      bodyRef.current?.applyUnitByStyle(byStyle);
+      if (vendorIds0.length === 1) setVendorId(vendorIds0[0]);
+      setAwardOpen(false);
+      notify(vendorIds0.length > 1
+        ? "Awarded prices applied (quantities kept). The picks span multiple vendors — set the PO vendor manually."
+        : "Awarded prices + vendor applied; quantities kept. Review before saving.", vendorIds0.length > 1 ? "info" : "success");
+      return;
+    }
     const existing = new Map((seed?.sections || []).map((s) => [s.styleCode, s]));
     const sections: SeedSection[] = [];
     const styleCodesSeen = new Set<string>();
@@ -595,7 +610,13 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {isNew && editable && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
             <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
-            <button type="button" onClick={() => setPriceAskOpen(true)} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>💲 Get PO price</button>
+            <button type="button" onClick={() => {
+              // If the matrix already has styles (from an SO or added manually),
+              // price THOSE in place — no "from an SO?" prompt, no qty reset.
+              const codes = bodyRef.current?.getStyleCodes() || [];
+              if (codes.length) { setAwardInPlace(true); void openAwardDialog(codes); }
+              else { setAwardInPlace(false); setPriceAskOpen(true); }
+            }} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>💲 Get PO price</button>
             {salesOrderId && <span style={{ fontSize: 11, color: C.success }}>✓ linked to a sales order</span>}
           </div>
         )}
@@ -680,14 +701,14 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       {awardOpen && (
         <div onClick={(e) => { e.stopPropagation(); setAwardOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices — review</h3>
             {awardMissing.length > 0 && (
               <div style={{ padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12, marginBottom: 12 }}>
                 ⚠️ No awarded RFQ price for {awardMissing.length === 1 ? "this style" : "these styles"}: <strong>{awardMissing.join(", ")}</strong>. {awardQuotes.length === 0 ? "Nothing was priced from an award — set unit costs manually." : "Those styles are left unpriced; the rest are below."}
               </div>
             )}
             {awardQuotes.length > 0 && (
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>The newest awarded quote is pre-selected per style. Pick a different award if several exist; Apply stamps the awarded cost onto the matrix and sets the vendor.</div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Retrieved the awarded cost for the styles below (newest award pre-selected; pick another if several exist). <strong>Accept</strong> stamps the cost onto the matrix{awardInPlace ? " (your quantities are kept)" : ""} and sets the vendor.</div>
             )}
             {[...new Set(awardQuotes.map((q) => q.style_code))].map((code) => {
               const opts = awardQuotes.filter((q) => q.style_code === code);
@@ -710,7 +731,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             })}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
               <button onClick={() => setAwardOpen(false)} style={btnSecondary}>{awardQuotes.length === 0 ? "Close" : "Cancel"}</button>
-              {awardQuotes.length > 0 && <button onClick={applyAwards} style={btnPrimary}>Apply to matrix</button>}
+              {awardQuotes.length > 0 && <button onClick={applyAwards} style={btnPrimary}>Accept</button>}
             </div>
           </div>
         </div>

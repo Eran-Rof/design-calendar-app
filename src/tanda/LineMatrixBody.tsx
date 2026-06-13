@@ -23,7 +23,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
-import { distributeByPack, hasUsablePack, isPartialCarton, CARTON, type SizePack } from "../shared/sizeScale";
+import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, type SizePack } from "../shared/sizeScale";
+import { confirmDialog } from "../shared/ui/warn";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -44,7 +45,14 @@ type FlatItem = { id: string; sku_code: string; style_code?: string | null; desc
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
 export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
 export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string };
-export interface LineMatrixBodyHandle { resolve: () => Promise<ResolvedLine[]> }
+export interface LineMatrixBodyHandle {
+  resolve: () => Promise<ResolvedLine[]>;
+  /** Style codes currently in the matrix (resolved sections). */
+  getStyleCodes: () => string[];
+  /** Set the per-row unit (e.g. an awarded cost) for the given styles IN PLACE —
+   *  does NOT touch quantities. Map key = style_code, value = unit string. */
+  applyUnitByStyle: (byStyle: Record<string, string>) => void;
+}
 
 type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string } };
 
@@ -152,6 +160,17 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
   function setSectionDate(id: number, which: "requested" | "confirmed", v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, dates: { ...(s.dates || {}), [which]: v } } : s))); }
+  // Carton conform — round every partial-carton cell in a section UP to the next
+  // full carton of 24 (after the operator confirms via the clickable warning).
+  async function conformCartons(id: number) {
+    if (!(await confirmDialog(`Auto-change this style's quantities to full cartons of ${CARTON} (round each size up)?`))) return;
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const q = { ...s.qty };
+      for (const [k, v] of Object.entries(q)) if (isPartialCarton(v)) q[k] = ceilToCarton(v);
+      return { ...s, qty: q };
+    }));
+  }
   function setAllUnit(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
 
   function addFlat() { onRequestEdit?.(); setFlat((p) => [{ key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }, ...p]); }
@@ -322,7 +341,24 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       }
       return lines;
     },
-  }), [sections, flat]);
+    getStyleCodes(): string[] {
+      const codes = new Set<string>();
+      for (const s of sections) {
+        const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code;
+        if (code) codes.add(code);
+      }
+      return [...codes];
+    },
+    applyUnitByStyle(byStyle: Record<string, string>): void {
+      setSections((p) => p.map((s) => {
+        const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code;
+        if (!code || !(code in byStyle)) return s;
+        const unit = { ...s.unit };
+        for (const r of rowsFor(s.payload)) unit[r.key] = byStyle[code]; // set price on every row; qty untouched
+        return { ...s, unit };
+      }));
+    },
+  }), [sections, flat, styles]);
 
   // Flat-picker options: merge any seeded label whose SKU isn't in the 500-item list.
   const flatOptions = useMemo(() => {
@@ -476,8 +512,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
               />
             )}
             {editable && partialCells.length > 0 && (
-              <div style={{ marginTop: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12 }}>
-                ⚠️ Not full cartons of {CARTON} — accept as-is or adjust: {partialCells.map((c) => `${c.label} (${c.qty})`).join(", ")}
+              <div role="button" tabIndex={0} onClick={() => void conformCartons(s.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void conformCartons(s.id); }}
+                title={`Click to have Tangerine round these up to full cartons of ${CARTON}`}
+                style={{ marginTop: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12, cursor: "pointer" }}>
+                ⚠️ Not full cartons of {CARTON}: {partialCells.map((c) => `${c.label} (${c.qty})`).join(", ")} — <u>click to auto-fix</u> (round up), or adjust by hand.
               </div>
             )}
           </div>
