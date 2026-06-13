@@ -19,6 +19,7 @@ import { type ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { ColorSwatch } from "../shared/ui/ColorSwatch";
 
 const COLORS_TABLE_KEY = "tangerine:colors:columns";
 const COLOR_COLUMNS: ColumnDef[] = [
@@ -67,17 +68,6 @@ const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   color: C.text, fontSize: 13,
 };
-
-function Swatch({ hex }: { hex: string | null }) {
-  return (
-    <span style={{
-      display: "inline-block", width: 16, height: 16, borderRadius: 4,
-      background: hex || "transparent",
-      border: `1px solid ${hex ? "rgba(255,255,255,0.3)" : C.cardBdr}`,
-      verticalAlign: "middle",
-    }} title={hex || "no swatch"} />
-  );
-}
 
 export default function InternalColorMaster() {
   const [rows, setRows] = useState<Color[]>([]);
@@ -220,7 +210,7 @@ export default function InternalColorMaster() {
                   {...getRowProps(c)}
                   style={!c.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("swatch")}><Swatch hex={c.hex} /></td>
+                  <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("swatch")}><ColorSwatch name={c.name} hex={c.hex} /></td>
                   <td style={td} hidden={!isVisible("name")}>{c.name}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("code")}>{c.code || "—"}</td>
                   <td style={{ ...td, color: C.textSub, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("hex")}>{c.hex || "—"}</td>
@@ -311,14 +301,20 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Name *">
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. Charcoal Heather"
-              autoFocus
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                style={inputStyle}
+                placeholder="e.g. Charcoal Heather, or Grey/Black"
+                autoFocus
+              />
+              <ColorSwatch name={form.name} hex={form.hex} size={26} />
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+              Two-tone colourway? Use <strong>A/B</strong> (e.g. <em>Grey/Black</em>) — the square auto-splits half-and-half.
+            </div>
           </Field>
           <Field label="Code">
             <input
