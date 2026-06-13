@@ -151,6 +151,7 @@ the split sums exactly to your order quantity, ordered by the assigned size scal
 A short read and a **⚠️ flag** on any size that looks stockout-suppressed (low
 because it sold out, not because demand was low) round it out. This is a
 **buy-planning guide** and isn't saved to the line (costing lines are color-grain).
+The size breakdown can be **exported** (Excel / PDF) from the modal.
 
 ### ✨ Ask AI (analytics)
 

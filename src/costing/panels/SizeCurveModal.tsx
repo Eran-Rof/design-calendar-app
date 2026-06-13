@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { forecastSizeCurve, type SizeCurveForecast } from "../services/costingApi";
 import type { CostingLine } from "../types";
+import ExportButton from "../../tanda/exports/ExportButton";
 
 const C = {
   overlay: "rgba(2,6,23,0.66)",
@@ -154,7 +155,27 @@ export default function SizeCurveModal({ line, onClose }: Props) {
           )}
         </div>
 
-        <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {data && !data.insufficient_data && data.sizes.length > 0 && (
+            <ExportButton
+              rows={data.sizes.map((s) => ({
+                size: s.size,
+                pct_of_demand: s.pct,
+                historical_units: s.units,
+                suggested_qty: s.suggested_qty ?? "",
+                flag: s.flag ?? "",
+              }))}
+              columns={[
+                { key: "size", header: "SIZE" },
+                { key: "pct_of_demand", header: "% OF DEMAND" },
+                { key: "historical_units", header: "HISTORICAL UNITS (24M)" },
+                { key: "suggested_qty", header: "SUGGESTED QTY" },
+                { key: "flag", header: "FLAG" },
+              ]}
+              filename={`size-curve-${data.style_code || "style"}`}
+              sheetName="Size Curve"
+            />
+          )}
           <button onClick={onClose} style={btnGhost}>Close</button>
         </div>
       </div>

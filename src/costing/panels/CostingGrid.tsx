@@ -45,6 +45,11 @@ const fmtMoney0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const fmtQty   = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const fmtPct   = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Uniform sizing for the grid's toolbar action buttons (Add row / Copy / Delete
+// / Vendor RFQ) so they all stay the SAME width as each other and don't grow
+// when a " (N)" selected-row-count suffix appears on selection.
+const TOOLBAR_BTN: React.CSSProperties = { minWidth: 128, boxSizing: "border-box", textAlign: "center" };
+
 function n(v: number | null | undefined): number {
   if (v == null) return 0;
   const x = typeof v === "number" ? v : Number(v);
@@ -543,10 +548,9 @@ export default function CostingGrid() {
           they're outside .costing-row-awarded and keep their normal palette. */}
       <style>{`.costing-row-awarded, .costing-row-awarded * { color: #34D399 !important; }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
-          Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
-          {stageFilter && <span style={{ color: "#F59E0B", marginLeft: 8, fontSize: 11 }}>(filtered: {stageFilter})</span>}
-        </h3>
+        {stageFilter && (
+          <span style={{ color: "#F59E0B", fontSize: 11, fontWeight: 600 }}>Filtered: {stageFilter}</span>
+        )}
         {(() => {
           const headerOk = projectHeaderMissing(project).length === 0;
           return (
@@ -554,6 +558,7 @@ export default function CostingGrid() {
               onClick={onAdd}
               title={headerOk ? "Add a new costing row" : "Complete the project header first"}
               style={{
+                ...TOOLBAR_BTN,
                 background: headerOk ? "#10B981" : "#334155",
                 color: headerOk ? "#fff" : "#64748B",
                 border: headerOk ? "none" : "1px solid #475569",
@@ -574,6 +579,7 @@ export default function CostingGrid() {
           disabled={selectedRowIds.size === 0}
           title={selectedRowIds.size === 0 ? "Select a row first to copy it" : `Copy ${selectedRowIds.size} selected row${selectedRowIds.size === 1 ? "" : "s"}`}
           style={{
+            ...TOOLBAR_BTN,
             background: selectedRowIds.size > 0 ? "#6366F1" : "transparent",
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#6366F1" : "#334155"}`,
@@ -604,6 +610,7 @@ export default function CostingGrid() {
           disabled={selectedRowIds.size === 0}
           title={selectedRowIds.size === 0 ? "Select rows to delete" : `Delete ${selectedRowIds.size} selected row${selectedRowIds.size === 1 ? "" : "s"}`}
           style={{
+            ...TOOLBAR_BTN,
             background: selectedRowIds.size > 0 ? "#EF4444" : "transparent",
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#EF4444" : "#334155"}`,
@@ -621,6 +628,7 @@ export default function CostingGrid() {
               : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
           }
           style={{
+            ...TOOLBAR_BTN,
             background: selectedRowIds.size > 0 ? "#3B82F6" : "transparent",
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
