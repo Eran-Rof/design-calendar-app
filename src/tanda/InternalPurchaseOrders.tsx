@@ -215,6 +215,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [awardOpen, setAwardOpen] = useState(false);
   const [awardQuotes, setAwardQuotes] = useState<AwardQuote[]>([]);
   const [awardPick, setAwardPick] = useState<Record<string, string>>({}); // styleCode → chosen costing_line_id
+  const [awardMissing, setAwardMissing] = useState<string[]>([]); // SO styles with no awarded price
   const applyAwardAfterSO = useRef(false);
 
   // ── Rich header fields ──────────────────────────────────────────────────────
@@ -366,15 +367,27 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // picker. Defaults each style's selection to its newest award.
   async function openAwardDialog(styleCodes?: string[]) {
     try {
-      const qs = styleCodes && styleCodes.length ? `?style_codes=${encodeURIComponent(styleCodes.join(","))}` : "";
+      const requested = styleCodes || [];
+      const qs = requested.length ? `?style_codes=${encodeURIComponent(requested.join(","))}` : "";
       const r = await fetch(`/api/internal/costing/awarded-quotes${qs}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       const quotes = (j.quotes || []) as AwardQuote[];
-      if (quotes.length === 0) { notify("No awarded RFQ quotes found for these styles.", "info"); return; }
+      const awardedSet = new Set(quotes.map((q) => q.style_code));
+      // Styles that came from the SO but have NO awarded price.
+      const missing = requested.filter((c) => !awardedSet.has(c));
+      if (quotes.length === 0) {
+        if (requested.length) {
+          // From-SO with zero awards: warn (list the styles), add nothing.
+          setAwardQuotes([]); setAwardPick({}); setAwardMissing(requested); setAwardOpen(true);
+        } else {
+          notify("No awarded RFQ quotes found.", "info");
+        }
+        return;
+      }
       const pick: Record<string, string> = {};
       for (const q of quotes) if (!pick[q.style_code]) pick[q.style_code] = q.costing_line_id; // newest first
-      setAwardQuotes(quotes); setAwardPick(pick); setAwardOpen(true);
+      setAwardQuotes(quotes); setAwardPick(pick); setAwardMissing(missing); setAwardOpen(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -668,7 +681,14 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         <div onClick={(e) => { e.stopPropagation(); setAwardOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
             <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices</h3>
+            {awardMissing.length > 0 && (
+              <div style={{ padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12, marginBottom: 12 }}>
+                ⚠️ No awarded RFQ price for {awardMissing.length === 1 ? "this style" : "these styles"}: <strong>{awardMissing.join(", ")}</strong>. {awardQuotes.length === 0 ? "Nothing was priced from an award — set unit costs manually." : "Those styles are left unpriced; the rest are below."}
+              </div>
+            )}
+            {awardQuotes.length > 0 && (
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>The newest awarded quote is pre-selected per style. Pick a different award if several exist; Apply stamps the awarded cost onto the matrix and sets the vendor.</div>
+            )}
             {[...new Set(awardQuotes.map((q) => q.style_code))].map((code) => {
               const opts = awardQuotes.filter((q) => q.style_code === code);
               return (
@@ -689,8 +709,8 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
               );
             })}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setAwardOpen(false)} style={btnSecondary}>Cancel</button>
-              <button onClick={applyAwards} style={btnPrimary}>Apply to matrix</button>
+              <button onClick={() => setAwardOpen(false)} style={btnSecondary}>{awardQuotes.length === 0 ? "Close" : "Cancel"}</button>
+              {awardQuotes.length > 0 && <button onClick={applyAwards} style={btnPrimary}>Apply to matrix</button>}
             </div>
           </div>
         </div>
