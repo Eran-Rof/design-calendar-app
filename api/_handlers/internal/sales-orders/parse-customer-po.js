@@ -71,12 +71,12 @@ Rules:
 - currency = 3-letter ISO 4217 (USD, EUR, GBP, CAD, …); default "USD".
 - customer_po_number = the customer's own PO number / order number for this order.
 - customer_name = the buyer / retailer placing the order (NOT our company).
-- payment_terms = the literal terms text if present (e.g. "Net 30", "Net 60", "2/10 Net 30"), else null.
+- payment_terms = normalize to "Net N" form. "30 DAYS" / "30 days" / "Net 30" / "N30" all → "Net 30"; "60 DAYS" → "Net 60". Keep an early-payment discount prefix if present (e.g. "2/10 Net 30"). Null if absent.
 - For each ordered style return one line. style_code = the style number / item number ONLY (often our style code like RYB0594, or RYB0594PPK for a prepack). color = the color/colorway if given.
 - IMPORTANT: customer item codes often glue the style and color together, e.g. "RYB187810-OPEN SEA", "RYB0594/RED", "RYB0594 BLACK". In that case put ONLY the leading style number in style_code (e.g. "RYB187810") and the trailing color text in color (e.g. "OPEN SEA"). Do not return the combined string as style_code. description = the product description.
-- unit_price = the per-unit selling price as a plain number (strip $, commas).
-- total_qty = the total units ordered for that style+color across all sizes.
-- size_breakdown = the per-size quantities IF the PO lists a size run (e.g. S 12, M 24, L 24, XL 12). Use the size labels exactly as printed. If the PO gives only a single total with no size split, return null for size_breakdown (still fill total_qty).
+- unit_price = the per-unit selling price / unit cost as a plain NUMBER (strip $, commas). On tabular POs this is the "UNIT COST" or "PRICE" column.
+- total_qty = the total units ordered for that style+color, as a plain NUMBER (strip commas). On tabular POs this is the "ORDER QTY" (or "TOTAL QTY") column — e.g. "2,304" → 2304. Never put a word here; it must be numeric.
+- size_breakdown = the per-size quantities ONLY IF the PO lists an actual size run (e.g. S 12, M 24, L 24, XL 12), using the size labels as printed. If the size is shown as "AST", "ASST", "ASSORTED", "PREPACK", "NESTED", or there's no real per-size split, return null for size_breakdown and put the number in total_qty — those are assorted/prepack orders, NOT a size called "AST".
 - If a style is ordered in multiple colors, return one line per color.
 - Return JSON exactly matching the schema — no prose.`;
 
