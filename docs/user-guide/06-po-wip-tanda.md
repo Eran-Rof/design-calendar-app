@@ -162,7 +162,7 @@ Non-admins see the template **view-only**.
 
 ## 6.6 The PO detail panel
 
-Clicking any PO opens its full detail panel. Up top you see the PO header (vendor, dates, currency, totals), an editable **Buyer PO** field, and a **Production Progress** bar showing percent complete, milestone counts, delays, and per-category chips you can click to jump to a category.
+Clicking any PO opens its full detail panel. The panel fills the screen **to the right of the navigation drawer** — the drawer stays visible so you can switch views without closing the PO. Up top you see the PO header (vendor, dates, currency, totals), an editable **Buyer PO** field, and a **Production Progress** bar showing percent complete, milestone counts, delays, and per-category chips you can click to jump to a category.
 
 Tabs across the detail panel:
 

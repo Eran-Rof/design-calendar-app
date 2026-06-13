@@ -1606,7 +1606,7 @@ function TandAApp() {
   // PO DETAIL PANEL
   // ════════════════════════════════════════════════════════════════════════════
   const DetailPanel = () => detailPanelExtracted({
-    selected, detailMode, setDetailMode, setSelected, setView, setNewNote,
+    selected, detailMode, setDetailMode, setSelected, setView, setNewNote, navOffset,
     matrixCollapsed, setMatrixCollapsed, lineItemsCollapsed, setLineItemsCollapsed,
     poInfoCollapsed, setPoInfoCollapsed, progressCollapsed, setProgressCollapsed,
     editingNote, setEditingNote, editingNoteId, setEditingNoteId, editingNoteText, setEditingNoteText, msNoteText, setMsNoteText, expandedVariants, setExpandedVariants,
