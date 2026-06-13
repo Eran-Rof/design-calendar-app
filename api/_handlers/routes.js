@@ -150,6 +150,7 @@ import r_internal_cases_id from "./internal/cases/[id].js";
 import r_internal_cases_id_comments from "./internal/cases/[id]/comments.js";
 import r_internal_cases_index from "./internal/cases/index.js";
 import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
+import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
 import r_internal_commissions_accruals from "./internal/commissions/accruals.js";
 import r_internal_commissions_accrue from "./internal/commissions/accrue.js";
@@ -1187,6 +1188,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/accept-invite", handler: r_vendor_accept_invite },
   { pattern: "/api/vendor/virtual-cards", handler: r_vendor_virtual_cards_index },
   { pattern: "/api/cron/bank-feed-sync", handler: r_cron_bank_feed_sync },
+  { pattern: "/api/internal/categories", handler: r_internal_categories_index },
   { pattern: "/api/internal/compliance", handler: r_internal_compliance_index },
   { pattern: "/api/internal/esg-scores", handler: r_internal_esg_scores_index },
   { pattern: "/api/internal/gl-periods", handler: r_internal_gl_periods_index },

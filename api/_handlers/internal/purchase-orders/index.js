@@ -32,9 +32,49 @@ async function resolveDefaultEntity(admin) {
   return data || null;
 }
 
+const PO_HEADER_COLS =
+  "po_type, customer_id, po_prefix, vendor_contact, vendor_email, vendor_ref, factory_location, coo, " +
+  "requested_delivery_date, ship_window_start, ship_window_end, port_date, acknowledged_date, cancel_date, " +
+  "ship_to_location_id, bill_to_entity_id, ship_method, freight_forwarder, season, channel_id, department_category_id";
 const SELECT_COLS =
   "id, entity_id, brand_id, vendor_id, po_number, order_date, expected_date, status, " +
-  "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at";
+  "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at, " + PO_HEADER_COLS;
+
+// Enum guards mirror the CHECK constraints in 20260863000000.
+const PO_TYPES = ["stock", "replenishment", "made_to_order", "sample", "drop_ship"];
+const SHIP_METHODS = ["sea", "air", "ground"];
+
+// Normalize the rich-header fields off a body into a column patch (shared by
+// POST insert + PATCH). Only well-formed values survive; everything else → null.
+export function normalizeHeader(body) {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuid = (k) => (body[k] && UUID.test(String(body[k])) ? body[k] : null);
+  const date = (k) => (/^\d{4}-\d{2}-\d{2}$/.test(body[k] || "") ? body[k] : null);
+  const text = (k) => (body[k] != null && String(body[k]).trim() !== "" ? String(body[k]).trim() : null);
+  return {
+    po_type: PO_TYPES.includes(body.po_type) ? body.po_type : null,
+    customer_id: uuid("customer_id"),
+    po_prefix: text("po_prefix"),
+    vendor_contact: text("vendor_contact"),
+    vendor_email: text("vendor_email"),
+    vendor_ref: text("vendor_ref"),
+    factory_location: text("factory_location"),
+    coo: text("coo"),
+    requested_delivery_date: date("requested_delivery_date"),
+    ship_window_start: date("ship_window_start"),
+    ship_window_end: date("ship_window_end"),
+    port_date: date("port_date"),
+    acknowledged_date: date("acknowledged_date"),
+    cancel_date: date("cancel_date"),
+    ship_to_location_id: uuid("ship_to_location_id"),
+    bill_to_entity_id: uuid("bill_to_entity_id"),
+    ship_method: SHIP_METHODS.includes(body.ship_method) ? body.ship_method : null,
+    freight_forwarder: text("freight_forwarder"),
+    season: text("season"),
+    channel_id: uuid("channel_id"),
+    department_category_id: uuid("department_category_id"),
+  };
+}
 
 export function validateInsert(body) {
   if (!body || typeof body !== "object") return { error: "body required" };
@@ -69,6 +109,7 @@ export function validateInsert(body) {
       expected_date: /^\d{4}-\d{2}-\d{2}$/.test(body.expected_date || "") ? body.expected_date : null,
       payment_terms_id: nz("payment_terms_id"),
       notes: body.notes ? String(body.notes).trim() : null,
+      ...normalizeHeader(body),
       lines: normLines,
     },
   };
@@ -129,6 +170,7 @@ export default async function handler(req, res) {
     if (v.error) return res.status(400).json({ error: v.error });
 
     const subtotal = v.data.lines.reduce((s, l) => s + l.line_total_cents, 0);
+    const header_cols = normalizeHeader(v.data); // v.data already carries the normalized header values
     const { data: header, error: hErr } = await admin.from("purchase_orders").insert({
       entity_id: entity.id,
       vendor_id: v.data.vendor_id,
@@ -138,6 +180,7 @@ export default async function handler(req, res) {
       status: "draft",
       payment_terms_id: v.data.payment_terms_id,
       notes: v.data.notes,
+      ...header_cols,
       subtotal_cents: subtotal,
       total_cents: subtotal,
     }).select(SELECT_COLS).single();

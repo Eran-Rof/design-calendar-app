@@ -128,7 +128,13 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 
 ### Day-to-day
 
-1. **New PO** → pick vendor (SearchableSelect), brand (defaults to entity brand), order date, expected date, payment terms, notes.
+1. **New PO** → fill the **rich document header**, grouped into sections:
+   - **Identity & status** — PO type (stock / replenishment / made-to-order / sample / drop-ship), Customer, an editable **PO number prefix** (overrides `PO-` when the order is issued), and the read-only PO number / status.
+   - **Vendor / supplier** — Vendor (lookup), vendor contact + email, vendor PO / ref #, factory / production location, COO (country lookup).
+   - **Dates** — order, requested delivery / in-DC, ship-window start–end, port date, vendor-confirmed / acknowledged, expected, cancel.
+   - **Logistics & destination** — ship-to location / warehouse, bill-to entity (multi-entity), ship method (sea / air / ground), consolidator / freight forwarder.
+   - **Classification & terms** — brand, season (from the Season master), channel, **Department** (main category from the Category master), payment terms.
+   - **Roll-up (read-only)** — **total weight / cartons / CBM**, computed from each style's **Pack / logistics** fields in Style Master (units × unit weight; units ÷ units-per-carton, rounded up; cartons × carton CBM). It populates after the first save; a note appears if any style is missing those fields. *(The status flow itself is unchanged — draft → issued → in_transit → received → cancelled.)*
 2. **Add lines — the body IS the size matrix** (the same `LineMatrixBody` the Sales Order modal uses, in `mode="po"`). It opens with the matrix ready:
    - **➕ Add style (matrix)** — pick a style → fill its color × size grid inline, with a per-row **Unit Cost $** column + a "set all rows" header field. The new style picker is inserted at the **top** of existing styles. (PO mode shows cost, not margin or on-hand.)
    - **Qty quick-fill** — each color row has a **Qty** box (between Color and the first size). Type one total (e.g. `1200`) and press **Enter/Tab**: the qty is split across sizes using the style's stored **size scale** pack ratio (set in Style Master → **📐 Scale**), then **each size is rounded up to a full carton of 24**. The grand total can land slightly above what you typed (the round-up); that's expected. The box is disabled for styles with no Scale set (tooltip explains).
