@@ -350,6 +350,8 @@ export default [
   // Manufacturing module (M1) — Part Master + Service Item Master.
   ["/api/internal/part-master/:id"                            , "./internal/part-master/[id].js"],
   ["/api/internal/part-master"                                , "./internal/part-master/index.js"],
+  ["/api/internal/part-types/:id"                             , "./internal/part-types/[id].js"],
+  ["/api/internal/part-types"                                 , "./internal/part-types/index.js"],
   ["/api/internal/service-items/:id"                          , "./internal/service-items/[id].js"],
   ["/api/internal/service-items"                              , "./internal/service-items/index.js"],
   // Manufacturing module (M2) — part FIFO inventory + adjustments.

@@ -316,7 +316,7 @@ Find it under **Master Data → Part Master** (`/tangerine?m=part_master`). A **
 |---|---|
 | **Code** | **Auto-generated** as `PART-NNNNN` on save — read-only. |
 | **Name** | The part label, e.g. `Blank Tee 5000 White`. Required. |
-| **Part type** | `Blank garment`, `Label`, `Trim`, `Packaging`, `Fabric`, or `Generic`. Drives reporting. |
+| **Part type** | Picked from the **Part Type Master** (below) via a searchable dropdown. Seeded with Blank garment / Label / Trim / Packaging / Fabric / Generic; add your own (zipper, thread, …). Drives reporting. |
 | **Unit of measure** | How the part is counted/purchased (defaults to `each`). |
 | **Default vendor** | The vendor you usually buy this part from (type-ahead picker). Optional. |
 | **Default unit cost** | Informational seed (in dollars) for purchasing. Optional. |
@@ -325,6 +325,12 @@ Find it under **Master Data → Part Master** (`/tangerine?m=part_master`). A **
 | **Active** | Inactive parts drop out of pickers but stay on historical builds. |
 
 Standard panel features apply: server-side search (code or name), `<ExportButton>` (xlsx), and row-click-to-edit. Delete is a hard delete (deactivate to retire instead).
+
+## 🏷️ Part Type Master
+
+Find it under **Master Data → Part Type Master** (`/tangerine?m=part_type_master`). This is the operator-managed list of **part categories** that the Part Master "type" dropdown picks from — so you can add a new type (e.g. `Zipper`, `Thread`, `Hangtag`) without a code change. Seeded with the six originals (Blank garment, Label, Trim, Packaging, Fabric, Generic).
+
+Each row has a **Code** (a short lowercase key stored on the part; operator-entered and locked after creation), a **Name** (the display label), a sort order, and an active flag. **Delete is blocked** if any part still uses the type — deactivate it instead. Standard search / xlsx export / row-click-to-edit apply.
 
 ## 🛠️ Service Item Master
 

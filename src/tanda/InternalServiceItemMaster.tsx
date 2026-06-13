@@ -296,9 +296,7 @@ function ServiceFormModal({ mode, item, vendors, accounts, onClose, onSaved }: M
             <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inputStyle} placeholder="e.g. Screen print front + back" autoFocus />
           </Field>
           <Field label="Service kind">
-            <select value={form.service_kind} onChange={(e) => setForm({ ...form, service_kind: e.target.value })} style={inputStyle}>
-              {SERVICE_KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-            </select>
+            <SearchableSelect value={form.service_kind} onChange={(v) => setForm({ ...form, service_kind: v })} options={SERVICE_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))} placeholder="Pick a kind…" />
           </Field>
           <Field label="Default vendor">
             <SearchableSelect value={form.default_vendor_id} onChange={(v) => setForm({ ...form, default_vendor_id: v })} options={vendorOptions} placeholder="— none —" />

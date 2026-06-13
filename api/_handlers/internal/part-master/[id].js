@@ -14,7 +14,6 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PART_TYPES = new Set(["blank_garment", "label", "trim", "packaging", "fabric", "generic"]);
 
 const MUTABLE_FIELDS = new Set([
   "name", "part_type", "uom", "default_vendor_id", "default_unit_cost_cents",
@@ -124,9 +123,7 @@ export function validatePatch(body) {
 
   if ("part_type" in out) {
     out.part_type = String(out.part_type).trim();
-    if (!PART_TYPES.has(out.part_type)) {
-      return { error: `part_type must be one of: ${[...PART_TYPES].join(", ")}` };
-    }
+    if (!out.part_type) return { error: "part_type cannot be empty" };
   }
 
   if ("uom" in out) out.uom = String(out.uom).trim() || "each";

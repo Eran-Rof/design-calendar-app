@@ -347,11 +347,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                 <div><Lbl>Version</Lbl><input type="number" min="1" step="1" value={version} onChange={(e) => setVersion(e.target.value)} style={inputStyle} /></div>
                 <div>
                   <Lbl>Status</Lbl>
-                  <select value={status} onChange={(e) => setStatus(e.target.value as "draft" | "active" | "archived")} style={inputStyle}>
-                    <option value="draft">draft</option>
-                    <option value="active">active</option>
-                    <option value="archived">archived</option>
-                  </select>
+                  <SearchableSelect value={status} onChange={(v) => setStatus(v as "draft" | "active" | "archived")} options={[{ value: "draft", label: "draft" }, { value: "active", label: "active" }, { value: "archived", label: "archived" }]} />
                 </div>
                 <div style={{ gridColumn: "1 / 3" }}>
                   <Lbl>Default conversion vendor (factory)</Lbl>
@@ -388,11 +384,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                     {components.map((c, i) => (
                       <tr key={i}>
                         <td style={td}>
-                          <select value={c.component_kind} onChange={(e) => updateComponent(i, { component_kind: e.target.value as Component["component_kind"], part_id: null, service_item_id: null, component_item_id: null })} style={inputStyle}>
-                            <option value="part">Part</option>
-                            <option value="service">Service</option>
-                            <option value="finished_style">Finished style</option>
-                          </select>
+                          <SearchableSelect value={c.component_kind} onChange={(v) => updateComponent(i, { component_kind: v as Component["component_kind"], part_id: null, service_item_id: null, component_item_id: null })} options={[{ value: "part", label: "Part" }, { value: "service", label: "Service" }, { value: "finished_style", label: "Finished style" }]} />
                         </td>
                         <td style={td}>
                           {c.component_kind === "part" && (
@@ -408,10 +400,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                         <td style={td}><input type="number" min="0" step="0.0001" value={c.qty_per_unit} onChange={(e) => updateComponent(i, { qty_per_unit: parseFloat(e.target.value) || 0 })} style={{ ...inputStyle, textAlign: "right" }} /></td>
                         <td style={td}><input type="number" min="0" max="99" step="0.1" value={c.scrap_pct} onChange={(e) => updateComponent(i, { scrap_pct: parseFloat(e.target.value) || 0 })} style={{ ...inputStyle, textAlign: "right" }} /></td>
                         <td style={td}>
-                          <select value={c.cost_source} onChange={(e) => updateComponent(i, { cost_source: e.target.value as "fifo" | "default" })} style={inputStyle}>
-                            <option value="fifo">Actual (FIFO)</option>
-                            <option value="default">Default</option>
-                          </select>
+                          <SearchableSelect value={c.cost_source} onChange={(v) => updateComponent(i, { cost_source: v as "fifo" | "default" })} options={[{ value: "fifo", label: "Actual (FIFO)" }, { value: "default", label: "Default" }]} />
                         </td>
                         <td style={{ ...td, textAlign: "center" }}><button onClick={() => removeComponent(i)} style={{ ...btnDanger, padding: "4px 8px" }}>✕</button></td>
                       </tr>

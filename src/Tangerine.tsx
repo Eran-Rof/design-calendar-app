@@ -30,6 +30,7 @@ import InternalColorMaster        from "./tanda/InternalColorMaster";
 import InternalFabricMillMaster   from "./tanda/InternalFabricMillMaster";
 import InternalPartMaster         from "./tanda/InternalPartMaster";
 import InternalServiceItemMaster  from "./tanda/InternalServiceItemMaster";
+import InternalPartTypeMaster     from "./tanda/InternalPartTypeMaster";
 import InternalPartInventory      from "./tanda/InternalPartInventory";
 import InternalMfgBom             from "./tanda/InternalMfgBom";
 import InternalMfgBuildOrders     from "./tanda/InternalMfgBuildOrders";
@@ -470,6 +471,7 @@ export default function Tangerine() {
         {activeModule === "fabric_mill_master"    && <InternalFabricMillMaster />}
         {activeModule === "part_master"           && <InternalPartMaster />}
         {activeModule === "service_item_master"   && <InternalServiceItemMaster />}
+        {activeModule === "part_type_master"      && <InternalPartTypeMaster />}
         {activeModule === "part_inventory"        && <InternalPartInventory />}
         {activeModule === "mfg_bom"               && <InternalMfgBom />}
         {activeModule === "mfg_build_orders"      && <InternalMfgBuildOrders />}

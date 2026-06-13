@@ -111,6 +111,7 @@ const KEYS = [
   "tanda/master/fabric-mills",
   "tanda/master/part-master",
   "tanda/master/service-items",
+  "tanda/master/part-types",
   "tanda/mfg/part-inventory",
   "tanda/mfg/boms",
   "tanda/mfg/build-orders",
