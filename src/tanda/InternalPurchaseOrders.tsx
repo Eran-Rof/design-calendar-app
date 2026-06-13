@@ -307,12 +307,15 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   }, [isNew, po]);
 
   // ── Create PO from a Sales Order ────────────────────────────────────────────
-  // Load SOs for the picker (debounced on the search box).
+  // A PO can't be created from an SO whose stock is already committed (allocated)
+  // or that's already billed (invoiced) — those orders are past the buying stage.
+  const PO_FROM_SO_BLOCKED = ["allocated", "invoiced"];
+  // Load SOs for the picker (debounced) — only qualifying orders are shown.
   useEffect(() => {
     if (!soPickOpen) return;
     const t = setTimeout(() => {
       const qs = soQuery.trim() ? `?q=${encodeURIComponent(soQuery.trim())}&limit=50` : "?limit=50";
-      fetch(`/api/internal/sales-orders${qs}`).then((r) => r.ok ? r.json() : []).then((a) => setSoList(Array.isArray(a) ? a : [])).catch(() => {});
+      fetch(`/api/internal/sales-orders${qs}`).then((r) => r.ok ? r.json() : []).then((a) => setSoList((Array.isArray(a) ? a : []).filter((so) => !PO_FROM_SO_BLOCKED.includes(so.status)))).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
   }, [soPickOpen, soQuery]);
@@ -326,6 +329,12 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       const r = await fetch(`/api/internal/sales-orders/${soId}`);
       const full = await r.json();
       if (!r.ok) throw new Error(full.error || `HTTP ${r.status}`);
+      // Guard: never build a PO from an allocated / invoiced SO.
+      if (PO_FROM_SO_BLOCKED.includes(full.status)) {
+        setSoBusy(false);
+        notify(`Sales order ${full.so_number || ""} is ${full.status} — a PO can't be created from an ${full.status} sales order.`, "error");
+        return;
+      }
       type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
