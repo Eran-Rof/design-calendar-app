@@ -155,26 +155,39 @@ export async function buildSeedFromResolved(
       } else if (total > 0) {
         warnings.push({ style: chosen.style_code, detail: `Couldn't determine the PPK carton size — left blank, enter cartons manually.` });
       }
-    } else if (line.size_breakdown && line.size_breakdown.length) {
-      // Exact per-size quantities; flag any partial carton of 24.
-      for (const sb of line.size_breakdown) {
-        const matchSize = sizes.find((s) => s.toLowerCase() === sb.size.toLowerCase()) || sb.size;
-        const q = Math.max(0, Math.floor(sb.qty));
-        if (q > 0) {
-          cells.push({ color, size: matchSize, qty: q, unit });
-          if (isPartialCarton(q)) warnings.push({ style: chosen.style_code, detail: `${color || ""} ${matchSize}: ${q} is not a full carton of 24.` });
+    } else {
+      // Keep only size-breakdown rows that map to a REAL size column. Rows like
+      // "AST" / "ASSORTED" / "PREPACK" (a prepack/nested order with no per-size
+      // split) don't match a column, so they're rolled into the total instead of
+      // creating an invisible cell that drops the quantity (and the price).
+      const realBreakdown = (line.size_breakdown || [])
+        .map((sb) => ({ size: sizes.find((s) => s.toLowerCase() === sb.size.toLowerCase()), qty: Math.max(0, Math.floor(sb.qty)) }))
+        .filter((x): x is { size: string; qty: number } => !!x.size && x.qty > 0);
+
+      if (realBreakdown.length > 0) {
+        // Exact per-size quantities; flag any partial carton of 24.
+        for (const x of realBreakdown) {
+          cells.push({ color, size: x.size, qty: x.qty, unit });
+          if (isPartialCarton(x.qty)) warnings.push({ style: chosen.style_code, detail: `${color || ""} ${x.size}: ${x.qty} is not a full carton of 24.` });
         }
-      }
-    } else if (total > 0) {
-      // Only a total — distribute across the sizes via the style's size scale.
-      const pack: SizePack = chosen.attributes?.size_scale_pack || {};
-      if (hasUsablePack(sizes, pack)) {
-        const dist = distributeByPack(total, sizes, pack);
-        for (const [size, q] of Object.entries(dist)) if (q > 0) cells.push({ color, size, qty: q, unit });
       } else {
-        // No scale to distribute by — drop the total on the first size and warn.
-        if (sizes[0]) cells.push({ color, size: sizes[0], qty: total, unit });
-        warnings.push({ style: chosen.style_code, detail: `No size scale set — put ${total} units on size ${sizes[0] || "?"}; split it across sizes manually (or set a Scale in Style Master).` });
+        // No usable per-size split — use the total (or sum the assorted breakdown)
+        // and distribute across the sizes via the style's size scale.
+        const fromBreakdown = (line.size_breakdown || []).reduce((s, sb) => s + Math.max(0, Math.floor(sb.qty)), 0);
+        const effectiveTotal = total > 0 ? total : fromBreakdown;
+        if (effectiveTotal > 0) {
+          const pack: SizePack = chosen.attributes?.size_scale_pack || {};
+          if (hasUsablePack(sizes, pack)) {
+            const dist = distributeByPack(effectiveTotal, sizes, pack);
+            for (const [size, q] of Object.entries(dist)) if (q > 0) cells.push({ color, size, qty: q, unit });
+          } else if (sizes[0]) {
+            // No scale to distribute by — drop the total on the first size and warn.
+            cells.push({ color, size: sizes[0], qty: effectiveTotal, unit });
+            warnings.push({ style: chosen.style_code, detail: `No size scale set — put ${effectiveTotal} units on size ${sizes[0]}; split it across sizes manually (or set a Scale in Style Master).` });
+          } else {
+            warnings.push({ style: chosen.style_code, detail: `${effectiveTotal} units, but the style has no size scale / sizes — add it manually.` });
+          }
+        }
       }
     }
 
@@ -202,13 +215,34 @@ export function matchCustomer(name: string | null, customers: { id: string; name
   return partial?.id || null;
 }
 
+/** Net-days from a terms string: "30 days" / "net 30" / "n30" / "2/10 net 30" → 30. */
+export function netDaysOf(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const str = String(s).toLowerCase();
+  const net = str.match(/net\s*(\d{1,3})/);           // "net 30", "2/10 net 30"
+  if (net) return parseInt(net[1], 10);
+  const days = str.match(/(\d{1,3})\s*days?\b/);       // "30 days"
+  if (days) return parseInt(days[1], 10);
+  const nN = str.match(/^n\s*(\d{1,3})$/);             // "n30"
+  if (nN) return parseInt(nN[1], 10);
+  return null;
+}
+
 export function matchPaymentTerms(terms: string | null, list: { id: string; code?: string; name: string }[]): string | null {
   if (!terms) return null;
   const t = terms.trim().toLowerCase();
   if (!t) return null;
+  // 1) Exact / substring on name or code.
   const hit = list.find((p) => p.name.toLowerCase() === t || (p.code || "").toLowerCase() === t
     || p.name.toLowerCase().includes(t) || t.includes(p.name.toLowerCase()));
-  return hit?.id || null;
+  if (hit) return hit.id;
+  // 2) Loose: match on the net-days number — "30 DAYS" finds "Net 30".
+  const days = netDaysOf(t);
+  if (days != null) {
+    const byDays = list.find((p) => netDaysOf(p.name) === days || netDaysOf(p.code) === days);
+    if (byDays) return byDays.id;
+  }
+  return null;
 }
 
 /** Normalize a parsed date to YYYY-MM-DD or "" (the model is told to ISO it). */
