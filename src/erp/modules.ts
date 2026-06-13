@@ -18,6 +18,7 @@ export type ModuleKey =
   | "factors"
   | "size_scales"
   | "season_master"
+  | "color_master"
   | "fabric_mill_master"
   | "rma_reason_master"
   | "adjustment_type_master"
@@ -228,6 +229,7 @@ export const MODULES: ModuleDef[] = [
   { key: "factors",              label: "Factors/Insurance Master",  emoji: "🏦", group: "Master Data" },
   { key: "size_scales",          label: "Size Scales Master",        emoji: "📏", group: "Master Data" },
   { key: "season_master",        label: "Seasons Master",            emoji: "🍂", group: "Master Data" },
+  { key: "color_master",         label: "Color Master",              emoji: "🎨", group: "Master Data" },
   { key: "fabric_mill_master",   label: "Fabric Mill Master",        emoji: "🏭", group: "Master Data" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
