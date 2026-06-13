@@ -104,6 +104,12 @@ These declared colors become the **color rows in the Sales Order and Purchase Or
 
 Below Colors, the **Inseams** section declares the inseam lengths a bottoms style runs (e.g. `30`, `32`, `34`). Type one and press **Enter** or **+ Add inseam**, or tap a **quick-add** preset. Each inseam becomes an extra matrix dimension on SO / PO entry (color × inseam × size). Leave it empty for tops and non-bottoms.
 
+### Customer style numbers (one base style, many customers)
+
+Private-label / customer-customized goods are **one base style sold to many customers**, each using *their own* style number. Recording those here keeps it as a **single** style record instead of forking a new style per customer (which is how a catalog ends up with thousands of near-duplicate style lines).
+
+In the Style edit modal, the **Customer style numbers** section maps `customer → their style number` (plus optional notes). Click **+ Add customer #**, pick the customer (searchable), type their number, **Add**. A customer PO that cites their own number then resolves back to this base style — feeding the AI **Upload customer PO** flow and the manufacturing module. Stored in `style_customer_numbers` (one row per customer per style); managed in place, independent of the main Save.
+
 ## 🎨 Color Master
 
 Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). The Color Master is the curated list of colors styles can be offered in. It is **prepopulated from every distinct colour already present in the catalog** (the existing item/SKU colours), so the picker starts full of your real colours — then **normalized** to a clean canonical set (1,106 raw spellings → 857: case, spacing, size-leaked-into-colour, and common abbreviations like `Lt`/`Dk`/`Hthr`/`Chrcl` are folded into one proper-cased name). The matching cleanup of the live SKU colours themselves is a separate, larger data-repair (tracked in OPERATOR-TODO); meanwhile the size matrix lines a declared colour up with existing SKU colours case-insensitively. Standard panel features apply: search, **Show inactive**, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. Each row shows a colour **swatch** when a hex is set.
