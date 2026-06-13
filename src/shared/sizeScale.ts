@@ -16,7 +16,42 @@
 
 export type SizePack = Record<string, number>;
 
+// A style offered in multiple inseam lengths can carry a DIFFERENT pack ratio per
+// inseam (e.g. a 30" inseam skews to smaller waists, a 34" to larger). Those are
+// stored nested: { "30": { "30":2, "32":3, … }, "32": { … } }. A style with no
+// inseams keeps the flat SizePack shape ({ size: qty }) — unchanged.
+export type NestedSizePack = Record<string, SizePack>;
+
 export const CARTON = 24;
+
+/** True when a stored size_scale_pack is the per-inseam nested shape (any value
+ *  is itself an object) rather than the flat { size: qty } shape. */
+export function isNestedPack(raw: unknown): raw is NestedSizePack {
+  return !!raw && typeof raw === "object" && !Array.isArray(raw) &&
+    Object.values(raw as Record<string, unknown>).some((v) => v != null && typeof v === "object");
+}
+
+/**
+ * Resolve the flat size→qty pack ratio for one inseam row from a stored
+ * size_scale_pack (which may be flat or per-inseam nested).
+ *  • flat pack          → returned as-is (applies to every inseam).
+ *  • nested + inseam     → that inseam's column (falls back to the first defined
+ *                          column when the inseam has none yet).
+ *  • nested + no inseam  → the first defined column (a representative ratio, e.g.
+ *                          for the PO-upload prefill which has no inseam context).
+ */
+export function packForInseam(
+  raw: SizePack | NestedSizePack | null | undefined,
+  inseam?: string | null,
+): SizePack {
+  if (!raw || typeof raw !== "object") return {};
+  if (!isNestedPack(raw)) return raw as SizePack;
+  const nested = raw as NestedSizePack;
+  const key = inseam == null ? "" : String(inseam);
+  if (key && nested[key] && Object.keys(nested[key]).length) return nested[key];
+  const first = Object.values(nested).find((c) => c && Object.keys(c).length > 0);
+  return first || {};
+}
 
 /** Round a count UP to the nearest multiple of `carton`. 0 (or negative) → 0. */
 export function ceilToCarton(n: number, carton = CARTON): number {

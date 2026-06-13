@@ -77,7 +77,9 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 2. Click **📐 Scale**. A window lists every size in the scale with a **Pack qty** box. Enter a representative quantity per size — only the *ratio* matters, so `S 2 · M 3 · L 3 · XL 2` and `S 20 · M 30 · L 30 · XL 20` behave identically. A live **% of pack** and a running **Total** are shown.
 3. Click **Done**, then **Save** the style. The pack is stored on the style.
 
-How it's used downstream: in a Sales Order or Purchase Order size matrix, every color row gains a **Qty** column (between Color and the first size). Type one total there — e.g. `1200` — and press **Enter** or **Tab**: Tangerine splits it across the sizes in the stored proportion, then **rounds each size up to a full carton of 24**. Because of the round-up the grand total can land a little above the number you typed — that's expected. Sizes with a zero pack ratio stay empty. If a style has no Scale set, the matrix Qty box is disabled (with a tooltip pointing back here).
+**Styles with inseams** (see *Inseams* below) get a **pack matrix** instead of a single column: the window shows one **pack-qty column per inseam** (rows = sizes), so each inseam can carry its own size curve — e.g. a 30″ inseam can skew to smaller waists and a 34″ to larger. A per-inseam **Total** is shown in the footer. If you'd already entered a single (flat) pack before adding inseams, each inseam column is **pre-seeded from that flat pack** when you open the window, so you adjust rather than start from zero.
+
+How it's used downstream: in a Sales Order or Purchase Order size matrix, every row (color, or color × inseam) gains a **Qty** column (between the lead columns and the first size). Type one total there — e.g. `1200` — and press **Enter** or **Tab**: Tangerine splits it across the sizes in that **row's** stored proportion (the matching inseam's curve when the style has inseams), then **rounds each size up to a full carton of 24**. Because of the round-up the grand total can land a little above the number you typed — that's expected. Sizes with a zero pack ratio stay empty. If a style has no Scale set, the matrix Qty box is disabled (with a tooltip pointing back here).
 
 ### Pack / logistics (PO roll-ups)
 
@@ -103,6 +105,8 @@ These declared colors become the **color rows in the Sales Order and Purchase Or
 ### Inseams (bottoms only — optional)
 
 Below Colors, the **Inseams** section declares the inseam lengths a bottoms style runs (e.g. `30`, `32`, `34`). Type one and press **Enter** or **+ Add inseam**, or tap a **quick-add** preset. Each inseam becomes an extra matrix dimension on SO / PO entry (color × inseam × size). Leave it empty for tops and non-bottoms.
+
+For an **existing** bottoms style, Tangerine **auto-fills the inseams it already sells** (read from the style's SKUs — the same inseams the Inventory Matrix shows) when you open the style, so you don't have to re-type them; they're saved on the style the next time you **Save**. You can still add or remove inseams by hand. Declaring inseams also turns the **📐 Scale** window into a per-inseam **pack matrix** (above).
 
 ### Customer style numbers (one base style, many customers)
 
