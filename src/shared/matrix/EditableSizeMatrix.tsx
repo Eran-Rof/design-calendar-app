@@ -79,6 +79,9 @@ export type EditableSizeMatrixProps = {
     enabledFor?: (rowKey: string) => boolean;
     /** Tooltip for a row whose scale is missing (when enabledFor returns false). */
     disabledTitle?: string;
+    /** Pre-fill the Qty box for a row (e.g. an AI-imported total that was spread
+     *  across the sizes). Shown as the box's value; re-applies on Enter/Tab. */
+    valueFor?: (rowKey: string) => string | undefined;
   };
 };
 
@@ -173,14 +176,18 @@ function QtyCell({
  * visible for reference (the row Total column shows the true distributed sum).
  */
 function QuickFillCell({
-  rowKey, enabled, disabledTitle, onApply,
+  rowKey, enabled, disabledTitle, onApply, initial,
 }: {
   rowKey: string;
   enabled: boolean;
   disabledTitle?: string;
   onApply: (rowKey: string, total: number) => void;
+  initial?: string;
 }) {
-  const [buf, setBuf] = React.useState("");
+  // Seed the box with an imported total (e.g. from the AI PO upload). Re-sync if
+  // it changes from the outside, but don't clobber what the operator is typing.
+  const [buf, setBuf] = React.useState(initial || "");
+  React.useEffect(() => { if (initial != null && initial !== "") setBuf(initial); }, [initial]);
   const apply = () => {
     const n = Math.floor(Number(buf));
     if (Number.isFinite(n) && n > 0) onApply(rowKey, n);
@@ -290,6 +297,7 @@ export function EditableSizeMatrix({
                       enabled={quickFill.enabledFor ? quickFill.enabledFor(row.key) : true}
                       disabledTitle={quickFill.disabledTitle}
                       onApply={quickFill.onApply}
+                      initial={quickFill.valueFor ? quickFill.valueFor(row.key) : undefined}
                     />
                   </td>
                 )}

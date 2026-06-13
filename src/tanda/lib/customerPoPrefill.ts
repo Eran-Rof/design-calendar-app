@@ -124,20 +124,47 @@ export function resolveLine(line: ParsedPoLine, styles: StyleLite[]): LineResolu
 type Cell = { color: string | null; size: string; qty: number; unit?: string };
 
 /**
- * Build the matrix seed from lines that have a chosen style. `fetchSizes`
- * returns the style's matrix size columns (from /api/internal/style-matrix).
+ * Match the PO's colour text to one of the style's ACTUAL colours so the
+ * quantity lands on a rendered matrix row. Single-colour styles always map.
+ * Otherwise: exact (case-insensitive), then best token-overlap, else the PO text.
+ */
+export function matchColor(poColor: string | null, actualColors: string[]): string | null {
+  if (actualColors.length === 1) return actualColors[0];
+  if (!actualColors.length) return poColor;
+  if (!poColor) return null;
+  const pc = poColor.toLowerCase().trim();
+  const exact = actualColors.find((c) => c.toLowerCase().trim() === pc);
+  if (exact) return exact;
+  const toks = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2));
+  const pcToks = toks(pc);
+  let best: string | null = null, bestScore = 0;
+  for (const c of actualColors) {
+    let score = 0;
+    for (const t of toks(c)) if (pcToks.has(t)) score++;
+    if (score > bestScore) { bestScore = score; best = c; }
+  }
+  return bestScore > 0 ? best : poColor;
+}
+
+/**
+ * Build the matrix seed from lines that have a chosen style. `fetchMatrix`
+ * returns the style's matrix size columns + colours (from /api/internal/style-matrix).
  */
 export async function buildSeedFromResolved(
   resolved: { line: ParsedPoLine; chosen: StyleLite }[],
-  fetchSizes: (styleId: string) => Promise<string[]>,
+  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
 ): Promise<{ sections: SeedSection[]; warnings: PrefillWarning[] }> {
   const byStyle = new Map<string, Cell[]>();
+  // Per style+colour total to show in the matrix Qty quick-fill box (assorted /
+  // total lines that were spread across the sizes from one number).
+  const quickFillByStyle = new Map<string, Record<string, number>>();
   const warnings: PrefillWarning[] = [];
 
   for (const { line, chosen } of resolved) {
     let sizes: string[] = [];
-    try { sizes = await fetchSizes(chosen.id); } catch { /* leave empty → warn below */ }
-    const color = line.color || null;
+    let colors: string[] = [];
+    try { ({ sizes, colors } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
+    const color = matchColor(line.color, colors);
     const unit = line.unit_price != null ? String(line.unit_price) : undefined;
     const total = line.total_qty != null ? Math.max(0, Math.floor(line.total_qty)) : 0;
     const cells: Cell[] = [];
@@ -176,6 +203,9 @@ export async function buildSeedFromResolved(
         const fromBreakdown = (line.size_breakdown || []).reduce((s, sb) => s + Math.max(0, Math.floor(sb.qty)), 0);
         const effectiveTotal = total > 0 ? total : fromBreakdown;
         if (effectiveTotal > 0) {
+          // Show the source total in this colour's Qty quick-fill box.
+          if (!quickFillByStyle.has(chosen.style_code)) quickFillByStyle.set(chosen.style_code, {});
+          quickFillByStyle.get(chosen.style_code)![color || ""] = effectiveTotal;
           const pack: SizePack = chosen.attributes?.size_scale_pack || {};
           if (hasUsablePack(sizes, pack)) {
             const dist = distributeByPack(effectiveTotal, sizes, pack);
@@ -200,6 +230,7 @@ export async function buildSeedFromResolved(
   const sections: SeedSection[] = [...byStyle.entries()].map(([styleCode, cells]) => ({
     styleCode,
     cells: cells.map((c) => ({ color: c.color, size: c.size, qty: c.qty, unit: c.unit })),
+    quickFill: quickFillByStyle.get(styleCode),
   }));
   return { sections, warnings };
 }
