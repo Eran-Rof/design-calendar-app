@@ -318,6 +318,7 @@ import r_internal_messages_inbox from "./internal/messages/inbox.js";
 import r_internal_messages_unread_count from "./internal/messages/unread-count.js";
 import r_internal_mfg_boms_id from "./internal/mfg-boms/[id].js";
 import r_internal_mfg_boms_index from "./internal/mfg-boms/index.js";
+import r_internal_mfg_reports_index from "./internal/mfg-reports/index.js";
 import r_internal_notification_preferences_index from "./internal/notification-preferences/index.js";
 import r_internal_notifications_index from "./internal/notifications/index.js";
 import r_internal_notifications_mark_read from "./internal/notifications/mark-read.js";
@@ -1215,6 +1216,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-receipts", handler: r_internal_ar_receipts_index },
   { pattern: "/api/internal/ats-by-size", handler: r_internal_ats_by_size },
   { pattern: "/api/internal/gl-accounts", handler: r_internal_gl_accounts_index },
+  { pattern: "/api/internal/mfg-reports", handler: r_internal_mfg_reports_index },
   { pattern: "/api/internal/part-master", handler: r_internal_part_master_index },
   { pattern: "/api/internal/phase-notes", handler: r_internal_phase_notes_index },
   { pattern: "/api/internal/price-lists", handler: r_internal_price_lists_index },

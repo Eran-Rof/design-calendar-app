@@ -366,6 +366,8 @@ export default [
   ["/api/internal/build-orders/:id/complete"                 , "./internal/build-orders/complete.js"],
   ["/api/internal/build-orders/:id"                          , "./internal/build-orders/[id].js"],
   ["/api/internal/build-orders"                              , "./internal/build-orders/index.js"],
+  // Manufacturing module (M6) — reports.
+  ["/api/internal/mfg-reports"                               , "./internal/mfg-reports/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],

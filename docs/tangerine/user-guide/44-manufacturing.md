@@ -13,7 +13,7 @@ This chapter grows as the module ships in phases. The current state:
 | M3 — BOM | Per-style recipe of parts + services + consumed styles | ✅ Shipped |
 | M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ✅ Shipped |
 | M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ✅ Shipped |
-| M6 — Reports | WIP aging, build-cost variance, parts valuation | ⬜ |
+| M6 — Reports | Open WIP, completed-build cost, parts valuation | ✅ Shipped |
 
 ## The two real-world flows this is built for
 
@@ -87,3 +87,13 @@ Guards: the build must be *issued* and **all service charges capitalized** first
 > So the printed-tee PO is received exactly like any other PO — but because it's a conversion PO tied to a build, the receipt's effect is "finish the build," valuing the printed tees at *blank-tee cost + print charge* rather than at the PO's headline price.
 
 **Not yet wired (follow-on):** purchasing **parts** onto a vendor bill / PO that stocks part inventory directly. Today parts are stocked via opening-balance/adjustments (Part Inventory → Adjust). The build flow itself is complete.
+
+## M6 — manufacturing reports (shipped)
+
+**Manufacturing → Mfg Reports** (`/tangerine?m=mfg_reports`) gives a read-only view over the whole module:
+
+- **Open WIP** — every build still in progress, with its cost split (parts / services / consumed styles), **days open**, and WIP total. The summary card shows the **total value tied up in WIP** right now.
+- **Completed builds** — each finished build with its quantity, cost breakdown, total cost, **finished unit cost**, and completion date — your actual cost of make.
+- **Parts valuation** — on-hand parts ranked by value, plus the total parts inventory value.
+
+Every section exports to Excel. This closes out the module: masters → part inventory → BOM → build orders + WIP → PO-driven completion → reports.

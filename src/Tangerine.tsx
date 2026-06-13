@@ -33,6 +33,7 @@ import InternalServiceItemMaster  from "./tanda/InternalServiceItemMaster";
 import InternalPartInventory      from "./tanda/InternalPartInventory";
 import InternalMfgBom             from "./tanda/InternalMfgBom";
 import InternalMfgBuildOrders     from "./tanda/InternalMfgBuildOrders";
+import InternalMfgReports         from "./tanda/InternalMfgReports";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
 import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
@@ -472,6 +473,7 @@ export default function Tangerine() {
         {activeModule === "part_inventory"        && <InternalPartInventory />}
         {activeModule === "mfg_bom"               && <InternalMfgBom />}
         {activeModule === "mfg_build_orders"      && <InternalMfgBuildOrders />}
+        {activeModule === "mfg_reports"           && <InternalMfgReports />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
         {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
