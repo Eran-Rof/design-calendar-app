@@ -292,6 +292,48 @@ The table is **seeded with 6 sensible apparel scopes** on first migration; add, 
 
 Deleting a scope is **blocked** if any buyer is currently assigned it (you'll get a clear message with the count). Deactivate it instead to retire it from the picker while keeping existing assignments. Standard panel features apply: server-side search (name or code), `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. The **Code** column is auto-generated and shown read-only.
 
+## 🧩 Part Master
+
+Find it under **Master Data → Part Master** (`/tangerine?m=part_master`). A **part** is a purchased *component* that gets assembled into a finished style — a blank garment, a label, a trim, packaging, or fabric. Parts power the **Manufacturing module** (see [44-manufacturing.md](44-manufacturing.md)): you buy them, hold them in their own inventory, and consume them when you build a finished style.
+
+> **Parts are kept fully separate from style inventory.** A part never appears in the Inventory Matrix, ATS, or sales/PO style pickers. It lives in its own master here and (once Manufacturing inventory ships) its own FIFO stock pool. There is intentionally no link from a part to a style SKU.
+
+### What a part row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | **Auto-generated** as `PART-NNNNN` on save — read-only. |
+| **Name** | The part label, e.g. `Blank Tee 5000 White`. Required. |
+| **Part type** | `Blank garment`, `Label`, `Trim`, `Packaging`, `Fabric`, or `Generic`. Drives reporting. |
+| **Unit of measure** | How the part is counted/purchased (defaults to `each`). |
+| **Default vendor** | The vendor you usually buy this part from (type-ahead picker). Optional. |
+| **Default unit cost** | Informational seed (in dollars) for purchasing. Optional. |
+| **Size-scaled** | Tick for parts tracked per size, e.g. blank tees. |
+| **Fabric code** | Only shown when part type is `Fabric` — links to the existing Fabric Codes master. |
+| **Active** | Inactive parts drop out of pickers but stay on historical builds. |
+
+Standard panel features apply: server-side search (code or name), `<ExportButton>` (xlsx), and row-click-to-edit. Delete is a hard delete (deactivate to retire instead).
+
+## 🛠️ Service Item Master
+
+Find it under **Master Data → Service Item Master** (`/tangerine?m=service_item_master`). A **service item** is an outsourced *conversion / labor* charge performed by a factory — printing, sewing, packing, washing. In the CMT (cut-make-trim) model a service is a **vendor AP charge**, not a stocked quantity and not an internal labor rate.
+
+### What a service row is
+
+| Field | Meaning |
+|---|---|
+| **Code** | **Auto-generated** as `SVC-NNNNN` on save — read-only. |
+| **Name** | The service label, e.g. `Screen print front + back`. Required. |
+| **Service kind** | `Print`, `Sew`, `Pack`, `Wash`, `Conversion`, or `Other`. |
+| **Labor** | Reporting flag — marks the charge as labor (it is still billed by a vendor). |
+| **Default vendor** | The factory/sub-contractor that performs the service. Optional. |
+| **Default charge** | Informational per-unit cost (in dollars) to seed the conversion PO. Optional. |
+| **Capitalize to WIP** | When on (default), the service's cost is **rolled into the finished good's value** through Work-In-Process. When off, it expenses to the chosen account. |
+| **Expense account** | Shown only when *Capitalize to WIP* is off — the GL account the charge hits instead. |
+| **Active** | Inactive services drop out of pickers but stay on historical builds. |
+
+Standard panel features apply: server-side search, xlsx export, and row-click-to-edit.
+
 ## 🏭 Vendor Master
 
 ### What differs from Style Master

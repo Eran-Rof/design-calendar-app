@@ -345,6 +345,11 @@ export default [
   ["/api/internal/categories"                                , "./internal/categories/index.js"],
   ["/api/internal/fabric-mills/:id"                           , "./internal/fabric-mills/[id].js"],
   ["/api/internal/fabric-mills"                               , "./internal/fabric-mills/index.js"],
+  // Manufacturing module (M1) — Part Master + Service Item Master.
+  ["/api/internal/part-master/:id"                            , "./internal/part-master/[id].js"],
+  ["/api/internal/part-master"                                , "./internal/part-master/index.js"],
+  ["/api/internal/service-items/:id"                          , "./internal/service-items/[id].js"],
+  ["/api/internal/service-items"                              , "./internal/service-items/index.js"],
   ["/api/internal/rma-reasons/:id"                           , "./internal/rma-reasons/[id].js"],
   ["/api/internal/rma-reasons"                               , "./internal/rma-reasons/index.js"],
   ["/api/internal/adjustment-reasons/:id"                    , "./internal/adjustment-reasons/[id].js"],
