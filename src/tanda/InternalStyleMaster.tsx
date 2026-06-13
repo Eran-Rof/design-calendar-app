@@ -313,19 +313,20 @@ export default function InternalStyleMaster() {
 
   // Size scales — id → code, so the list can show each style's assigned scale
   // (the auto-assign / per-style picker writes style_master.size_scale_id).
-  const [scales, setScales] = useState<Array<{ id: string; code: string }>>([]);
+  const [scales, setScales] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const loadScales = useCallback(async () => {
     try {
       const r = await fetch(`/api/internal/size-scales`);
       if (!r.ok) return;
       const d = await r.json();
       const arr = Array.isArray(d) ? d : (Array.isArray(d?.scales) ? d.scales : []);
-      setScales(arr.map((s: Record<string, unknown>) => ({ id: s.id as string, code: (s.code as string) || "" })));
+      setScales(arr.map((s: Record<string, unknown>) => ({ id: s.id as string, code: (s.code as string) || "", name: (s.name as string) || "" })));
     } catch { /* non-fatal */ }
   }, []);
-  const scaleCodeById = useMemo(() => {
+  // List/export show the scale NAME (fall back to code only if a name is missing).
+  const scaleNameById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const s of scales) m.set(s.id, s.code);
+    for (const s of scales) m.set(s.id, s.name || s.code);
     return m;
   }, [scales]);
 
@@ -534,7 +535,7 @@ export default function InternalStyleMaster() {
             base_fabric_code: r.base_fabric?.code ?? null,
             base_fabric_name: r.base_fabric?.name ?? null,
             brand_name: r.brand_id ? (brandNameById.get(r.brand_id) ?? null) : null,
-            size_scale_code: r.size_scale_id ? (scaleCodeById.get(r.size_scale_id) ?? null) : null,
+            size_scale_code: r.size_scale_id ? (scaleNameById.get(r.size_scale_id) ?? null) : null,
           })) as unknown as Array<Record<string, unknown>>}
           filename="style-master"
           sheetName="Style Master"
@@ -623,7 +624,7 @@ export default function InternalStyleMaster() {
                   <td style={td} hidden={!isVisible("category_name")}>{r.category_name || "—"}</td>
                   <td style={td} hidden={!isVisible("sub_category_name")}>{r.sub_category_name || "—"}</td>
                   <td style={td} hidden={!isVisible("brand_name")}>{r.brand_id ? (brandNameById.get(r.brand_id) || "—") : "—"}</td>
-                  <td style={td} hidden={!isVisible("size_scale_code")}>{r.size_scale_id ? (scaleCodeById.get(r.size_scale_id) || "…") : "—"}</td>
+                  <td style={td} hidden={!isVisible("size_scale_code")}>{r.size_scale_id ? (scaleNameById.get(r.size_scale_id) || "…") : "—"}</td>
                   <td style={td} hidden={!isVisible("base_fabric")}>
                     {r.base_fabric
                       ? <span><strong>{r.base_fabric.code}</strong> — {r.base_fabric.name}</span>
