@@ -186,8 +186,57 @@ export default function VendorRfqDetail() {
     } finally { setSaving(false); }
   }
 
+  // How much the vendor's quote exceeds Ring of Fire's target, compared on an
+  // apples-to-apples basis: only lines that have BOTH a typed unit price and a
+  // target_price contribute, each weighted by the line's quantity. Returns null
+  // when there is no target to beat or the quote is at/below target. firstOverId
+  // is the first line whose unit price is above its own target (for focusing).
+  function targetOverage(): { pct: number; firstOverId: string } | null {
+    if (!data) return null;
+    let quotedSum = 0, targetSum = 0, firstOverId = "";
+    for (const li of data.line_items) {
+      const up = parseFloat(linePrices[li.id] || "");
+      if (!Number.isFinite(up)) continue;
+      if (li.target_price == null || !Number.isFinite(li.target_price)) continue;
+      const qtyStr = lineQtys[li.id];
+      const qtyRaw = qtyStr ? parseQty(qtyStr) : li.quantity;
+      const qty = Number.isFinite(qtyRaw) ? qtyRaw : 0;
+      quotedSum += up * qty;
+      targetSum += li.target_price * qty;
+      if (!firstOverId && up > li.target_price) firstOverId = li.id;
+    }
+    if (targetSum <= 0 || quotedSum <= targetSum) return null;
+    const pct = ((quotedSum - targetSum) / targetSum) * 100;
+    return { pct, firstOverId: firstOverId || data.line_items[0]?.id || "" };
+  }
+
+  // Send the vendor back to sharpen a price: focus + select their unit-price
+  // field and scroll it into view. Deferred a tick so it runs after the dialog
+  // has closed and released focus.
+  function focusPriceField(lineId: string) {
+    setTimeout(() => {
+      const el = document.getElementById(`vq-price-${lineId}`) as HTMLInputElement | null;
+      if (el) { el.focus(); el.select(); el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    }, 60);
+  }
+
   async function submitQuote() {
-    if (!await showConfirm({ title: "Submit quote?", message: "You can't edit it after submission.", tone: "warn", confirmLabel: "Submit" })) return;
+    // If the quote comes in above target, give the vendor a chance to be more
+    // competitive before committing (they can't edit after submission).
+    const over = targetOverage();
+    if (over) {
+      const pctStr = over.pct >= 10 ? String(Math.round(over.pct)) : over.pct.toFixed(1);
+      const submitAnyway = await showConfirm({
+        title: "Your quote is above target",
+        message: `Your quoted price is ${pctStr}% higher than Ring of Fire's target.\n\nYou can submit it as-is, or sharpen your pricing to be more competitive. You won't be able to edit the quote after submission.`,
+        tone: "warn",
+        confirmLabel: "Submit anyway",
+        cancelLabel: "Be more competitive",
+      });
+      if (!submitAnyway) { focusPriceField(over.firstOverId); return; }
+    } else {
+      if (!await showConfirm({ title: "Submit quote?", message: "You can't edit it after submission.", tone: "warn", confirmLabel: "Submit" })) return;
+    }
     setSaving(true);
     try {
       await saveDraft();
@@ -349,8 +398,7 @@ export default function VendorRfqDetail() {
         </div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, marginBottom: 10 }}>
-        <h3 style={{ color: "#FFFFFF", margin: 0, fontSize: 15 }}>Line items</h3>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 20, marginBottom: 10 }}>
         <button onClick={downloadExcel} style={btnSecondary}>⬇ Download Excel</button>
       </div>
       {/* Costing-derived attributes are split into their own columns. The table
@@ -397,7 +445,7 @@ export default function VendorRfqDetail() {
               <div style={{ textAlign: "right", color: TH.textSub2, ...g("quantity") }}>{fmtQty(li.quantity)}</div>
               <div style={{ color: TH.textSub2 }}>{li.unit_of_measure || "—"}</div>
               {/* Half-size input, centered under its header. */}
-              <div style={{ textAlign: "center" }}><input disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, width: "calc(50% + 2ch)", textAlign: "right" }} /></div>
+              <div style={{ textAlign: "center" }}><input id={`vq-price-${li.id}`} disabled={!canEdit} value={linePrices[li.id] || ""} onChange={(e) => setLinePrices({ ...linePrices, [li.id]: e.target.value })} type="number" step="0.01" style={{ ...inp, width: "calc(50% + 2ch)", textAlign: "right" }} /></div>
               <div><input disabled={!canEdit} value={lineQtys[li.id] || ""} onChange={(e) => setLineQtys({ ...lineQtys, [li.id]: qtyInput(e.target.value) })} inputMode="numeric" style={{ ...inp, textAlign: "right" }} placeholder={fmtQty(li.quantity)} /></div>
               <div><input disabled={!canEdit} value={lineNotes[li.id] || ""} onChange={(e) => setLineNotes({ ...lineNotes, [li.id]: e.target.value })} style={inp} /></div>
             </div>

@@ -169,6 +169,7 @@ Each row shows the title, style, style name, quantity, category, due date, and a
 2. For each line, the table shows the style, style name, wash, size, fabric, **target unit price**, **required quantity**, and unit of measure. Fill in **your unit price**, optionally **your quantity**, and any **notes**. The **total price is calculated automatically** from your prices × quantities.
 3. Set **Lead time (days)** and **Valid until** if applicable.
 4. Click **Save draft** to keep working, or **Submit quote** to send it. (You can't edit a quote after submitting — but see revisions below.) You can also **Decline** the RFQ.
+   - **Above-target check:** if your quoted price comes in higher than Ring of Fire's target, a warning appears — *"Your quoted price is N% higher than Ring of Fire's target."* Choose **Submit anyway** to send it as-is, or **Be more competitive** to go back and sharpen your price (your unit-price field is focused and selected automatically).
 5. **⬇ Download Excel** exports the RFQ and your current entries so you can prepare offline.
 
 **Revisions — both directions:**
