@@ -59,6 +59,8 @@ export const T11_ALLOWED_SOURCE_TABLES = [
   "commission_payouts",
   "bank_accounts",
   "virtual_cards",
+  "purchase_orders",
+  "purchase_order_lines",
 ];
 
 const UUID_RE =

@@ -16,6 +16,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { readDrillParam } from "./scorecardDrill";
+import RowHistory from "./components/RowHistory";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
@@ -201,6 +202,20 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // Line body is the shared size matrix (mode="po" → Unit Cost $, no margin/ATS).
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
+  const [seedKey, setSeedKey] = useState(0); // bump to remount + re-seed the matrix body
+  const [salesOrderId, setSalesOrderId] = useState(""); // originating SO (Create from SO)
+  // Create-from-SO dialog.
+  const [soPickOpen, setSoPickOpen] = useState(false);
+  const [soQuery, setSoQuery] = useState("");
+  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null }[]>([]);
+  const [soBusy, setSoBusy] = useState(false);
+  // Get-PO-price (awarded RFQ) flow.
+  type AwardQuote = { costing_line_id: string; style_code: string; vendor_id: string; vendor_name: string | null; quoted_cost: number | null; currency: string; awarded_at: string | null; quoted_date: string | null };
+  const [priceAskOpen, setPriceAskOpen] = useState(false);   // "is this from an SO?"
+  const [awardOpen, setAwardOpen] = useState(false);
+  const [awardQuotes, setAwardQuotes] = useState<AwardQuote[]>([]);
+  const [awardPick, setAwardPick] = useState<Record<string, string>>({}); // styleCode → chosen costing_line_id
+  const applyAwardAfterSO = useRef(false);
 
   // ── Rich header fields ──────────────────────────────────────────────────────
   const [poType, setPoType] = useState("");
@@ -268,9 +283,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setShipToLocationId(full.ship_to_location_id || ""); setBillToEntityId(full.bill_to_entity_id || "");
       setShipMethod(full.ship_method || ""); setFreightForwarder(full.freight_forwarder || "");
       setSeason(full.season || ""); setChannelId(full.channel_id || ""); setDepartmentCategoryId(full.department_category_id || "");
+      setSalesOrderId(full.sales_order_id || "");
       if (full.logistics_rollup) setRollup(full.logistics_rollup);
       if (!full?.lines) return;
-      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null };
+      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -278,7 +294,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
-          if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
+          if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
           sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered, unit: dollars });
         } else {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
@@ -288,13 +304,113 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     }).catch(() => {});
   }, [isNew, po]);
 
+  // ── Create PO from a Sales Order ────────────────────────────────────────────
+  // Load SOs for the picker (debounced on the search box).
+  useEffect(() => {
+    if (!soPickOpen) return;
+    const t = setTimeout(() => {
+      const qs = soQuery.trim() ? `?q=${encodeURIComponent(soQuery.trim())}&limit=50` : "?limit=50";
+      fetch(`/api/internal/sales-orders${qs}`).then((r) => r.ok ? r.json() : []).then((a) => setSoList(Array.isArray(a) ? a : [])).catch(() => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [soPickOpen, soQuery]);
+
+  // Pull an SO's lines into the PO matrix + copy across the sensible header
+  // fields. The SO carries SELLING prices, not costs, so unit cost is left blank
+  // (fill manually or via "Get PO price"). Records sales_order_id for traceability.
+  async function createFromSO(soId: string) {
+    setSoBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${soId}`);
+      const full = await r.json();
+      if (!r.ok) throw new Error(full.error || `HTTP ${r.status}`);
+      type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
+      const byStyle = new Map<string, SeedSection>();
+      const flat: FlatLine[] = [];
+      let fk = 1;
+      for (const l of (full.lines || []) as SLine[]) {
+        if (l.style_code && l.size) {
+          let sec = byStyle.get(l.style_code);
+          if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
+          sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered }); // no unit cost
+        } else if (l.inventory_item_id) {
+          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id, qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: "", label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
+        }
+      }
+      // Header carry-over from the SO.
+      setSalesOrderId(soId);
+      if (full.customer_id) setCustomerId(full.customer_id);
+      if (full.brand_id) setBrandId(full.brand_id);
+      if (full.channel_id) setChannelId(full.channel_id);
+      if (full.requested_ship_date) setRequestedDeliveryDate(full.requested_ship_date);
+      if (full.cancel_date) setCancelDate(full.cancel_date);
+      setSeedKey((k) => k + 1);
+      const sections = [...byStyle.values()];
+      setSeed({ sections, flat });
+      setSoPickOpen(false);
+      notify("PO matrix prefilled from the sales order.", "success");
+      // Get-PO-price flow: after the SO fills the matrix, pull awarded RFQ prices.
+      if (applyAwardAfterSO.current) {
+        applyAwardAfterSO.current = false;
+        await openAwardDialog(sections.map((s) => s.styleCode));
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSoBusy(false);
+    }
+  }
+
+  // ── Get PO price (awarded RFQ) ──────────────────────────────────────────────
+  // Fetch awarded quotes (optionally scoped to the given styles) and open the
+  // picker. Defaults each style's selection to its newest award.
+  async function openAwardDialog(styleCodes?: string[]) {
+    try {
+      const qs = styleCodes && styleCodes.length ? `?style_codes=${encodeURIComponent(styleCodes.join(","))}` : "";
+      const r = await fetch(`/api/internal/costing/awarded-quotes${qs}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const quotes = (j.quotes || []) as AwardQuote[];
+      if (quotes.length === 0) { notify("No awarded RFQ quotes found for these styles.", "info"); return; }
+      const pick: Record<string, string> = {};
+      for (const q of quotes) if (!pick[q.style_code]) pick[q.style_code] = q.costing_line_id; // newest first
+      setAwardQuotes(quotes); setAwardPick(pick); setAwardOpen(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Apply the chosen awards: stamp each style's awarded cost as the section's
+  // default unit and set the PO vendor (warn if the picks span vendors).
+  function applyAwards() {
+    const chosen = awardQuotes.filter((q) => awardPick[q.style_code] === q.costing_line_id);
+    const existing = new Map((seed?.sections || []).map((s) => [s.styleCode, s]));
+    const sections: SeedSection[] = [];
+    const styleCodesSeen = new Set<string>();
+    for (const q of chosen) {
+      const prev = existing.get(q.style_code);
+      const unit = q.quoted_cost != null ? String(q.quoted_cost) : undefined;
+      sections.push(prev ? { ...prev, defaultUnit: unit } : { styleCode: q.style_code, cells: [], defaultUnit: unit });
+      styleCodesSeen.add(q.style_code);
+    }
+    // Keep any existing sections that weren't part of the award picks.
+    for (const s of seed?.sections || []) if (!styleCodesSeen.has(s.styleCode)) sections.push(s);
+    const vendorIds = [...new Set(chosen.map((q) => q.vendor_id))];
+    if (vendorIds.length === 1) setVendorId(vendorIds[0]);
+    setSeedKey((k) => k + 1);
+    setSeed({ sections, flat: seed?.flat || [] });
+    setAwardOpen(false);
+    if (vendorIds.length > 1) notify("Awarded prices applied. Heads-up: the selected awards span multiple vendors — a PO is to one vendor, so pick the vendor manually.", "info");
+    else notify("Awarded prices + vendor applied — review before saving.", "success");
+  }
+
   async function save(): Promise<string | null> {
     setErr(null);
     if (!vendorId) { setErr("Pick a vendor."); return null; }
     // The matrix body resolves every filled cell + flat line to a SKU. Map its
     // generic unit_price_cents onto the PO's unit_cost_cents.
     const resolved = (await bodyRef.current?.resolve()) || [];
-    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents }));
+    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents, requested_ship_date: r.requested_ship_date ?? null, vendor_confirmed_ship_date: r.vendor_confirmed_ship_date ?? null }));
     if (lines.length === 0) { setErr("Add at least one line with a quantity."); return null; }
     const body: Record<string, unknown> = {
       vendor_id: vendorId, brand_id: brandId || null,
@@ -309,6 +425,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       ship_to_location_id: shipToLocationId || null, bill_to_entity_id: billToEntityId || null,
       ship_method: shipMethod || null, freight_forwarder: freightForwarder.trim() || null,
       season: season || null, channel_id: channelId || null, department_category_id: departmentCategoryId || null,
+      sales_order_id: salesOrderId || null,
     };
     if (isNew) {
       const r = await fetch("/api/internal/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -461,18 +578,36 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {!rollup && <span style={{ fontSize: 11, color: C.textMuted }}>populates after save</span>}
         </div>
 
+        {/* Build the matrix from an existing Sales Order (new PO only). */}
+        {isNew && editable && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
+            <button type="button" onClick={() => setPriceAskOpen(true)} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>💲 Get PO price</button>
+            {salesOrderId && <span style={{ fontSize: 11, color: C.success }}>✓ linked to a sales order</span>}
+          </div>
+        )}
+
         {/* Line body — the shared size matrix, exactly like the Sales Order modal
             (mode="po": Unit Cost $ column, no margin / availability). Default-open. */}
         <div style={{ marginTop: 12, marginBottom: 12 }}>
           <LineMatrixBody
+            key={seedKey}
             ref={bodyRef}
             mode="po"
             editable={editable}
             items={items}
             seed={seed}
             showOnHand={false}
+            showLineDates
           />
         </div>
+
+        {/* Audit trail — who changed which field, when (T11 row_changes). */}
+        {!isNew && po && (
+          <div style={{ marginTop: 16 }}>
+            <RowHistory source_table="purchase_orders" source_id={po.id} />
+          </div>
+        )}
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
@@ -484,6 +619,82 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {!isNew && (po?.status === "issued" || po?.status === "in_transit") && <button onClick={() => void transition("received")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>📥 Mark received</button>}
         </div>
       </div>
+
+      {/* Create-from-SO picker (dynamic search). */}
+      {soPickOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!soBusy) setSoPickOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>📋 Create PO from a Sales Order</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Pick a sales order — its styles, colors, sizes, and quantities fill the PO matrix. Unit costs stay blank (the SO carries selling prices, not costs).</div>
+            <input type="text" value={soQuery} onChange={(e) => setSoQuery(e.target.value)} autoFocus placeholder="Search SO # / customer / style…" style={{ ...inputStyle, marginBottom: 10 }} />
+            <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
+              {soList.length === 0 && <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>No sales orders.</div>}
+              {soList.map((so) => (
+                <div key={so.id} onClick={() => !soBusy && void createFromSO(so.id)}
+                  style={{ padding: "8px 12px", cursor: soBusy ? "default" : "pointer", borderBottom: `1px solid ${C.cardBdr}`, display: "flex", justifyContent: "space-between", gap: 8 }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#0b1220"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}>
+                  <span style={{ fontSize: 13 }}>
+                    <b>{so.so_number || "(draft)"}</b>
+                    <span style={{ color: C.textMuted, marginLeft: 8 }}>{customers.find((c) => c.id === so.customer_id)?.name || ""}</span>
+                  </span>
+                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setSoPickOpen(false)} style={btnSecondary} disabled={soBusy}>{soBusy ? "Loading…" : "Cancel"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Get-PO-price: is this PO from an SO? */}
+      {priceAskOpen && (
+        <div onClick={(e) => { e.stopPropagation(); setPriceAskOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(440px, 95vw)", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Get PO price</h3>
+            <div style={{ fontSize: 13, color: C.textSub, marginBottom: 16 }}>Is this PO being created from a Sales Order?</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => { setPriceAskOpen(false); applyAwardAfterSO.current = true; setSoQuery(""); setSoPickOpen(true); }} style={btnPrimary}>Yes — pick the SO first</button>
+              <button onClick={() => { setPriceAskOpen(false); void openAwardDialog(); }} style={btnSecondary}>No — just awarded prices</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Awarded-RFQ picker. */}
+      {awardOpen && (
+        <div onClick={(e) => { e.stopPropagation(); setAwardOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>The newest awarded quote is pre-selected per style. Pick a different award if several exist; Apply stamps the awarded cost onto the matrix and sets the vendor.</div>
+            {[...new Set(awardQuotes.map((q) => q.style_code))].map((code) => {
+              const opts = awardQuotes.filter((q) => q.style_code === code);
+              return (
+                <div key={code} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{code}</div>
+                  {opts.map((q) => {
+                    const active = awardPick[code] === q.costing_line_id;
+                    return (
+                      <label key={q.costing_line_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", fontSize: 13 }}>
+                        <input type="radio" name={`award-${code}`} checked={active} onChange={() => setAwardPick((p) => ({ ...p, [code]: q.costing_line_id }))} />
+                        <span style={{ color: C.text }}>{q.vendor_name || "(vendor)"}</span>
+                        <span style={{ color: C.success, fontFamily: "monospace" }}>${q.quoted_cost != null ? q.quoted_cost.toFixed(2) : "—"} {q.currency}</span>
+                        <span style={{ color: C.textMuted, fontSize: 12 }}>awarded {q.awarded_at ? fmtDateDisplay(q.awarded_at.slice(0, 10)) : (q.quoted_date ? fmtDateDisplay(q.quoted_date) : "—")}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setAwardOpen(false)} style={btnSecondary}>Cancel</button>
+              <button onClick={applyAwards} style={btnPrimary}>Apply to matrix</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

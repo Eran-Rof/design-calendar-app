@@ -35,7 +35,7 @@ async function resolveDefaultEntity(admin) {
 const PO_HEADER_COLS =
   "po_type, customer_id, po_prefix, vendor_contact, vendor_email, vendor_ref, factory_location, coo, " +
   "requested_delivery_date, ship_window_start, ship_window_end, port_date, acknowledged_date, cancel_date, " +
-  "ship_to_location_id, bill_to_entity_id, ship_method, freight_forwarder, season, channel_id, department_category_id";
+  "ship_to_location_id, bill_to_entity_id, ship_method, freight_forwarder, season, channel_id, department_category_id, sales_order_id";
 const SELECT_COLS =
   "id, entity_id, brand_id, vendor_id, po_number, order_date, expected_date, status, " +
   "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at, " + PO_HEADER_COLS;
@@ -73,6 +73,7 @@ export function normalizeHeader(body) {
     season: text("season"),
     channel_id: uuid("channel_id"),
     department_category_id: uuid("department_category_id"),
+    sales_order_id: uuid("sales_order_id"),
   };
 }
 
@@ -89,6 +90,7 @@ export function validateInsert(body) {
     if (!Number.isFinite(qty) || qty <= 0) continue; // skip empty/zero lines
     const unit = l.unit_cost_cents == null || l.unit_cost_cents === "" ? 0 : Math.round(Number(l.unit_cost_cents));
     if (!Number.isFinite(unit) || unit < 0) return { error: `line ${ln}: unit_cost_cents must be >= 0` };
+    const dre = /^\d{4}-\d{2}-\d{2}$/;
     normLines.push({
       line_number: ln++,
       inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
@@ -96,6 +98,8 @@ export function validateInsert(body) {
       qty_ordered: qty,
       unit_cost_cents: unit,
       line_total_cents: Math.round(qty * unit),
+      requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
+      vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
     });
   }
   if (normLines.length === 0) return { error: "at least one line with qty_ordered > 0 is required" };

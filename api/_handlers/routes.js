@@ -168,6 +168,7 @@ import r_internal_contracts_id_index from "./internal/contracts/[id]/index.js";
 import r_internal_contracts_id_versions from "./internal/contracts/[id]/versions.js";
 import r_internal_contracts_index from "./internal/contracts/index.js";
 import r_internal_costing_add_vendor from "./internal/costing/add-vendor.js";
+import r_internal_costing_awarded_quotes from "./internal/costing/awarded-quotes.js";
 import r_internal_costing_comp_ly from "./internal/costing/comp/ly.js";
 import r_internal_costing_comp_t3 from "./internal/costing/comp/t3.js";
 import r_internal_costing_lines_line_id_compliance_req_id from "./internal/costing/lines/[line_id]/compliance/[req_id].js";
@@ -852,6 +853,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/recon-inbox", handler: r_internal_procurement_recon_inbox_index },
   { pattern: "/api/internal/style-master/dim-values", handler: r_internal_style_master_dim_values },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
+  { pattern: "/api/internal/costing/awarded-quotes", handler: r_internal_costing_awarded_quotes },
   { pattern: "/api/internal/price-lists/style-cost", handler: r_internal_price_lists_style_cost },
   { pattern: "/api/internal/xoro-mirror/summary-je", handler: r_internal_xoro_mirror_summary_je },
   { pattern: "/api/vendor/mobile/deregister-device", handler: r_vendor_mobile_deregister_device },

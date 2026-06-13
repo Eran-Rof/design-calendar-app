@@ -42,11 +42,11 @@ type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
 
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
-export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null };
-export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[] };
+export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
+export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string };
 export interface LineMatrixBodyHandle { resolve: () => Promise<ResolvedLine[]> }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string } };
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
@@ -79,13 +79,17 @@ export interface LineMatrixBodyProps {
    *  calls onRequestEdit() first so the newly-added row is editable. */
   canAdd?: boolean;
   onRequestEdit?: () => void;
+  /** PO: show a per-style "Requested ship" + "Vendor-confirmed" date pair in
+   *  each section header; the dates ride along on every resolved line of that
+   *  style. Opt-in so SO / AR are unchanged. */
+  showLineDates?: boolean;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -147,6 +151,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     }));
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
+  function setSectionDate(id: number, which: "requested" | "confirmed", v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, dates: { ...(s.dates || {}), [which]: v } } : s))); }
   function setAllUnit(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
 
   function addFlat() { onRequestEdit?.(); setFlat((p) => [{ key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }, ...p]); }
@@ -167,8 +172,18 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         if (c.qty > 0) qty[matrixCellKey(rk, c.size)] = c.qty;
         if (c.unit) unit[rk] = c.unit;
       }
-      setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found` }]);
-      if (st) loadPayload(st.id).then((pl) => patchSection(id, { payload: pl, loading: false })).catch((e) => patchSection(id, { loading: false, err: e instanceof Error ? e.message : String(e) }));
+      const dates = (sec.requestedShipDate || sec.vendorConfirmedShipDate) ? { requested: sec.requestedShipDate || undefined, confirmed: sec.vendorConfirmedShipDate || undefined } : undefined;
+      const defaultUnit = sec.defaultUnit;
+      setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates }]);
+      if (st) loadPayload(st.id).then((pl) => {
+        // Apply a per-section default unit (e.g. an awarded RFQ cost) to every
+        // color row that doesn't already carry a unit from a seeded cell.
+        if (defaultUnit && pl) {
+          const u: Record<string, string> = {};
+          for (const r of rowsFor(pl)) u[r.key] = unit[r.key] || defaultUnit;
+          patchSection(id, { payload: pl, loading: false, unit: u });
+        } else patchSection(id, { payload: pl, loading: false });
+      }).catch((e) => patchSection(id, { loading: false, err: e instanceof Error ? e.message : String(e) }));
     }
   }, [seed, styles]);
 
@@ -277,7 +292,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             if (!r.ok || !j.id) throw new Error(j.error || `Could not resolve SKU for ${color || ""} ${size} ${inseam || ""}`.trim());
             itemId = j.id as string;
           }
-          lines.push({ inventory_item_id: itemId, qty_ordered: n, unit_price_cents: Math.round((Number(unitDollars) || 0) * 100) });
+          lines.push({
+            inventory_item_id: itemId, qty_ordered: n, unit_price_cents: Math.round((Number(unitDollars) || 0) * 100),
+            ...(showLineDates ? { requested_ship_date: s.dates?.requested || null, vendor_confirmed_ship_date: s.dates?.confirmed || null } : {}),
+          });
         }
       }
       for (const l of flat) {
@@ -428,6 +446,18 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 placeholder="(pick a style…)" />
               {editable && <button onClick={() => removeSection(s.id)} style={btnDanger} title="Remove this style">✕</button>}
             </div>
+            {showLineDates && (
+              <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap" }}>
+                <label style={{ fontSize: 11, color: C.textMuted }}>Requested ship<br />
+                  <input type="date" value={s.dates?.requested || ""} disabled={!editable} onChange={(e) => setSectionDate(s.id, "requested", e.target.value)}
+                    style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 13, colorScheme: "dark", marginTop: 2 }} />
+                </label>
+                <label style={{ fontSize: 11, color: C.textMuted }}>Vendor-confirmed ship<br />
+                  <input type="date" value={s.dates?.confirmed || ""} disabled={!editable} onChange={(e) => setSectionDate(s.id, "confirmed", e.target.value)}
+                    style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 13, colorScheme: "dark", marginTop: 2 }} />
+                </label>
+              </div>
+            )}
             {s.loading && <div style={{ color: C.textMuted, fontSize: 13, padding: 8 }}>Loading size grid…</div>}
             {s.err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, fontSize: 13 }}>{s.err}</div>}
             {s.payload && s.payload.sizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
