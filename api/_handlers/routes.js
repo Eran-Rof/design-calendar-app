@@ -329,6 +329,7 @@ import r_internal_part_adjustments_index from "./internal/part-adjustments/index
 import r_internal_part_inventory_index from "./internal/part-inventory/index.js";
 import r_internal_part_master_id from "./internal/part-master/[id].js";
 import r_internal_part_master_index from "./internal/part-master/index.js";
+import r_internal_part_purchases_index from "./internal/part-purchases/index.js";
 import r_internal_payment_terms_id from "./internal/payment-terms/[id].js";
 import r_internal_payment_terms_index from "./internal/payment-terms/index.js";
 import r_internal_payments_id_fx_detail from "./internal/payments/[id]/fx-detail.js";
@@ -1159,6 +1160,7 @@ export const ROUTES = [
   { pattern: "/api/internal/approval-rules", handler: r_internal_approval_rules_index },
   { pattern: "/api/internal/b2b-price-list", handler: r_internal_b2b_price_list_index },
   { pattern: "/api/internal/part-inventory", handler: r_internal_part_inventory_index },
+  { pattern: "/api/internal/part-purchases", handler: r_internal_part_purchases_index },
   { pattern: "/api/internal/sustainability", handler: r_internal_sustainability_index },
   { pattern: "/api/internal/vendor-invites", handler: r_internal_vendor_invites_index },
   { pattern: "/api/internal/workflow-rules", handler: r_internal_workflow_rules_index },
