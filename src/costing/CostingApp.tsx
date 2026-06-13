@@ -26,6 +26,30 @@ import RfqCompareView from "./views/RfqCompareView";
 import RfqMessagesInbox from "./views/RfqMessagesInbox";
 import { getView, navigate, type CostingViewName } from "./helpers";
 import { useDocumentTitle } from "../shared/useDocumentTitle";
+import { AskAIPanel } from "../ai/AskAIPanel";
+import type { AIGridSetters, GridContextSnapshot } from "../ai/tools";
+
+// Costing-flavoured starter questions for Ask AI. These all resolve through the
+// assistant's existing analytics tools (query_margin / style_card /
+// customer_card / query_shipments) — the costing operator just gets them within
+// reach from the top bar.
+const COSTING_SAMPLE_PROMPTS = [
+  "Which styles had a gross margin under 18% in the last 3 months?",
+  "Show me my top 10 styles by trailing-3-month sales",
+  "Compare last-year vs trailing-3-month sales for RYB0412",
+  "Which customers are buying less than they did last year?",
+];
+// Pure Q&A here — no grid to drive, so context is minimal and there are no
+// setters to apply suggestions with.
+const EMPTY_SETTERS: AIGridSetters = {};
+function buildCostingContext(): GridContextSnapshot {
+  return {
+    columns: [],
+    active_filters: {},
+    row_count: 0,
+    distinct: { categories: [], sub_categories: [], styles: [], genders: [], stores: [] },
+  };
+}
 
 // Browser-tab labels for the Costing views.
 const COSTING_VIEW_LABELS: Record<string, string> = {
@@ -56,6 +80,7 @@ function readPlmUser(): { id?: string; name?: string; display_name?: string; ema
 
 export default function CostingApp() {
   const [view, setView] = useState(getView());
+  const [aiOpen, setAiOpen] = useState(false);
   const plm = readPlmUser();
   const userId = plm?.id ?? null;
   const userName = plm?.name ?? plm?.display_name ?? null;
@@ -149,6 +174,18 @@ export default function CostingApp() {
       }}>
         {/* ← PLM moved into the shared NavDrawer footer (backToPlmHome). */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => setAiOpen(true)}
+            title="Ask AI about your sales, margins, styles and customers"
+            style={{
+              color: "#fff", background: "transparent", cursor: "pointer",
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 6, padding: "4px 10px", fontSize: 13,
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}
+          >
+            ✨ Ask AI
+          </button>
           <a
             href="/notifications?from=costing"
             title="Notifications"
@@ -201,6 +238,18 @@ export default function CostingApp() {
           once here since the Costing app boots standalone (not under the
           Tangerine shell where the other <WarnHost/> lives). */}
       <WarnHost />
+
+      {/* Ask AI slide-in panel — shared analytics assistant, opened from the
+          top-bar "✨ Ask AI" button. appId "tangerine" routes to Opus + the full
+          sales/inventory schema (constants.MODEL_BY_APP). */}
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        buildContext={buildCostingContext}
+        setters={EMPTY_SETTERS}
+        samplePrompts={COSTING_SAMPLE_PROMPTS}
+        appId="tangerine"
+      />
 
       {/* Internal notifications bell, scoped to the Costing app (RFQ lifecycle
           events). These are routed here instead of the PLM launcher. */}

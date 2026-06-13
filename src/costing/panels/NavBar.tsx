@@ -1,35 +1,10 @@
 // Costing Module — top nav
-import React, { useState } from "react";
+import React from "react";
 import { TH } from "../../utils/theme";
 import { navigate, getView } from "../helpers";
-import { AskAIPanel } from "../../ai/AskAIPanel";
-import type { AIGridSetters, GridContextSnapshot } from "../../ai/tools";
-
-// Costing-flavoured starter questions. These all resolve through Ask AI's
-// existing analytics tools (query_margin / style_card / customer_card /
-// query_shipments) — the costing operator just gets them within reach.
-const COSTING_SAMPLE_PROMPTS = [
-  "Which styles had a gross margin under 18% in the last 3 months?",
-  "Show me my top 10 styles by trailing-3-month sales",
-  "Compare last-year vs trailing-3-month sales for RYB0412",
-  "Which customers are buying less than they did last year?",
-];
-
-// Ask AI is pure Q&A here (no grid to drive), so the context is minimal and
-// there are no setters to apply suggestions with.
-const EMPTY_SETTERS: AIGridSetters = {};
-function buildCostingContext(): GridContextSnapshot {
-  return {
-    columns: [],
-    active_filters: {},
-    row_count: 0,
-    distinct: { categories: [], sub_categories: [], styles: [], genders: [], stores: [] },
-  };
-}
 
 export default function CostingNavBar() {
   const view = getView();
-  const [aiOpen, setAiOpen] = useState(false);
 
   return (
     <div style={{
@@ -82,20 +57,10 @@ export default function CostingNavBar() {
         </button>
       </div>
 
-      {/* Ask AI launcher — opens the shared analytics assistant (Opus) with
-          costing-flavoured starter questions. */}
-      <button
-        onClick={() => setAiOpen(true)}
-        style={{ ...navBtn(false), marginLeft: "auto", border: "1px solid rgba(255,255,255,0.25)" }}
-        title="Ask AI about your sales, margins, styles and customers"
-      >
-        ✨ Ask AI
-      </button>
-
       {/* Vendor portal links — open the standalone /vendor app in a new tab
           (separate Supabase Auth session, so it must not replace the costing
           tab). */}
-      <div style={{ display: "flex", gap: 2 }}>
+      <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
         <a
           href="/vendor"
           target="_blank"
@@ -115,17 +80,6 @@ export default function CostingNavBar() {
           Vendor Onboarding ↗
         </a>
       </div>
-
-      {/* Ask AI slide-in panel — shared analytics assistant. appId "tangerine"
-          routes to Opus + the full sales/inventory schema (constants.MODEL_BY_APP). */}
-      <AskAIPanel
-        open={aiOpen}
-        onClose={() => setAiOpen(false)}
-        buildContext={buildCostingContext}
-        setters={EMPTY_SETTERS}
-        samplePrompts={COSTING_SAMPLE_PROMPTS}
-        appId="tangerine"
-      />
     </div>
   );
 }
