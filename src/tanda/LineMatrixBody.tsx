@@ -23,6 +23,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import { distributeByPack, hasUsablePack, isPartialCarton, CARTON, type SizePack } from "../shared/sizeScale";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -35,7 +36,7 @@ const numInput: React.CSSProperties = { background: "#0b1220", color: C.text, bo
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 
-type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null };
+type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null; attributes?: { size_scale_pack?: Record<string, number> } | null };
 type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; on_hand_qty?: number; avg_cost_cents?: number | null };
 type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
@@ -129,6 +130,19 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       if (s.id !== id) return s;
       const key = matrixCellKey(rowKey, size); const q = { ...s.qty };
       if (n > 0) q[key] = n; else delete q[key];
+      return { ...s, qty: q };
+    }));
+  }
+  // Quick-fill: replace one color row's per-size quantities in a single update.
+  // `perSize` carries a qty for every size (0 ⇒ clear that cell).
+  function setRowQtys(id: number, rowKey: string, perSize: Record<string, number>) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const q = { ...s.qty };
+      for (const [size, n] of Object.entries(perSize)) {
+        const key = matrixCellKey(rowKey, size);
+        if (n > 0) q[key] = n; else delete q[key];
+      }
       return { ...s, qty: q };
     }));
   }
@@ -392,6 +406,20 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         const rows = editable ? allRows : allRows.filter((r) => (s.payload?.sizes || []).some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
         const onHand: Record<string, number> = {};
         if (showAvail && (showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
+        // Per-style pack ratio (from Style Master → Scale) powers the quick-fill
+        // Qty column. Only offered when editable and the style has a usable pack
+        // for these sizes.
+        const sizesList = s.payload?.sizes || [];
+        const pack: SizePack = styles.find((st) => st.id === s.styleId)?.attributes?.size_scale_pack || {};
+        const packUsable = editable && hasUsablePack(sizesList, pack);
+        // Carton check (Phase C): a carton is packed per color×size SKU, so flag
+        // each cell whose qty is a positive non-multiple of the carton size.
+        // Collected into ONE banner per style (operator: "one warning, not per size").
+        const partialCells: { label: string; qty: number }[] = [];
+        for (const r of rows) for (const sz of sizesList) {
+          const q = s.qty[matrixCellKey(r.key, sz)] || 0;
+          if (isPartialCarton(q)) partialCells.push({ label: `${r.color || "—"} ${sz}`, qty: q });
+        }
         return (
           <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, marginBottom: 12, background: C.card, padding: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>
@@ -410,7 +438,17 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}
                 onHandTitle={atsMode ? `ATS${atsAsOfDate ? ` (${fmtDateDisplay(atsAsOfDate)})` : ""}` : "on-hand"}
                 unit={{ label: moneyLabel, placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
+                quickFill={editable ? {
+                  onApply: (rk, total) => setRowQtys(s.id, rk, distributeByPack(total, sizesList, pack)),
+                  enabledFor: () => packUsable,
+                  disabledTitle: "Set a size scale (pack) for this style in Style Master → 📐 Scale to enable quick-fill.",
+                } : undefined}
               />
+            )}
+            {editable && partialCells.length > 0 && (
+              <div style={{ marginTop: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12 }}>
+                ⚠️ Not full cartons of {CARTON} — accept as-is or adjust: {partialCells.map((c) => `${c.label} (${c.qty})`).join(", ")}
+              </div>
             )}
           </div>
         );

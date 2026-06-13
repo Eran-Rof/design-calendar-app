@@ -142,7 +142,7 @@ type DimValues = {
 
 type Brand = { id: string; code: string; name: string; is_default?: boolean };
 
-type SizeScaleLite = { id: string; code: string; name: string };
+type SizeScaleLite = { id: string; code: string; name: string; sizes?: string[] };
 
 type SeasonLite = { id: string; code: string; name: string };
 
@@ -740,6 +740,22 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     // Seed one primary row from the legacy single hts_code / duty_rate.
     return [{ country: "", hts_code: style?.hts_code ?? "", duty_rate_pct: style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "" }];
   });
+  // Per-style size-scale PACK ratio (size → representative qty), e.g. { S:2, M:3,
+  // L:3, XL:2 }. Defines how a single total typed into the SO / PO matrix Qty
+  // column is split across sizes. Persisted in style attributes.size_scale_pack.
+  const [scaleOpen, setScaleOpen] = useState(false);
+  const [scalePack, setScalePack] = useState<Record<string, number>>(() => {
+    const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.size_scale_pack;
+    const out: Record<string, number> = {};
+    if (fromAttr && typeof fromAttr === "object") {
+      for (const [k, v] of Object.entries(fromAttr as Record<string, unknown>)) {
+        const n = Math.floor(Number(v));
+        if (k && Number.isFinite(n) && n > 0) out[k] = n;
+      }
+    }
+    return out;
+  });
+
   // Which COO row's AI "Suggest HTS" list is currently open / loading (null = none).
   const [htsRowIdx, setHtsRowIdx] = useState<number | null>(null);
   const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct", val: string) =>
@@ -747,6 +763,23 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const addCoo = () => setCoo((rows) => (rows.length >= 3 ? rows : [...rows, { country: "", hts_code: "", duty_rate_pct: "" }]));
   const removeCoo = (idx: number) => setCoo((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
   const countryOptions = useMemo(() => countries.map((c) => ({ value: c.name, label: c.name, searchHaystack: `${c.name} ${c.iso2}` })), [countries]);
+
+  // Sizes that the Scale window lets the operator enter a pack qty for — taken
+  // (in order) from the style's currently-selected size scale. Empty until a
+  // size scale is picked.
+  const scaleSizes = useMemo<string[]>(() => {
+    const s = sizeScales.find((x) => x.id === form.size_scale_id);
+    return Array.isArray(s?.sizes) ? s!.sizes : [];
+  }, [sizeScales, form.size_scale_id]);
+  const scaleTotal = useMemo(() => scaleSizes.reduce((t, sz) => t + (scalePack[sz] || 0), 0), [scaleSizes, scalePack]);
+  const setScaleQty = (sz: string, raw: string) =>
+    setScalePack((p) => {
+      const n = Math.floor(Number(raw));
+      const next = { ...p };
+      if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) delete next[sz];
+      else next[sz] = n;
+      return next;
+    });
 
   // Country list (country_master) for the COO pickers — ISO-2 + name.
   useEffect(() => {
@@ -955,7 +988,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         rise:                 form.rise.trim() || null,
         hts_code:             cooRows[0]?.hts_code || null,
         duty_rate_pct:        cooRows[0]?.duty_rate_pct ?? null,
-        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows },
+        attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: scalePack },
       };
       let url: string;
       let method: string;
@@ -1171,14 +1204,30 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             />
           </Field>
 
-          {/* Size Scale picker (style_master.size_scale_id). */}
+          {/* Size Scale picker (style_master.size_scale_id) + the per-style Scale
+              (pack ratio) editor used to auto-fill the SO / PO matrices. */}
           <Field label="Size Scale">
-            <SearchableSelect
-              value={form.size_scale_id || null}
-              onChange={(v) => setForm({ ...form, size_scale_id: v })}
-              options={sizeScaleOptions}
-              placeholder="Pick a size scale…"
-            />
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <SearchableSelect
+                  value={form.size_scale_id || null}
+                  onChange={(v) => setForm({ ...form, size_scale_id: v })}
+                  options={sizeScaleOptions}
+                  placeholder="Pick a size scale…"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setScaleOpen(true)}
+                disabled={!form.size_scale_id}
+                style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0, opacity: form.size_scale_id ? 1 : 0.5 }}
+                title={form.size_scale_id
+                  ? "Define a pack ratio per size — typing one total in the SO/PO matrix auto-fills every size from this"
+                  : "Pick a size scale first"}
+              >
+                📐 Scale{scaleTotal > 0 ? ` (${scaleTotal})` : ""}
+              </button>
+            </div>
           </Field>
 
           {/* Rise (style_master.rise) — denim HIGH/MID/LOW; blank = n/a. */}
@@ -1374,6 +1423,72 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           </button>
         </div>
       </div>
+
+      {/* Per-style Scale (pack ratio) editor. Nested over the style form; edits
+          local state only — the style's main Save persists it into
+          attributes.size_scale_pack. */}
+      {scaleOpen && (
+        <div
+          onClick={() => setScaleOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflow: "auto" }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📐 Size Scale — pack ratio</div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
+              Enter a representative quantity per size (the ratio is what matters). In an SO or
+              PO size matrix, typing one total in the <strong>Qty</strong> column splits it across
+              sizes in this proportion, then rounds each size up to a full carton of {24}.
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, position: "static" }}>Size</th>
+                  <th style={{ ...th, position: "static", textAlign: "right" }}>Pack qty</th>
+                  <th style={{ ...th, position: "static", textAlign: "right" }}>% of pack</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scaleSizes.map((sz) => {
+                  const q = scalePack[sz] || 0;
+                  const pct = scaleTotal > 0 ? (q / scaleTotal) * 100 : 0;
+                  return (
+                    <tr key={sz} style={{ borderBottom: `1px solid ${C.cardBdr}` }}>
+                      <td style={{ padding: "6px 10px", color: C.textSub }}>{sz}</td>
+                      <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={q ? String(q) : ""}
+                          onChange={(e) => { if (/^\d*$/.test(e.target.value)) setScaleQty(sz, e.target.value); }}
+                          placeholder="0"
+                          style={{ ...inputStyle, width: "8ch", textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                        />
+                      </td>
+                      <td style={{ padding: "6px 10px", textAlign: "right", color: C.textMuted, fontFamily: "monospace" }}>
+                        {q ? `${pct.toFixed(0)}%` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, color: C.textSub }}>Total</td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 800, color: C.primary, fontFamily: "monospace" }}>{scaleTotal || "—"}</td>
+                  <td style={{ padding: "8px 10px" }} />
+                </tr>
+              </tfoot>
+            </table>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setScalePack({})} style={btnSecondary} disabled={scaleTotal === 0}>Clear all</button>
+              <button type="button" onClick={() => setScaleOpen(false)} style={btnPrimary}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

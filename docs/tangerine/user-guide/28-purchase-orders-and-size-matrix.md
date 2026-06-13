@@ -131,6 +131,8 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 1. **New PO** → pick vendor (SearchableSelect), brand (defaults to entity brand), order date, expected date, payment terms, notes.
 2. **Add lines — the body IS the size matrix** (the same `LineMatrixBody` the Sales Order modal uses, in `mode="po"`). It opens with the matrix ready:
    - **➕ Add style (matrix)** — pick a style → fill its color × size grid inline, with a per-row **Unit Cost $** column + a "set all rows" header field. The new style picker is inserted at the **top** of existing styles. (PO mode shows cost, not margin or on-hand.)
+   - **Qty quick-fill** — each color row has a **Qty** box (between Color and the first size). Type one total (e.g. `1200`) and press **Enter/Tab**: the qty is split across sizes using the style's stored **size scale** pack ratio (set in Style Master → **📐 Scale**), then **each size is rounded up to a full carton of 24**. The grand total can land slightly above what you typed (the round-up); that's expected. The box is disabled for styles with no Scale set (tooltip explains).
+   - **Carton check** — if any color × size cell ends up a partial carton (a positive qty not divisible by 24) — typically from hand-editing a size — one **⚠️ not full cartons of 24** banner under the grid lists the offending cells so you can accept as-is or adjust.
    - **+ Add non-matrix line** — for the rare one-off SKU, a plain SKU / qty / Unit Cost $ row.
    - At save, every filled cell resolves to an `ip_item_master` SKU and posts with `unit_cost_cents`. The Save / Close buttons sit in a **frozen footer** that stays visible as the matrix grows.
 3. **Save draft** — header + lines persist; `po_number` stays null.

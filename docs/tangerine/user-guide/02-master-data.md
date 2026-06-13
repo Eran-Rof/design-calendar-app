@@ -67,6 +67,16 @@ Same shape as Add, with **one difference**: `Style code` is locked. Codes are in
 
 The **Season** field is a searchable dropdown sourced from the Season Master (below). Pick an existing season, or — as an admin — type a new one and choose **"+ Add new season"** to add it to the master inline. The chosen season name is stored on the style as plain text, so older free-text seasons that predate the master still display correctly.
 
+### Size scale + the 📐 Scale (pack ratio)
+
+Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *which* sizes a style runs (S–XL, 2T–4T, …); the **Scale** window says *how a buy is split across those sizes* — a reusable **pack ratio** used to auto-fill the SO and PO size matrices.
+
+1. Pick the style's **Size Scale** first (the Scale button stays disabled until one is chosen — it needs to know the sizes).
+2. Click **📐 Scale**. A window lists every size in the scale with a **Pack qty** box. Enter a representative quantity per size — only the *ratio* matters, so `S 2 · M 3 · L 3 · XL 2` and `S 20 · M 30 · L 30 · XL 20` behave identically. A live **% of pack** and a running **Total** are shown.
+3. Click **Done**, then **Save** the style. The pack is stored on the style.
+
+How it's used downstream: in a Sales Order or Purchase Order size matrix, every color row gains a **Qty** column (between Color and the first size). Type one total there — e.g. `1200` — and press **Enter** or **Tab**: Tangerine splits it across the sizes in the stored proportion, then **rounds each size up to a full carton of 24**. Because of the round-up the grand total can land a little above the number you typed — that's expected. Sizes with a zero pack ratio stay empty. If a style has no Scale set, the matrix Qty box is disabled (with a tooltip pointing back here).
+
 ## 🍂 Season Master
 
 Find it under **Master Data → Seasons** (`/tangerine?m=season_master`). A season is a named merchandising window — `FW26`, `SS27`, `HOLIDAY26` — that styles are tagged with.
