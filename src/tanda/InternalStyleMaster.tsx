@@ -70,6 +70,7 @@ import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineA
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
+import { ColorSwatch } from "../shared/ui/ColorSwatch";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 
 // Universal Column Visibility primitive (Operator ask #1, 2026-05-30).
@@ -1479,7 +1480,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                   const c = colorNameById.get(id);
                   return (
                     <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px 3px 8px" }}>
-                      {c?.hex && <span style={{ width: 12, height: 12, borderRadius: "50%", background: c.hex, border: "1px solid rgba(255,255,255,0.3)", flexShrink: 0 }} />}
+                      {c && <ColorSwatch name={c.name} hex={c.hex} size={13} />}
                       {c ? (c.code ? `${c.name} (${c.code})` : c.name) : <em style={{ color: C.textMuted }}>color {id.slice(0, 8)}…</em>}
                       <button type="button" onClick={() => removeColorFromStyle(id)} title="Remove color" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
                     </span>
