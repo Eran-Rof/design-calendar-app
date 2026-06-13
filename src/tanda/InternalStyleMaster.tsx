@@ -119,6 +119,9 @@ type Style = {
   rise: string | null;
   hts_code: string | null;
   duty_rate_pct: number | null;
+  unit_weight_kg: number | null;
+  units_per_carton: number | null;
+  carton_cbm_m3: number | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -704,6 +707,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     rise:                 style?.rise                  ?? "",
     hts_code:             style?.hts_code              ?? "",
     duty_rate_pct:        style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "",
+    unit_weight_kg:       style?.unit_weight_kg != null ? String(style.unit_weight_kg) : "",
+    units_per_carton:     style?.units_per_carton != null ? String(style.units_per_carton) : "",
+    carton_cbm_m3:        style?.carton_cbm_m3 != null ? String(style.carton_cbm_m3) : "",
   });
   // AI HTS classification state (Claude Haiku via /api/internal/hts/suggest).
   type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
@@ -988,6 +994,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         rise:                 form.rise.trim() || null,
         hts_code:             cooRows[0]?.hts_code || null,
         duty_rate_pct:        cooRows[0]?.duty_rate_pct ?? null,
+        unit_weight_kg:       form.unit_weight_kg.trim() === "" ? null : Number(form.unit_weight_kg),
+        units_per_carton:     form.units_per_carton.trim() === "" ? null : Math.floor(Number(form.units_per_carton)),
+        carton_cbm_m3:        form.carton_cbm_m3.trim() === "" ? null : Number(form.carton_cbm_m3),
         attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: scalePack },
       };
       let url: string;
@@ -1360,6 +1369,31 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               <input type="checkbox" checked={form.is_apparel} onChange={(e) => setForm({ ...form, is_apparel: e.target.checked })} />
               Yes (enforce 5-dim matrix on linked items)
             </label>
+          </Field>
+
+          {/* Pack / logistics — roll up to PO total weight / cartons / CBM. */}
+          <Field label="Pack / logistics">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div>
+                <input type="text" inputMode="decimal" value={form.unit_weight_kg}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, unit_weight_kg: e.target.value }); }}
+                  style={inputStyle} placeholder="0.00" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Unit weight (kg)</div>
+              </div>
+              <div>
+                <input type="text" inputMode="numeric" value={form.units_per_carton}
+                  onChange={(e) => { if (/^\d*$/.test(e.target.value)) setForm({ ...form, units_per_carton: e.target.value }); }}
+                  style={inputStyle} placeholder="0" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Units / carton</div>
+              </div>
+              <div>
+                <input type="text" inputMode="decimal" value={form.carton_cbm_m3}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, carton_cbm_m3: e.target.value }); }}
+                  style={inputStyle} placeholder="0.000" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Carton CBM (m³)</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Used on Purchase Orders to roll up total weight, cartons, and CBM.</div>
           </Field>
 
           {/* Opt-in GS1 UPC minting — add mode only. Disabled (with tooltip)

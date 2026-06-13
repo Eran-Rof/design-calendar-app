@@ -26,7 +26,7 @@ const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 // `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
 // fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -179,6 +179,9 @@ export default async function handler(req, res) {
       rise: v.data.rise || null,
       hts_code: v.data.hts_code || null,
       duty_rate_pct: v.data.duty_rate_pct ?? null,
+      unit_weight_kg: v.data.unit_weight_kg ?? null,
+      units_per_carton: v.data.units_per_carton ?? null,
+      carton_cbm_m3: v.data.carton_cbm_m3 ?? null,
       attributes: v.data.attributes || {},
     };
 
@@ -284,5 +287,17 @@ export function validateInsert(body) {
   } else {
     body.duty_rate_pct = null;
   }
+  // Logistics roll-up fields (PO total weight / cartons / CBM). Positive numbers
+  // or null; units_per_carton is a positive integer.
+  for (const k of ["unit_weight_kg", "carton_cbm_m3"]) {
+    if (body[k] != null && String(body[k]).trim() !== "") {
+      const n = Number(body[k]);
+      body[k] = Number.isFinite(n) && n >= 0 ? n : null;
+    } else body[k] = null;
+  }
+  if (body.units_per_carton != null && String(body.units_per_carton).trim() !== "") {
+    const n = Math.floor(Number(body.units_per_carton));
+    body.units_per_carton = Number.isFinite(n) && n > 0 ? n : null;
+  } else body.units_per_carton = null;
   return { data: body };
 }

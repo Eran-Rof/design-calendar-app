@@ -79,6 +79,18 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 
 How it's used downstream: in a Sales Order or Purchase Order size matrix, every color row gains a **Qty** column (between Color and the first size). Type one total there — e.g. `1200` — and press **Enter** or **Tab**: Tangerine splits it across the sizes in the stored proportion, then **rounds each size up to a full carton of 24**. Because of the round-up the grand total can land a little above the number you typed — that's expected. Sizes with a zero pack ratio stay empty. If a style has no Scale set, the matrix Qty box is disabled (with a tooltip pointing back here).
 
+### Pack / logistics (PO roll-ups)
+
+The **Pack / logistics** row holds three per-style shipping attributes:
+
+| Field | Meaning |
+|---|---|
+| **Unit weight (kg)** | Weight of one unit. |
+| **Units / carton** | How many units pack into one master carton. |
+| **Carton CBM (m³)** | Volume of one packed carton. |
+
+These feed the **Purchase Order** header roll-ups (shown read-only there): total weight = units × unit weight; total cartons = units ÷ units-per-carton (rounded up); total CBM = cartons × carton CBM. All optional — a PO shows `—` for any style that hasn't set them.
+
 ## 🍂 Season Master
 
 Find it under **Master Data → Seasons** (`/tangerine?m=season_master`). A season is a named merchandising window — `FW26`, `SS27`, `HOLIDAY26` — that styles are tagged with.
