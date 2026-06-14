@@ -2,7 +2,6 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-14 (SO/PO size matrix — collapsible empty-size columns + SO-from-ATS over-availability warning; user-guide ch27/28)
 **Last updated:** 2026-06-14 (SO header — channel-from-customer + brand-from-style autofill, name-only dropdowns, required Fulfillment source w/ PO-upload auto-ATS; user-guide ch27)
 
 ## Summary
