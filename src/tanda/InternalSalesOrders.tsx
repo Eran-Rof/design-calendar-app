@@ -4,7 +4,7 @@
 // AR-invoice modal patterns (customer/ship-to/brand/channel pickers, item
 // SearchableSelect, supporting docs). SO number is system-assigned on Confirm.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
@@ -269,6 +269,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [poReview, setPoReview] = useState<{ warnings: PrefillWarning[]; summary: string[]; unmatched: string[] } | null>(null);
   const [allStyles, setAllStyles] = useState<StyleLite[]>([]);
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
+  // True when an uploaded customer PO auto-chose ATS and the operator hasn't yet
+  // confirmed/changed it — highlights the Fulfillment source for a double-check.
+  const [fulfillmentReview, setFulfillmentReview] = useState(false);
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
   // few non-matrix flat lines. The body owns its state; we read it at save via
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
@@ -365,18 +368,40 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return () => { cancel = true; };
   }, [customerId]);
 
-  // Item 5 — prefill brand/channel from the customer's defaults (NEW SO only, and
-  // only when the picker is still empty so an explicit choice isn't clobbered).
+  // Channel id for a channel_master code (e.g. "DTC", "WHOLESALE"), case-insensitive.
+  const channelIdByCode = useCallback(
+    (code: string) => channels.find((c) => (c.code || "").toUpperCase() === code.toUpperCase())?.id || "",
+    [channels],
+  );
+  // A customer is DTC when its name is a Shopify storefront; everyone else is
+  // Wholesale. (Matches the sync convention: customer name contains "shopify".)
+  const channelForCustomer = useCallback(
+    (c: Customer | undefined) => (c && /shopify/i.test(c.name || "") ? channelIdByCode("DTC") : channelIdByCode("WHOLESALE")),
+    [channelIdByCode],
+  );
+
+  // Picking a customer auto-fills the Channel from the customer (Shopify ⇒ DTC,
+  // else Wholesale) and seeds Brand from the customer default (the selected
+  // style overrides Brand — see the LineMatrixBody onPrimaryBrandChange wiring).
   function pickCustomer(v: string) {
     setCustomerId(v);
     setShipToLocationId("");
     setBuyerId(""); // buyer belongs to the customer — clear when the customer changes
-    if (!isNew) return;
     const c = customers.find((x) => x.id === v);
     if (!c) return;
-    if (c.default_brand_id) setBrandId((cur) => cur || c.default_brand_id || "");
-    if (c.default_channel_id) setChannelId((cur) => cur || c.default_channel_id || "");
+    const ch = channelForCustomer(c);
+    if (ch) setChannelId(ch);
+    if (isNew && c.default_brand_id) setBrandId((cur) => cur || c.default_brand_id || "");
   }
+
+  // Channels load asynchronously — if a customer was already chosen before the
+  // channel list arrived and Channel is still empty, derive it once they load.
+  useEffect(() => {
+    if (!customerId || channelId || channels.length === 0) return;
+    const ch = channelForCustomer(customers.find((x) => x.id === customerId));
+    if (ch) setChannelId(ch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channels, customerId]);
 
   // ── 🤖 AI customer-PO upload ───────────────────────────────────────────────
   // Lazily load the style catalogue (with attributes.size_scale_pack) the first
@@ -455,6 +480,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     else if (parsed.payment_terms) unmatched.push(`Payment terms "${parsed.payment_terms}" — pick manually`);
     const ss = isoDate(parsed.start_ship_date); if (ss) { setReqShip(ss); summary.push(`Start ship ${fmtDateDisplay(ss)}`); }
     const cd = isoDate(parsed.cancel_date); if (cd) { setCancelDate(cd); summary.push(`Cancel ${fmtDateDisplay(cd)}`); }
+    // An uploaded customer PO is fulfilled from stock by default — auto-pick ATS
+    // and flag the field so the operator confirms (or switches to Production).
+    setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
 
     // Resolve each line to a chosen style (apply disambiguation picks).
     const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
@@ -520,6 +548,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   async function save(confirm: boolean) {
     setErr(null);
     if (!customerId) { setErr("Pick a customer."); return; }
+    if (!fulfillmentSource) { setErr("Select a Fulfillment source — ATS (ship from stock) or Production (make it)."); return; }
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
     // SKUs). Done before the header build so a resolve error surfaces cleanly.
@@ -803,12 +832,14 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Brand">
+            {/* Name only (no codes); code stays searchable. Auto-fills from the selected style. */}
             <SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)}
-              options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.code ? `${b.code} — ${b.name}` : b.name }))]} placeholder="(entity default)" disabled={!editable} />
+              options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code || ""} ${b.name}` }))]} placeholder="(entity default)" disabled={!editable} />
           </Field>
           <Field label="Channel">
+            {/* Name only (no codes); code stays searchable. Auto-fills from the customer. */}
             <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v)}
-              options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.code ? `${c.code} — ${c.name}` : c.name }))]} placeholder="(select)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code || ""} ${c.name}` }))]} placeholder="(select)" disabled={!editable} />
           </Field>
         </div>
 
@@ -860,16 +891,29 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
         )}
 
-        {/* Fulfillment source — Production (make it; notify the Production
-            Manager, hide on-hand) or ATS (ship from stock; show available qty). */}
-        <div style={{ marginTop: 16, marginBottom: 4, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source</span>
-          <select value={fulfillmentSource} onChange={(e) => setFulfillmentSource(e.target.value)} disabled={!editable} style={{ ...inputStyle, width: 280 }}>
-            <option value="">(not set)</option>
+        {/* Fulfillment source — REQUIRED: Production (make it; notify the
+            Production Manager, hide on-hand) or ATS (ship from stock; show
+            available qty). An uploaded customer PO auto-picks ATS + highlights
+            the field for the operator to confirm. */}
+        <div style={{ marginTop: 16, marginBottom: 4, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source *</span>
+          <select
+            value={fulfillmentSource}
+            onChange={(e) => { setFulfillmentSource(e.target.value); setFulfillmentReview(false); }}
+            disabled={!editable}
+            style={{
+              ...inputStyle, width: 280,
+              borderColor: fulfillmentReview ? C.primary : (editable && !fulfillmentSource ? C.warn : C.cardBdr),
+              boxShadow: fulfillmentReview ? `0 0 0 2px ${C.primary}55` : undefined,
+            }}
+          >
+            <option value="">(select — required)</option>
             <option value="production">Production — make it (notifies Production Mgr)</option>
             <option value="ats">ATS — ship from available stock</option>
           </select>
-          {fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
+          {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
+          {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
+          {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>⚠️ Pick ATS or Production to start adding styles.</span>}
         </div>
 
         {/* The Add-style / Add-line buttons live in the matrix body itself
@@ -888,7 +932,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             key={seedKey}
             ref={bodyRef}
             editable={editable}
-            canAdd={(editable || canAddStyles) && !!customerPo.trim()}
+            canAdd={(editable || canAddStyles) && !!customerPo.trim() && !!fulfillmentSource}
             onRequestEdit={() => { if (!editable) setAddMode(true); }}
             items={items}
             seed={seed}
@@ -896,6 +940,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             atsMode={fulfillmentSource === "ats"}
             atsAsOfDate={reqShip || null}
             onTotalsChange={setBodyTotals}
+            onPrimaryBrandChange={(b) => { if (b) setBrandId(b); }}
           />
         </div>
 

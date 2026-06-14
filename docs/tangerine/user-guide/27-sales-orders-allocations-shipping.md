@@ -64,7 +64,7 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 
 | Field | Required? | Notes |
 |---|---|---|
-| Customer | yes | `SearchableSelect` over Customer Master. Selecting a customer prefills **Brand** and **Channel** from the customer's `default_brand_id` / `default_channel_id` (new SO only, and only if the picker is still empty). |
+| Customer | yes | `SearchableSelect` over Customer Master. Selecting a customer **auto-sets Channel** from the customer — a **Shopify**-named customer ⇒ **DTC**, everyone else ⇒ **Wholesale** (matched by `channel_master` code; you can still change it). Brand seeds from the customer default but is then **overridden by the selected style's brand** (see Brand below). |
 | Buyer | optional | `SearchableSelect` of the **buyers on the selected customer** (from Customer Master → Buyers). Records which buyer placed the order (`sales_orders.buyer_id`). Re-fetched when the customer changes; cleared if you switch customers. Disabled until a customer is picked. Validated server-side to belong to the order's customer. |
 | Ship-to location | optional | The customer's `customer_locations` (stores / DCs). Re-fetched when the customer changes. |
 | SO number | — | Read-only; shows "(assigned on confirm)". |
@@ -73,7 +73,8 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 | Start Ship | optional | `requested_ship_date`. |
 | Cancel date | optional | |
 | Payment terms | optional | |
-| Brand / Channel | optional | Brand defaults to the entity default (`rof_default_brand_id()`) when left blank. |
+| Brand | auto | **Auto-populated from the selected style** — picking a style in the matrix sets Brand to that style's brand (the first matrix style with a brand wins). You can override it; blank falls back to the entity default (`rof_default_brand_id()`). The dropdown shows **brand names only** (no codes; codes are still searchable). |
+| Channel | auto | **Auto-filled from the customer** (Shopify ⇒ DTC, else Wholesale — see Customer). Overridable. Shows **channel names only** (no codes; codes still searchable). |
 | Factor / Ins Approval | optional | See [§27.3](#273-factor--credit-insurance-ship-gate). |
 | Notes | optional | |
 | Lines (≥ 1 with qty > 0) | yes | See below. |
@@ -83,7 +84,7 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 On a **new** sales order, next to the Customer PO # field is a **🤖 Upload customer PO** button. It reads the customer's purchase order and prefills the whole order so you only have to review it.
 
 1. Click **🤖 Upload customer PO**. Either **choose a file** (PDF, Excel `.xlsx`/`.xls`, or `.csv`/`.txt`) **or paste the order email** into the text box, then **Read & prefill**. The document is sent to `POST /api/internal/sales-orders/parse-customer-po`, which uses Claude (Sonnet) to extract a structured PO. **A chosen file is also auto-attached to the order's Supporting Documents** (staged, uploaded when you save) so the original PO is filed with the SO.
-2. **Header prefill** — the AI's customer name, payment terms, start-ship / cancel dates, and PO number are matched to your masters and filled in (an unmatched customer or term is listed in the review banner for you to pick by hand).
+2. **Header prefill** — the AI's customer name, payment terms, start-ship / cancel dates, and PO number are matched to your masters and filled in (an unmatched customer or term is listed in the review banner for you to pick by hand). The matched customer also auto-sets **Channel**, and **Fulfillment source is auto-set to ATS** and **highlighted** for you to confirm.
 3. **Matrix prefill** — each ordered style is matched to Style Master and dropped into the size matrix:
    - **Exact sizes** when the PO lists a size run (S 12 · M 24 · …) go straight into the cells. Any size that isn't a full **carton of 24** is flagged; a **Round those sizes up to full cartons** button rounds each up.
    - **Total only** (no size split) is distributed across sizes via the style's **Style Master size scale** (📐 Scale), rounding each size up to a full carton.
@@ -118,7 +119,7 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 
 ### Fulfillment source — Production vs ATS
 
-Above the matrix grids, a **Fulfillment source** dropdown (`sales_orders.fulfillment_source`):
+Above the matrix grids, a **Fulfillment source** dropdown (`sales_orders.fulfillment_source`). **It is required** — you must pick **ATS** or **Production** before the matrix's add-style buttons appear, and saving is blocked until it's set (the field shows a warning border + prompt while empty). When you use **🤖 Upload customer PO**, it is **auto-set to ATS and highlighted** (blue border + "confirm it's correct or change it") so you double-check before saving.
 - **Production** — the order is being *made*. The grids **hide the on-hand hint** (irrelevant), and **on confirm** the **Production Manager** is notified by **email + in-app** (Tanda bell) via the new **"Production"** notification category. Configure the recipient by ticking **Production** on the Production Manager's employee record (Employees → notification subscriptions) or by setting `INTERNAL_PRODUCTION_EMAILS`. If none is configured, confirming still works and the UI flags that no one was alerted.
 - **ATS** — the order ships from available stock. *(Showing live available-to-ship **by size** above each cell — from `tangerine_size_onhand` — is the next increment; today ATS mode still shows the matrix on-hand.)*
 
